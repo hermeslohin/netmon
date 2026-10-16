@@ -255,3 +255,13 @@ td.askcell{width:1%;padding-right:2px}
   .ngm{display:flex;position:static;box-shadow:none;border:0;background:none;padding:0;margin:0;min-width:0}
 }
 .sec-head,.card{scroll-margin-top:72px}
+/* collapsible boxes (cards.js) */
+.card>h2.cc-h{cursor:pointer;user-select:none}
+.card>h2.cc-h::before{content:"▾";font-size:11px;color:var(--muted);transition:transform .2s;display:inline-block;width:14px}
+.card.collapsed>h2.cc-h::before{transform:rotate(-90deg)}
+.card>h2.cc-h:hover{color:var(--fg)}
+.card.collapsed{align-self:start;padding-bottom:12px}
+.card.collapsed>h2{margin-bottom:0}
+.card.collapsed>:not(h2){display:none!important}
+.cc-bar{display:flex;gap:6px;justify-content:flex-end;margin:-4px 0 8px}
+.cc-bar button{font-size:12px;padding:3px 10px}

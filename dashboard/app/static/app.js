@@ -360,7 +360,7 @@ V.devices = (el) => {
   el.innerHTML = `<h1>Hosts</h1><div class="sub">${rows.length} internal addresses with traffic in this snapshot. Click a row for full detail.</div>` +
     kpis([["Known", `<a href="#/devices?known=true">${rows.filter((r) => r.known).length}</a>`, "good"], ["Unknown", `<a href="#/devices?known=false">${rows.filter((r) => !r.known).length}</a>`, rows.some((r) => !r.known) ? "warn" : ""],
       ["New this window", (S.snap.analysis?.new_devices || []).length], ["With high findings", `<a href="#/devices?severity=high">${rows.filter((r) => r.worst === "high").length}</a>`, "bad"]]);
-  el.appendChild(card("", table("devs", [
+  el.appendChild(card(`All hosts (${rows.length})`, table("devs", [
     { k: "name", t: "Name", fmt: (v, r) => `<a href="#/device/${r.ip}">${esc(v || "(unnamed)")}</a>${r.known ? "" : ' <span class="badge sev-medium">unknown</span>'}${r.hosts.length ? ' <span class="badge sev-info">agent</span>' : ""}` },
     { k: "ip", t: "IP", cls: "mono", sort: (r) => ip2n(r.ip) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "oui", t: "Vendor", cls: "small" },
     { k: "zone", t: "Zone" }, { k: "cls", t: "Class" },
