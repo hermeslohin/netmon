@@ -1,0 +1,32 @@
+{
+ "_doc": "Triage knowledge for netmon reports. 'signatures': Suricata rule names judged benign in this house (substring match) with the reason. 'names': labels for IPs missing from the DHCP inventory. Edit as you learn; report.py shows tuned signatures as noise, not signal. 'dns_domains': registered domains cleared of DNS-tunnel suspicion (excluded from tunnel alarms). 'beacon_domains': registered domains whose periodic check-ins are expected (excluded from beacon alarms).",
+ "signatures": {
+  "Session Traversal Utilities for NAT (STUN Binding": "(why this is benign on your network)",
+  "GPL ICMP PING": "(why this is benign on your network)",
+  "Github CDN for Release Assets": "(why this is benign on your network)",
+  "External IP Lookup Domain": "(why this is benign on your network)"
+ },
+ "names": {
+  "10.0.0.1": "gateway"
+ },
+ "dns_domains": [
+  "cymru.com"
+ ],
+ "beacon_domains": [
+  "ntp.org",
+  "apple.com",
+  "aws.com",
+  "cloudflare-dns.com",
+  "wyzecam.com",
+  "icloud.com",
+  "google.com",
+  "googleapis.com",
+  "microsoft.com",
+  "amazon.com",
+  "amazonalexa.com",
+  "sonos.com",
+  "meethue.com",
+  "ui.com",
+  "dns.google"
+ ]
+}

@@ -1,0 +1,4 @@
+{
+ "_doc": "Reviewed exceptions for sec_scan findings (fingerprint -> reason). Remove an entry to re-open it. Only add after a human/agent review - never to silence an unreviewed finding.",
+ "accepted": {}
+}

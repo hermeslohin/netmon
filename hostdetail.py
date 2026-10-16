@@ -13,7 +13,7 @@ def _key():
     if os.environ.get("ES_API_KEY"):
         return os.environ["ES_API_KEY"]
     try:
-        return next(l.split("=", 1)[1].strip().strip("'\"") for l in open(os.path.expanduser("~/.hermes/.env"))
+        return next(l.split("=", 1)[1].strip().strip("'\"") for l in open(os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), ".env"))
                     if l.startswith("MCP_SO_ELASTICSEARCH_API_KEY="))
     except (OSError, StopIteration):
         return ""

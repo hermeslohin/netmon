@@ -1,0 +1,380 @@
+{
+ "_doc": "Host-anomaly rules for hosts.py (nightly report + 15-min watcher). Edit to tune; wildcard patterns are case-insensitive ES wildcards on keyword fields.",
+ "admin_sources": {
+  "10.0.0.20": "admin laptop",
+  "10.0.20.": "server VLAN",
+  "10.99.": "VPN",
+  "::1": "localhost",
+  "127.0.0.1": "localhost"
+ },
+ "failure_threshold": 8,
+ "agent_stale_minutes": 30,
+ "silent_min_prev": 50,
+ "package_processes": [
+  "apt",
+  "apt-get",
+  "authselect",
+  "buildah",
+  "chpasswd",
+  "conmon",
+  "containerd",
+  "containerd-shim-runc-v2",
+  "crun",
+  "dnf",
+  "dnf5",
+  "dockerd",
+  "dpkg",
+  "gpasswd",
+  "groupadd",
+  "installd",
+  "packagekitd",
+  "passwd",
+  "podman",
+  "rpm",
+  "runc",
+  "salt-minion",
+  "softwareupdated",
+  "system_installd",
+  "systemd",
+  "unattended-upgrade",
+  "useradd",
+  "userdel",
+  "usermod",
+  "yum"
+ ],
+ "exec_allow_prefixes": [],
+ "memfd_allow": [
+  "/opt/google/chrome/",
+  "/sbin/apk",
+  "/usr/lib/systemd/",
+  "/usr/lib64/chromium",
+  "/usr/libexec/cockpit-",
+  "/home/YOUR_USER/.hermes/tools/chromium-"
+ ],
+ "suspicious_exec_dirs": [
+  "/tmp/",
+  "/var/tmp/",
+  "/dev/shm/",
+  "/run/user/",
+  "/private/tmp/"
+ ],
+ "suspicious_cmdline": [
+  "/dev/tcp/",
+  "\\bbash -i\\b",
+  "\\bnc(at)?\\b.*\\s-e\\s",
+  "base64 (-d|--decode)",
+  "(curl|wget)[^|;]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b",
+  "python[0-9.]* -c .*socket",
+  "chmod \\+x /(tmp|dev/shm|var/tmp)",
+  "\\bmkfifo\\b",
+  "xmrig|minerd|stratum\\+tcp",
+  "iptables -F|nft flush ruleset",
+  "history -c|unset HISTFILE",
+  "setenforce 0",
+  "useradd .*-o -u 0",
+  "systemctl (stop|disable|mask) (elastic-agent|ElasticEndpoint|auditd|rsyslog)",
+  "elastic-agent uninstall"
+ ],
+ "sensitive_paths": [
+  "*/.ssh/authorized_keys*",
+  "/etc/sudoers*",
+  "/etc/shadow",
+  "/etc/passwd",
+  "/etc/ld.so.preload",
+  "/etc/cron*",
+  "/var/spool/cron/*",
+  "/etc/systemd/system/*",
+  "/etc/rc.local",
+  "/etc/profile.d/*",
+  "/root/.bashrc",
+  "/etc/pam.d/*",
+  "/Library/LaunchDaemons/*",
+  "/Library/LaunchAgents/*",
+  "/Users/*/Library/LaunchAgents/*"
+ ],
+ "syslog_patterns": {
+  "OOM killer": {
+   "q": "*out of memory*",
+   "sev": "Investigate",
+   "watch": true
+  },
+  "disk I/O error": {
+   "q": "*I/O error*",
+   "sev": "Investigate",
+   "watch": true
+  },
+  "filesystem error": {
+   "q": "*-fs error*",
+   "sev": "Investigate",
+   "watch": true
+  },
+  "XFS corruption": {
+   "q": "*XFS*corrupt*",
+   "sev": "Investigate",
+   "watch": true
+  },
+  "machine-check / hardware error": {
+   "q": "*Hardware Error*",
+   "sev": "Investigate",
+   "watch": true
+  },
+  "unsigned kernel module loaded": {
+   "q": "*module verification failed*",
+   "sev": "Investigate",
+   "watch": true
+  },
+  "kernel call trace": {
+   "q": "*Call Trace*",
+   "sev": "Review",
+   "watch": false
+  },
+  "segfault": {
+   "q": "*segfault at*",
+   "sev": "Review",
+   "watch": false
+  },
+  "NIC link flapping": {
+   "q": "*NIC Link is Up*",
+   "process": "kernel",
+   "sev": "Review",
+   "watch": true,
+   "min": 10
+  },
+  "NIC malformed Tx packets": {
+   "q": "*malformed Tx packet*",
+   "process": "kernel",
+   "sev": "Review",
+   "watch": false,
+   "min": 20
+  },
+  "NetworkManager activation failures": {
+   "q": "*Activation: failed*",
+   "sev": "Review",
+   "watch": false,
+   "min": 10
+  },
+  "SELinux denials": {
+   "q": "*avc:  denied*",
+   "sev": "Review",
+   "watch": false,
+   "min": 5
+  },
+  "Elastic Agent stopped": {
+   "q": "*Stopped*Elastic Agent*",
+   "sev": "Review",
+   "watch": true
+  },
+  "auditd stopped": {
+   "q": "*Stopped*Security Audit*",
+   "sev": "Investigate",
+   "watch": true
+  }
+ },
+ "net_suspicious_ports": [
+  4444,
+  4445,
+  1337,
+  31337,
+  6666,
+  6667,
+  6697,
+  9001,
+  9030,
+  9050,
+  9051,
+  3333,
+  5555,
+  7777,
+  14444,
+  14433,
+  45700,
+  8333,
+  1080,
+  5900,
+  23
+ ],
+ "net_quiet_procs": [
+  "/Applications/Firefox.app/",
+  "/Applications/Google Chrome.app/",
+  "/Applications/Safari.app/",
+  "/Library/Elastic/",
+  "/System/Library/",
+  "/home/YOUR_USER/.hermes/hermes-agent/",
+  "/home/YOUR_USER/.hermes/tools/",
+  "/opt/Elastic/",
+  "/usr/bin/cloudflared",
+  "/usr/bin/dnf",
+  "/usr/bin/dnf5",
+  "/usr/libexec/",
+  "/usr/libexec/packagekitd",
+  "/usr/sbin/chronyd",
+  "/usr/sbin/mDNSResponder"
+ ],
+ "_doc_net": "Host network rules: suspicious_ports = outbound to Internet on these ports is Investigate; quiet_procs = path prefixes exempt from 'new destination' (rotating CDN/update traffic). Shell/interpreter/netcat or temp-path binaries reaching the Internet are always Investigate.",
+ "trusted_tool_paths": [
+  "/home/YOUR_USER/.hermes/tools/*",
+  "/home/YOUR_USER/.hermes/hermes-agent/*",
+  "/home/YOUR_USER/.lmstudio/*",
+  "/home/YOUR_USER/.local/bin/*"
+ ],
+ "trusted_script_dirs": [
+  "/home/YOUR_USER/.hermes/netmon",
+  "/home/YOUR_USER/.hermes/netmon/*"
+ ],
+ "_doc_trusted_scripts": "trusted_script_dirs: fnmatch globs matched against an interpreter's working directory / script args (from the Defend exec event). Network events of such processes are dropped from host network analysis - netmon's own collectors (feeds, RDAP, UniFi API) otherwise raise 'interpreter opened an Internet connection'.",
+ "_doc_trusted": "trusted_tool_paths: fnmatch globs for known tools installed in hidden dirs (Hermes, LM Studio). They skip the temp/hidden-path and interpreter-to-Internet rules but are still covered by cmdline, service-parent, new-exec, binary-hash-change, MHR, threat-feed and new-destination rules.",
+ "service_parents": [
+  "/(httpd|nginx|php-fpm|java|postgres|mysqld)$",
+  "/\\.lmstudio/",
+  "/llmster$",
+  "/lmlink-connector$",
+  "/tensorfold[^/]*$",
+  "/ollama$",
+  "/cloudflared$",
+  "/xrdp$",
+  "/cupsd$",
+  "/(open-webui|uvicorn|gunicorn)$",
+  "/containerd-shim[^/]*$"
+ ],
+ "service_child_suspicious": "/(ba|da|z|k|c|fi)?sh$|/(curl|wget|nc|ncat|netcat|socat|telnet|base64|xxd|perl|ruby|php|chmod|crontab|useradd|ssh|scp)$",
+ "_doc_service": "service_parents: regexes on process.parent.executable for network/AI services; a child matching service_child_suspicious (shell, downloader, netcat...) is Investigate - the main sign of an exploited inference API, MCP tool or web app. Hermes (python) is deliberately NOT a service parent: it runs shells by design.",
+ "package_managed_prefixes": [
+  "/usr/bin/",
+  "/usr/sbin/",
+  "/bin/",
+  "/sbin/",
+  "/usr/lib",
+  "/lib",
+  "/usr/libexec/"
+ ],
+ "osquery": {
+  "_doc": "osq.py rules for pack netmon-host-posture (osquery_pack.json). host_exceptions: host -> {posture item: reason} marks an accepted risk as ok.",
+  "package_managed_prefixes": [
+   "/usr/bin/",
+   "/usr/sbin/",
+   "/bin/",
+   "/sbin/",
+   "/usr/lib",
+   "/lib",
+   "/usr/libexec/"
+  ],
+  "max_uptime_days": 45,
+  "risky_exposed_ports": {
+   "1234": "LM Studio API on the LAN (no auth by default)",
+   "11434": "Ollama API on the LAN (no auth)",
+   "3389": "RDP",
+   "5900": "VNC",
+   "8888": "Jupyter-style port",
+   "9119": "Hermes web/API port",
+   "2375": "Docker API unauthenticated",
+   "6379": "Redis",
+   "3000": "Open WebUI / dev server",
+   "8080": "web/dev server",
+   "631": "CUPS"
+  },
+  "sysctl_expect": {
+   "kernel.randomize_va_space": {
+    "ok": [
+     2
+    ],
+    "sev": "bad",
+    "why": "ASLR weakened"
+   },
+   "kernel.kptr_restrict": {
+    "ok": [
+     1,
+     2
+    ],
+    "why": "kernel pointers visible to users"
+   },
+   "kernel.dmesg_restrict": {
+    "ok": [
+     1
+    ],
+    "why": "users can read kernel log"
+   },
+   "kernel.yama.ptrace_scope": {
+    "ok": [
+     1,
+     2,
+     3
+    ],
+    "why": "any process can ptrace same-user processes"
+   },
+   "kernel.unprivileged_bpf_disabled": {
+    "ok": [
+     1,
+     2
+    ],
+    "why": "unprivileged eBPF allowed"
+   },
+   "fs.suid_dumpable": {
+    "ok": [
+     0
+    ],
+    "why": "setuid processes can dump core"
+   },
+   "fs.protected_symlinks": {
+    "ok": [
+     1
+    ],
+    "sev": "bad",
+    "why": "symlink race protection off"
+   },
+   "fs.protected_hardlinks": {
+    "ok": [
+     1
+    ],
+    "sev": "bad",
+    "why": "hardlink protection off"
+   },
+   "net.ipv4.conf.all.accept_redirects": {
+    "ok": [
+     0
+    ],
+    "why": "accepts ICMP redirects"
+   },
+   "net.ipv4.conf.all.send_redirects": {
+    "ok": [
+     0
+    ],
+    "why": "sends ICMP redirects"
+   },
+   "net.ipv4.conf.all.accept_source_route": {
+    "ok": [
+     0
+    ],
+    "sev": "bad",
+    "why": "source routing accepted"
+   },
+   "net.ipv4.tcp_syncookies": {
+    "ok": [
+     1
+    ],
+    "why": "SYN-flood protection off"
+   },
+   "net.ipv4.ip_forward": {
+    "ok": [
+     0
+    ],
+    "why": "host routes packets between interfaces"
+   }
+  },
+  "host_exceptions": {
+   "monitor-host": {
+    "sysctl net.ipv4.ip_forward": "Docker needs forwarding"
+   }
+  },
+  "ld_preload_allow": [],
+  "nopasswd_allow": [],
+  "deleted_allow": []
+ },
+ "ack_days": 14,
+ "net_interpreter_ok": {},
+ "endpoint_ips": {
+  "monitor-host": "10.0.0.20",
+  "server1.example.lan": "10.0.20.5"
+ },
+ "_doc_endpoint_ips": "Fleet/endpoint hostname -> LAN IP, so host alerts are tied to the right device for per-device alert subscriptions.",
+ "_doc_example": "Template: copy to host_policy.json and adapt admin_sources, trusted paths and host_exceptions to your hosts."
+}

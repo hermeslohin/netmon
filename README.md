@@ -45,6 +45,10 @@ Is this "enterprise ready"... no probably not.  I think of most tools and they a
 
 Home-network security monitoring for the home network, run by the Hermes agent ("Lady Brains").
 
+## Set it up yourself
+
+Want to run this on your own network with your own Hermes? Follow **[docs/SETUP.md](docs/SETUP.md)**: clone to `~/.hermes/netmon`, run `./setup.sh`, describe your network in a few local JSON files, add a read-only Elasticsearch key, then start the dashboard and the Hermes jobs. Everything specific to your network stays in git-ignored local files.
+
 ## Architecture
 
 ![netmon architecture: endpoints with Elastic Agent (Elastic Defend, osquery) and the Security Onion sensor feed Elasticsearch; the Hermes agent on the monitoring host runs a 15-minute watcher and a nightly pipeline that query Elasticsearch read-only and the UniFi Site Manager API, use Claude and a local LLM, and serve results through the netmon dashboard to family browsers and phones](docs/architecture.svg)

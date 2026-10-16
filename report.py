@@ -16,7 +16,7 @@ from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, Tab
 from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart, HorizontalBarChart
 
-NM = os.path.expanduser("~/.hermes/netmon")
+NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 snap_path = sys.argv[1] if len(sys.argv) > 1 else sorted(
     p for p in glob.glob(f"{NM}/data/*.json") if os.path.basename(p).count(".") == 1)[-1]
 stem = snap_path[:-5]
@@ -216,7 +216,7 @@ t = snap["totals"]
 alerts = snap["alerts"]
 story += [Paragraph("Home Network Behavior Report", H1),
           P(f"Window: last {snap['hours']} h ending {gen} UTC (ET = UTC-4) - Source: Security Onion (Zeek + Suricata) - "
-            f"Device names: {os.path.basename(snap['inventory_file'])}", B), Spacer(1, 6)]
+            f"Device names: {os.path.basename(snap.get('inventory_file') or '') or 'DHCP/DNS (no inventory file)'}", B), Spacer(1, 6)]
 
 kpi = [["Connections", "Wire bytes seen", "Internet bytes", "Missed (cap. loss)", "Suricata alerts", "Devices active"],
        [f"{t['conns']:,}", fmt(t["ip_bytes"]), fmt(t["internet_ip_bytes"]), fmt(t["missed_bytes"]), f"{alerts['total']:,}",

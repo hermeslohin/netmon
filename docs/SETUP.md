@@ -1,0 +1,169 @@
+# Setting up netmon with your own Hermes
+
+This guide takes you from a fresh clone to a working install: nightly AI-triaged PDF reports, a 15-minute urgent watcher, the HTTPS dashboard with phone push alerts, and the optional **Ask Hermes** chat.
+
+netmon is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
+
+![architecture](architecture.svg)
+
+---
+
+## 0. What you need
+
+| Component | Required? | Used for |
+|---|---|---|
+| **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl | yes | runs Hermes, the jobs and the dashboard container |
+| **[Hermes Agent](https://hermes-agent.nousresearch.com/docs)** | yes | schedules the jobs and does the nightly triage |
+| **LLM provider** for Hermes (Anthropic Claude recommended) | yes | nightly triage and the chat. The 15-minute watcher uses no LLM. |
+| **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
+| **Elastic Agent via Fleet** on your endpoints (Elastic Defend + osquery integrations) | recommended | endpoint findings, host posture |
+| **UniFi gateway** + UniFi Site Manager API key | optional | gateway IDS, admin audit, flows. Skipped when missing. |
+| UniFi DHCP export CSV | optional | friendly device names. Without it, names come from DHCP/DNS. |
+| Cloudflare Tunnel (or any reverse proxy) | optional | reach the dashboard and receive push notifications away from home |
+
+Python packages on the host: `reportlab` (`sudo apt install python3-reportlab` or `pip install --user reportlab`). Everything else is the standard library. The dashboard image installs its own dependencies.
+
+## 1. Clone to the expected path
+
+The scripts and Hermes jobs expect the repo at `~/.hermes/netmon`:
+
+```bash
+git clone <this repository's clone URL> ~/.hermes/netmon
+cd ~/.hermes/netmon
+./setup.sh
+```
+
+`setup.sh` is safe to re-run. It never overwrites existing files. It:
+
+- checks prerequisites
+- copies the `*.example.json` templates to your local config files
+- creates the data folders
+- creates a self-signed TLS certificate and a first dashboard login (it prints the password)
+- installs the two Hermes cron scripts and the `netmon` skill
+
+`./setup.sh --check` only reports what is present or missing.
+
+## 2. Describe your network (local files, never committed)
+
+All network-specific values live in git-ignored files. Edit the copies `setup.sh` made:
+
+| File | What to put in it |
+|---|---|
+| `site.json` | Your internal CIDR and prefixes, Elasticsearch URL, sensor IP, this host's IP and name, gateway name/DNS IP, home WAN IP, VPN prefixes, honeypot IPs, Fleet host name → IP (`host_ips`), crown-jewel hosts (scored highest impact), and `sensitive_terms` (host/user names the push guard should block). If you'll publish your own fork, also fill in `github_user`, `github_repo` and `image_repo`. |
+| `policy.json` | Network **zones** (CIDR per VLAN), **device_classes** (MAC or IP → `iot`, `camera`, `media`, `game`, `personal`, `work`, `server`, `k8s` or `infra`), and **allow** rules for expected cross-zone flows. Anything else on a sensitive port, from the DMZ, or from IoT/cameras to servers is reported as a segmentation violation. |
+| `host_policy.json` | Endpoint rules: expected admin source IPs (`admin_sources`), Fleet host → LAN IP (`endpoint_ips`), trusted tool paths (replace `/home/YOUR_USER`), syslog patterns, osquery posture expectations and per-host exceptions. The defaults are sensible; adjust the paths and IPs. |
+| `known_benign.json` | Suricata signatures, IP names and domains you have explained as benign. The nightly triage adds to this over time. |
+| `sec_accepted.json` | Reviewed security-scan findings (filled in by `secfindings.py accept-current`). Start empty. |
+
+Optional extras:
+
+- **Device inventory:** put a UniFi DHCP export at `~/dhcp-export-all-<date>.csv` (columns: `Name`, `IP Address`, `MAC Address`, `Hostname`, `Local DNS Record`, `Lease Type`), or point `NETMON_INVENTORY` at another file name pattern.
+- **Device-name table** for UniFi client checks: a markdown table with rows `| <mac> | <ip> | <name> |` (MAC lower-case, colon-separated). Put it at `~/.hermes/skills/network/home-network-devices/SKILL.md`, or point `NETMON_DEVICE_TABLE` at it.
+
+## 3. Secrets
+
+| Secret | Where | Notes |
+|---|---|---|
+| Elasticsearch API key | `~/.hermes/.env` → `MCP_SO_ELASTICSEARCH_API_KEY=<key>` | Create a **read-only** key: Kibana → Stack Management → API keys, with `read` + `view_index_metadata` on `logs-*`. |
+| UniFi Site Manager API key | `~/.hermes/secrets/unifi_api_key` (chmod 600) | https://unifi.ui.com → API. Optional. |
+| LLM key (e.g. `ANTHROPIC_API_KEY`) | `~/.hermes/.env` | Used by Hermes itself. Run `hermes setup` if Hermes isn't configured yet. |
+| Dashboard login + chat key | `dashboard/.env` | Created by `setup.sh` and `setup_chat_profile.sh`. |
+
+None of these are ever committed: `.gitignore` and the push gate block them.
+
+## 4. Elastic Agent / osquery on your endpoints (recommended)
+
+In Kibana **Fleet**, give your endpoint agent policies these integrations:
+
+- **Elastic Defend.** On macOS, approve the system extension and grant Full Disk Access, or protections stay off and netmon will tell you so.
+- **System** (auth and syslog logs).
+- **Osquery Manager.** Import `osquery_pack.json` as a pack named `netmon-host-posture`, assign it to your policies and enable it.
+
+Hosts then appear on the dashboard's **Endpoints** page after the next collection.
+
+## 5. First collection and report (manual)
+
+```bash
+cd ~/.hermes/netmon
+/usr/bin/python3 esq.py logs-zeek-so '{"size":0}'      # connectivity test: prints hit totals
+/usr/bin/python3 collect.py 24                          # → data/<stamp>.json
+/usr/bin/python3 analyze.py                             # → data/<stamp>.analysis.json + baseline
+NETMON_OUT_DIR=/tmp /usr/bin/python3 report.py          # test render of the PDF (no triage yet)
+```
+
+Behaviour rules (traffic spikes, new destinations and so on) need **3 days** of baseline before they fire. Static rules (IDS, threat intel, segmentation, endpoint findings) work from day one.
+
+## 6. Dashboard
+
+```bash
+cd ~/.hermes/netmon/dashboard && ./deploy.sh
+```
+
+- It listens on **https://<host>:8443**. Sign in with the `admin` password `setup.sh` printed, then change it on the **My account** page. Add family accounts on the **Users** page.
+- The container runs read-only, as your user, with all capabilities dropped. It mounts the repo read-only, `dashboard/state` (SQLite, users, push subscriptions) read-write, and `~/network_reports` read-only.
+- **Phone push notifications** need HTTPS with a certificate the phone trusts. A Cloudflare Tunnel (`cloudflared`) pointing at `https://127.0.0.1:8443` with "No TLS Verify" works well. On iPhone, add the site to the Home Screen first, then enable notifications on the Alerts page.
+- The login lockout trusts `CF-Connecting-IP` only from loopback, which is how cloudflared connects.
+
+## 7. Scheduled jobs (Hermes cron)
+
+All three deliver **locally**: results go to the dashboard and the Hermes cron log, never to a chat platform.
+
+```bash
+# 15-minute urgent watcher (deterministic, no LLM)
+hermes cron create '*/15 * * * *' --name "netmon watcher" --script netmon_watch.sh --no-agent --deliver local
+
+# nightly AI triage + PDF (05:00 UTC; pick your own time)
+hermes cron create '0 5 * * *' "$(cat ~/.hermes/netmon/hermes/cron/nightly_prompt.txt)" \
+  --name "netmon nightly report" --skill netmon --deliver local
+
+# weekly dashboard rebuild with updated libraries + security scan (Sunday 03:00 UTC)
+hermes cron create '0 3 * * 0' --name "netmon weekly rebuild" --script netmon_weekly_rebuild.sh --no-agent --deliver local
+
+hermes cron list
+```
+
+The nightly job uses your default Hermes model. Pin a model with `--model`/`--provider` if you want, for example a strong reasoning model for triage. Make sure the Hermes gateway (scheduler) is running: `hermes gateway install`.
+
+## 8. Ask Hermes chat (optional)
+
+The chat runs as a **separate, restricted Hermes profile**. It has no terminal, file, memory or skill tools, and no secrets beyond an LLM key. It can only search the web and query netmon through `netmon_mcp.py`, a read-only MCP server.
+
+```bash
+~/.hermes/netmon/hermes/chat/setup_chat_profile.sh     # creates profile "netmonchat", API on 127.0.0.1:8643
+~/.hermes/netmon/dashboard/deploy.sh                   # dashboard picks up HERMES_CHAT_URL/KEY
+```
+
+The script copies your Anthropic credential (`ANTHROPIC_API_KEY`, or else `ANTHROPIC_TOKEN`) from `~/.hermes/.env` into the profile. With neither, Hermes uses your Claude Code login if one exists. The **Ask Hermes** menu item and the 💬 button on every finding then work. Limits are 40 messages per user per hour and 4,000 characters per message (see `dashboard/app/chat.py`). To use a cheaper or local model for the chat, set `model:` in `~/.hermes/profiles/netmonchat/config.yaml` and run `systemctl --user restart hermes-gateway-netmonchat`.
+
+## 9. Making changes (and publishing your fork)
+
+- Every code change goes through `./ship.sh "<message>" [--deploy]`. It runs the security scan suite (`sec_scan.sh`: Semgrep, Ruff/Bandit, pip-audit, ESLint, Trivy, Hadolint, Gitleaks, ZAP; the scanners run in Docker), a secret gate, and **`repo_guard.py`**, which blocks commits containing your site IPs, MAC addresses, host/account names (from `site.json`) or any private config file. Then it rebases on `origin/main` and pushes.
+- New scan findings show up as in-app alerts and Fix list entries. Review them, fix them, or accept them with a reason (`secfindings.py accept-current`).
+- The weekly rebuild can also push a versioned image to `ghcr.io`, if `image_repo` is set and a token with `write:packages` is in `~/.config/netmon/github_token`.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `collect.py` errors on an index | `esq.py <index> '{"size":0}'`. Your Security Onion version may name data streams differently: adjust the index names in `collect.py`/`extras.py`. |
+| Empty Endpoints page | Fleet agents healthy? `logs-endpoint.events.*` and `logs-osquery_manager.result-*` present? |
+| UniFi section says "skipped" | No key at `~/.hermes/secrets/unifi_api_key` (or `UNIFI_API_KEY_FILE`). |
+| Locked out of the dashboard | 8 failed logins → 5-minute lockout. `docker restart netmon-dashboard` clears it. To reset a password: `docker exec -it netmon-dashboard python /app/server.py set-password <user>` |
+| Chat says "unavailable" | `curl http://127.0.0.1:8643/health`, `journalctl --user -u hermes-gateway-netmonchat` |
+| Push notifications never arrive | The site must be reached over a trusted HTTPS name (tunnel), not the self-signed IP. |
+| Watcher testing | Never run the live `watch.py` by hand to test, because it mutes alerts for 12 h. Use `NETMON_DB=/tmp/copy.db /usr/bin/python3 watch.py`. |
+
+## File map
+
+| Path | Role |
+|---|---|
+| `collect.py`, `extras.py`, `unifi.py`, `hosts.py`, `hostdetail.py`, `osq.py` | data collection (Elasticsearch, UniFi, endpoints) |
+| `analyze.py`, `mitre.py` | baselines, findings, ATT&CK mapping |
+| `report.py` | PDF rendering |
+| `watch.py` | 15-minute urgent watcher |
+| `store.py` | SQLite state store (WAL) |
+| `netmon_mcp.py` | read-only MCP server for the chat |
+| `dashboard/` | HTTPS dashboard (stdlib server, plain JS, Web Push) |
+| `site_cfg.py` + `site.json` | site configuration loader + your local values |
+| `setup.sh`, `hermes/` | installer, Hermes cron scripts, skill, chat profile |
+| `sec_scan.sh`, `secfindings.py`, `repo_guard.py`, `ship.sh`, `weekly_rebuild.sh` | security scanning and the push gate |

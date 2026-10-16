@@ -4,7 +4,7 @@ import json, os, ssl, sys, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
-HOME = os.path.expanduser("~/.hermes")
+HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
 KEY = next(l.split("=", 1)[1].strip().strip("'\"") for l in open(f"{HOME}/.env")
            if l.startswith("MCP_SO_ELASTICSEARCH_API_KEY="))
 

@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 
-NM = os.path.expanduser("~/.hermes/netmon")
+NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 INTEL = os.path.join(NM, "intel")
 POLICY = os.path.join(NM, "policy.json")
 

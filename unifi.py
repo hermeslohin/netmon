@@ -14,12 +14,12 @@ import json, os, sys, time, urllib.request, urllib.error
 from collections import Counter, defaultdict
 import datetime as dt
 
-KEY_FILE = os.path.expanduser("~/.hermes/secrets/unifi_api_key")
+KEY_FILE = os.environ.get("UNIFI_API_KEY_FILE") or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "secrets", "unifi_api_key")
 API = "https://api.ui.com"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 HOME_WAN = SITE.get("home_wan")      # admin access from here / the LAN / the VPN is expected
-SKILL_INV = os.path.expanduser("~/.hermes/skills/network/home-network-devices/SKILL.md")
+SKILL_INV = os.environ.get("NETMON_DEVICE_TABLE") or os.path.expanduser("~/.hermes/skills/network/home-network-devices/SKILL.md")  # optional
 _KEY = None
 _BASE = None
 
@@ -110,6 +110,8 @@ def expected_admin_ip(ip):
 
 
 def collect(hours=24):
+    if not os.path.exists(KEY_FILE):  # UniFi is optional
+        return {"skipped": f"no UniFi API key at {KEY_FILE}"}
     t1 = int(time.time() * 1000)
     t0 = t1 - hours * 3600_000
     out, errors = {"window_hours": hours}, {}

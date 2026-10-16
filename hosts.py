@@ -15,7 +15,7 @@ import collections, json, os, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from esq import q  # noqa: E402
 
-NM = os.environ.get("NETMON_DIR", os.path.expanduser("~/.hermes/netmon"))
+NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 BASE = os.path.join(NM, "baseline", "hosts_seen.json")  # legacy (pre-SQLite) - use load_base()/store.hosts_save
 POL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "host_policy.json")
 

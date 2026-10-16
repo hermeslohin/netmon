@@ -1,0 +1,94 @@
+{
+ "_doc": "Segmentation & device-class policy for netmon. zones: CIDR per network zone. device_classes: MAC (or IP) -> class (iot, camera, media, game, personal, work, server, k8s, infra). allow: internal flows that are OK (src/dst = IP, zone or class, '*' = any; ports = list of numbers or 'port/proto'). Everything else on a sensitive port, from the DMZ, or from IoT/cameras to servers/k8s/ai is a violation. Edit freely.",
+ "zones": {
+  "lan": "10.0.0.0/24",
+  "iot": "10.0.3.0/24",
+  "servers": "10.0.20.0/24",
+  "dmz": "10.0.99.0/24"
+ },
+ "device_classes": {
+  "10.0.3.21": "camera",
+  "10.0.3.30": "iot",
+  "10.0.0.50": "personal",
+  "10.0.20.5": "server"
+ },
+ "sensitive_ports": [
+  21,
+  22,
+  23,
+  135,
+  139,
+  445,
+  1433,
+  2049,
+  2375,
+  2376,
+  3306,
+  3389,
+  5432,
+  5900,
+  5985,
+  5986,
+  6379,
+  6443,
+  8291,
+  10250,
+  111,
+  512,
+  513,
+  514,
+  873,
+  9200,
+  27017
+ ],
+ "discovery_ports": [
+  53,
+  67,
+  68,
+  123,
+  137,
+  138,
+  1900,
+  5351,
+  5353,
+  5355,
+  10001,
+  3702
+ ],
+ "gateway_ports": [
+  53,
+  67,
+  123,
+  443,
+  8080,
+  8443,
+  1900,
+  5351,
+  10001,
+  3478
+ ],
+ "scan_thresholds": {
+  "hosts": 20,
+  "ports": 40
+ },
+ "allow": [
+  {
+   "src": "10.0.0.20",
+   "dst": "servers",
+   "ports": [
+    22,
+    443
+   ],
+   "why": "admin laptop manages servers"
+  },
+  {
+   "src": "10.0.0.0/24",
+   "dst": "10.0.20.10",
+   "ports": [
+    9200
+   ],
+   "why": "monitoring host queries Elasticsearch"
+  }
+ ],
+ "_doc_device_classes": "Keys may be a MAC address (lower-case, colon separated; preferred, survives DHCP changes) or an IP."
+}

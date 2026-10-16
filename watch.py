@@ -13,8 +13,8 @@ Each finding is suppressed for SUPPRESS_H hours after it is first sent.
 import json, os, sys, time
 
 sys.argv = [sys.argv[0], "1"]
-NM = os.environ.get("NETMON_DIR", os.path.expanduser("~/.hermes/netmon"))
-sys.path.insert(0, os.path.expanduser("~/.hermes/netmon"))
+NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect import q, ds, buckets, inventory  # noqa: E402
 import extras  # noqa: E402
 

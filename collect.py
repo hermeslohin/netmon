@@ -6,8 +6,8 @@ Usage: collect.py [hours=24]
 """
 import csv, glob, json, os, ssl, sys, urllib.request, datetime as dt
 
-HOME = os.path.expanduser("~/.hermes")
-NM = os.path.join(HOME, "netmon")
+HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 HOURS = int(sys.argv[1]) if len(sys.argv) > 1 else 24
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
@@ -46,8 +46,12 @@ def buckets(agg):
 
 
 def inventory():
-    files = sorted(glob.glob(os.path.expanduser("~/dhcp-export-all-*.csv")))
+    """Optional device inventory: newest UniFi DHCP export CSV (Name, IP Address, MAC Address, Hostname, ...).
+    Location: $NETMON_INVENTORY glob, else ~/dhcp-export-all-*.csv. Without one, devices are named from DHCP/DNS only."""
+    files = sorted(glob.glob(os.environ.get("NETMON_INVENTORY") or os.path.expanduser("~/dhcp-export-all-*.csv")))
     inv = {}
+    if not files:
+        return inv, None
     for r in csv.DictReader(open(files[-1])):
         inv[r["MAC Address"].lower()] = {"name": r["Name"], "ip": r["IP Address"], "hostname": r["Hostname"],
                                          "dns": r["Local DNS Record"], "type": r["Lease Type"]}

@@ -14,7 +14,7 @@ import glob, json, os, statistics, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 
-NM = os.path.expanduser("~/.hermes/netmon")
+NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 HIST = os.path.join(NM, "baseline", "history.jsonl")  # legacy, superseded by store.py
 REGISTRY = os.path.join(NM, "baseline", "devices_seen.json")  # legacy, superseded by store.py
 BENIGN = os.path.join(NM, "known_benign.json")

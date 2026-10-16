@@ -1,0 +1,12 @@
+Produce the nightly home-network security report for the last 24 hours. Follow the `netmon` skill exactly (pipeline in ~/.hermes/netmon; run all Python with /usr/bin/python3).
+
+1. Collect: `/usr/bin/python3 ~/.hermes/netmon/collect.py 24`. Check the snapshot's extras_errors; retry a failed collector once and mention persistent failures.
+2. Analyze: `/usr/bin/python3 ~/.hermes/netmon/analyze.py`. Read the .analysis.json (baseline_ready, findings, new_devices, unknown_devices, dns_tunnel, violations).
+3. Triage every high/medium finding and the other item types listed in the skill, using read-only Elasticsearch drill-downs (`~/.hermes/netmon/esq.py`). Decide benign vs worth investigating with specific evidence. Compare with the previous day's triage so recurring items are marked recurring.
+4. Research new or unexplained items on the web (primary sources first) and cite the pages you actually read.
+5. Write ~/.hermes/netmon/data/<stamp>.triage.json in the schema from the skill. Record conclusively benign items in known_benign.json. Propose (do not apply) policy.json allow rules in the summary.
+6. Render: `/usr/bin/python3 ~/.hermes/netmon/report.py`. Verify the PDF in ~/network_reports exists and is non-empty. It is delivered through the dashboard's Reports page - do not post it anywhere.
+
+Never change Security Onion, the gateway or the network; queries are read-only. Never print API keys or tokens.
+
+FINAL RESPONSE (kept in the local cron log): under 1,500 characters - Investigate-priority alarms (device + one-line evidence), proposed allow rules, baseline status, the PDF path, and any step that failed with its error.
