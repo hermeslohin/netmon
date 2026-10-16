@@ -268,3 +268,11 @@ td.askcell{width:1%;padding-right:2px}
 
 .adm-card{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0;background:var(--panel2)}
 .good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+/* related events (related.js) */
+.rel-btn{min-width:28px;padding:1px 8px;font-size:12px;border-radius:10px;background:var(--panel2);border:1px solid var(--border);color:var(--muted);cursor:default}
+.rel-btn.has{color:var(--accent);border-color:var(--accent);cursor:pointer}.rel-btn.has:hover{background:var(--accent);color:#0d1117}
+.rel-pop{position:fixed;z-index:60;max-height:min(70vh,560px);overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 32px #000a}
+.rel-head{display:flex;gap:8px;align-items:baseline;padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel)}
+.rel-head .muted{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rel-x{padding:0 6px;background:none;border:0;color:var(--muted);cursor:pointer}
+.rel-item{display:block;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--fg)}.rel-item:hover{background:var(--panel2);text-decoration:none}
+.rel-item .rel-why{display:block;margin-top:2px}

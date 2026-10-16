@@ -95,6 +95,16 @@ RULES = [
     ("host", r"^syslog\|.*(NIC|NetworkManager|I/O error|fs error|XFS|Hardware Error|call trace|segfault|SELinux)", "n/a", [], "operational/health - no adversary technique"),
     ("host", r"^silent\||^agent-off\|", "exposure", ["T1685", "T1070"], "host stopped reporting = blind spot (or logging tampered)"),
     ("host", r"^agent-deg\||^defend-pol\|", "exposure", ["T1685"], "endpoint protection/telemetry not running = defense gap"),
+    # ---- admin access (watcher #7 / lateral.admin_sessions); text = "<protocol> | <why>" ----
+    ("admin", r"guessing|invalid user", "observed", ["T1110.001", "T1110.003"], "password guessing / spraying against an admin service"),
+    ("admin", r"failed then successful", "observed", ["T1110", "T1078"], "failed logins followed by a success = possibly guessed credentials"),
+    ("admin", r"failed login|refused", "observed", ["T1110"], "failed authentication attempts"),
+    ("admin", r"^SSH\b", "observed", ["T1021.004"], "remote service: SSH"),
+    ("admin", r"^RDP", "observed", ["T1021.001"], "remote service: RDP"),
+    ("admin", r"^SMB|^NetBIOS|Windows network logon", "observed", ["T1021.002", "T1570"], "SMB / admin shares (PsExec)"),
+    ("admin", r"^RPC|DCOM", "observed", ["T1021.003", "T1047"], "DCOM / WMI"),
+    ("admin", r"^WinRM", "observed", ["T1021.006"], "remote service: WinRM / PowerShell remoting"),
+    ("admin", r"^VNC|TeamViewer|AnyDesk|RustDesk", "observed", ["T1021.005", "T1219"], "VNC / remote access software"),
     # ---- fix-list issues (dashboard issues.py keys) ----
     ("issue", r"^seg\|", "exposure", ["T1021", "T1570"], "flat/permissive segmentation enables lateral movement"),
     ("issue", r"^sw\|", "exposure", ["T1190", "T1203"], "outdated software"),

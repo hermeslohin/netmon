@@ -113,16 +113,35 @@ function drill(view, params) { location.hash = hashWith(view, params); }
 function drillHere(params) { const p = hq(); entries(params).forEach(([k, v]) => p.set(k, v)); location.hash = location.hash.split("?")[0] + "?" + p.toString(); }
 const clickable = (fn) => ({ onClick: (e, els) => els.length && fn(els[0].index, els[0].datasetIndex), onHover: (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") });
 
+/* ---------- correlation (related.js fills the cells once /api/correlate is loaded) ---------- */
+const relCol = (idFn) => ({ k: "_rel", t: "Related", sort: (x) => (S.corr?.related?.[idFn(x)] || []).length,
+  fmt: (v, x) => { const i = idFn(x); return i ? `<button type="button" class="rel-btn" data-rel="${esc(i)}" title="Related events">${S.corr ? (S.corr.related?.[i] || []).length || "–" : "…"}</button>` : ""; } });
+const evLabel = (id) => { const e = S.corr?.events?.[id]; const l = e ? e.label : String(id).split("|").slice(1).join(" "); return l.length > 70 ? l.slice(0, 68) + "…" : l; };
+
 /* ---------- table component ---------- */
 // cols: [{k, t, num, fmt(v,row)->html, sort(row)->val, cls}]
 // opts.urlFilter: {param: [label, (row, value) => bool]} — hash query params filter the rows (chart drill-down) and show removable chips
+// opts.evId(row) -> correlation event id ("f|...", "ids|...", "adm|...", "iss|...", "alert|...", "hf|...", "ti|...").
+// Adds a "Related" column (filled by related.js) and the ?ev=<id> drill-down filter for rows of that type.
 function table(id, cols, rows, opts = {}) {
   const st = { key: opts.sort ?? null, dir: opts.dir ?? -1, q: "" };
   const wrap = document.createElement("div");
+  if (opts.evId) {
+    cols = [...cols, relCol(opts.evId)];
+    const evv = hq().get("ev") || "", pre = (opts.evId(rows[0] || {}) || "").split("|")[0];
+    if (evv && rows.length && evv.split("|")[0] === pre && !(evv.startsWith("ti|") && evv.split("|")[1] !== (opts.evId(rows[0]) || "").split("|")[1]))
+      opts = { ...opts, urlFilter: { ...(opts.urlFilter || {}), ev: ["Event", (x, v) => opts.evId(x) === v] } };
+  }
   const P = hq(), act = entries(opts.urlFilter || {}).filter(([p]) => P.has(p)); let chipHtml = "";
   if (act.length) {
+    const before = rows;
     rows = rows.filter((x) => act.every(([p, [, f]]) => f(x, P.get(p))));
-    chipHtml = `<div class="fchips">Filtered: ${act.map(([p, [l]]) => `<span class="chip">${esc(l)}: <b>${esc(P.get(p))}</b> <a href="${esc(hashWithout(p))}" title="Remove filter">✕</a></span>`).join(" ")}${act.length > 1 ? ` <a href="${esc(hashWithout(act.map(([p]) => p)))}" class="small">clear all</a>` : ""}</div>`;
+    if (!rows.length && act.length === 1 && act[0][0] === "ev") {  // the event lives in another list on this page
+      wrap.innerHTML = `<div class="muted small">The selected event is in another list on this page. <a href="${esc(hashWithout("ev"))}">Show this list</a></div>`;
+      return wrap;
+    }
+    void before;
+    chipHtml = `<div class="fchips">Filtered: ${act.map(([p, [l]]) => `<span class="chip">${esc(l)}: <b${p === "ev" ? ` data-ev="${esc(P.get(p))}"` : ""}>${esc(p === "ev" ? evLabel(P.get(p)) : P.get(p))}</b> <a href="${esc(hashWithout(p))}" title="Remove filter">✕</a></span>`).join(" ")}${act.length > 1 ? ` <a href="${esc(hashWithout(act.map(([p]) => p)))}" class="small">clear all</a>` : ""}</div>`;
     if (!S._noScroll && !S._scrolled) { S._scrolled = true; setTimeout(() => (wrap.closest(".card") || wrap).scrollIntoView({ block: "start" }), 0); }
   }
   const render = () => {
@@ -209,7 +228,7 @@ function ackBox(type, x, label) {
 // split rows into open / checked and decide what to show for a section
 function ackSplit(type, rows, sec) {
   const open = rows.filter((x) => !acked(type, x)), done = rows.filter((x) => acked(type, x));
-  const show = S.showAcked[sec] ? [...open, ...done] : open;
+  const show = S.showAcked[sec] || hq().has("ev") ? [...open, ...done] : open;
   const toggle = done.length ? ` <a href="#" class="ack-toggle small" data-s="${sec}">${S.showAcked[sec] ? "hide" : "show"} ${done.length} checked</a>` : "";
   return { open, done, show, toggle };
 }
@@ -518,7 +537,7 @@ V.endpoints = (el, arg) => {
   el.appendChild(grid("g2",
     card("Hosts", table(null, [{ k: "host", t: "Host", fmt: hostLink }, { k: "ip", t: "Network device", fmt: (v) => ipLink(v) }, { k: "findings", t: "Findings", num: true }, { k: "events", t: "Telemetry docs", num: true, bar: true, fmt: fn }, { k: "syslog", t: "Notable syslog", num: true, fmt: fn }, { k: "exec", t: "Execs", num: true }], rows, { sort: "findings", search: false, onclick: (r) => go("endpoint/" + r.host) })),
     chartCard("Telemetry volume by host", barCfg(rows.map((r) => r.host), rows.map((r) => r.events), { onClick: (i) => go("endpoint/" + rows[i].host) }))));
-  el.appendChild(card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host") }) : `<div class="empty">All host findings checked off.</div>`));
+  el.appendChild(card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`));
   if (HF.done.length) el.appendChild(card(`Checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
 };
 V.endpoint = (el, h) => {
@@ -612,7 +631,7 @@ V.risk = (el) => {
     { k: "target", t: "Where", fmt: (v, x) => issueTarget(x) },
     { k: "drivers", t: "Score drivers", cls: "small", fmt: (v) => esc(v.join(" · ")), sort: (x) => x.score },
     { k: "fix", t: "How to fix", cls: "small", fmt: (v, x) => `${esc(v)}<details><summary>evidence</summary><span class="mono">${linkifyIps(x.evidence)}</span></details>` },
-  ], VA.show, { sort: "score", limit: 40, rowClass: ackRowCls("issue"), urlFilter: ISSUE_FILTERS })));
+  ], VA.show, { sort: "score", limit: 40, rowClass: ackRowCls("issue"), urlFilter: ISSUE_FILTERS, evId: (x) => x.key && `iss|${x.key}` })));
   el.appendChild(card("Scoring model", `<div class="small"><p><b>Host likelihood</b> (0–100) = exposure (≤25: internet-facing services, threat-listed probes, DMZ) + weaknesses (≤30: combined fix-list items on the host) + threat activity (≤25: behaviour anomalies, non-benign IDS alerts, beacons, threat-intel contacts) + lateral reach (≤10: other zones reached, policy violations) + visibility gaps (≤10: unknown device, missing/degraded EDR, DNS bypass).</p>
     <p><b>Impact</b> (1–5): the sensor, the gateway and the crown-jewel hosts configured in site.json = 5; servers/AI = 5; k8s and work machines = 4; personal devices, DMZ = 3; IoT, cameras, media, consoles = 2. Score = likelihood × impact / 5.</p>
     <p><b>Vulnerability</b> = severity base (high ${R.model.sev_base.high}, medium ${R.model.sev_base.medium}, low ${R.model.sev_base.low}) × kind factor × host exposure (internet-facing 1.4, DMZ 1.3, server 1.15) × recurrence (+8% per repeat, max +40%). Weights live in <span class="mono">dashboard/app/risk.py</span>.</p></div>`));
@@ -639,7 +658,7 @@ function issueTable(rows, opts = {}) {
     fixedMode ? { k: "fixed_at", t: "Fixed (gone since)", fmt: ft } : { k: "last_seen", t: "Last seen", fmt: (v, x) => ft(v) + (x.status !== "open" ? `<br><span class="badge sev-unknown">${esc(x.status.replace(/^open /, ""))}</span>` : "") },
     { k: "fix", t: fixedMode ? "What it was" : "How to fix", cls: "small", fmt: (v, x) => (fixedMode ? esc(x.evidence) : `${esc(v)}<details><summary>evidence</summary><span class="mono">${linkifyIps(x.evidence)}</span></details>`) },
   ];
-  return table(null, cols, rows, { sort: "severity", dir: 1, rowClass: ackRowCls("issue"), ...opts });
+  return table(null, cols, rows, { sort: "severity", dir: 1, rowClass: ackRowCls("issue"), ...(fixedMode ? {} : { evId: (x) => x.key && `iss|${x.key}` }), ...opts });
 }
 V.issues = (el) => {
   const I = S.issues;
@@ -760,7 +779,7 @@ V.security = (el) => {
     el.appendChild(card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
   if ((tr.research_notes || []).length) el.appendChild(card("Research notes", "<ul>" + tr.research_notes.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>"));
   const BF = ackSplit("finding", an.findings || [], "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
@@ -768,7 +787,7 @@ V.security = (el) => {
     chartCard("IDS alerts by category", doughnutCfg(sigs.reduce((o, s) => ((o[s.category] = (o[s.category] || 0) + s.count), o), {}), { onClick: (l) => drill("security", { category: l }) }))));
   el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [askCol("IDS signature", (x) => x.name), { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
     { k: "src", t: "Sources", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.src || {}).join() }, { k: "dst", t: "Destinations", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.dst || {}).join() },
-    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count", urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
+    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count", evId: (x) => x.name && `ids|${x.name}`, urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
   el.appendChild(grid("g2",
     card(`Segmentation violations (${(an.violations || []).length})`, table(null, [askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], an.violations || [], { sort: "severity", dir: 1 })),
     card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [askCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));

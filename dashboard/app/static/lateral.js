@@ -272,7 +272,7 @@ function lmAdminSection(el, D) {
     { k: "auth_ok", t: "Logins ✓", num: true, fmt: fn }, { k: "auth_fail", t: "Logins ✗", num: true, fmt: (v) => (v ? `<b class="bad">${fn(v)}</b>` : "0") },
     { k: "connected", t: "Conns ✓", num: true, fmt: fn }, { k: "conn_failed", t: "Refused", num: true, fmt: (v) => (v ? `<b class="warn">${fn(v)}</b>` : "0") },
     { k: "why", t: "Why", cls: "small" }, { k: "last", t: "Last seen", fmt: ft }], A,
-    { sort: "level", dir: 1, onclick: (a) => { LM.sel = { edge: D.edges.find((e) => e.src === a.src && e.dst === a.dst) || { ...a, conns: a.attempts, answered: a.connected, ports: [], score: 0, admin: [a] } }; lmRenderPanel(D); document.getElementById("lmPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
+    { sort: "level", dir: 1, evId: (a) => `adm|${a.src}|${a.dst}|${a.protocol}`, onclick: (a) => { LM.sel = { edge: D.edges.find((e) => e.src === a.src && e.dst === a.dst) || { ...a, conns: a.attempts, answered: a.connected, ports: [], score: 0, admin: [a] } }; lmRenderPanel(D); document.getElementById("lmPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
       urlFilter: { aproto: ["Protocol", (a, v) => a.protocol === v], aout: ["Showing", (a, v) => (v === "failed logins" ? a.auth_fail > 0 : v === "refused connections" ? a.conn_failed > 0 : a.outcome === v)],
         auser: ["Account", (a, v) => v in (a.users || {})], ahost: ["Host", (a, v) => a.src === v || a.dst === v] } }));
   lst.id = "admin-list"; lst.dataset.open = "1"; el.appendChild(lst);

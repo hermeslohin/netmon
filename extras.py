@@ -470,7 +470,7 @@ def _admin_target(tool, args):
     return ""
 
 
-def admin_access(hours=24, end=None):
+def admin_access(hours=24, end=None, minutes=None):
     """Admin / lateral-movement sessions between internal hosts, successful AND failed (see adminproto.py):
       conns  - Zeek conn on admin ports (SSH, RDP, SMB/PsExec, RPC/WMI, WinRM/PS remoting, VNC, Docker, k8s...):
                attempts, connected vs refused/unanswered, bytes, first/last seen
@@ -480,7 +480,8 @@ def admin_access(hours=24, end=None):
     Every source is optional: a missing index or dataset just yields nothing."""
     import adminproto as AP
     q, ds, buckets = _ctx()
-    R = {"range": {"@timestamp": {"gte": f"{end}||-{hours}h", "lte": end}}} if end else rng(hours)  # end: backfill an older snapshot
+    R = ({"range": {"@timestamp": {"gte": f"{end}||-{hours}h", "lte": end}}} if end    # end: backfill an older snapshot
+         else rng(minutes=minutes) if minutes else rng(hours))                          # minutes: the 15-min watcher
     cidr = SITE.get("internal_cidr")
     out = {"conns": [], "logins": [], "tools": [], "sources": {}, "errors": {}}
 

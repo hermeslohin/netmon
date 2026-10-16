@@ -8,6 +8,9 @@ Checks over the last WINDOW minutes:
   3. New Internet-facing port: answered inbound conn from the Internet on a port the device has never served
   4. Threat-intel hit: DNS name / SNI or outbound conn matching abuse.ch / Spamhaus feeds (cached by the nightly run)
   5. DNS tunnel: a domain with a burst of distinct high-entropy subdomains in the last hour
+  6. Host anomalies (Elastic Agent / Defend)
+  7. Admin access: failed logins / password guessing / refused connections on SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...
+     (lateral.admin_sessions levels: high = guessing or >=3 failures then success, medium = any failed login or >=5 refused)
 Each finding is suppressed for SUPPRESS_H hours after it is first sent.
 """
 import json, os, sys, time
@@ -172,6 +175,32 @@ try:
             alert(f"host|{k}", f"**Host {'ALERT' if pri == 'Investigate' else 'notice'}:** {t}")
 except Exception as e:  # never let host checks break the network watcher
     print(f"(host checks failed: {type(e).__name__}: {e})", file=sys.stderr)
+
+# 7. Admin access (SSH / RDP / PsExec / WMI / WinRM / VNC ...): failed logins and refused admin connections
+try:
+    sys.path.insert(0, os.path.join(NM, "dashboard", "app"))
+    import lateral  # noqa: E402  same scoring as the dashboard
+    _aa = extras.admin_access(minutes=WINDOW)
+    _pol = load(os.path.join(NM, "policy.json"), {})
+    _raw = {"admin_access": _aa, "devices": {ip: {"name": n} for ip, n in names.items()}, "inventory_ips": names}
+    for a in lateral.admin_sessions(_raw, _pol):
+        if a["level"] not in ("high", "medium") or not (a["auth_fail"] or a["conn_failed"]):
+            continue
+        users = ", ".join(f"{u} ({c['fail']} failed{', ' + str(c['ok']) + ' ok' if c['ok'] else ''})" for u, c in a["users"].items() if c["fail"]) or ""
+        try:
+            import mitre
+            tags = mitre.tags_for("admin", f"{a['protocol']} | {a['why']}")
+        except Exception:
+            tags = ""
+        lead = "ALERT" if a["level"] == "high" else "notice"
+        alert(f"admin|{a['src']}|{a['dst']}|{a['protocol']}|{a['level']}",
+              f"**Admin {lead}:** {a['protocol']} {nm(a['src'])} -> {nm(a['dst'])}: {a['why']}"
+              f"{' - accounts ' + users if users else ''}{tags}")
+    for k, err in (_aa.get("errors") or {}).items():
+        if k != "windows_logons":
+            print(f"(admin check {k} failed: {err})", file=sys.stderr)
+except Exception as e:
+    print(f"(admin checks failed: {type(e).__name__}: {e})", file=sys.stderr)
 
 # --- dedupe + output ---
 fresh = store.mute_filter(alerts, SUPPRESS_H)  # atomic: prune expired, drop muted, mute the new ones

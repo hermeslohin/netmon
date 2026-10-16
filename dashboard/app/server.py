@@ -8,6 +8,7 @@ single-page dashboard plus a small JSON API. Data is re-read on every request
 import issues
 import risk
 import lateral
+import correlate
 import auth
 import tintel
 import chat
@@ -174,6 +175,41 @@ def write_ack(typ, key, checked, note="", label=""):
 
 
 _issues = {"sig": None, "val": None}
+
+
+_CORR = {}
+
+
+def correlation(sid):
+    """Related-events map for a snapshot (correlate.py). Cached until the snapshot, its alerts or the issues change."""
+    res = snapshot(sid)
+    if not res:
+        return None
+    alerts = store.alerts_recent(2000)
+    it = issue_tracker()
+    open_iss = [i for i in it.get("open", []) if i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open")]
+    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()))
+    if _CORR.get("k") == ck:
+        return _CORR["v"]
+    pol = load_json(os.path.join(ROOT, "policy.json"), {})
+    try:
+        import mitre
+        tech = lambda src, text: [i for _, ids, _ in mitre.rules_for("host" if src == "alert" and text.startswith("host|") else src,
+                                                                       text.split("|", 1)[1] if src == "alert" and text.startswith("host|") else text) for i in ids]
+    except Exception:  # noqa: BLE001
+        tech = lambda src, text: []
+    import site_cfg as SITE
+    v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, lateral.admin_sessions(res["raw"], pol),
+                        SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=bool(snapshots()) and snapshots()[-1]["id"] == sid)
+    _CORR.update(k=ck, v=v)
+    return v
+
+
+def acks_load_all():
+    try:
+        return store.acks_load()
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def issue_tracker():
@@ -512,6 +548,12 @@ class H(BaseHTTPRequestHandler):
                 if path == "/api/risk":
                     return self._json(rr)
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kb))
+            if path == "/api/correlate":
+                sid = (q.get("id") or ["latest"])[0]
+                if sid == "latest":
+                    s_ = snapshots()
+                    sid = s_[-1]["id"] if s_ else ""
+                return self._json(correlation(sid) or {"error": "not found"}, 200)
             if path == "/api/mitre":
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":
