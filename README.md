@@ -1,6 +1,39 @@
 # netmon
 Built specific to me and by an AI.  Queries Elasticsearch and Unifi to collect security events.  Presents and explains risk of events and vulnerabilities.  Allows users (my wife and kids) to subscribe to devices and get notifications of security related events near real time (Job runs every 15 minutes)
 
+## Background
+I have recently been working with Hermes Agent... and it is wild what it can do along with an LLM.  As my first test I started having it generate reports for security finding of my home network.  It pulls this information from Security Onion Solutions, LLC
+Elastic and Unifi API.  For host collection it uses the builtin Elastic Fleet and OsQuery.  It started off generating a report every 24 hours with Claude and every 15 minutes it runs code and checks for "critical" events using a local LLM with a much smaller model.  It does really well at presenting useful information on security and immediately gave me actionable intel like:
+
+Admin access between zones (recurring, awaiting allow rules) Galaxy Mac -gt; < hostname> 22/tcp, lordbrain 9090/tcp; lordbrain -gt; ladybrain 22/tcp
+
+iPad upload spikes = Google cloud uploads (Photos/Drive backup) iPad 01:57 (96:6c:d1:1f:01:57, <ip>); Zachs Ipad (1e:cd:31:ed:1f:16, <ip>)
+
+Domains that were recently registered, Devices bypassing DNS and more.  I did this all in under an hour.  Finds spike in usage patterns, DNS, compares events to threat intel. Warns me of changes made to devices that are relevant to security. 
+
+I made it research attacks and summarize what is on the web and provide links to them as well so I can review them.  It also gives me "useful security news" and somehow it also decided to give me bicycling news....  I am not sure why it decided that but I kept it.
+
+That then became... why don't I make an app out of it..  And it built netmon (it came up with the name... not me).  The app now is a simple web app that I vibe coded in under 24 hours.  
+
+Features:
+- Users (my wife and kids) can subscribe to specific devices and get push notifications to only devices they care about of events.
+
+- App is scanned by a number of security tools and these security tools push notifications to the app (AI watching AI)..  Updates it self weekly and scans itself and fixes those issues.
+
+- Lets me acknowledge vulnerabilities and alarms.  
+
+- Maps vulnerabilities and attacks to Mitre Att&ck
+
+- Calculates a risk rating of each system
+
+- Shows lateral movement between zones and hosts.
+
+Way more stuff that it just sorta came up with.
+
+https://lnkd.in/e9u2FtCv
+
+Is this "enterprise ready"... no probably not.  I think of most tools and they add a ton of complexity because they try to support a million different things their customer... this is designed for me.  It does things in ways that likely only make sense for me.  And perhaps that is the future of software... Significantly more customized solutions rapidly developed.  If I finding it lacking a feature... I ask for it and 10 minutes later it appears.
+
 <img width="670" height="401" alt="Screenshot 2026-10-16 at 7 56 20 AM" src="https://github.com/user-attachments/assets/035c674b-a802-4661-ba82-b204dc17b32a" />
 <img width="301" height="450" alt="Screenshot 2026-10-16 at 7 39 35 AM" src="https://github.com/user-attachments/assets/af2e18f7-9b59-49d4-b71f-04f2163bf500" />
 <img width="301" height="650" alt="Screenshot 2026-10-16 at 7 41 18 AM" src="https://github.com/user-attachments/assets/3eebb19c-dc13-44ae-8f36-263dfde570cb" />
