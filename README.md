@@ -30,7 +30,6 @@ Features:
 
 Way more stuff that it just sorta came up with.
 
-https://lnkd.in/e9u2FtCv
 
 Is this "enterprise ready"... no probably not.  I think of most tools and they add a ton of complexity because they try to support a million different things their customer... this is designed for me.  It does things in ways that likely only make sense for me.  And perhaps that is the future of software... Significantly more customized solutions rapidly developed.  If I finding it lacking a feature... I ask for it and 10 minutes later it appears.
 
