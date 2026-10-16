@@ -138,3 +138,17 @@ tr.unread td{background:#f8514910}
 /* password strength meter */
 .pwmeter{height:5px;background:var(--panel2);border-radius:3px;overflow:hidden}
 .pwmeter span{display:block;height:100%;width:0;transition:width .2s,background .2s}
+
+/* lateral movement: graph + details side by side on desktop, stacked on phones */
+.lmwrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+.lmwrap>.card{min-width:0}
+.lmpanel{position:sticky;top:64px;max-height:calc(100vh - 80px);overflow:auto}
+.lmzoom{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px;z-index:2}
+.lmzoom button{width:36px;height:36px;padding:0;font-size:18px;line-height:1;opacity:.9}
+@media (max-width:900px){
+  .lmwrap{grid-template-columns:minmax(0,1fr)}
+  .lmpanel{position:static;max-height:none;overflow:visible}
+  .lmzoom button{width:44px;height:44px}
+}
+#lmFocusSel{max-width:100%;min-width:0;text-overflow:ellipsis}
+@media (max-width:900px){ .tbltools #lmFilter,.tbltools #lmFocusSel{flex:1 1 100%;width:100%} }

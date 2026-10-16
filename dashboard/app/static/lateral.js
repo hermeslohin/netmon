@@ -72,12 +72,20 @@ function lmRenderGraph(box, D) {
   const { nodes, edges } = lmVisible(D);
   box.innerHTML = "";
   if (!nodes.length) { box.innerHTML = `<div class="empty" style="padding:40px">No connections at this filter level. Try "All internal connections".</div>`; return; }
-  const W = Math.max(900, box.clientWidth || 1200), H = Math.max(620, Math.min(1000, 380 + nodes.length * 7));
+  const narrow = window.matchMedia("(max-width: 900px)").matches, boxW = box.clientWidth || box.parentElement?.clientWidth || 1200;
+  const W = Math.max(900, boxW), H = Math.max(620, Math.min(1000, 380 + nodes.length * 7));
+  const viewH = narrow ? Math.round(Math.min(window.innerHeight * 0.68, 560)) : H;  // on screen; the layout itself stays W x H
   const { P, hull, rad } = lmLayout(nodes, edges, W, H);
   // fit to viewBox
   const xs = Object.values(hull).flatMap((h) => [h.x - h.r, h.x + h.r]), ys = Object.values(hull).flatMap((h) => [h.y - h.r - 18, h.y + h.r]);
-  const vb = [Math.min(...xs) - 20, Math.min(...ys) - 20, Math.max(...xs) - Math.min(...xs) + 40, Math.max(...ys) - Math.min(...ys) + 40];
-  const svg = svgEl("svg", { viewBox: vb.join(" "), width: "100%", height: H, style: "display:block;cursor:grab" });
+  let x0 = Math.min(...xs) - 20, x1 = Math.max(...xs) + 20; const y0 = Math.min(...ys) - 20, y1 = Math.max(...ys) + 20;
+  // text keeps a readable on-screen size when the whole map is shrunk onto a phone
+  const TS = Math.min(2.2, Math.max(1, 1 / Math.min(boxW / (x1 - x0), viewH / (y1 - y0)))), FS = (px) => Math.round(px * TS * 10) / 10;
+  if (LM.labels) for (const n of nodes) {  // widen the frame so edge labels are not cut off
+    const half = (Math.min(28, (n.name || "").length) * FS(11) * 0.56) / 2 + 6, p = P[n.id]; if (!p) continue;
+    x0 = Math.min(x0, p.x - half); x1 = Math.max(x1, p.x + half); }
+  const vb = [x0, y0, x1 - x0, y1 - y0];
+  const svg = svgEl("svg", { viewBox: vb.join(" "), width: "100%", height: viewH, style: "display:block;cursor:grab;touch-action:none;user-select:none" });
   const defs = svgEl("defs"); svg.appendChild(defs);
   for (const [k, v] of Object.entries(LM_LEVELS)) {
     const m = svgEl("marker", { id: "lm-arrow-" + k, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 11, markerHeight: 11, markerUnits: "userSpaceOnUse", orient: "auto-start-reverse" });
@@ -88,7 +96,7 @@ function lmRenderGraph(box, D) {
   for (const [z, h] of Object.entries(hull)) {
     const c = LM_ZONE_COL[z] || "#8b949e";
     gZ.appendChild(svgEl("circle", { cx: h.x, cy: h.y, r: h.r, fill: c, "fill-opacity": 0.07, stroke: c, "stroke-opacity": 0.55, "stroke-width": 1.5, "stroke-dasharray": "6 4" }));
-    const t = svgEl("text", { x: h.x, y: h.y - h.r - 6, "text-anchor": "middle", fill: c, "font-size": 14, "font-weight": 700 }); t.textContent = `${z.toUpperCase()} · ${h.n}`; gZ.appendChild(t);
+    const t = svgEl("text", { x: h.x, y: h.y - h.r - 6, "text-anchor": "middle", fill: c, "font-size": FS(14), "font-weight": 700 }); t.textContent = `${z.toUpperCase()} · ${h.n}`; gZ.appendChild(t);
   }
   const maxC = Math.max(1, ...edges.map((e) => e.conns));
   const pair = new Set(edges.map((e) => e.src + ">" + e.dst));
@@ -121,10 +129,10 @@ function lmRenderGraph(box, D) {
     const r = rad(n), rc = n.risk >= 40 ? "#f85149" : n.risk >= 20 ? "#d29922" : n.risk >= 8 ? "#e3b341" : "#3fb950";
     const zc = LM_ZONE_COL[n.zone] || "#8b949e";
     g.appendChild(svgEl("circle", { r, fill: n.gateway ? "#30363d" : rc, "fill-opacity": n.gateway ? 1 : 0.85, stroke: n.id === LM.focus ? "#fff" : zc, "stroke-width": n.id === LM.focus ? 3 : 2 }));
-    if (n.gateway) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": 10, fill: "#c9d1d9" }); t.textContent = "GW"; g.appendChild(t); }
+    if (n.gateway) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": FS(10), fill: "#c9d1d9" }); t.textContent = "GW"; g.appendChild(t); }
     else if (n.risk >= 8) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": Math.min(12, r * 0.9), "font-weight": 700, fill: "#0d1117" }); t.textContent = Math.round(n.risk); g.appendChild(t); }
     if (!n.known && !n.gateway) g.appendChild(svgEl("circle", { r: r + 4, fill: "none", stroke: "#d29922", "stroke-width": 1, "stroke-dasharray": "2 2" }));
-    if (LM.labels) { const t = svgEl("text", { "text-anchor": "middle", y: r + 12, "font-size": 11, fill: "#c9d1d9", stroke: "#0d1117", "stroke-width": 3, "paint-order": "stroke", style: "paint-order:stroke" }); t.textContent = n.name.length > 24 ? n.name.slice(0, 23) + "…" : n.name; g.appendChild(t); }
+    if (LM.labels) { const t = svgEl("text", { "text-anchor": "middle", y: r + 4 + FS(9), "font-size": FS(11), fill: "#c9d1d9", stroke: "#0d1117", "stroke-width": 3, "paint-order": "stroke", style: "paint-order:stroke" }); t.textContent = n.name.length > 24 ? n.name.slice(0, 23) + "…" : n.name; g.appendChild(t); }
     const title = svgEl("title"); title.textContent = `${n.name} (${n.id})\nzone ${n.zone}${n.class ? " · " + n.class : ""}\nrisk ${n.risk}${n.rank ? " (rank " + n.rank + ")" : ""}\nrisky out ${n.out_risky} · risky in ${n.in_risky}`; g.appendChild(title);
     g.onmouseenter = () => lmHighlight(n.id, edgeEls, nodeEls);
     g.onmouseleave = () => lmHighlight(null, edgeEls, nodeEls);
@@ -139,7 +147,9 @@ function lmRenderGraph(box, D) {
       g.setAttribute("transform", `translate(${P[n.id].x},${P[n.id].y})`);
       edgeEls.filter((x) => x.e.src === n.id || x.e.dst === n.id).forEach((x) => { const d = edgePath(x.e); x.p.setAttribute("d", d); x.hit.setAttribute("d", d); });
     });
-    g.addEventListener("pointerup", () => { if (drag && !drag.moved) { LM.sel = { node: n }; lmRenderPanel(D); } drag = null; });
+    g.addEventListener("pointerup", () => { if (drag && !drag.moved) { LM.sel = { node: n }; lmRenderPanel(D); lmHighlight(n.id, edgeEls, nodeEls);
+      if (narrow) document.getElementById("lmPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); } drag = null; });
+    g.addEventListener("pointercancel", () => { drag = null; });
     g.addEventListener("click", (ev) => ev.stopPropagation());
     g.addEventListener("dblclick", () => { if (!n.gateway && S.snap.raw.devices?.[n.id]) go("device/" + n.id); });
   }
@@ -148,9 +158,24 @@ function lmRenderGraph(box, D) {
   const apply = () => root.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`);
   svg.addEventListener("wheel", (ev) => { ev.preventDefault(); const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse());
     const k2 = Math.min(4, Math.max(0.4, view.k * (ev.deltaY < 0 ? 1.12 : 1 / 1.12))); view.x = p.x - ((p.x - view.x) * k2) / view.k; view.y = p.y - ((p.y - view.y) * k2) / view.k; view.k = k2; apply(); }, { passive: false });
-  svg.addEventListener("pointerdown", (ev) => { pan = { x: ev.clientX, y: ev.clientY }; svg.style.cursor = "grabbing"; });
-  svg.addEventListener("pointermove", (ev) => { if (!pan) return; const ctm = svg.getScreenCTM(); view.x += (ev.clientX - pan.x) / ctm.a; view.y += (ev.clientY - pan.y) / ctm.d; pan = { x: ev.clientX, y: ev.clientY }; apply(); });
-  svg.addEventListener("pointerup", () => { pan = null; svg.style.cursor = "grab"; });
+  const zoomAt = (cx, cy, k2) => { const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy; const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    k2 = Math.min(6, Math.max(0.4, k2)); view.x = p.x - ((p.x - view.x) * k2) / view.k; view.y = p.y - ((p.y - view.y) * k2) / view.k; view.k = k2; apply(); };
+  const pts = new Map(); let pinch = null;  // active pointers on the background: 1 = pan, 2 = pinch-zoom
+  svg.addEventListener("pointerdown", (ev) => { pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY }); svg.setPointerCapture?.(ev.pointerId);
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), k: view.k }; pan = null; }
+    else { pan = { x: ev.clientX, y: ev.clientY }; svg.style.cursor = "grabbing"; } });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!pts.has(ev.pointerId)) return; pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / (pinch.d || 1)); return; }
+    if (!pan) return; const ctm = svg.getScreenCTM(); view.x += (ev.clientX - pan.x) / ctm.a; view.y += (ev.clientY - pan.y) / ctm.d; pan = { x: ev.clientX, y: ev.clientY }; apply(); });
+  const up = (ev) => { pts.delete(ev.pointerId); if (pts.size < 2) pinch = null;
+    if (pts.size === 1) { const [a] = [...pts.values()]; pan = { x: a.x, y: a.y }; } else { pan = null; svg.style.cursor = "grab"; } };
+  svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", up);
+  const zb = document.createElement("div"); zb.className = "lmzoom";
+  zb.innerHTML = `<button data-z="in" title="Zoom in" aria-label="Zoom in">+</button><button data-z="out" title="Zoom out" aria-label="Zoom out">−</button><button data-z="fit" title="Fit" aria-label="Fit to screen">⤢</button>`;
+  zb.onclick = (ev) => { const z = ev.target.dataset.z; if (!z) return; const r = svg.getBoundingClientRect();
+    if (z === "fit") { view = { x: 0, y: 0, k: 1 }; apply(); } else zoomAt(r.left + r.width / 2, r.top + r.height / 2, view.k * (z === "in" ? 1.4 : 1 / 1.4)); };
+  box.style.position = "relative"; box.appendChild(zb);
   svg.addEventListener("click", () => { if (LM.sel) { LM.sel = null; lmRenderPanel(D); } });
   box.appendChild(svg);
 }
@@ -177,7 +202,9 @@ function lmRenderPanel(D) {
   const el = document.getElementById("lmPanel"); if (!el) return;
   el.innerHTML = "";
   const sel = LM.sel;
-  if (!sel) { el.innerHTML = `<h2>Details</h2><div class="muted small">Click a host bubble or a link. Hover a host to isolate its connections, drag bubbles to rearrange, scroll to zoom, drag the background to pan, double-click a host to open its device page.</div>
+  if (!sel) { el.innerHTML = `<h2>Details</h2><div class="muted small">${window.matchMedia("(pointer: coarse)").matches
+      ? "Tap a host bubble to see its connections here. Drag a bubble to move it, drag the background to pan, pinch or use + / − to zoom, ⤢ to fit."
+      : "Click a host bubble or a link. Hover a host to isolate its connections, drag bubbles to rearrange, scroll or use + / − to zoom, drag the background to pan, double-click a host to open its device page."}</div>
     <h3>Legend</h3><div class="small">${Object.entries(LM_LEVELS).map(([k, v]) => `<div><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="${v.c}" stroke-width="3"/></svg> ${v.l}</div>`).join("")}
     <div><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#8b949e" stroke-width="2" stroke-dasharray="4 3"/></svg> never answered (attempt/scan)</div>
     <div style="margin-top:6px">Bubble size and colour = host risk score (number inside); outline colour = zone; dashed amber ring = not in inventory; GW = gateway interface.</div></div>`; return; }
@@ -219,9 +246,9 @@ V.lateral = async (el, arg) => {
     <select id="lmFocusSel"><option value="">Focus host: (none)</option>${[...D.nodes].filter((n) => !n.gateway).sort((a, b) => b.risk - a.risk).map((n) => `<option value="${esc(n.id)}" ${LM.focus === n.id ? "selected" : ""}>${esc(n.name)} (${esc(n.id)})</option>`).join("")}</select>
     <button id="lmReset">Reset layout</button>`;
   el.appendChild(ctr);
-  const wrap = document.createElement("div"); wrap.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start";
+  const wrap = document.createElement("div"); wrap.className = "lmwrap";
   const gcard = card("", "<div id='lmGraph'></div>"); gcard.style.padding = "6px";
-  const pcard = card("", "<div id='lmPanel'></div>"); pcard.style.cssText = "position:sticky;top:64px;max-height:calc(100vh - 80px);overflow:auto";
+  const pcard = card("", "<div id='lmPanel'></div>"); pcard.classList.add("lmpanel");
   wrap.append(gcard, pcard); el.appendChild(wrap);
   const tcard = document.createElement("div"); el.appendChild(tcard);
   _lmDraw = () => {
@@ -241,4 +268,9 @@ V.lateral = async (el, arg) => {
   document.getElementById("lmFocusSel").onchange = (e) => { LM.focus = e.target.value || null; LM.sel = null; lmDraw(); };
   document.getElementById("lmReset").onclick = () => { LM.pos = {}; LM.focus = null; LM.sel = null; document.getElementById("lmFocusSel").value = ""; lmDraw(); };
   lmDraw();
+  // redraw when the width really changes (rotation, window resize), not on mobile URL-bar height jitter
+  let lastW = innerWidth, t = null;
+  const onResize = () => { clearTimeout(t); t = setTimeout(() => { if (!document.getElementById("lmGraph")) { removeEventListener("resize", onResize); return; }
+    if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; lmRenderGraph(document.getElementById("lmGraph"), D); } }, 250); };
+  addEventListener("resize", onResize);
 };
