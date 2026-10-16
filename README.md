@@ -6,7 +6,7 @@ Built specific to me and by an AI.  Queries Elasticsearch and Unifi to collect s
 <img width="301" height="650" alt="Screenshot 2026-10-16 at 7 41 18 AM" src="https://github.com/user-attachments/assets/3eebb19c-dc13-44ae-8f36-263dfde570cb" />
 <img width="301" height="650" alt="Screenshot 2026-10-16 at 7 44 08 AM" src="https://github.com/user-attachments/assets/ac66bee9-0b9c-46c3-8aa0-e47c45f9fe51" />
 <img width="301" height="300" alt="Screenshot 2026-10-16 at 8 57 59 AM" src="https://github.com/user-attachments/assets/8f7f32c1-cb61-4c58-a16b-8b31c18bb8d5" />
-<img width="301" height="650" alt="Screenshot 2026-10-16 at 9 30 54 AM" src="https://github.com/user-attachments/assets/d417b9a6-2ecc-40c7-8aa7-8997a5df813b" />
+<img width="301" height="400" alt="Screenshot 2026-10-16 at 9 30 54 AM" src="https://github.com/user-attachments/assets/d417b9a6-2ecc-40c7-8aa7-8997a5df813b" />
 <img width="301" height="400" alt="Screenshot 2026-10-16 at 9 32 35 AM" src="https://github.com/user-attachments/assets/6832b148-a61b-4de0-9f71-c25d900bec27" />
 
 Home-network security monitoring for the home network, run by the Hermes agent ("Lady Brains").
