@@ -308,7 +308,7 @@ class H(BaseHTTPRequestHandler):
         print(f"chat: {user} -> {cid} ({len(text)} chars)", file=sys.stderr)
         try:
             emit("start", {})
-            chat.stream(user, cid, text, emit)
+            chat.stream(user, cid, text, emit, body.get("context"))
         except (BrokenPipeError, ConnectionResetError):
             print(f"chat: {user} disconnected mid-answer", file=sys.stderr)
         except Exception as e:  # Hermes down / timeout: tell the browser, keep the server alive

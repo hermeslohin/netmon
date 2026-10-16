@@ -48,7 +48,7 @@
   };
 
   const msgHTML = (m) => m.role === "user"
-    ? `<div class="chat-msg me"><div class="bubble">${esc(m.text).replace(/\n/g, "<br>")}</div></div>`
+    ? `<div class="chat-msg me"><div class="bubble">${m.about ? `<div class="chat-about">About: ${esc(m.about)}</div>` : ""}${esc(m.text).replace(/\n/g, "<br>")}</div></div>`
     : `<div class="chat-msg bot"><div class="avatar">⚕︎</div><div class="bubble">${m.tools?.length ? `<div class="chat-tools">${[...new Set(m.tools)].map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}${md(m.text)}</div></div>`;
 
   function renderList() {
@@ -78,19 +78,19 @@
     document.body.classList.remove("chat-list-open");
   }
 
-  async function send(text) {
+  async function send(text, ctx) {
     text = text.trim(); if (!text || C.busy) return;
     const log = document.getElementById("chatLog"), ta = document.getElementById("chatInput"), btn = document.getElementById("chatSend");
     C.busy = true; btn.disabled = true; ta.value = ""; autosize(ta);
     try {
       if (!C.cur) { C.cur = (await post({ action: "new" })).id; }
       if (log.querySelector(".chat-empty")) log.innerHTML = "";
-      log.insertAdjacentHTML("beforeend", msgHTML({ role: "user", text }));
+      log.insertAdjacentHTML("beforeend", msgHTML({ role: "user", text, about: ctx ? `${ctx.kind}: ${ctx.title}` : "" }));
       log.insertAdjacentHTML("beforeend", `<div class="chat-msg bot live"><div class="avatar">⚕︎</div><div class="bubble"><div class="chat-tools"></div><div class="chat-text"><span class="typing"><i></i><i></i><i></i></span></div></div></div>`);
       const live = log.querySelector(".chat-msg.live"), tools = live.querySelector(".chat-tools"), out = live.querySelector(".chat-text");
       log.scrollTop = log.scrollHeight;
       const r = await fetch("/api/chat", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Netmon": "1" },
-        body: JSON.stringify({ action: "send", id: C.cur, text }) });
+        body: JSON.stringify({ action: "send", id: C.cur, text, ...(ctx ? { context: ctx } : {}) }) });
       if (!r.ok || !(r.headers.get("Content-Type") || "").includes("event-stream")) {
         const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`);
       }
@@ -155,6 +155,9 @@
     try {
       const d = await post({ action: "list" }); C.chats = d.chats; C.max = d.max_input || 4000; ta.maxLength = C.max;
     } catch (e) { el.querySelector("#chatList").innerHTML = ""; el.querySelector("#chatLog").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    let pend = null; try { pend = JSON.parse(sessionStorage.getItem("askPending") || "null"); } catch (_) { /* ignore */ }
+    sessionStorage.removeItem("askPending");
+    if (pend?.q) { C.cur = null; await open(null); send(pend.q, pend.ctx); return; }  // "Ask Hermes" from a finding: always a fresh chat
     open(C.cur && C.chats.some((c) => c.id === C.cur) ? C.cur : null);
   };
 })();

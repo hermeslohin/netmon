@@ -197,6 +197,56 @@ function ackSplit(type, rows, sec) {
 }
 const ackCol = (type, labelFn) => ({ k: "_ack", t: "✓", fmt: (v, x) => ackBox(type, x, labelFn(x)), sort: (x) => (acked(type, x) ? 1 : 0) });
 const ackRowCls = (type) => (x) => (acked(type, x) ? "acked" : "");
+
+/* ----- "Ask Hermes" about one specific vulnerability / attack / finding ----- */
+const ASK = new Map(); let askSeq = 0;
+const ASK_Q = {
+  vuln: ["What is this and how serious is it for my network?", "How do I fix this, step by step?", "Is this being exploited in the wild right now?"],
+  attack: ["Is this a real attack or a false positive?", "What should I do right now?", "What else did the devices involved do around that time?"],
+  technique: ["Explain this technique and how it applies to my network", "How do I detect or prevent it here?", "Which of my devices are most exposed to it?"],
+};
+const ASK_KIND = { vulnerability: "vuln", misconfiguration: "vuln", "security suggestion": "vuln", "risky host": "vuln", "ATT&CK technique": "technique", "ATT&CK mapping": "technique" };
+function askClean(o, depth = 0) {  // compact copy of the item for the prompt: drop UI-only keys, cap sizes
+  if (o == null || typeof o !== "object") return typeof o === "string" ? o.slice(0, 600) : o;
+  if (depth > 3) return "…";
+  if (Array.isArray(o)) return o.slice(0, 15).map((x) => askClean(x, depth + 1));
+  const r = {}; for (const [k, v] of Object.entries(o)) if (!k.startsWith("_") && v !== "" && v != null && k !== "investigated") r[k] = askClean(v, depth + 1);
+  return r;
+}
+function askBtn(kind, title, item) {
+  const id = "a" + ++askSeq; ASK.set(id, { kind, title: String(title || "").slice(0, 300), item });
+  if (ASK.size > 4000) ASK.delete(ASK.keys().next().value);
+  return `<button type="button" class="askh" data-ask="${id}" title="Ask Hermes about this" aria-label="Ask Hermes about this">💬</button>`;
+}
+const askCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(typeof kind === "function" ? kind(x) : kind, titleFn(x), x) });
+function askOpen(a) {
+  document.getElementById("askDlg")?.remove();
+  let details = ""; try { details = JSON.stringify(askClean(a.item), null, 1).slice(0, 3000); } catch (_) { /* ignore */ }
+  const qs = ASK_Q[ASK_KIND[a.kind] || "attack"];
+  const d = document.createElement("div"); d.id = "askDlg"; d.className = "askdlg-scrim";
+  d.innerHTML = `<div class="askdlg card" role="dialog" aria-modal="true" aria-labelledby="askT">
+    <div class="askdlg-h"><span class="avatar">⚕︎</span><div><b id="askT">Ask Hermes about this ${esc(a.kind)}</b><div class="muted small askdlg-item">${esc(a.title)}</div></div><button type="button" class="askdlg-x" aria-label="Close">✕</button></div>
+    <details class="small"><summary class="muted">What Hermes will be given</summary><pre class="mono">${esc(details)}</pre></details>
+    <div class="askdlg-q">${qs.map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+    <form><textarea rows="3" maxlength="2000" placeholder="Or type your own question about this ${esc(a.kind)}…"></textarea>
+    <div class="askdlg-f"><span class="muted small">Opens in Ask Hermes as a new chat.</span><button type="submit">Ask Hermes ➤</button></div></form></div>`;
+  document.body.appendChild(d);
+  const ta = d.querySelector("textarea");
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { d.remove(); removeEventListener("keydown", onKey); };
+  addEventListener("keydown", onKey);
+  const ask = (q) => { q = q.trim(); if (!q) return ta.focus();
+    sessionStorage.setItem("askPending", JSON.stringify({ q, ctx: { kind: a.kind, title: a.title, details } })); close();
+    if (location.hash.startsWith("#/chat")) rerender(); else location.hash = "#/chat"; };
+  d.onclick = (e) => { if (e.target === d || e.target.closest(".askdlg-x")) close(); const b = e.target.closest("[data-q]"); if (b) ask(b.dataset.q); };
+  d.querySelector("form").onsubmit = (e) => { e.preventDefault(); ask(ta.value); };
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) ask(ta.value); });
+  if (!matchMedia("(pointer: coarse)").matches) ta.focus();
+}
+document.addEventListener("click", (e) => {  // capture phase: beats table-row navigation handlers
+  const b = e.target.closest("[data-ask]"); if (!b) return;
+  e.preventDefault(); e.stopPropagation(); const a = ASK.get(b.dataset.ask); if (a) askOpen(a);
+}, true);
 async function setAck(type, key, checked, label) {
   S.acks = await apiPost("/api/acks", { type, key, checked, label });
 }
@@ -258,7 +308,7 @@ function topTalkersChart(n) {
 }
 
 function alarmsHtml(list) {
-  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)}${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
+  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
     ${a.who ? `<p><span class="k">Who:</span> ${linkifyIps(a.who)}</p>` : ""}${a.evidence ? `<p><span class="k">Evidence:</span> ${linkifyIps(a.evidence)}</p>` : ""}
     ${a.why ? `<p><span class="k">Why:</span> ${linkifyIps(a.why)}</p>` : ""}${a.context ? `<p><span class="k">Context:</span> ${linkifyIps(a.context)}</p>` : ""}
     ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)}</p>` : ""}
@@ -325,7 +375,7 @@ V.device = (el, ip) => {
   if (devIss.length) el.appendChild(card(`Open issues to fix (${DI.open.length}) · <a href="#/issues">all</a>${DI.toggle}`, issueTable(DI.show, { short: true })));
   if (findings.length || alarms.length) {
     const DF = ackSplit("finding", findings, "dev-find"), DA = ackSplit("alarm", alarms, "dev-alarm");
-    const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
+    const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
     if (alarms.length) c.insertAdjacentHTML("beforeend", `<h3>Triage alarms (${DA.open.length})${DA.toggle}</h3>` + alarmsHtml(DA.show));
     el.appendChild(c);
   }
@@ -442,7 +492,7 @@ V.endpoints = (el, arg) => {
   el.appendChild(grid("g2",
     card("Hosts", table(null, [{ k: "host", t: "Host", fmt: hostLink }, { k: "ip", t: "Network device", fmt: (v) => ipLink(v) }, { k: "findings", t: "Findings", num: true }, { k: "events", t: "Telemetry docs", num: true, bar: true, fmt: fn }, { k: "syslog", t: "Notable syslog", num: true, fmt: fn }, { k: "exec", t: "Execs", num: true }], rows, { sort: "findings", search: false, onclick: (r) => go("endpoint/" + r.host) })),
     chartCard("Telemetry volume by host", barCfg(rows.map((r) => r.host), rows.map((r) => r.events), { onClick: (i) => go("endpoint/" + rows[i].host) }))));
-  el.appendChild(card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host") }) : `<div class="empty">All host findings checked off.</div>`));
+  el.appendChild(card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host") }) : `<div class="empty">All host findings checked off.</div>`));
   if (HF.done.length) el.appendChild(card(`Checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
 };
 V.endpoint = (el, h) => {
@@ -466,7 +516,7 @@ function endpointSections(el, h) {
   for (const x of dfd) cards.push(card("Elastic Defend" + ` <a class="small" href="#/endpoints/defend?host=${encodeURIComponent(h)}">details ›</a>`, `<div>${badge(x.status)} at ${ft(x.at)}</div><div class="chips" style="margin:8px 0">${(x.failed_protections || []).map((p) => `<span class="chip">${esc(p)}</span>`).join("")}</div>` +
     (x.problems || []).map((p) => `<div class="small">${badge(p.status)} <b>${esc(p.action)}</b> — ${esc(p.message)}</div>`).join("")));
   if (hf.length) { const EF = ackSplit("host", hf, "epd-find-" + h);
-    cards.push(card(`Findings (${EF.open.length} open)${EF.toggle}`, EF.show.length ? table(null, [ackCol("host", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: linkifyIps }], EF.show, { sort: "priority", dir: 1, short: true, rowClass: ackRowCls("host") }) : `<div class="empty">All findings for this host checked off.</div>`)); }
+    cards.push(card(`Findings (${EF.open.length} open)${EF.toggle}`, EF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: linkifyIps }], EF.show, { sort: "priority", dir: 1, short: true, rowClass: ackRowCls("host") }) : `<div class="empty">All findings for this host checked off.</div>`)); }
   const sl = H.syslog?.[h];
   if (sl) cards.push(card("Notable syslog", table(null, [{ k: "cat", t: "Category" }, { k: "sev", t: "Sev", fmt: badge }, { k: "count", t: "Count", num: true, fmt: fn }, { k: "last", t: "Last", fmt: ft }, { k: "sample", t: "Sample", cls: "mono small" }], entries(sl).map(([cat, v]) => ({ cat, ...v })), { sort: "count", search: false })));
   const au = H.auth || {};
@@ -522,7 +572,7 @@ V.risk = (el) => {
         scales: { x: { title: { display: true, text: "likelihood" }, min: 0, max: 100 }, y: { title: { display: true, text: "impact" }, min: 0.5, max: 5.5, ticks: { stepSize: 1 } } },
         onClick: (e, els) => { if (!els.length) return; const h = H[els[0].index]; location.hash = riskHostLink(h).match(/href="([^"]+)"/)?.[1] || "#/risk"; } } }, "", "tall")));
   el.appendChild(card(`Hosts ranked by risk (${H.length})`, table(null, [
-    { k: "rank", t: "#", num: true }, { k: "name", t: "Host", fmt: (v, h) => riskHostLink(h) + (h.ip ? ` <span class="muted small">${esc(h.ip)}</span>` : "") },
+    askCol("risky host", (h) => `${h.name}${h.ip ? " (" + h.ip + ")" : ""}, risk ${h.score}`), { k: "rank", t: "#", num: true }, { k: "name", t: "Host", fmt: (v, h) => riskHostLink(h) + (h.ip ? ` <span class="muted small">${esc(h.ip)}</span>` : "") },
     { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "likelihood", t: "Likelihood", num: true }, { k: "impact", t: "Impact", num: true, fmt: (v, h) => `<span title="${esc(h.impact_why)}">${v}</span>` },
     { k: "zone", t: "Zone" }, { k: "class", t: "Class" }, { k: "vulns", t: "Vulns", num: true },
     { k: "drivers", t: "Top drivers", cls: "small", fmt: (v) => v.slice(0, 3).map((d) => `<span class="chip">${esc(d.type)}</span> ${esc(d.text)}`).join("<br>"), sort: (h) => h.drivers.length },
@@ -531,7 +581,7 @@ V.risk = (el) => {
   el.appendChild(chartCard("Top 15 vulnerabilities by risk", barCfg(tv.map((v) => `${v.title.slice(0, 50)} — ${String(v.target).slice(0, 22)}`), tv.map((v) => v.score), { color: tv.map((v) => (v.score >= 60 ? "#f85149" : v.score >= 30 ? "#d29922" : "#58a6ff")) }), "", "tall"));
   const VA = ackSplit("issue", Vn, "risk-vulns");
   el.appendChild(card(`Vulnerabilities ranked by risk (${VA.open.length})${VA.toggle}`, table(null, [
-    ackCol("issue", (x) => `${x.title} — ${x.target || ""}`), { k: "rank", t: "#", num: true }, { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "severity", t: "Sev", fmt: badge, sort: (v) => sevRank(v.severity) },
+    ackCol("issue", (x) => `${x.title} — ${x.target || ""}`), askCol("vulnerability", (x) => `${x.title} — ${x.target || ""}`), { k: "rank", t: "#", num: true }, { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "severity", t: "Sev", fmt: badge, sort: (v) => sevRank(v.severity) },
     { k: "title", t: "Vulnerability", fmt: (v, x) => `<b>${esc(v)}</b><br><span class="muted small">${esc(x.category)} · seen ${x.occurrences}×${x.recurring ? " · recurring" : ""}</span>` },
     { k: "target", t: "Where", fmt: (v, x) => issueTarget(x) },
     { k: "drivers", t: "Score drivers", cls: "small", fmt: (v) => esc(v.join(" · ")), sort: (x) => x.score },
@@ -552,6 +602,7 @@ function issueTable(rows, opts = {}) {
   const fixedMode = opts.fixed;
   const cols = [
     ...(fixedMode ? [] : [ackCol("issue", (x) => `${x.title} — ${x.target || ""}`)]),
+    askCol((x) => (/vulnerab/i.test(x.category || "") ? "vulnerability" : (x.category || "vulnerability").toLowerCase()), (x) => `${x.title} — ${x.target || ""}`),
     { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) },
     { k: "title", t: "Issue", fmt: (v, x) => `<b>${esc(v)}</b><br><span class="muted small">${esc(x.category)}</span>` },
     { k: "target", t: "Where", fmt: (v, x) => issueTarget(x) },
@@ -665,25 +716,25 @@ V.security = (el) => {
     el.appendChild(card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
   if ((tr.research_notes || []).length) el.appendChild(card("Research notes", "<ul>" + tr.research_notes.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>"));
   const BF = ackSplit("finding", an.findings || [], "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device) })));
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device) })));
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
     chartCard("IDS signatures (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2] }), "", "tall"),
     chartCard("IDS alerts by category", doughnutCfg(sigs.reduce((o, s) => ((o[s.category] = (o[s.category] || 0) + s.count), o), {})))));
-  el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [{ k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
+  el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [askCol("IDS signature", (x) => x.name), { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
     { k: "src", t: "Sources", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.src || {}).join() }, { k: "dst", t: "Destinations", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.dst || {}).join() },
     { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count" })));
   el.appendChild(grid("g2",
-    card(`Segmentation violations (${(an.violations || []).length})`, table(null, [{ k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], an.violations || [], { sort: "severity", dir: 1 })),
-    card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [{ k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));
+    card(`Segmentation violations (${(an.violations || []).length})`, table(null, [askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], an.violations || [], { sort: "severity", dir: 1 })),
+    card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [askCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));
   el.appendChild(grid("g3",
     (() => { const c = card("Threat-intel feeds", table(null, [{ k: "f", t: "Feed" }, { k: "s", t: "Status", cls: "small" }], entries(ti.feed_status).map(([f, s]) => ({ f, s })), { search: false }));
       c.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin-top:6px">Indicators: ${entries(ti.feed_sizes).map(([k, v]) => esc(k) + " " + fn(v)).join(" · ")}</div>`); return c; })(),
-    card(`Inbound hits from listed IPs (${(ti.ip_hits_in || []).length})`, table(null, [{ k: "ip", t: "Source", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "targets", t: "Targets", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(",")) }], ti.ip_hits_in || [], { search: false })),
-    card("Outbound TI hits / newly-registered domains", table(null, [{ k: "domain", t: "Domain/IP", fmt: (v, r) => esc(v || r.ip) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
+    card(`Inbound hits from listed IPs (${(ti.ip_hits_in || []).length})`, table(null, [askCol("threat-intel hit", (x) => `inbound from listed IP ${x.ip}`), { k: "ip", t: "Source", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "targets", t: "Targets", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(",")) }], ti.ip_hits_in || [], { search: false })),
+    card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => esc(v || r.ip) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
       [...(ti.ip_hits_out || []), ...(ti.domain_hits || []), ...(ti.new_domains || [])], { search: false }))));
   el.appendChild(grid("g2",
-    card(`DNS-tunnel scoring (${(raw.dns_tunnel || []).length})`, table(null, [{ k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], raw.dns_tunnel || [], { sort: "score" })),
+    card(`DNS-tunnel scoring (${(raw.dns_tunnel || []).length})`, table(null, [askCol("DNS-tunnel candidate", (x) => x.domain), { k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], raw.dns_tunnel || [], { sort: "score" })),
     card("Malicious JA3 / internal scans / detections", `<h3>Malicious JA3</h3>` + ((raw.tls?.malicious_ja3 || []).map((m) => `<div class="small"><span class="mono">${esc(m.ja3)}</span> — ${esc(m.malware)} ×${fn(m.count)} from ${entries(m.sources).map(([k]) => ipLink(k)).join(", ")} → ${esc((m.servers || []).join(", "))}</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>Internal scans</h3>` + ((raw.internal?.scans || []).map((s) => `<div class="small">${ipLink(s.src)}: ${fn(s.failed_conns)} failed conns to ${s.hosts} hosts / ${s.ports} ports (top ${esc((s.top_ports || []).join(", "))})</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>SO detections</h3>` + ((raw.detections || []).map((d) => `<div class="small">${ft(d.time)} ${esc(d.rule)} ${esc(d.host || "")} ${esc(d.message || "")}</div>`).join("") || '<div class="empty">none</div>'))));
@@ -777,8 +828,9 @@ V.attack = async (el, arg) => {
   const rows = (sel ? T[sel].items : Object.values(T).flatMap((t) => t.items)).filter((v, i, a) => a.indexOf(v) === i)
     .map((it) => ({ ...it, _t: it.techniques.map((x) => `<a href="#/attack/${x}" class="mono">${x}</a>${T[x] ? " " + esc(T[x].name) : ""}`).join("<br>") }));
   const srcName = { ids: "Suricata IDS", detection: "SO / Defend detection", analysis: "Network baseline", host: "Endpoint", issue: "Fix list", unifi: "UniFi gateway", alarm: "Triage alarm" };
-  const title = sel ? `<a href="${esc(T[sel].url)}" target="_blank" rel="noopener">${sel} ${esc(T[sel].name)} ↗</a> · ${esc(T[sel].tactics.join(", "))} · <a href="#/attack">clear</a>` : "All mapped items";
+  const title = sel ? `<a href="${esc(T[sel].url)}" target="_blank" rel="noopener">${sel} ${esc(T[sel].name)} ↗</a> · ${esc(T[sel].tactics.join(", "))} · <a href="#/attack">clear</a> ${askBtn("ATT&CK technique", `${sel} ${T[sel].name}`, { id: sel, name: T[sel].name, tactics: T[sel].tactics, observed: T[sel].observed, exposure: T[sel].exposure, items: T[sel].items.slice(0, 12).map((i) => ({ relation: i.relation, title: i.title, who: i.who, severity: i.severity })) })}` : "All mapped items";
   el.appendChild(card(`${title} (${rows.length})`, table(null, [
+    askCol("ATT&CK mapping", (r) => `${r.techniques.map((x) => x + (T[x] ? " " + T[x].name : "")).join(", ")}: ${r.title}`),
     { k: "relation", t: "Type", fmt: (v) => `<span class="badge ${v === "observed" ? "sev-high" : "sev-info"}">${v}</span>` },
     { k: "_t", t: "Technique(s)", fmt: (v) => v, sort: (r) => r.techniques[0] },
     { k: "source", t: "Source", fmt: (v, r) => esc(srcName[v] || v) + (r.native ? ' <span class="muted small">(rule metadata)</span>' : "") },
