@@ -5,6 +5,7 @@ threat_intel()        - DNS names / SNI / outbound + inbound IPs vs abuse.ch, Sp
                         RDAP registration age for rare domains (cached).
 beacons()             - periodic-connection (C2-style) scoring per internal->external pair.
 internal_traffic()    - internal flows, zone matrix, lateral-movement ports, scanning, policy violations.
+admin_access()        - admin/lateral sessions (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...) with login success/failure.
 iot_destinations()    - full contacted-domain / ASN / SNI sets for IoT-class devices (allowlist baseline).
 files_software()      - executables/scripts/archives transferred (+ Team Cymru MHR hash check), Zeek software inventory.
 tls_profile()         - per-device JA3/JA4, JA3 + JA3S catalogue, malicious JA3 (SSLBL), cert validation failures,
@@ -427,6 +428,209 @@ def internal_traffic(hours=24):
     return {"flows": flows, "scans": scans,
             "matrix": {k: {"conns": v["conns"], "bytes": v["bytes"], "ports": dict(v["ports"].most_common(6))}
                        for k, v in sorted(matrix.items(), key=lambda x: -x[1]["conns"])}}
+
+
+_SSH_OPTS_WITH_ARG = set("bcDEeFIiJLlmOoPpQRSWw")
+_HOST_RE = r"[A-Za-z0-9][A-Za-z0-9._-]*"
+
+
+def _redact_cmd(line):
+    """Strip credentials from admin-tool command lines before they are stored or shown."""
+    line = re.sub(r"(/p:|/password:|-p(?:assword)?[:=]?\s+|--password[= ]\s*|-hashes\s+|-H\s+|-Credential\s+|-pw\s+)(\S+)", r"\1***", line, flags=re.I)
+    return re.sub(r"([^\s/@:]+/)?([^\s/@:]+):([^\s@]+)@", r"\1\2:***@", line)  # domain/user:password@host
+
+
+def _admin_target(tool, args):
+    """Remote host an admin client tool was pointed at, or "" when it was used locally."""
+    line = " ".join(args)
+    for pat in (r"/v:(" + _HOST_RE + ")", r"\\\\(" + _HOST_RE + ")", r"-r:(" + _HOST_RE + ")",
+                r"-(?:ComputerName|cn)\s+(" + _HOST_RE + ")", r"(?:^|\s)-i\s+(" + _HOST_RE + ")" if tool == "evil-winrm" else r"$^"):
+        m = re.search(pat, line, re.I)
+        if m:
+            return m.group(1)
+    if tool in ("ssh", "sshpass", "mosh", "telnet", "vncviewer"):
+        skip = False
+        for a in args:
+            if skip:
+                skip = False; continue
+            if a.startswith("-"):
+                skip = len(a) == 2 and a[1] in _SSH_OPTS_WITH_ARG and tool != "telnet"; continue
+            if tool == "sshpass":  # sshpass -p pw ssh host
+                continue
+            return a.split("@")[-1].split(":")[0]
+        if tool == "sshpass":
+            return _admin_target("ssh", args[args.index("ssh") + 1:]) if "ssh" in args else ""
+        return ""
+    for a in args:  # scp / sftp / rsync / impacket / nxc: [user@]host:path or user@host
+        if a.startswith("-") or a.startswith("/"):
+            continue
+        m = re.match(r"^(?:[^@\s]+@)?(" + _HOST_RE + r")(?::|$)", a)
+        if m and ("@" in a or ":" in a or re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", m.group(1))):
+            return m.group(1)
+    return ""
+
+
+def admin_access(hours=24, end=None):
+    """Admin / lateral-movement sessions between internal hosts, successful AND failed (see adminproto.py):
+      conns  - Zeek conn on admin ports (SSH, RDP, SMB/PsExec, RPC/WMI, WinRM/PS remoting, VNC, Docker, k8s...):
+               attempts, connected vs refused/unanswered, bytes, first/last seen
+      logins - login outcomes: endpoint auth logs (sshd accepted/failed/invalid user), Windows 4624/4625 network+RDP
+               logons, Zeek ssh auth_success, Zeek rdp/ntlm/kerberos results, PsExec-style service creation (dce_rpc)
+      tools  - admin client tools executed on endpoints (ssh/scp, xfreerdp, PsExec, impacket, winrs, PS remoting...)
+    Every source is optional: a missing index or dataset just yields nothing."""
+    import adminproto as AP
+    q, ds, buckets = _ctx()
+    R = {"range": {"@timestamp": {"gte": f"{end}||-{hours}h", "lte": end}}} if end else rng(hours)  # end: backfill an older snapshot
+    cidr = SITE.get("internal_cidr")
+    out = {"conns": [], "logins": [], "tools": [], "sources": {}, "errors": {}}
+
+    def src_ok(name, fn):
+        try:
+            n = fn()
+            out["sources"][name] = n
+        except Exception as e:  # noqa: BLE001 - one source failing must not lose the others
+            out["errors"][name] = f"{type(e).__name__}: {str(e)[:200]}"
+
+    def zeek_msg(h):
+        try:
+            return json.loads(h["_source"].get("message") or "{}")
+        except ValueError:
+            return {}
+
+    # --- network: every admin-port connection between internal hosts
+    def conns():
+        tcp, udp = AP.tcp_admin_ports(), AP.udp_admin_ports()
+        body = {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), {"term": {"source.ip": cidr}}, {"term": {"destination.ip": cidr}}],
+                                              "should": [{"bool": {"filter": [{"term": {"network.transport": "tcp"}}, {"terms": {"destination.port": tcp}}]}},
+                                                         {"bool": {"filter": [{"term": {"network.transport": "udp"}}, {"terms": {"destination.port": udp}}]}}],
+                                              "minimum_should_match": 1}},
+                "aggs": {"p": {"multi_terms": {"terms": [{"field": "source.ip"}, {"field": "destination.ip"}, {"field": "destination.port"}, {"field": "network.transport"}], "size": 3000},
+                               "aggs": {"fail": {"filter": {"terms": {"connection.state": AP.CONN_FAILED}}},
+                                        "b": {"sum": {"field": "network.bytes"}},
+                                        "t0": {"min": {"field": "@timestamp"}}, "t1": {"max": {"field": "@timestamp"}}}}}}
+        r = q("logs-zeek-so", body)
+        for b in buckets(r["aggregations"]["p"]):
+            s, d, port, tr = b["key"]
+            if s == d or d.endswith(".255"):
+                continue
+            lab = AP.label(port, tr)
+            if not lab:
+                continue
+            out["conns"].append({"src": s, "dst": d, "port": int(port), "proto": tr, "protocol": lab[0], "category": lab[1],
+                                 "attempts": b["doc_count"], "failed": b["fail"]["doc_count"], "connected": b["doc_count"] - b["fail"]["doc_count"],
+                                 "bytes": b["b"]["value"] or 0, "first": b["t0"].get("value_as_string"), "last": b["t1"].get("value_as_string")})
+        return len(out["conns"])
+
+    def add_login(**kw):
+        kw.setdefault("count", 1)
+        out["logins"].append(kw)
+
+    # --- Linux endpoints: sshd accepted / failed / invalid user (definitive login results)
+    def linux_auth():
+        body = {"size": 0, "query": {"bool": {"filter": [R, {"term": {"event.action": "ssh_login"}}]}},
+                "aggs": {"p": {"multi_terms": {"terms": [{"field": "source.ip"}, {"field": "host.name"}, {"field": "user.name"}, {"field": "event.outcome"}], "size": 2000},
+                               "aggs": {"m": {"terms": {"field": "system.auth.ssh.method", "size": 3}},
+                                        "e": {"terms": {"field": "system.auth.ssh.event", "size": 3}},
+                                        "t0": {"min": {"field": "@timestamp"}}, "t1": {"max": {"field": "@timestamp"}}}}}}
+        r = q("logs-system.auth-*", body)
+        n = 0
+        for b in buckets(r["aggregations"]["p"]):
+            sip, host, user, outcome = b["key"]
+            add_login(src=sip, dst_host=host, user=user, protocol="SSH", ok=outcome == "success", count=b["doc_count"],
+                      method=",".join(x["key"] for x in buckets(b["m"])), detail=",".join(x["key"] for x in buckets(b["e"])),
+                      first=b["t0"].get("value_as_string"), last=b["t1"].get("value_as_string"), source="endpoint auth log")
+            n += 1
+        return n
+
+    # --- Windows endpoints: 4624 (success) / 4625 (failure) network and RDP logons
+    def windows_logons():
+        body = {"size": 0, "query": {"bool": {"filter": [R, {"terms": {"event.code": ["4624", "4625"]}},
+                                                         {"terms": {"winlog.event_data.LogonType": list(AP.WIN_LOGON)}}]}},
+                "aggs": {"p": {"multi_terms": {"terms": [{"field": "source.ip"}, {"field": "host.name"}, {"field": "user.name"},
+                                                         {"field": "event.code"}, {"field": "winlog.event_data.LogonType"}], "size": 2000},
+                               "aggs": {"t0": {"min": {"field": "@timestamp"}}, "t1": {"max": {"field": "@timestamp"}},
+                                        "pkg": {"terms": {"field": "winlog.event_data.AuthenticationPackageName", "size": 2}}}}}}
+        r = q("logs-system.security-*,logs-windows.*", body)
+        n = 0
+        for b in buckets((r.get("aggregations") or {}).get("p") or {}):  # no Windows indices yet -> nothing
+            sip, host, user, code, lt = b["key"]
+            if sip in ("-", "127.0.0.1", "::1"):
+                continue
+            add_login(src=sip, dst_host=host, user=user, protocol="RDP" if str(lt) == "10" else "Windows network logon",
+                      ok=str(code) == "4624", count=b["doc_count"], method=",".join(x["key"] for x in buckets(b["pkg"])),
+                      detail=f"logon type {lt}: {AP.WIN_LOGON.get(str(lt), '')}", first=b["t0"].get("value_as_string"),
+                      last=b["t1"].get("value_as_string"), source="Windows security log")
+            n += 1
+        return n
+
+    # --- Zeek application logs: ssh auth_success, rdp result, ntlm/kerberos success, PsExec-style service creation
+    def zeek_auth():
+        n = 0
+        body = {"size": 2000, "sort": [{"@timestamp": "desc"}], "_source": ["message", "@timestamp", "event.dataset"],
+                "query": {"bool": {"filter": [R, {"terms": {"event.dataset": ["zeek.ssh", "zeek.rdp", "zeek.ntlm", "zeek.kerberos", "zeek.dce_rpc", "zeek.smb_files"]}},
+                                              {"term": {"source.ip": cidr}}, {"term": {"destination.ip": cidr}}]}}}
+        agg = defaultdict(lambda: {"count": 0, "first": None, "last": None})
+        for h in q("logs-zeek-so", body)["hits"]["hits"]:
+            m, dset, ts = zeek_msg(h), h["_source"].get("event", {}).get("dataset", ""), h["_source"].get("@timestamp")
+            s, d = m.get("id.orig_h"), m.get("id.resp_h")
+            if not s or not d:
+                continue
+            key = None
+            if dset == "zeek.ssh" and m.get("auth_success") is not None:
+                key = (s, d, "SSH", bool(m["auth_success"]), "", f"{m.get('auth_attempts', 0)} attempt(s), client {m.get('client', '')[:40]}")
+            elif dset == "zeek.rdp" and m.get("result"):
+                key = (s, d, "RDP", m["result"].lower() == "success", m.get("cookie", ""), f"result {m['result']}")
+            elif dset == "zeek.ntlm" and m.get("success") is not None:
+                key = (s, d, "SMB (PsExec / admin shares)" if m.get("id.resp_p") in (445, 139) else "NTLM auth", bool(m["success"]),
+                       m.get("username", ""), f"NTLM {m.get('domainname', '')}")
+            elif dset == "zeek.kerberos" and m.get("success") is not None and m.get("request_type") == "TGS":
+                key = (s, d, "Kerberos service ticket", bool(m["success"]), (m.get("client") or "").split("/")[0], str(m.get("service", ""))[:60])
+            elif dset == "zeek.dce_rpc" and m.get("endpoint") == "svcctl" and m.get("operation") in ("CreateServiceW", "CreateServiceA", "StartServiceW"):
+                key = (s, d, "SMB (PsExec / admin shares)", True, "", f"remote service {m['operation']} (PsExec-style execution)")
+            elif dset == "zeek.smb_files" and "psexe" in str(m.get("name", "")).lower():
+                key = (s, d, "SMB (PsExec / admin shares)", True, "", f"PsExec service binary {m.get('name')} written to {m.get('path', '')}")
+            if key:
+                a = agg[key]; a["count"] += 1
+                a["first"] = min(filter(None, [a["first"], ts])); a["last"] = max(filter(None, [a["last"], ts]))
+        for (s, d, proto, ok, user, detail), a in agg.items():
+            add_login(src=s, dst=d, user=user, protocol=proto, ok=ok, count=a["count"], detail=detail,
+                      first=a["first"], last=a["last"], source="Zeek")
+            n += 1
+        return n
+
+    # --- admin client tools run on endpoints (who launched what, towards which target)
+    def tools():
+        names = list(AP.ADMIN_TOOLS) + [n for n in AP.ADMIN_TOOLS if not n.endswith(".exe")] + sorted(AP.PS_NAMES)
+        body = {"size": 1500, "sort": [{"@timestamp": "desc"}],
+                "_source": ["@timestamp", "host.name", "user.name", "process.name", "process.args"],
+                "query": {"bool": {"filter": [R, {"term": {"event.action": "exec"}}, {"terms": {"process.name": sorted(set(names))}}]}}}
+        agg = {}
+        ipre = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+        for h in q("logs-endpoint.events.process-*", body)["hits"]["hits"]:
+            s = h["_source"]; p = s.get("process") or {}; nm = str(p.get("name", "")); args = p.get("args") or []
+            line = _redact_cmd(" ".join(map(str, args)))[:300]
+            if nm.lower() in AP.PS_NAMES:
+                if not any(k in line.lower() for k in AP.PS_REMOTING):
+                    continue
+                proto = "WinRM / PowerShell remoting"
+            else:
+                proto = AP.ADMIN_TOOLS.get(nm.lower()) or AP.ADMIN_TOOLS.get(nm)
+                if not proto:
+                    continue
+            target = _admin_target(nm.lower(), [str(a) for a in args[1:]])
+            if not target:  # local-only use (e.g. rsync between two local dirs) is not remote admin
+                continue
+            key = ((s.get("host") or {}).get("name", ""), (s.get("user") or {}).get("name", ""), nm, proto, target)
+            a = agg.setdefault(key, {"count": 0, "last": s.get("@timestamp"), "example": line})
+            a["count"] += 1
+        for (host, user, nm, proto, target), a in agg.items():
+            out["tools"].append({"host": host, "user": user, "tool": nm, "protocol": proto, "target": target,
+                                 "count": a["count"], "last": a["last"], "example": a["example"]})
+        return len(out["tools"])
+
+    for name, fn in (("conns", conns), ("linux_auth", linux_auth), ("windows_logons", windows_logons), ("zeek_auth", zeek_auth), ("tools", tools)):
+        src_ok(name, fn)
+    return out
 
 
 def classify(ip, mac, pol):

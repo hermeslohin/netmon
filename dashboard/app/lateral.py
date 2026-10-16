@@ -9,8 +9,16 @@ never mapped). Each port on an edge is classified:
   medium                - part of an internal scan
   allowed-admin         - admin/lateral port explicitly allowed in policy.json
   normal                - everything else (discovery, gateway services, media...)
+
+Admin sessions (SSH, RDP, PsExec/SMB, WMI, WinRM/PS remoting, VNC, ...) from raw.admin_access are merged
+per (src, dst, protocol) with their login outcomes. Failures raise the risk:
+  high    - password guessing (>= 10 failed logins or >= 3 invalid users), or >= 3 failures then a success on one account
+  medium  - any failed login, or >= 5 refused/unanswered connections to an admin port
+  low     - 1-4 refused connections, or a successful admin session not covered by policy.json "allow"
+  allowed-admin - successful sessions that policy allows
 """
-from risk import zone_of
+from risk import zone_of, _host_ip
+import adminproto as AP
 
 SEV_W = {"high": 3, "medium": 2, "low": 1, "allowed-admin": 0.5, "normal": 0}
 ORDER = ["high", "medium", "low", "allowed-admin", "normal"]
@@ -26,6 +34,61 @@ def _allowed(f, sc, dc, allow):
             continue
         return a.get("why") or "allowed by policy"
     return None
+
+
+def _resolver(raw):
+    devices = raw.get("devices") or {}
+    inv = {str(v).lower(): k for k, v in (raw.get("inventory_ips") or {}).items()}
+
+    def resolve(x):
+        x = str(x or "").strip()
+        if not x:
+            return ""
+        if x.count(".") == 3 and x.replace(".", "").isdigit():
+            return x
+        return _host_ip(x, devices) or inv.get(x.lower()) or inv.get(x.lower().split(".")[0]) or ""
+    return resolve
+
+
+def admin_sessions(raw, policy):
+    """Admin sessions with a risk level and reason; used by build() and by risk.compute()."""
+    pol = policy or {}
+    allow, classes, devices = pol.get("allow") or [], pol.get("device_classes") or {}, raw.get("devices") or {}
+    zones = pol.get("zones") or {}
+    cls = lambda ip: classes.get((devices.get(ip) or {}).get("mac", "")) or classes.get(ip) or ""
+    out = []
+    for r in AP.sessions(raw.get("admin_access") or {}, _resolver(raw)):
+        s, d = r["src"], r["dst"]
+        if s == d or s.startswith("127.") or d.startswith("127."):
+            continue
+        r["src_zone"], r["dst_zone"] = zone_of(s, zones), zone_of(d, zones)
+        fails, ok, refused = r["auth_fail"], r["auth_ok"], r["conn_failed"]
+        guessed = [u for u, c in r["users"].items() if c["fail"] >= 3 and c["ok"]]  # a typo or two is not guessing
+        if fails >= 10 or r["invalid_user"] >= 3:
+            lvl, why = "high", f"{fails} failed logins" + (f" ({r['invalid_user']} invalid user names)" if r["invalid_user"] else "") + " - password guessing"
+        elif guessed:
+            lvl, why = "high", f"{fails} failed then successful login(s) for {', '.join(guessed)} - check it was really you"
+        elif fails:
+            lvl, why = "medium", f"{fails} failed login(s)"
+        elif refused >= 5:
+            lvl, why = "medium", f"{refused} refused/unanswered connections to {r['protocol']}"
+        elif refused:
+            lvl, why = "low", f"{refused} refused/unanswered connection(s) to {r['protocol']}"
+        elif r["category"] == "database":
+            lvl, why = "normal", "database client traffic"
+        else:
+            port = (r["ports"] or [None])[0]
+            f = {"src": s, "dst": d, "src_zone": r["src_zone"], "dst_zone": r["dst_zone"], "port": port, "proto": "tcp"}
+            aw = _allowed(f, cls(s), cls(d), allow) if port else None
+            lvl, why = ("allowed-admin", f"allowed: {aw}") if aw else ("low", "admin session not covered by the policy allow list")
+        if r["auth_fail"] and r["auth_ok"] and lvl != "high":
+            why += f"; {ok} successful"
+        r["level"], r["why"] = lvl, why
+        r["outcome"] = ("failed" if (fails or refused) and not (ok or r["connected"]) else
+                        "mixed" if (fails or refused) else "success" if (ok or r["connected"] or r["tools"]) else "unknown")
+        out.append(r)
+    out.sort(key=lambda r: (ORDER.index(r["level"]), -(r["auth_fail"] + r["conn_failed"]), -(r["attempts"] + r["auth_ok"])))
+    return out
 
 
 def build(raw, analysis, policy, risk_result, known_benign=None):
@@ -88,6 +151,26 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
         if ORDER.index(lvl) < ORDER.index(e["level"]):
             e["level"] = lvl
 
+    # admin sessions: attach to edges (creating edges seen only in login logs) and raise the edge level
+    admin = admin_sessions(raw, pol)
+    for a in admin:
+        s, t = a["src"], a["dst"]
+        if not internal(t):
+            continue
+        e = edges.setdefault((s, t), {"src": s, "dst": t, "src_zone": a["src_zone"], "dst_zone": a["dst_zone"],
+                                      "conns": 0, "answered": 0, "bytes": 0.0, "ports": [], "level": "normal"})
+        e.setdefault("admin", []).append(a)
+        if not e["ports"] or not any(p["port"] in a["ports"] for p in e["ports"]):
+            e["ports"].append({"port": (a["ports"] or [0])[0], "proto": "tcp", "service": a["protocol"], "conns": a["attempts"] or a["auth_ok"] + a["auth_fail"],
+                               "answered": a["connected"] or a["auth_ok"], "bytes": a["bytes"], "level": a["level"], "why": a["why"]})
+        for p in e["ports"]:  # admin evidence overrides the generic port classification when it is worse
+            if p["port"] in a["ports"] and ORDER.index(a["level"]) < ORDER.index(p["level"]):
+                p["level"], p["why"] = a["level"], a["why"]
+        if ORDER.index(a["level"]) < ORDER.index(e["level"]):
+            e["level"] = a["level"]
+        e["auth_fail"] = e.get("auth_fail", 0) + a["auth_fail"]
+        e["auth_ok"] = e.get("auth_ok", 0) + a["auth_ok"]
+
     nodes = {}
     for e in edges.values():
         for ip in (e["src"], e["dst"]):
@@ -100,7 +183,8 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
     for e in edges.values():
         e["ports"].sort(key=lambda p: (ORDER.index(p["level"]), -p["conns"]))
         dimp = (hrisk.get(e["dst"]) or {}).get("impact", 3)
-        e["score"] = round(SEV_W[e["level"]] * (0.6 + 0.2 * dimp) * (1 + min(e["conns"], 1000) / 1000), 2)
+        fails = e.get("auth_fail", 0) + sum(a["conn_failed"] for a in e.get("admin", []))
+        e["score"] = round(SEV_W[e["level"]] * (0.6 + 0.2 * dimp) * (1 + min(e["conns"], 1000) / 1000) * (1 + min(fails, 50) / 25), 2)
         risky = e["level"] in ("high", "medium", "low")
         nodes[e["src"]]["out_conns"] += e["conns"]
         nodes[e["dst"]]["in_conns"] += e["conns"]
@@ -109,5 +193,6 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
             nodes[e["dst"]]["in_risky"] += 1
     el = sorted(edges.values(), key=lambda e: (ORDER.index(e["level"]), -e["score"], -e["conns"]))
     counts = {lvl: sum(1 for e in el if e["level"] == lvl) for lvl in ORDER}
-    return {"nodes": list(nodes.values()), "edges": el, "counts": counts,
+    return {"nodes": list(nodes.values()), "edges": el, "counts": counts, "admin": admin,
+            "admin_sources": (raw.get("admin_access") or {}).get("sources"), "admin_collected": "admin_access" in raw,
             "zones": sorted({n["zone"] for n in nodes.values()})}

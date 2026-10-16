@@ -164,6 +164,11 @@ def compute(raw, analysis, tracker, policy, known_benign):
     ti = raw.get("threat_intel") or {}
     ja3 = (raw.get("tls") or {}).get("malicious_ja3") or []
     flows = (raw.get("internal") or {}).get("flows") or []
+    try:
+        import lateral as _lat
+        admin = _lat.admin_sessions(raw, policy)
+    except Exception:  # noqa: BLE001 - risk must still compute without admin data
+        admin = []
     viol = (analysis or {}).get("violations") or []
     hosts_raw = raw.get("hosts") or {}
     agent_ips = {_host_ip(f["host"], devices): f for f in hosts_raw.get("fleet") or []}
@@ -236,6 +241,17 @@ def compute(raw, analysis, tracker, policy, known_benign):
         lr = min(6, 2 * len(out_zones)) + min(4, len(sv))
         if out_zones:
             drivers.append(("reach", f"reaches {len(out_zones)} other zone(s): {', '.join(sorted(out_zones))}"))
+        # admin access (SSH/RDP/PsExec/WinRM...): failed logins raise the risk of both ends
+        adm_in = [a for a in admin if a["dst"] == t and a["level"] in ("high", "medium")]
+        adm_out = [a for a in admin if a["src"] == t and a["level"] in ("high", "medium")]
+        if adm_in:
+            nf = sum(a["auth_fail"] + a["conn_failed"] for a in adm_in)
+            th_add = min(10, 3 * len(adm_in) + (4 if any(a["level"] == "high" for a in adm_in) else 0))
+            comp["threat"] = min(25, comp["threat"] + th_add)
+            drivers.append(("threat", f"{nf} failed admin login/connection attempt(s) against it ({', '.join(sorted({a['protocol'] for a in adm_in}))})"))
+        if adm_out:
+            lr += min(4, 2 * len(adm_out))
+            drivers.append(("reach", f"failing admin logins from it to {len({a['dst'] for a in adm_out})} host(s)"))
         comp["reach"] = min(10, lr)
 
         # visibility gaps

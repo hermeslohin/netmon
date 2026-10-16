@@ -213,13 +213,14 @@ function lmRenderPanel(D) {
     el.insertAdjacentHTML("beforeend", `<h2>${lmLevel(e.level)} Connection</h2><div class="idgrid"><span class="k">From</span><span>${lmNodeLink(D, e.src)} <span class="chip">${esc(e.src_zone)}</span></span><span class="k">To</span><span>${lmNodeLink(D, e.dst)} <span class="chip">${esc(e.dst_zone)}</span></span>
       <span class="k">Conns</span><span>${fn(e.conns)} (${fn(e.answered)} answered)</span><span class="k">Bytes</span><span>${fb(e.bytes)}</span><span class="k">Score</span><span>${e.score}</span></div><h3>Ports</h3>`);
     el.appendChild(lmPortsTable(e));
+    if ((e.admin || []).length) { el.insertAdjacentHTML("beforeend", `<h3>Admin sessions</h3>`); e.admin.forEach((a) => el.insertAdjacentHTML("beforeend", lmAdminCard(D, a))); }
     return;
   }
   const n = sel.node;
   const out = D.edges.filter((e) => e.src === n.id), inn = D.edges.filter((e) => e.dst === n.id);
   el.insertAdjacentHTML("beforeend", `<h2>${esc(n.name)}</h2><div class="idgrid"><span class="k">IP</span><span class="mono">${esc(n.id)}</span><span class="k">Zone</span><span>${esc(n.zone)}${n.class ? " · " + esc(n.class) : ""}</span>
     <span class="k">Host risk</span><span>${riskBadge(n.risk)}${n.rank ? ` rank ${n.rank}` : ""}</span><span class="k">Risky out / in</span><span>${n.out_risky} / ${n.in_risky}</span></div>
-    <div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button id="lmFocus">${LM.focus === n.id ? "Show everything" : "Focus on this host"}</button>${S.snap.raw.devices?.[n.id] && !n.gateway ? `<a href="#/device/${n.id}"><button>Device page →</button></a>` : ""}</div>`);
+    <div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button id="lmFocus">${LM.focus === n.id ? "Show everything" : "Focus on this host"}</button>${S.snap.raw.devices?.[n.id] && !n.gateway ? `<a href="#/device/${n.id}"><button>Device page →</button></a>` : ""}${(D.admin || []).some((a) => a.src === n.id || a.dst === n.id) ? `<a href="${esc(hashWith("lateral", { ahost: n.id, at: "admin-list" }))}"><button>Admin sessions (${(D.admin || []).filter((a) => a.src === n.id || a.dst === n.id).length}) →</button></a>` : ""}</div>`);
   const mini = (list, dir) => table(null, [{ k: dir, t: dir === "dst" ? "To" : "From", fmt: (v) => lmNodeLink(D, v) }, { k: "level", t: "Risk", fmt: lmLevel, sort: (e) => Object.keys(LM_LEVELS).indexOf(e.level) },
     { k: "ports", t: "Ports", cls: "small", fmt: (v) => esc(v.slice(0, 4).map((p) => p.port + "/" + p.proto).join(", ") + (v.length > 4 ? " …" : "")), sort: (e) => e.ports.length }, { k: "conns", t: "Conns", num: true, fmt: fn }], list, { sort: "level", dir: 1, search: false, short: true, onclick: (e) => { LM.sel = { edge: e }; lmRenderPanel(D); } });
   el.insertAdjacentHTML("beforeend", `<h3>Outgoing (${out.length})</h3>`); el.appendChild(mini(out, "dst"));
@@ -227,12 +228,66 @@ function lmRenderPanel(D) {
   document.getElementById("lmFocus").onclick = () => { LM.focus = LM.focus === n.id ? null : n.id; lmDraw(); };
 }
 
+/* ---------- admin access (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...) ---------- */
+const LM_OUTCOME = { failed: ["Failed", "sev-high"], mixed: ["Failed + succeeded", "sev-medium"], success: ["Succeeded", "sev-good"], unknown: ["Unknown", "sev-unknown"] };
+const lmOutcome = (o) => `<span class="badge ${LM_OUTCOME[o]?.[1] || ""}">${esc(LM_OUTCOME[o]?.[0] || o)}</span>`;
+const lmUsers = (u) => Object.entries(u || {}).map(([n, c]) => `${esc(n)}${c.fail ? ` <span class="badge sev-high">${c.fail}✗</span>` : ""}${c.ok ? ` <span class="badge sev-good">${c.ok}✓</span>` : ""}`).join(" ");
+function lmAdminCard(D, a) {
+  return `<div class="adm-card"><div>${lmLevel(a.level)} <b>${esc(a.protocol)}</b> ${lmOutcome(a.outcome)}</div>
+    <div class="small" style="margin:4px 0">${esc(a.why)}</div>
+    <div class="idgrid small"><span class="k">Logins</span><span>${a.auth_ok || a.auth_fail ? `<span class="good">${fn(a.auth_ok)} ok</span> · <span class="${a.auth_fail ? "bad" : ""}">${fn(a.auth_fail)} failed</span>${a.invalid_user ? ` · ${a.invalid_user} invalid user` : ""}` : '<span class="muted">no login telemetry</span>'}</span>
+      <span class="k">Connections</span><span>${a.attempts ? `${fn(a.connected)} connected · <span class="${a.conn_failed ? "bad" : ""}">${fn(a.conn_failed)} refused/unanswered</span>` : '<span class="muted">not seen by the sensor</span>'}</span>
+      ${Object.keys(a.users || {}).length ? `<span class="k">Accounts</span><span>${lmUsers(a.users)}</span>` : ""}
+      ${a.methods.length ? `<span class="k">Method</span><span>${esc(a.methods.join(", "))}</span>` : ""}
+      ${a.tools.length ? `<span class="k">Tools</span><span>${a.tools.map((t) => `<span class="mono" title="${esc(t.example)}">${esc(t.tool)}</span>${t.user ? " by " + esc(t.user) : ""} ×${t.count}`).join("<br>")}</span>` : ""}
+      <span class="k">Seen</span><span>${ft(a.first) || "?"} → ${ft(a.last) || "?"}</span><span class="k">Evidence</span><span>${esc(a.sources.join(", "))}</span></div></div>`;
+}
+function lmAdminSection(el, D) {
+  const A = D.admin || [];
+  el.appendChild(Object.assign(document.createElement("div"), { className: "sec-head", id: "admin", innerHTML: `<h2>Admin access</h2><div class="sub">Every SSH, RDP, PsExec / SMB admin share, WMI / RPC, WinRM / PowerShell remoting, VNC, Docker, Kubernetes and remote-support session between internal hosts, successful and failed. Evidence is combined from the network sensor (Zeek), endpoint login logs and the commands run on endpoints. Failed logins and refused connections raise the risk.</div>` }));
+  if (!D.admin_collected) { el.appendChild(card("", `<div class="empty">This snapshot was taken before admin-access collection was added. It appears from the next snapshot on.</div>`)); return; }
+  const sum = (k) => A.reduce((s, a) => s + (a[k] || 0), 0);
+  el.insertAdjacentHTML("beforeend", kpis([["Admin sessions", A.length], ["Successful logins", fn(sum("auth_ok")), "good"], ["Failed logins", fn(sum("auth_fail")), sum("auth_fail") ? "bad" : "good"],
+    ["Refused connections", fn(sum("conn_failed")), sum("conn_failed") ? "warn" : ""], ["High-risk sessions", A.filter((a) => a.level === "high").length, A.some((a) => a.level === "high") ? "bad" : "good"],
+    ["Protocols", new Set(A.map((a) => a.protocol)).size]]));
+  // per protocol: successful vs failed logins and refused connections (click a bar -> filtered list)
+  const protos = [...new Set(A.map((a) => a.protocol))].sort();
+  const per = (k) => protos.map((p) => A.filter((a) => a.protocol === p).reduce((s, a) => s + (a[k] || 0), 0));
+  const goProto = (i, ds) => drillHere({ aproto: protos[i], ...(ds === 1 ? { aout: "failed logins" } : ds === 2 ? { aout: "refused connections" } : {}), at: "admin-list" });
+  el.appendChild(grid("g2",
+    chartCard("Logins by protocol (click to list)", { type: "bar", data: { labels: protos, datasets: [
+      { label: "successful logins", data: per("auth_ok"), backgroundColor: "#3fb950", borderRadius: 3 },
+      { label: "failed logins", data: per("auth_fail"), backgroundColor: "#f85149", borderRadius: 3 },
+      { label: "refused / unanswered", data: per("conn_failed"), backgroundColor: "#d29922", borderRadius: 3 }] },
+      options: { indexAxis: "y", scales: { x: { stacked: true }, y: { stacked: true } }, ...clickable(goProto) } }),
+    chartCard("Sessions by outcome", (() => { const OC = { Failed: "#f85149", "Failed + succeeded": "#d29922", Succeeded: "#3fb950", Unknown: "#8b949e" };
+      const cfg = doughnutCfg(A.reduce((o, a) => ((o[LM_OUTCOME[a.outcome][0]] = (o[LM_OUTCOME[a.outcome][0]] || 0) + 1), o), {}),
+        { onClick: (l) => drillHere({ aout: Object.entries(LM_OUTCOME).find(([, v]) => v[0] === l)[0], at: "admin-list" }) });
+      cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => OC[l] || "#8b949e"); return cfg; })())));
+  const lst = card(`Admin sessions (${A.length})`, table(null, [
+    { k: "level", t: "Risk", fmt: lmLevel, sort: (a) => Object.keys(LM_LEVELS).indexOf(a.level) },
+    { k: "outcome", t: "Outcome", fmt: lmOutcome, sort: (a) => ["failed", "mixed", "unknown", "success"].indexOf(a.outcome) },
+    { k: "protocol", t: "Protocol" }, { k: "src", t: "From", fmt: (v) => lmNodeLink(D, v), sort: (a) => lmName(D, a.src) }, { k: "dst", t: "To", fmt: (v) => lmNodeLink(D, v), sort: (a) => lmName(D, a.dst) },
+    { k: "users", t: "Accounts", fmt: lmUsers, sort: (a) => Object.keys(a.users).join(",") },
+    { k: "auth_ok", t: "Logins ✓", num: true, fmt: fn }, { k: "auth_fail", t: "Logins ✗", num: true, fmt: (v) => (v ? `<b class="bad">${fn(v)}</b>` : "0") },
+    { k: "connected", t: "Conns ✓", num: true, fmt: fn }, { k: "conn_failed", t: "Refused", num: true, fmt: (v) => (v ? `<b class="warn">${fn(v)}</b>` : "0") },
+    { k: "why", t: "Why", cls: "small" }, { k: "last", t: "Last seen", fmt: ft }], A,
+    { sort: "level", dir: 1, onclick: (a) => { LM.sel = { edge: D.edges.find((e) => e.src === a.src && e.dst === a.dst) || { ...a, conns: a.attempts, answered: a.connected, ports: [], score: 0, admin: [a] } }; lmRenderPanel(D); document.getElementById("lmPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
+      urlFilter: { aproto: ["Protocol", (a, v) => a.protocol === v], aout: ["Showing", (a, v) => (v === "failed logins" ? a.auth_fail > 0 : v === "refused connections" ? a.conn_failed > 0 : a.outcome === v)],
+        auser: ["Account", (a, v) => v in (a.users || {})], ahost: ["Host", (a, v) => a.src === v || a.dst === v] } }));
+  lst.id = "admin-list"; lst.dataset.open = "1"; el.appendChild(lst);
+  const tools = A.flatMap((a) => a.tools.map((t) => ({ ...t, src: a.src, dst: a.dst, protocol: a.protocol })));
+  const at = hq().get("at"); if (at === "admin" || at === "admin-list") setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 50);
+  if (tools.length) el.appendChild(card(`Admin tools run on endpoints (${tools.length})`, table(null, [{ k: "tool", t: "Tool", cls: "mono" }, { k: "user", t: "User" }, { k: "src", t: "On", fmt: (v) => lmNodeLink(D, v) }, { k: "dst", t: "Target", fmt: (v) => lmNodeLink(D, v) },
+    { k: "protocol", t: "Protocol" }, { k: "count", t: "Runs", num: true }, { k: "example", t: "Example (credentials redacted)", cls: "mono small" }], tools, { sort: "count", short: true })));
+}
+
 let _lmDraw = null;
 function lmDraw() { _lmDraw && _lmDraw(); }
 
 V.lateral = async (el, arg) => {
   if (arg) { LM.focus = arg; if (!["all", "admin"].includes(LM.filter)) LM.filter = "admin"; }
-  el.innerHTML = `<h1>Lateral movement</h1><div class="sub">Host-to-host connections inside the network only (internet hosts are never mapped), grouped by zone. Links are classified against the segmentation policy: policy violations, failed admin-port attempts and internal scans are risky; admin access you've allowed in policy.json is shown separately.</div><div class="loading">Loading…</div>`;
+  el.innerHTML = `<h1>Lateral movement</h1><div class="sub">Host-to-host connections inside the network only (internet hosts are never mapped), grouped by zone. Links are classified against the segmentation policy: policy violations, failed admin logins and refused admin connections, and internal scans are risky; admin access you've allowed in policy.json is shown separately. <a href="#/lateral?at=admin">Admin access ↓</a></div><div class="loading">Loading…</div>`;
   let D;
   try { D = S.lateral && S.lateral._snap === S.snap.id ? S.lateral : await api("/api/lateral?id=" + encodeURIComponent(S.snap.id)); D._snap = S.snap.id; S.lateral = D; }
   catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
@@ -273,4 +328,5 @@ V.lateral = async (el, arg) => {
   const onResize = () => { clearTimeout(t); t = setTimeout(() => { if (!document.getElementById("lmGraph")) { removeEventListener("resize", onResize); return; }
     if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; lmRenderGraph(document.getElementById("lmGraph"), D); } }, 250); };
   addEventListener("resize", onResize);
+  lmAdminSection(el, D);
 };

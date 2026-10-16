@@ -265,3 +265,6 @@ td.askcell{width:1%;padding-right:2px}
 .card.collapsed>:not(h2){display:none!important}
 .cc-bar{display:flex;gap:6px;justify-content:flex-end;margin:-4px 0 8px}
 .cc-bar button{font-size:12px;padding:3px 10px}
+
+.adm-card{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0;background:var(--panel2)}
+.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}

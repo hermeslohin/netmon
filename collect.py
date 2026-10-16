@@ -375,7 +375,7 @@ def collect_extras(devs):
                and cls.get(d.get("mac") or "", cls.get(ip)) in ("iot", "camera", "media", "game")]
     out, errors = {}, {}
     jobs = {"threat_intel": lambda: extras.threat_intel(HOURS), "beacons": lambda: extras.beacons(HOURS),
-            "internal": lambda: extras.internal_traffic(HOURS), "iot_dest": lambda: extras.iot_destinations(iot_ips, HOURS),
+            "internal": lambda: extras.internal_traffic(HOURS), "admin_access": lambda: extras.admin_access(HOURS), "iot_dest": lambda: extras.iot_destinations(iot_ips, HOURS),
             "files": lambda: extras.files_software(HOURS), "tls": lambda: extras.tls_profile(HOURS)}
     import unifi
     jobs["unifi"] = lambda: unifi.collect(HOURS)

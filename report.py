@@ -784,6 +784,28 @@ story.append(P("Internal scanning: " + ("; ".join(f"{dname(s['src'])} failed {s[
                                                     for s in it.get("scans", [])) or "none detected."), SM))
 findings_table(["segmentation", "internal-scan", "new-internal-peer"], "No segmentation violations.")
 
+# admin access (SSH / RDP / PsExec / WinRM ...): exception-only - failed logins and refused admin connections
+if snap.get("admin_access"):
+    sys.path.insert(0, os.path.join(NM, "dashboard", "app"))
+    try:
+        import lateral as _lat
+        _adm = [a for a in _lat.admin_sessions(snap, json.load(open(os.path.join(NM, "policy.json")))) if a["level"] in ("high", "medium")]
+    except Exception as _e:  # noqa: BLE001 - never lose the report over this section
+        _adm = []
+        story.append(P(f"Admin access analysis failed: {_e}", SM))
+    story.append(H("Admin access: failed logins", sub="b"))
+    story.append(P("Remote admin sessions between internal hosts (SSH, RDP, PsExec / SMB admin shares, WMI, WinRM / PowerShell remoting, VNC...) "
+                   "with failed logins or refused connections. Successful-only sessions are on the dashboard (Lateral movement > Admin access).", SM))
+    if _adm:
+        rows = [["Risk", "From", "To", "Protocol", "Logins ok / failed", "Refused", "Accounts", "Why"]]
+        for a in _adm[:25]:
+            rows.append([a["level"], dname(a["src"]), dname(a["dst"]), a["protocol"], f"{a['auth_ok']} / {a['auth_fail']}", a["conn_failed"],
+                         ", ".join(f"{u} ({c['fail']} failed)" if c["fail"] else u for u, c in a["users"].items())[:60], a["why"][:90]])
+        story.append(table([[HP(str(c)) for c in r] for r in rows],
+                           [0.62 * inch, 1.0 * inch, 1.0 * inch, 0.75 * inch, 0.7 * inch, 0.58 * inch, 1.1 * inch, 1.8 * inch], extra=[("FONTSIZE", (0, 0), (-1, -1), 6.8)]))
+    else:
+        story.append(P("No failed admin logins or refused admin connections.", SM))
+
 # 11. IoT allowlists (only when broken)
 iot = snap.get("iot_dest") or {}
 if any(f["kind"].startswith("iot-") for f in ana.get("findings", [])):

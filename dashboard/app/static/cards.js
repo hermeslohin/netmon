@@ -17,13 +17,18 @@
   const at = () => new URLSearchParams(location.hash.split("?")[1] || "").get("at");
   function enhance() {
     const list = boxes(), target = at();
+    // boxes inside the ?at= section (from that .sec-head to the next one) open too
+    const tEl = target && document.getElementById(target), inSec = new Set();
+    if (tEl?.classList.contains("sec-head")) { const all = [...main.querySelectorAll(".sec-head, .card")]; let on = false;
+      for (const x of all) { if (x.classList.contains("sec-head")) on = x === tEl; else if (on) inSec.add(x); } }
     list.forEach((c, i) => {
       if (c.dataset.cc) return; c.dataset.cc = "1";
       const h = c.querySelector(":scope > h2"); h.classList.add("cc-h"); h.setAttribute("role", "button"); h.tabIndex = 0;
       const k = id(c), pref = saved[k];
       // a drill-down filter or ?at= target must be visible
-      const must = c.querySelector(".fchips") || (target && (c.id === target || c.querySelector("#" + CSS.escape(target))));
-      set(c, must ? false : pref != null ? !!pref : i >= OPEN_N, false);
+      const must = c.querySelector(".fchips") || inSec.has(c) || (target && (c.id === target || c.querySelector("#" + CSS.escape(target))));
+      // data-open="1": a page's key box starts open even past the first 3 (the user's own toggle still wins)
+      set(c, must ? false : pref != null ? !!pref : c.dataset.open === "1" ? false : i >= OPEN_N, false);
     });
     bar(list);
   }
