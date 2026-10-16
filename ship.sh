@@ -40,7 +40,11 @@ if [ "${NEWHIGH:-0}" != 0 ] && [ $FORCE -ne 1 ]; then
 fi
 
 echo "== 3. commit + push"
-if git diff --cached --quiet; then echo "   nothing to commit"; else
-  git commit -q -m "$MSG" -m "Security scan: $R" && git push -q origin HEAD 2>&1 | grep -v "^$" ; echo "   pushed $(git rev-parse --short HEAD)"
-fi
+if git diff --cached --quiet; then echo "   nothing to commit"; else git commit -q -m "$MSG" -m "Security scan: $R"; fi
+# the user also edits on github.com (README): replay local commits on top of theirs, then verify the push really landed
+git fetch -q origin main && { git rebase -q origin/main || { git rebase --abort; echo "   ABORT: conflict with commits on GitHub - resolve by hand"; exit 5; }; }
+git diff --name-only HEAD@{1} HEAD 2>/dev/null | xargs -r /usr/bin/python3 "$NM/repo_guard.py" >/dev/null || echo "   note: incoming GitHub changes flagged by repo_guard (review them)"
+if git push -q origin HEAD:main 2>&1 | grep -v "^$"; [ "$(git rev-parse HEAD)" = "$(git ls-remote origin refs/heads/main | cut -f1)" ]; then
+  echo "   pushed $(git rev-parse --short HEAD)"
+else echo "   ABORT: push did not land on GitHub"; exit 6; fi
 if [ $DEPLOY -eq 1 ]; then echo "== 4. deploy dashboard"; "$NM/dashboard/deploy.sh" >/dev/null && sleep 5 && curl -skf https://127.0.0.1:8443/healthz && echo; fi
