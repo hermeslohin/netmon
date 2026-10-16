@@ -10,6 +10,7 @@ import risk
 import lateral
 import auth
 import tintel
+import chat
 from http.cookies import SimpleCookie
 import base64, glob, gzip, hmac, json, os, re, ssl, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -263,6 +264,13 @@ class H(BaseHTTPRequestHandler):
         for k_, v_ in getattr(self, "_extra_headers", []):
             self.send_header(k_, v_)
         self._extra_headers = []
+        self._sec_headers()
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _sec_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Strict-Transport-Security", "max-age=31536000")
         self.send_header("Content-Security-Policy",
@@ -273,10 +281,63 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-        if gz:
-            self.send_header("Content-Encoding", "gzip")
+
+    def _chat_send(self, user, body):
+        """Relay one Hermes turn to the browser as server-sent events (text/event-stream)."""
+        cid, text = str(body.get("id", "")), str(body.get("text", "")).strip()
+        if not text:
+            return self._json({"error": "empty message"}, 400)
+        if len(text) > chat.MAX_INPUT:
+            return self._json({"error": f"message too long (max {chat.MAX_INPUT} characters)"}, 400)
+        if not chat.owns(user, cid):
+            return self._json({"error": "no such chat"}, 404)
+        err = chat.rate_check(user)
+        if err:
+            return self._json({"error": err}, 429)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-transform")
+        self.send_header("X-Accel-Buffering", "no")
+        self._sec_headers()
         self.end_headers()
-        self.wfile.write(body)
+        self.close_connection = True
+
+        def emit(ev, data):
+            self.wfile.write(f"event: {ev}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode())
+            self.wfile.flush()
+        print(f"chat: {user} -> {cid} ({len(text)} chars)", file=sys.stderr)
+        try:
+            emit("start", {})
+            chat.stream(user, cid, text, emit)
+        except (BrokenPipeError, ConnectionResetError):
+            print(f"chat: {user} disconnected mid-answer", file=sys.stderr)
+        except Exception as e:  # Hermes down / timeout: tell the browser, keep the server alive
+            print(f"chat error for {user}: {e.__class__.__name__}: {e}", file=sys.stderr)
+            try:
+                emit("end", {"status": "failed", "error": "The assistant is unavailable right now. Try again in a minute."})
+            except OSError:
+                pass
+
+    def _chat(self, user, body):
+        if not chat.enabled():
+            return self._json({"error": "chat is not configured on this server"}, 503)
+        act, cid = body.get("action"), str(body.get("id", ""))
+        try:
+            if act == "list":
+                return self._json({"chats": chat.sessions(user), "max_input": chat.MAX_INPUT})
+            if act == "new":
+                return self._json({"id": chat.create(user)})
+            if act == "history":
+                h = chat.history(user, cid)
+                return self._json({"messages": h}) if h is not None else self._json({"error": "no such chat"}, 404)
+            if act == "delete":
+                return self._json({"ok": True}) if chat.delete(user, cid) else self._json({"error": "no such chat"}, 404)
+            if act == "send":
+                return self._chat_send(user, body)
+        except Exception as e:
+            print(f"chat {act} error for {user}: {e.__class__.__name__}: {e}", file=sys.stderr)
+            return self._json({"error": "The assistant is unavailable right now."}, 502)
+        return self._json({"error": "bad action"}, 400)
 
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, separators=(",", ":"), default=str), "application/json")
@@ -302,6 +363,8 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/logout":
                 self._pending_cookies = [f"{self.COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"]
                 return self._json({"ok": True})
+            if u.path == "/api/chat":
+                return self._chat(user, body)
             if u.path == "/api/account/password":
                 cookie, err = auth.change_own_password(user, str(body.get("current", "")), str(body.get("password", "")), self._client_ip())
                 if err:
