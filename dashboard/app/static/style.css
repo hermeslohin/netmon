@@ -228,3 +228,4 @@ td.askcell{width:1%;padding-right:2px}
 .askdlg-f{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
 .chat-about{font-size:11px;opacity:.85;border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:4px;margin-bottom:5px;overflow-wrap:anywhere}
 @media (max-width:900px){ .askdlg textarea{font-size:16px} .askh{padding:4px 8px} }
+.fchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;color:var(--muted)}.fchips .chip{border-color:var(--accent);color:var(--fg)}.fchips .chip a{text-decoration:none;margin-left:2px}

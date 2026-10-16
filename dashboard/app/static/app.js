@@ -103,11 +103,28 @@ function linkifyIps(text) {
   return esc(text).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, (m) => (isInternal(m) && S.snap?.raw?.devices?.[m] ? `<a href="#/device/${m}">${m}</a>` : m));
 }
 
+/* ---------- chart drill-down: charts link to lists filtered via hash query params ---------- */
+const hq = () => new URLSearchParams(location.hash.split("?")[1] || "");
+const eqi = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+function hashWith(view, params) { const p = new URLSearchParams(); entries(params).forEach(([k, v]) => v != null && v !== "" && p.set(k, v)); const s = p.toString(); return "#/" + view + (s ? "?" + s : ""); }
+function hashWithout(keys) { const p = hq(); [].concat(keys).forEach((k) => p.delete(k)); const s = p.toString(); return location.hash.split("?")[0] + (s ? "?" + s : ""); }
+function drill(view, params) { location.hash = hashWith(view, params); }
+// same view, merge params into the current query (keeps e.g. ?host=)
+function drillHere(params) { const p = hq(); entries(params).forEach(([k, v]) => p.set(k, v)); location.hash = location.hash.split("?")[0] + "?" + p.toString(); }
+const clickable = (fn) => ({ onClick: (e, els) => els.length && fn(els[0].index, els[0].datasetIndex), onHover: (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") });
+
 /* ---------- table component ---------- */
 // cols: [{k, t, num, fmt(v,row)->html, sort(row)->val, cls}]
+// opts.urlFilter: {param: [label, (row, value) => bool]} — hash query params filter the rows (chart drill-down) and show removable chips
 function table(id, cols, rows, opts = {}) {
   const st = { key: opts.sort ?? null, dir: opts.dir ?? -1, q: "" };
   const wrap = document.createElement("div");
+  const P = hq(), act = entries(opts.urlFilter || {}).filter(([p]) => P.has(p)); let chipHtml = "";
+  if (act.length) {
+    rows = rows.filter((x) => act.every(([p, [, f]]) => f(x, P.get(p))));
+    chipHtml = `<div class="fchips">Filtered: ${act.map(([p, [l]]) => `<span class="chip">${esc(l)}: <b>${esc(P.get(p))}</b> <a href="${esc(hashWithout(p))}" title="Remove filter">✕</a></span>`).join(" ")}${act.length > 1 ? ` <a href="${esc(hashWithout(act.map(([p]) => p)))}" class="small">clear all</a>` : ""}</div>`;
+    if (!S._noScroll && !S._scrolled) { S._scrolled = true; setTimeout(() => (wrap.closest(".card") || wrap).scrollIntoView({ block: "start" }), 0); }
+  }
   const render = () => {
     let r = rows;
     if (st.q) { const q = st.q.toLowerCase(); r = r.filter((x) => cols.some((c) => String(c.sort ? c.sort(x) : x[c.k] ?? "").toLowerCase().includes(q))); }
@@ -126,7 +143,7 @@ function table(id, cols, rows, opts = {}) {
     if (more) more.innerHTML = opts.limit && r.length > opts.limit && !st.q ? `<button>${st.showAll ? "Show top " + opts.limit : "Show all " + r.length}</button>` : `<span class="muted small">${r.length} rows</span>`;
     wrap.querySelectorAll("th").forEach((th) => { th.classList.remove("sorted-asc", "sorted-desc"); if (th.dataset.k === String(st.key)) th.classList.add(st.dir > 0 ? "sorted-asc" : "sorted-desc"); });
   };
-  wrap.innerHTML = (opts.search !== false && rows.length > 8 ? `<div class="tbltools"><input placeholder="Filter…" type="search"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
+  wrap.innerHTML = chipHtml + (opts.search !== false && rows.length > 8 ? `<div class="tbltools"><input placeholder="Filter…" type="search"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
     `<div class="tblwrap ${opts.short ? "short" : ""}"><table><thead><tr>${cols.map((c) => `<th data-k="${esc(c.k)}" class="${c.num ? "num" : ""}">${esc(c.t)}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`;
   wrap.querySelector("thead").onclick = (e) => { const k = e.target.closest("th")?.dataset.k; if (!k) return; st.dir = st.key === k ? -st.dir : (cols.find((c) => c.k === k)?.num ? -1 : 1); st.key = k; render(); };
   const inp = wrap.querySelector("input"); if (inp) inp.oninput = () => { st.q = inp.value; render(); };
@@ -160,12 +177,13 @@ function barCfg(labels, data, { label = "", bytes = false, horizontal = true, co
       scales: { [horizontal ? "x" : "y"]: bytes ? bytesAxis : {}, [horizontal ? "y" : "x"]: { ticks: { autoSkip: false, font: { size: 11 } } } },
       onClick: onClick ? (e, els) => els.length && onClick(els[0].index) : undefined, onHover: onClick ? (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") : undefined } };
 }
-function doughnutCfg(obj, { bytes = false, top = 8 } = {}) {
+function doughnutCfg(obj, { bytes = false, top = 8, onClick } = {}) {
   const e = sortDesc(obj).map(([k, v]) => [k, typeof v === "object" ? v.bytes ?? v.conns : v]);
   const head = e.slice(0, top), rest = e.slice(top).reduce((s, [, v]) => s + v, 0);
   if (rest > 0) head.push(["other", rest]);
   return { type: "doughnut", data: { labels: head.map((x) => x[0]), datasets: [{ data: head.map((x) => x[1]), backgroundColor: PALETTE, borderColor: "#161b22" }] },
-    options: { cutout: "58%", plugins: { legend: { position: "right" }, tooltip: { callbacks: { label: (c) => `${c.label}: ${bytes ? fb(c.parsed) : fn(c.parsed)}` } } } } };
+    options: { cutout: "58%", plugins: { legend: { position: "right" }, tooltip: { callbacks: { label: (c) => `${c.label}: ${bytes ? fb(c.parsed) : fn(c.parsed)}`, ...(onClick ? { footer: (it) => (it[0]?.label !== "other" ? "click to list" : "") } : {}) } } },
+      ...(onClick ? { onClick: (e, els) => { const l = els.length && head[els[0].index][0]; if (l && l !== "other") onClick(l); }, onHover: (e, els) => (e.native.target.style.cursor = els.length && head[els[0].index][0] !== "other" ? "pointer" : "default") } : {}) } };
 }
 function hourLabels() {
   const ks = Object.keys(S.snap.raw?.totals?.hourly || {}).sort();
@@ -289,9 +307,9 @@ V.overview = (el) => {
       options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip } } }),
     topTalkersChart(12)));
   el.appendChild(grid("g3",
-    chartCard("Findings by severity", doughnutCfg(fsev)),
-    chartCard("Finding kinds", doughnutCfg((an.findings || []).reduce((o, f) => ((o[f.kind] = (o[f.kind] || 0) + 1), o), {}), { top: 10 })),
-    chartCard("Devices by zone", doughnutCfg(S.idx.rows.reduce((o, r) => ((o[r.zone || "?"] = (o[r.zone || "?"] || 0) + 1), o), {})))));
+    chartCard("Findings by severity", doughnutCfg(fsev, { onClick: (l) => drill("security", { severity: l }) })),
+    chartCard("Finding kinds", doughnutCfg((an.findings || []).reduce((o, f) => ((o[f.kind] = (o[f.kind] || 0) + 1), o), {}), { top: 10, onClick: (l) => drill("security", { kind: l }) })),
+    chartCard("Devices by zone", doughnutCfg(S.idx.rows.reduce((o, r) => ((o[r.zone || "?"] = (o[r.zone || "?"] || 0) + 1), o), {}), { onClick: (l) => drill("devices", { zone: l }) }))));
   if (alarms.length) { const A = ackSplit("alarm", alarms, "ov-alarms"); const lst = A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority));
     const c = card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(lst.slice(0, S.showAcked["ov-alarms"] ? 50 : 6)) || `<div class="empty">All alarms checked off.</div>`); if (A.show.length > 6) c.insertAdjacentHTML("beforeend", `<a href="#/security">All alarms →</a>`); el.appendChild(c); }
   el.appendChild(grid("g2", card("Endpoint fleet", fleetTable()), card("Gateway health", unifiHealthHtml())));
@@ -329,11 +347,19 @@ function unifiHealthHtml() {
 }
 
 /* ----- Devices list ----- */
+const devRaw = (r) => S.snap.raw.devices?.[r.ip] || {};
+const DEV_FILTERS = {
+  zone: ["Zone", (r, v) => eqi(r.zone || "?", v)], cls: ["Class", (r, v) => eqi(r.cls, v)], vendor: ["Vendor", (r, v) => eqi(r.oui, v)],
+  known: ["Known", (r, v) => String(!!r.known) === v], severity: ["Worst finding", (r, v) => eqi(r.worst, v)],
+  country: ["Internet traffic to country", (r, v) => !!devRaw(r).countries?.[v]], asn: ["Traffic to ASN", (r, v) => !!devRaw(r).asns?.[v]],
+  proto: ["Uses protocol / service", (r, v) => !!devRaw(r).protocols?.[v]], qtype: ["DNS query type", (r, v) => !!devRaw(r).dns?.qtypes?.[v]],
+  tls: ["TLS version", (r, v) => !!S.snap.raw.tls?.devices?.[r.ip]?.versions?.[v]],
+};
 V.devices = (el) => {
   const rows = S.idx.rows;
   el.innerHTML = `<h1>Devices</h1><div class="sub">${rows.length} internal addresses with traffic in this snapshot. Click a row for full detail.</div>` +
-    kpis([["Known", rows.filter((r) => r.known).length, "good"], ["Unknown", rows.filter((r) => !r.known).length, rows.some((r) => !r.known) ? "warn" : ""],
-      ["New this window", (S.snap.analysis?.new_devices || []).length], ["With high findings", rows.filter((r) => r.worst === "high").length, "bad"]]);
+    kpis([["Known", `<a href="#/devices?known=true">${rows.filter((r) => r.known).length}</a>`, "good"], ["Unknown", `<a href="#/devices?known=false">${rows.filter((r) => !r.known).length}</a>`, rows.some((r) => !r.known) ? "warn" : ""],
+      ["New this window", (S.snap.analysis?.new_devices || []).length], ["With high findings", `<a href="#/devices?severity=high">${rows.filter((r) => r.worst === "high").length}</a>`, "bad"]]);
   el.appendChild(card("", table("devs", [
     { k: "name", t: "Name", fmt: (v, r) => `<a href="#/device/${r.ip}">${esc(v || "(unnamed)")}</a>${r.known ? "" : ' <span class="badge sev-medium">unknown</span>'}${r.hosts.length ? ' <span class="badge sev-info">agent</span>' : ""}` },
     { k: "ip", t: "IP", cls: "mono", sort: (r) => ip2n(r.ip) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "oui", t: "Vendor", cls: "small" },
@@ -341,7 +367,7 @@ V.devices = (el) => {
     { k: "total", t: "Total", num: true, bar: true, fmt: fb }, { k: "sent", t: "Sent", num: true, fmt: fb }, { k: "recv", t: "Recv", num: true, fmt: fb },
     { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "ext_peers", t: "Ext peers", num: true, fmt: fn }, { k: "dnsq", t: "DNS q", num: true, fmt: fn },
     { k: "findings", t: "Findings", num: true, fmt: (v, r) => (v ? `${v} ${badge(r.worst)}` : "") , sort: (r) => r.findings * 10 + (5 - sevRank(r.worst)) },
-  ], rows, { sort: "total", onclick: (r) => go("device/" + r.ip) })));
+  ], rows, { sort: "total", onclick: (r) => go("device/" + r.ip), urlFilter: DEV_FILTERS })));
   const nd = S.snap.analysis?.new_devices || [], ud = S.snap.analysis?.unknown_devices || [];
   el.appendChild(grid("g2",
     card("New devices (first seen this window)", table(null, [{ k: "ip", t: "Device", fmt: (v) => ipLink(v) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "hostname", t: "Hostname" }, { k: "first_seen", t: "First seen", fmt: ft }, { k: "total", t: "Bytes", num: true, fmt: fb }], nd, { search: false })),
@@ -387,9 +413,9 @@ V.device = (el, ip) => {
       options: { scales: { y: bytesAxis, y1: { position: "right", grid: { display: false } } }, plugins: { tooltip: { callbacks: { label: (c) => c.dataset.label === "bytes" ? "bytes: " + fb(c.parsed.y) : "conns: " + fn(c.parsed.y) } } } } }),
     historyChartForDevice(ip, r.mac)));
   el.appendChild(grid("g3",
-    chartCard("Internet traffic by country", doughnutCfg(d.countries, { bytes: true })),
-    chartCard("By ASN", barCfg(sortDesc(d.asns).map((x) => x[0]), sortDesc(d.asns).map((x) => x[1]), { bytes: true, color: PALETTE[4] })),
-    chartCard("By protocol / service", doughnutCfg(d.protocols, { bytes: true }))));
+    chartCard("Internet traffic by country <span class=\"muted small\">· click: all devices to it</span>", doughnutCfg(d.countries, { bytes: true, onClick: (l) => drill("devices", { country: l }) })),
+    chartCard("By ASN", (() => { const a = sortDesc(d.asns); return barCfg(a.map((x) => x[0]), a.map((x) => x[1]), { bytes: true, color: PALETTE[4], onClick: (i) => drill("devices", { asn: a[i][0] }) }); })()),
+    chartCard("By protocol / service", doughnutCfg(d.protocols, { bytes: true, onClick: (l) => drill("devices", { proto: l }) }))));
   el.appendChild(grid("g3",
     card("Top destinations", kvTable(d.top_dst, "Destination", "Bytes", fb, (k) => ipLink(k))),
     card("Remote ports (bytes)", kvTable(d.ports, "Port", "Bytes", fb)),
@@ -408,7 +434,7 @@ V.device = (el, ip) => {
     const c = card("DNS", kpis([["Queries", fn(dns.queries)], ["Unique names", fn(dns.unique_names)], ["Unique domains", fn(dns.unique_domains)], ["NXDOMAIN", fn(dns.nxdomain)], ["SERVFAIL", fn(dns.servfail)], ["Avg name len", (+dns.avg_len || 0).toFixed(1)]]), "span");
     el.appendChild(c);
     el.appendChild(grid("g3", card("Top domains", kvTable(dns.top_domains, "Domain", "Queries")), card("NXDOMAIN domains", kvTable(dns.nx_domains, "Domain", "Queries")),
-      chartCard("Query types", doughnutCfg(dns.qtypes))));
+      chartCard("Query types", doughnutCfg(dns.qtypes, { onClick: (l) => drill("devices", { qtype: l }) }))));
     el.appendChild(grid("g3", card("Resolvers used", kvTable(dns.resolvers, "Resolver", "Queries", fn, (k) => ipLink(k))), card("TLDs", kvTable(dns.tlds, "TLD", "Queries")),
       card("Other DNS signals", `<div class="idgrid"><span class="k">External resolvers</span><span>${esc(Object.keys(dns.external_resolvers || {}).join(", ") || "none")}</span>
         <span class="k">DoH</span><span>${esc(JSON.stringify(dns.doh ?? "none"))}</span><span class="k">mDNS</span><span>${esc(JSON.stringify(dns.mdns ?? "none"))}</span>
@@ -420,7 +446,7 @@ V.device = (el, ip) => {
   if (tls || iot) el.appendChild(grid("g3",
     tls?.ja3 && card("TLS client fingerprints (JA3) · <a href=\"#/tls\">all</a>", kvTable(tls.ja3, "JA3", "Conns", fn, (k) => { const m = (S.snap.raw.tls?.malicious_ja3 || []).find((x) => x.ja3 === k); const j = (S.snap.raw.tls?.ja3 || []).find((x) => x.ja3 === k); return `<a href="#/threatintel?q=${k}" class="mono small">${esc(k)}</a>${m ? ' <span class="badge sev-high">SSLBL</span>' : ""}${j ? `<br><span class="muted small">${j.clients} device(s) · ${esc((j.servers || []).slice(0, 2).join(", "))}</span>` : ""}`; })),
     tls && card("TLS client fingerprints (JA4)", kvTable(tls.ja4, "JA4", "Conns", fn, (k) => `<span class="mono">${esc(k)}</span>`)),
-    tls && chartCard("TLS versions", doughnutCfg(tls.versions)),
+    tls && chartCard("TLS versions", doughnutCfg(tls.versions, { onClick: (l) => drill("devices", { tls: l }) })),
     tls && (tls.bad_certs || []).length && card("Bad certificates", `<pre>${esc(JSON.stringify(tls.bad_certs, null, 1))}</pre>`),
     iot && card("IoT: domains contacted", kvTable(iot.domains, "Domain", "Conns")),
     iot && card("IoT: SNI", kvTable(iot.sni, "SNI", "Conns")),
@@ -578,7 +604,7 @@ V.risk = (el) => {
     { k: "drivers", t: "Top drivers", cls: "small", fmt: (v) => v.slice(0, 3).map((d) => `<span class="chip">${esc(d.type)}</span> ${esc(d.text)}`).join("<br>"), sort: (h) => h.drivers.length },
   ], H, { sort: "score", limit: 30 })));
   const tv = Vn.slice(0, 15);
-  el.appendChild(chartCard("Top 15 vulnerabilities by risk", barCfg(tv.map((v) => `${v.title.slice(0, 50)} — ${String(v.target).slice(0, 22)}`), tv.map((v) => v.score), { color: tv.map((v) => (v.score >= 60 ? "#f85149" : v.score >= 30 ? "#d29922" : "#58a6ff")) }), "", "tall"));
+  el.appendChild(chartCard("Top 15 vulnerabilities by risk (click to drill down)", barCfg(tv.map((v) => `${v.title.slice(0, 50)} — ${String(v.target).slice(0, 22)}`), tv.map((v) => v.score), { color: tv.map((v) => (v.score >= 60 ? "#f85149" : v.score >= 30 ? "#d29922" : "#58a6ff")), onClick: (i) => drill("risk", { vuln: tv[i].title, where: tv[i].target }) }), "", "tall"));
   const VA = ackSplit("issue", Vn, "risk-vulns");
   el.appendChild(card(`Vulnerabilities ranked by risk (${VA.open.length})${VA.toggle}`, table(null, [
     ackCol("issue", (x) => `${x.title} — ${x.target || ""}`), askCol("vulnerability", (x) => `${x.title} — ${x.target || ""}`), { k: "rank", t: "#", num: true }, { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "severity", t: "Sev", fmt: badge, sort: (v) => sevRank(v.severity) },
@@ -586,13 +612,15 @@ V.risk = (el) => {
     { k: "target", t: "Where", fmt: (v, x) => issueTarget(x) },
     { k: "drivers", t: "Score drivers", cls: "small", fmt: (v) => esc(v.join(" · ")), sort: (x) => x.score },
     { k: "fix", t: "How to fix", cls: "small", fmt: (v, x) => `${esc(v)}<details><summary>evidence</summary><span class="mono">${linkifyIps(x.evidence)}</span></details>` },
-  ], VA.show, { sort: "score", limit: 40, rowClass: ackRowCls("issue") })));
+  ], VA.show, { sort: "score", limit: 40, rowClass: ackRowCls("issue"), urlFilter: ISSUE_FILTERS })));
   el.appendChild(card("Scoring model", `<div class="small"><p><b>Host likelihood</b> (0–100) = exposure (≤25: internet-facing services, threat-listed probes, DMZ) + weaknesses (≤30: combined fix-list items on the host) + threat activity (≤25: behaviour anomalies, non-benign IDS alerts, beacons, threat-intel contacts) + lateral reach (≤10: other zones reached, policy violations) + visibility gaps (≤10: unknown device, missing/degraded EDR, DNS bypass).</p>
     <p><b>Impact</b> (1–5): the sensor, the gateway and the crown-jewel hosts configured in site.json = 5; servers/AI = 5; k8s and work machines = 4; personal devices, DMZ = 3; IoT, cameras, media, consoles = 2. Score = likelihood × impact / 5.</p>
     <p><b>Vulnerability</b> = severity base (high ${R.model.sev_base.high}, medium ${R.model.sev_base.medium}, low ${R.model.sev_base.low}) × kind factor × host exposure (internet-facing 1.4, DMZ 1.3, server 1.15) × recurrence (+8% per repeat, max +40%). Weights live in <span class="mono">dashboard/app/risk.py</span>.</p></div>`));
 };
 
 /* ----- Recurring issues / fix list ----- */
+const ISSUE_FILTERS = { severity: ["Severity", (x, v) => eqi(x.severity, v)], category: ["Category", (x, v) => eqi(x.category, v)],
+  vuln: ["Vulnerability", (x, v) => eqi(x.title, v)], where: ["Where", (x, v) => eqi(x.target, v)] };
 function issueTarget(x) {
   if (x.ip && S.snap?.raw?.devices?.[x.ip]) return `<a href="#/device/${encodeURIComponent(x.ip)}">${esc(x.target)}</a>`;
   if (x.host && endpointHosts().some((h) => hostMatch(h, x.host))) return hostLink(endpointHosts().find((h) => hostMatch(h, x.host)));
@@ -624,11 +652,12 @@ V.issues = (el) => {
   el.insertAdjacentHTML("beforeend", kpis([["Recurring open", rec.length, rec.length ? "warn" : "good"], ["High severity", rec.filter((x) => x.severity === "high").length, rec.some((x) => x.severity === "high") ? "bad" : "good"],
     ["Misconfigurations", rec.filter((x) => x.category === "Misconfiguration").length], ["Security suggestions", rec.filter((x) => x.category === "Security suggestion").length],
     ["New / seen once", watch.length], ["Fixed", I.fixed.length, "good"], ["Checked off", `<a href="#/checked">${RA.done.length + WA.done.length}</a>`]]));
-  el.appendChild(grid("g3", chartCard("Recurring by severity", doughnutCfg(by(rec, (x) => x.severity))), chartCard("Recurring by category", doughnutCfg(by(rec, (x) => x.category))),
-    chartCard("Open vs fixed", { type: "bar", data: { labels: ["recurring", "new", "fixed"], datasets: [{ data: [rec.length, watch.length, I.fixed.length], backgroundColor: [PALETTE[2], PALETTE[0], PALETTE[1]], borderRadius: 3 }] }, options: { plugins: { legend: { display: false } } } }, "", "short")));
-  el.appendChild(card(`Recurring: fix these (${rec.length})${RA.toggle}`, issueTable(RA.show)));
-  el.appendChild(card(`New / seen once (${watch.length}) <span class="muted small">— these move to the list above if they show up again</span>${WA.toggle}`, issueTable(WA.show, { short: true })));
-  el.appendChild(card(`Fixed (${I.fixed.length})`, issueTable(I.fixed, { fixed: true, short: true, sort: "fixed_at", dir: -1 })));
+  el.appendChild(grid("g3", chartCard("Recurring by severity", doughnutCfg(by(rec, (x) => x.severity), { onClick: (l) => drill("issues", { severity: l }) })), chartCard("Recurring by category", doughnutCfg(by(rec, (x) => x.category), { onClick: (l) => drill("issues", { category: l }) })),
+    chartCard("Open vs fixed", { type: "bar", data: { labels: ["recurring", "new", "fixed"], datasets: [{ data: [rec.length, watch.length, I.fixed.length], backgroundColor: [PALETTE[2], PALETTE[0], PALETTE[1]], borderRadius: 3 }] }, options: { plugins: { legend: { display: false } }, ...clickable((i) => drill("issues", { at: ["iss-rec", "iss-new", "iss-fixed"][i] })) } }, "", "short")));
+  const uf = { urlFilter: ISSUE_FILTERS };
+  el.appendChild(card(`Recurring: fix these (${rec.length})${RA.toggle}`, issueTable(RA.show, uf))).id = "iss-rec";
+  el.appendChild(card(`New / seen once (${watch.length}) <span class="muted small">— these move to the list above if they show up again</span>${WA.toggle}`, issueTable(WA.show, { short: true, ...uf }))).id = "iss-new";
+  el.appendChild(card(`Fixed (${I.fixed.length})`, issueTable(I.fixed, { fixed: true, short: true, sort: "fixed_at", dir: -1, ...uf }))).id = "iss-fixed";
 };
 
 /* ----- Users ----- */
@@ -716,14 +745,15 @@ V.security = (el) => {
     el.appendChild(card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
   if ((tr.research_notes || []).length) el.appendChild(card("Research notes", "<ul>" + tr.research_notes.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>"));
   const BF = ackSplit("finding", an.findings || [], "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device) })));
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
+    urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
-    chartCard("IDS signatures (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2] }), "", "tall"),
-    chartCard("IDS alerts by category", doughnutCfg(sigs.reduce((o, s) => ((o[s.category] = (o[s.category] || 0) + s.count), o), {})))));
+    chartCard("IDS signatures (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2], onClick: (i) => drill("security", { sig: sigs[i].name }) }), "", "tall"),
+    chartCard("IDS alerts by category", doughnutCfg(sigs.reduce((o, s) => ((o[s.category] = (o[s.category] || 0) + s.count), o), {}), { onClick: (l) => drill("security", { category: l }) }))));
   el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [askCol("IDS signature", (x) => x.name), { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
     { k: "src", t: "Sources", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.src || {}).join() }, { k: "dst", t: "Destinations", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.dst || {}).join() },
-    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count" })));
+    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count", urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
   el.appendChild(grid("g2",
     card(`Segmentation violations (${(an.violations || []).length})`, table(null, [askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], an.violations || [], { sort: "severity", dir: 1 })),
     card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [askCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));
@@ -753,7 +783,7 @@ V.traffic = (el) => {
   const ctry = agg("countries"), asn = agg("asns"), proto = agg("protocols");
   const topAsn = sortDesc(asn).slice(0, 15);
   el.appendChild(grid("g2", topTalkersChart(20), chartCard("Internet upload by device (top 15)", (() => { const t = [...rows].sort((a, b) => b.ext_out - a.ext_out).slice(0, 15); return barCfg(t.map((r) => r.name || r.ip), t.map((r) => r.ext_out), { bytes: true, color: PALETTE[3], onClick: (i) => go("device/" + t[i].ip) }); })(), "", "tall")));
-  el.appendChild(grid("g3", chartCard("Internet bytes by country", doughnutCfg(ctry, { bytes: true })), chartCard("Top ASNs", barCfg(topAsn.map((x) => x[0]), topAsn.map((x) => x[1]), { bytes: true, color: PALETTE[4] })), chartCard("Protocols", doughnutCfg(proto, { bytes: true }))));
+  el.appendChild(grid("g3", chartCard("Internet bytes by country", doughnutCfg(ctry, { bytes: true, onClick: (l) => drill("devices", { country: l }) })), chartCard("Top ASNs", barCfg(topAsn.map((x) => x[0]), topAsn.map((x) => x[1]), { bytes: true, color: PALETTE[4], onClick: (i) => drill("devices", { asn: topAsn[i][0] }) })), chartCard("Protocols", doughnutCfg(proto, { bytes: true, onClick: (l) => drill("devices", { proto: l }) }))));
   // zone matrix heatmap
   const M = raw.internal?.matrix || {}; const zs = [...new Set(Object.keys(M).flatMap((k) => k.split(" -> ")))].sort();
   const mx = Math.max(1, ...Object.values(M).map((v) => v.conns));
@@ -774,7 +804,7 @@ V.dns = (el) => {
   const rows = S.idx.rows.filter((r) => r.dnsq);
   el.appendChild(grid("g2", chartCard("DNS queries by device (top 15)", (() => { const t = [...rows].sort((a, b) => b.dnsq - a.dnsq).slice(0, 15); return barCfg(t.map((r) => r.name || r.ip), t.map((r) => r.dnsq), { color: PALETTE[5], onClick: (i) => go("device/" + t[i].ip) }); })(), "", "tall"),
     chartCard("NXDOMAIN by device (top 15)", (() => { const t = [...rows].sort((a, b) => b.nx - a.nx).slice(0, 15); return barCfg(t.map((r) => r.name || r.ip), t.map((r) => r.nx), { color: PALETTE[3], onClick: (i) => go("device/" + t[i].ip) }); })(), "", "tall")));
-  el.appendChild(grid("g3", card("Top domains (all devices)", kvTable(dom, "Domain", "Queries")), card("NXDOMAIN domains", kvTable(nx, "Domain", "Queries")), chartCard("Query types", doughnutCfg(qt))));
+  el.appendChild(grid("g3", card("Top domains (all devices)", kvTable(dom, "Domain", "Queries")), card("NXDOMAIN domains", kvTable(nx, "Domain", "Queries")), chartCard("Query types", doughnutCfg(qt, { onClick: (l) => drill("devices", { qtype: l }) }))));
   el.appendChild(grid("g2", card("Resolvers", kvTable(res, "Resolver", "Queries", fn, (k) => ipLink(k))), card("TLDs", kvTable(tld, "TLD", "Queries"))));
   const tls = raw.tls?.devices || {}; const ja4 = {}, ver = {};
   for (const t of Object.values(tls)) { for (const [k, v] of entries(t.ja4)) ja4[k] = (ja4[k] || 0) + v; for (const [k, v] of entries(t.versions)) ver[k] = (ver[k] || 0) + v; }
@@ -854,7 +884,7 @@ V.history = (el) => {
   const keys = new Set(H.flatMap((h) => Object.keys(h.devices)));
   const series = [...keys].map((k) => { const pts = H.map((h) => h.devices[k]?.total || 0); const last = [...H].reverse().map((h) => h.devices[k]).find(Boolean) || {}; return { k, ip: last.ip, name: last.name || last.ip || k, pts, sum: pts.reduce((a, b) => a + b, 0), known: last.known }; }).sort((a, b) => b.sum - a.sum);
   const top = series.slice(0, 10);
-  el.appendChild(chartCard("Top 10 devices over time (total bytes)", { type: "line", data: { labels: lab, datasets: top.map((s, i) => ({ label: s.name, data: s.pts, borderColor: PALETTE[i % PALETTE.length], tension: 0.3 })) }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip } } }, "", "tall"));
+  el.appendChild(chartCard("Top 10 devices over time (total bytes, click a line to drill down)", { type: "line", data: { labels: lab, datasets: top.map((s, i) => ({ label: s.name, data: s.pts, borderColor: PALETTE[i % PALETTE.length], tension: 0.3 })) }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip }, ...clickable((i, ds) => { const ip = top[ds]?.ip; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); }) } }, "", "tall"));
   const spark = (pts) => { const m = Math.max(1, ...pts), w = 120, hh = 24; const p = pts.map((v, i) => `${(i * w) / Math.max(1, pts.length - 1)},${hh - (v / m) * (hh - 2) - 1}`).join(" "); return `<svg class="spark" width="${w}" height="${hh}"><polyline fill="none" stroke="#58a6ff" stroke-width="1.5" points="${p}"/></svg>`; };
   el.appendChild(card("Per-device trend", table(null, [{ k: "name", t: "Device", fmt: (v, r) => (r.ip && S.snap.raw.devices?.[r.ip] ? `<a href="#/device/${r.ip}">${esc(v)}</a>` : esc(v)) }, { k: "k", t: "Key", cls: "mono small" }, { k: "pts", t: "Trend", fmt: spark, sort: (r) => r.pts[r.pts.length - 1] - r.pts[0] }, { k: "last", t: "Latest", num: true, fmt: fb }, { k: "sum", t: "Sum", num: true, bar: true, fmt: fb }],
     series.map((s) => ({ ...s, last: s.pts[s.pts.length - 1] })), { sort: "sum" })));
@@ -863,13 +893,14 @@ V.history = (el) => {
 /* ---------- router ---------- */
 function go(r) { location.hash = "#/" + r; }
 async function route(keep) {
-  S.charts.forEach((c) => c.destroy()); S.charts = [];
+  S.charts.forEach((c) => c.destroy()); S.charts = []; S._scrolled = false; S._noScroll = !!keep;
   const [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || "overview").split("/");
   const arg = decodeURIComponent(rest.join("/"));
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (a.dataset.r + "s" === view + "s" && false) || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
   const el = $("#main"); el.innerHTML = "";
   try { (V[view] || V.overview)(el, arg); } catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
-  flushCharts(); if (!keep) window.scrollTo(0, 0);
+  flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
+  const at = !keep && hq().get("at"); if (at) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 0);
 }
 
 async function loadSnap(id) {

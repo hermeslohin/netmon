@@ -30,11 +30,12 @@ function tlsSection(el) {
   const iss = {}; certs.forEach((c) => { const k = certCN(c.issuer) || "?"; iss[k] = (iss[k] || 0) + 1; });
   const keys = {}; certs.forEach((c) => { const k = `${(c.key_type || "?").toUpperCase()} ${c.key_length || ""}`; keys[k] = (keys[k] || 0) + 1; });
   const exp = { expired: 0, "<7d": 0, "<30d": 0, "<90d": 0, "<1y": 0, ">1y": 0 };
-  certs.forEach((c) => { const d = c.days_left; if (d == null) return; exp[d < 0 ? "expired" : d < 7 ? "<7d" : d < 30 ? "<30d" : d < 90 ? "<90d" : d < 365 ? "<1y" : ">1y"]++; });
+  const expBucket = (d) => (d == null ? null : d < 0 ? "expired" : d < 7 ? "<7d" : d < 30 ? "<30d" : d < 90 ? "<90d" : d < 365 ? "<1y" : ">1y");
+  certs.forEach((c) => { const b = expBucket(c.days_left); if (b) exp[b]++; });
   const topIss = sortDesc(iss).slice(0, 10);
-  el.appendChild(grid("g4", chartCard("TLS versions (sessions)", doughnutCfg(T.versions)), chartCard("Certificate key types", doughnutCfg(keys)),
-    chartCard("Certificates by days to expiry", barCfg(Object.keys(exp), Object.values(exp), { horizontal: false, color: Object.keys(exp).map((k) => (k === "expired" ? "#f85149" : k === "<7d" ? "#d29922" : "#58a6ff")) })),
-    chartCard("Top certificate issuers", barCfg(topIss.map((x) => x[0].slice(0, 32)), topIss.map((x) => x[1]), { color: PALETTE[4] }))));
+  el.appendChild(grid("g4", chartCard("TLS versions (sessions)", doughnutCfg(T.versions, { onClick: (l) => drill("devices", { tls: l }) })), chartCard("Certificate key types", doughnutCfg(keys, { onClick: (l) => drill("tls", { certkey: l }) })),
+    chartCard("Certificates by days to expiry", barCfg(Object.keys(exp), Object.values(exp), { horizontal: false, color: Object.keys(exp).map((k) => (k === "expired" ? "#f85149" : k === "<7d" ? "#d29922" : "#58a6ff")), onClick: (i) => drill("tls", { expiry: Object.keys(exp)[i] }) })),
+    chartCard("Top certificate issuers", barCfg(topIss.map((x) => x[0].slice(0, 32)), topIss.map((x) => x[1]), { color: PALETTE[4], onClick: (i) => drill("tls", { issuer: topIss[i][0] }) }))));
   if ((T.malicious_ja3 || []).length) {
     const mc = card(`Malicious JA3 matches (${T.malicious_ja3.length})`, `<div class="small muted" style="margin-bottom:6px">SSLBL lists JA3 hashes of malware TLS stacks. Old entries (pre-2022) commonly collide with legitimate libraries — check the SNI/destination before worrying.</div>`);
     mc.appendChild(table(null, [{ k: "ja3", t: "JA3", fmt: (v, r) => ja3Fmt(v, r.malware) }, { k: "malware", t: "Listed as" }, { k: "count", t: "Conns", num: true }, { k: "sources", t: "Clients", fmt: (v) => clientsHtml(v) }, { k: "servers", t: "SNI", fmt: (v) => esc((v || []).join(", ")) }, { k: "dsts", t: "Dst", cls: "mono small", fmt: (v) => esc((v || []).join(", ")) }], T.malicious_ja3, { search: false }));
@@ -53,7 +54,7 @@ function tlsSection(el) {
       { k: "key_length", t: "Key", fmt: (v, c) => esc(`${(c.key_type || "").toUpperCase()} ${v || ""}`) }, { k: "sig_alg", t: "Signature", cls: "small" },
       { k: "days_left", t: "Days left", num: true, fmt: (v) => (v == null ? "" : v < 0 ? `<b style="color:var(--bad)">${v}</b>` : v < 30 ? `<b style="color:var(--warn)">${v}</b>` : fn(v)) }, { k: "validity_days", t: "Validity (d)", num: true, fmt: fn },
       { k: "clients", t: "Internal clients", fmt: (v) => clientsHtml(v, 3), sort: (c) => Object.keys(c.clients || {}).length }, { k: "count", t: "Seen", num: true, fmt: fn },
-    ], rows, { sort: "flags", dir: 1, limit: 60, onclick: (c) => { TLS.sel = { cert: c }; showSel(); selBox.scrollIntoView({ behavior: "smooth" }); } }));
+    ], rows, { sort: "flags", dir: 1, limit: 60, urlFilter: { certkey: ["Key type", (c, v) => eqi(`${(c.key_type || "?").toUpperCase()} ${c.key_length || ""}`, v)], expiry: ["Expiry", (c, v) => expBucket(c.days_left) === v], issuer: ["Issuer", (c, v) => eqi(certCN(c.issuer) || "?", v)] }, onclick: (c) => { TLS.sel = { cert: c }; showSel(); selBox.scrollIntoView({ behavior: "smooth" }); } }));
   };
   el.appendChild(cwrap); drawCerts();
   cwrap.querySelector("#tlsFlag").value = TLS.certFlag;
@@ -80,7 +81,7 @@ function tlsSection(el) {
     card("Cipher suites (sessions)", kvTable(T.ciphers, "Cipher", "Sessions"))));
   showSel();
 }
-V.tls = (el) => { V.dns(el); setTimeout(() => document.getElementById("tls-section")?.scrollIntoView(), 50); };
+V.tls = (el) => { V.dns(el); if (!S._scrolled) setTimeout(() => document.getElementById("tls-section")?.scrollIntoView(), 50); };
 
 function tlsDetail(sel, T) {
   if (sel.cert) {
@@ -139,7 +140,7 @@ V.threatintel = async (el, arg) => {
     chartCard("Threat-intel signals per snapshot", { type: "line", data: { labels: tr.map((r) => ft(r.generated)), datasets: [
       ["Inbound listed IPs", "in_ips", 3], ["Outbound IP hits", "out_ips", 0], ["Domain hits", "domains", 4], ["New domains", "new_domains", 2], ["Malicious JA3", "mal_ja3", 5], ["UniFi IPS threats", "unifi_threats", 1]]
       .map(([l, k, c]) => ({ label: l, data: tr.map((r) => r[k]), borderColor: PALETTE[c], backgroundColor: PALETTE[c], tension: 0.3 })) }, options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } }),
-    chartCard("Inbound connections from listed IPs, by target port", (() => { const o = {}; (ti.ip_hits_in || []).forEach((h) => (h.ports || []).forEach((p) => (o[`${p} → ${Object.keys(h.targets).map((t) => S.idx.nameOf(t) || t).join(",")}`] = (o[`${p} → ${Object.keys(h.targets).map((t) => S.idx.nameOf(t) || t).join(",")}`] || 0) + h.conns))); const e = sortDesc(o).slice(0, 10); return barCfg(e.map((x) => x[0]), e.map((x) => x[1]), { color: PALETTE[3] }); })())));
+    chartCard("Inbound connections from listed IPs, by target port", (() => { const o = {}, port = {}; (ti.ip_hits_in || []).forEach((h) => (h.ports || []).forEach((p) => { const k = `${p} → ${Object.keys(h.targets).map((t) => S.idx.nameOf(t) || t).join(",")}`; o[k] = (o[k] || 0) + h.conns; port[k] = p; })); const e = sortDesc(o).slice(0, 10); return barCfg(e.map((x) => x[0]), e.map((x) => x[1]), { color: PALETTE[3], onClick: (i) => drill("threatintel", { port: port[e[i][0]] }) }); })())));
   // feeds
   el.appendChild(card("Feeds", table(null, [{ k: "feed", t: "Feed", fmt: (v, f) => `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(v)}</a>` }, { k: "kind", t: "Type" },
     { k: "serious", t: "Outbound hit means", fmt: (v) => (v ? '<span class="badge sev-high">malware / C2</span>' : '<span class="badge sev-low">scanner / reputation</span>') },
@@ -149,7 +150,7 @@ V.threatintel = async (el, arg) => {
     card(`Outbound to listed IPs (${(ti.ip_hits_out || []).length})`, (ti.ip_hits_out || []).length ? table(null, [askCol("threat-intel hit", (x) => `outbound to listed IP ${x.ip}`), { k: "ip", t: "Destination", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "bytes", t: "Bytes", num: true, fmt: fb }, { k: "sources", t: "Internal sources", fmt: (v) => clientsHtml(v) }], ti.ip_hits_out, { search: false }) : `<div class="empty" style="color:var(--good)">None — no internal host talked to a listed malware/C2 IP.</div>`),
     card(`Listed domains / server names (${(ti.domain_hits || []).length})`, (ti.domain_hits || []).length ? table(null, [askCol("threat-intel hit", (x) => `listed domain ${x.domain}`), { k: "domain", t: "Domain" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Internal sources", fmt: (v) => clientsHtml(v) }], ti.domain_hits, { search: false }) : `<div class="empty" style="color:var(--good)">None — no DNS lookup or TLS server name matched a malware/phishing domain feed.</div>`)));
   el.appendChild(card(`Inbound from listed IPs (${(ti.ip_hits_in || []).length})`, table(null, [askCol("threat-intel hit", (x) => `inbound from listed IP ${x.ip}`), { k: "ip", t: "Source", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true, bar: true }, { k: "bytes", t: "Bytes", num: true, fmt: fb },
-    { k: "targets", t: "Targets", fmt: (v) => clientsHtml(v) }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "_", t: "", fmt: (v, r) => `<a href="#" class="ti-q" data-q="${esc(r.ip)}">lookup</a>` }], ti.ip_hits_in || [], { sort: "conns" })));
+    { k: "targets", t: "Targets", fmt: (v) => clientsHtml(v) }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "_", t: "", fmt: (v, r) => `<a href="#" class="ti-q" data-q="${esc(r.ip)}">lookup</a>` }], ti.ip_hits_in || [], { sort: "conns", urlFilter: { port: ["Target port", (r, v) => (r.ports || []).map(String).includes(String(v))] } })));
   el.appendChild(grid("g2",
     card(`Newly registered domains (${(ti.new_domains || []).length})`, `<div class="small muted" style="margin-bottom:6px">Domains under ~90 days old looked up from inside the network (RDAP, cached ${fn(ti.rdap?.known_age)} of ${fn(ti.rdap?.domains)} domains; ${fn(ti.rdap?.looked_up_now)} new lookups this run).</div>`)
       .appendChild(table(null, [{ k: "domain", t: "Domain", fmt: (v) => `<a href="#" class="ti-q" data-q="${esc(v)}">${esc(v)}</a>` }, { k: "registered", t: "Registered" }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Who", fmt: (v) => clientsHtml(v) }], ti.new_domains || [], { search: false })).parentNode,
