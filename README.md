@@ -1,13 +1,12 @@
 # netmon
 Built specific to me and by an AI.  Queries Elasticsearch and Unifi to collect security events.  Presents and explains risk of events and vulnerabilities.  Allows users (my wife and kids) to subscribe to devices and get notifications of security related events near real time (Job runs every 15 minutes)
 
-<img width="603" height="972" alt="Screenshot 2026-10-16 at 7 39 35 AM" src="https://github.com/user-attachments/assets/524626a7-9ad7-4e0a-9b6f-c30659399f7d" />
+<img width="670" height="401" alt="Screenshot 2026-10-16 at 7 56 20 AM" src="https://github.com/user-attachments/assets/035c674b-a802-4661-ba82-b204dc17b32a" />
+<img width="301" height="450" alt="Screenshot 2026-10-16 at 7 39 35 AM" src="https://github.com/user-attachments/assets/af2e18f7-9b59-49d4-b71f-04f2163bf500" />
+<img width="301" height="650" alt="Screenshot 2026-10-16 at 7 41 18 AM" src="https://github.com/user-attachments/assets/3eebb19c-dc13-44ae-8f36-263dfde570cb" />
+<img width="301" height="650" alt="Screenshot 2026-10-16 at 7 44 08 AM" src="https://github.com/user-attachments/assets/ac66bee9-0b9c-46c3-8aa0-e47c45f9fe51" />
 
-<img width="603" height="1311" alt="Screenshot 2026-10-16 at 7 41 18 AM" src="https://github.com/user-attachments/assets/78d189b9-b3d7-4795-884f-b1c1b774db37" />
 
-<img width="603" height="1311" alt="Screenshot 2026-10-16 at 7 44 08 AM" src="https://github.com/user-attachments/assets/83f62b6e-f884-4912-a288-bf21edc3b543" />
-
-<img width="1341" height="802" alt="Screenshot 2026-10-16 at 7 56 20 AM" src="https://github.com/user-attachments/assets/0c845447-9b5d-4e26-aa4e-8841fe28acd4" />
 
 Home-network security monitoring for the home network, run by the Hermes agent ("Lady Brains").
 
