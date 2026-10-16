@@ -73,12 +73,13 @@ function nmZones(hosts) {
 
 function nmRender(box, zones) {
   box.innerHTML = "";
-  const CW = 118, CH = 78, PAD = 16, HEAD = 46, MAXW = 1500, GAP = 34;
+  const narrow = (box.clientWidth || window.innerWidth) < 700;
+  const CW = 118, CH = 78, PAD = 16, HEAD = 46, MAXW = narrow ? 560 : 1500, GAP = 34;
   const visible = (h) => NM.inactive || h.active;
   // size zones
   for (const z of zones) {
     const n = z.hosts.filter(visible).length;
-    const maxCols = z.id === "lan" ? 11 : n > 12 ? 6 : 4;
+    const maxCols = narrow ? 4 : z.id === "lan" ? 11 : n > 12 ? 6 : 4;
     z.cols = Math.max(2, Math.min(maxCols, n || 1));
     z.rows = Math.max(1, Math.ceil(n / z.cols));
     z.w = z.cols * CW + PAD * 2; z.h = HEAD + z.rows * CH + PAD;
@@ -86,22 +87,22 @@ function nmRender(box, zones) {
   // pack zones into rows
   const rows = []; let cur = [], cw = 0;
   for (const z of zones) {
-    if (cur.length && (cw + z.w + GAP > MAXW || z.id === "lan")) { rows.push(cur); cur = []; cw = 0; }
+    if (cur.length && (cw + z.w + GAP > MAXW || z.id === "lan" || narrow)) { rows.push(cur); cur = []; cw = 0; }
     cur.push(z); cw += z.w + GAP;
     if (z.id === "lan") { rows.push(cur); cur = []; cw = 0; }
   }
   if (cur.length) rows.push(cur);
-  const W = Math.max(MAXW, ...rows.map((r) => r.reduce((s, z) => s + z.w + GAP, -GAP))) + 80;
+  const W = Math.max(MAXW, ...rows.map((r) => r.reduce((s, z) => s + z.w + GAP, -GAP))) + (narrow ? 40 : 80);
   const TRUNK = 26, top0 = 210;
   let y = top0;
   for (const r of rows) {
-    const rw = r.reduce((s, z) => s + z.w + GAP, -GAP); let x = 60 + (W - 60 - rw) / 2;
+    const lm = narrow ? 20 : 60, rw = r.reduce((s, z) => s + z.w + GAP, -GAP); let x = lm + (W - lm - rw) / 2;
     const rh = Math.max(...r.map((z) => z.h));
     for (const z of r) { z.x = x; z.y = y; x += z.w + GAP; }
     r.bus = y - 34; r.h = rh; y += rh + 80;
   }
   const H = y;
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "display:block;cursor:grab;max-height:none" });
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "display:block;cursor:grab;max-height:none;user-select:none" });
   const root = svgEl("g"); svg.appendChild(root);
   const gL = svgEl("g"), gZ = svgEl("g"), gN = svgEl("g"); root.append(gL, gZ, gN);
   const txt = (p, s, a) => { const t = svgEl("text", a); t.textContent = s; p.appendChild(t); return t; };
@@ -174,9 +175,34 @@ function nmRender(box, zones) {
   const apply = () => root.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`); apply();
   svg.addEventListener("wheel", (ev) => { ev.preventDefault(); const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse());
     const k2 = Math.min(5, Math.max(0.5, view.k * (ev.deltaY < 0 ? 1.12 : 1 / 1.12))); view.x = p.x - ((p.x - view.x) * k2) / view.k; view.y = p.y - ((p.y - view.y) * k2) / view.k; view.k = k2; apply(); }, { passive: false });
-  svg.addEventListener("pointerdown", (ev) => { pan = { x: ev.clientX, y: ev.clientY }; svg.style.cursor = "grabbing"; });
-  svg.addEventListener("pointermove", (ev) => { if (!pan) return; const ctm = svg.getScreenCTM(); view.x += (ev.clientX - pan.x) / ctm.a; view.y += (ev.clientY - pan.y) / ctm.d; pan = { x: ev.clientX, y: ev.clientY }; apply(); });
-  svg.addEventListener("pointerup", () => { pan = null; svg.style.cursor = "grab"; });
+  const zoomAt = (cx, cy, k2) => { const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy; const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    k2 = Math.min(6, Math.max(0.5, k2)); view.x = p.x - ((p.x - view.x) * k2) / view.k; view.y = p.y - ((p.y - view.y) * k2) / view.k; view.k = k2; apply(); touchMode(); };
+  // at 1x a finger scrolls the page; once zoomed in, one finger pans the map and two pinch
+  const touchMode = () => { svg.style.touchAction = view.k > 1.01 ? "none" : "pan-y"; };
+  const pts = new Map(); let pinch = null, moved = 0;
+  svg.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType === "touch" && view.k <= 1.01 && pts.size === 0) { pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, idle: true }); return; }
+    pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY }); moved = 0;
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), k: view.k }; pan = null; svg.style.touchAction = "none"; }
+    else { pan = { x: ev.clientX, y: ev.clientY }; svg.style.cursor = "grabbing"; } });
+  svg.addEventListener("pointermove", (ev) => {
+    const me = pts.get(ev.pointerId); if (!me) return; if (me.idle) { me.x = ev.clientX; me.y = ev.clientY; return; }
+    pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / (pinch.d || 1)); moved = 99; return; }
+    if (!pan) return; const ctm = svg.getScreenCTM(); moved += Math.abs(ev.clientX - pan.x) + Math.abs(ev.clientY - pan.y);
+    view.x += (ev.clientX - pan.x) / ctm.a; view.y += (ev.clientY - pan.y) / ctm.d; pan = { x: ev.clientX, y: ev.clientY }; apply(); });
+  const up = (ev) => { pts.delete(ev.pointerId); if (pts.size < 2) pinch = null;
+    const rest = [...pts.values()].filter((p) => !p.idle);
+    if (rest.length === 1) pan = { x: rest[0].x, y: rest[0].y }; else { pan = null; svg.style.cursor = "grab"; } touchMode(); };
+  svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", up);
+  // a drag/pinch must not also count as a tap that selects or clears a host
+  svg.addEventListener("click", (ev) => { if (moved > 8) { ev.stopPropagation(); moved = 0; } }, true);
+  touchMode();
+  const zb = document.createElement("div"); zb.className = "lmzoom";
+  zb.innerHTML = `<button data-z="in" title="Zoom in" aria-label="Zoom in">+</button><button data-z="out" title="Zoom out" aria-label="Zoom out">−</button><button data-z="fit" title="Fit" aria-label="Fit to screen">⤢</button>`;
+  zb.onclick = (ev) => { const z = ev.target.dataset.z; if (!z) return; ev.stopPropagation(); const r = svg.getBoundingClientRect();
+    if (z === "fit") { view.x = 0; view.y = 0; view.k = 1; apply(); touchMode(); } else zoomAt(r.left + r.width / 2, Math.max(r.top, 0) + Math.min(r.height, window.innerHeight) / 2, view.k * (z === "in" ? 1.4 : 1 / 1.4)); };
+  box.style.position = "relative"; box.appendChild(zb);
   svg.addEventListener("click", () => { if (NM.sel) { NM.sel = null; nmPanel(zones); nmRender(box, zones); } });
   box.appendChild(svg);
 }
@@ -224,9 +250,9 @@ V.netmap = (el) => {
     <label><input type="checkbox" id="nmInactive" ${NM.inactive ? "checked" : ""}> show hosts not seen this snapshot</label>
     <input id="nmQ" type="search" placeholder="Find host (name, IP, MAC, vendor)…" value="${esc(NM.q)}"><button id="nmReset">Reset view</button>`;
   el.appendChild(ctr);
-  const wrap = document.createElement("div"); wrap.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start";
+  const wrap = document.createElement("div"); wrap.className = "lmwrap nmwrap";
   const gcard = card("", "<div id='nmGraph'></div>"); gcard.style.padding = "6px";
-  const pcard = card("", "<div id='nmPanel'></div>"); pcard.style.cssText = "position:sticky;top:64px;max-height:calc(100vh - 80px);overflow:auto";
+  const pcard = card("", "<div id='nmPanel'></div>"); pcard.classList.add("lmpanel");
   wrap.append(gcard, pcard); el.appendChild(wrap);
   const box = document.getElementById("nmGraph");
   const draw = () => { nmRender(box, zones); nmPanel(zones); };
@@ -235,6 +261,9 @@ V.netmap = (el) => {
   document.getElementById("nmQ").oninput = (e) => { NM.q = e.target.value; nmRender(box, zones); };
   document.getElementById("nmReset").onclick = () => { NM.view = null; NM.q = ""; document.getElementById("nmQ").value = ""; draw(); };
   draw();
+  let wasNarrow = window.innerWidth < 700;
+  const onResize = () => { if (!box.isConnected) { window.removeEventListener("resize", onResize); return; } const n = window.innerWidth < 700; if (n !== wasNarrow) { wasNarrow = n; NM.view = null; nmRender(box, zones); } };
+  window.addEventListener("resize", onResize);
   // zone summary + full host list
   el.appendChild(card("Zones", table(null, [
     { k: "id", t: "Zone", fmt: (v) => `<b style="color:${LM_ZONE_COL[v] || "#8b949e"}">${esc(v)}</b>` }, { k: "cidr", t: "Subnet", cls: "mono" }, { k: "gw", t: "Gateway", cls: "mono" },
