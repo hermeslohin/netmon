@@ -40,6 +40,8 @@ Is this "enterprise ready"... no probably not.  I think of most tools and they a
 <img width="301" height="300" alt="Screenshot 2026-10-16 at 8 57 59 AM" src="https://github.com/user-attachments/assets/8f7f32c1-cb61-4c58-a16b-8b31c18bb8d5" />
 <img width="301" height="400" alt="Screenshot 2026-10-16 at 9 30 54 AM" src="https://github.com/user-attachments/assets/d417b9a6-2ecc-40c7-8aa7-8997a5df813b" />
 <img width="301" height="400" alt="Screenshot 2026-10-16 at 9 32 35 AM" src="https://github.com/user-attachments/assets/6832b148-a61b-4de0-9f71-c25d900bec27" />
+<img width="1206" height="1252" alt="image" src="https://github.com/user-attachments/assets/9544af8f-75f5-4057-a3db-e2867db1184e" />
+
 
 Home-network security monitoring for the home network, run by the Hermes agent ("Lady Brains").
 
