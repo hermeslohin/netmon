@@ -357,7 +357,7 @@ const DEV_FILTERS = {
 };
 V.devices = (el) => {
   const rows = S.idx.rows;
-  el.innerHTML = `<h1>Devices</h1><div class="sub">${rows.length} internal addresses with traffic in this snapshot. Click a row for full detail.</div>` +
+  el.innerHTML = `<h1>Hosts</h1><div class="sub">${rows.length} internal addresses with traffic in this snapshot. Click a row for full detail.</div>` +
     kpis([["Known", `<a href="#/devices?known=true">${rows.filter((r) => r.known).length}</a>`, "good"], ["Unknown", `<a href="#/devices?known=false">${rows.filter((r) => !r.known).length}</a>`, rows.some((r) => !r.known) ? "warn" : ""],
       ["New this window", (S.snap.analysis?.new_devices || []).length], ["With high findings", `<a href="#/devices?severity=high">${rows.filter((r) => r.worst === "high").length}</a>`, "bad"]]);
   el.appendChild(card("", table("devs", [
@@ -667,15 +667,30 @@ V.users = async (el) => {
   el.querySelector(".loading").remove();
   const min = U.min_password || 10;
   const msg = (box, text, ok) => { box.innerHTML = `<div style="color:${ok ? "var(--good)" : "var(--bad)"};margin-top:8px">${esc(text)}</div>`; };
+  const P = U.prefs || {}, CAT = U.devices || [], byId = Object.fromEntries(CAT.map((d) => [d.id, d]));
+  const devCount = (n) => (P[n]?.mode === "some" ? P[n].devices.length : -1);
+  const devSummary = (n) => { const p = P[n]; if (!p || p.mode !== "some") return '<span class="muted">All devices</span>';
+    const names = p.devices.map((id) => byId[id]?.name || byId[id]?.ips?.[0] || id);
+    return `<span title="${esc(names.join("\n"))}"><b>${names.length}</b> device${names.length === 1 ? "" : "s"}${names.length ? `: ${esc(names.slice(0, 3).join(", "))}${names.length > 3 ? "…" : ""}` : ""}</span>`; };
   const list = card(`Accounts (${U.users.length})`, table(null, [
     { k: "username", t: "Username", fmt: (v) => `<b>${esc(v)}</b>${v === U.me ? ' <span class="badge sev-info">you</span>' : ""}` },
     { k: "created", t: "Created", fmt: ft }, { k: "last_login", t: "Last sign-in", fmt: (v) => ft(v) || '<span class="muted">never</span>' }, { k: "pw_changed", t: "Password changed", fmt: ft },
+    { k: "_d", t: "Assigned devices", sort: (u) => devCount(u.username), fmt: (v, u) => `${devSummary(u.username)} <button data-dev="${esc(u.username)}" class="small">Assign…</button>` },
     { k: "_a", t: "", fmt: (v, u) => `<button data-pw="${esc(u.username)}">${u.username === U.me ? "Change my password" : "Reset password"}</button> ${u.username === U.me ? "" : `<button data-del="${esc(u.username)}" style="border-color:#f8514955;color:var(--bad)">Delete</button>`}` },
   ], U.users, { search: false, sort: "username", dir: 1 }));
   const pwBox = document.createElement("div"); list.appendChild(pwBox);
   el.appendChild(list);
   list.addEventListener("click", async (e) => {
-    const del = e.target.closest("[data-del]"), pw = e.target.closest("[data-pw]");
+    const del = e.target.closest("[data-del]"), pw = e.target.closest("[data-pw]"), dv = e.target.closest("[data-dev]");
+    if (dv) {
+      const name = dv.dataset.dev, wrap = document.createElement("div"); wrap.style.marginTop = "12px";
+      const close = () => (pwBox.innerHTML = "");
+      wrap.appendChild(devicePicker({ prefs: P[name] || { mode: "all", devices: [] }, devices: CAT, title: `Assign devices to ${name}`, someLabel: "Only the devices assigned below", cancel: close,
+        intro: `The devices <b>${esc(name)}</b> is responsible for. They get push notifications and the 🔔 count only for these (applies on every browser/phone they enabled). Alerts not tied to a device go only to users on All devices. ${name === U.me ? "This is you; the same setting is on the Alerts page." : `${esc(name)} can still change it on their Alerts page.`}`,
+        save: async (mode, devs) => { await apiPost("/api/users", { action: "devices", username: name, mode, devices: devs }); P[name] = { mode, devices: devs }; setTimeout(rerender, 900);
+          return mode === "all" ? `Saved — ${name} gets every urgent alert.` : `Saved — ${devs.length} device${devs.length === 1 ? "" : "s"} assigned to ${name}.`; } }));
+      pwBox.replaceChildren(wrap); wrap.scrollIntoView({ block: "nearest" }); return;
+    }
     if (del) {
       const name = del.dataset.del; if (!confirm(`Delete user "${name}"? They will be signed out immediately.`)) return;
       try { await apiPost("/api/users", { action: "delete", username: name }); rerender(); } catch (x) { msg(pwBox, x.message); }
@@ -739,7 +754,7 @@ V.checked = (el) => {
 /* ----- Security ----- */
 V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
-  el.innerHTML = `<h1>Security</h1>`;
+  el.innerHTML = `<h1>Posture</h1>`;
   if (tr.summary) el.appendChild(card("Triage summary", linkifyIps(tr.summary)));
   if ((tr.alarms || []).length) { const A = ackSplit("alarm", tr.alarms, "sec-alarms");
     el.appendChild(card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
@@ -778,7 +793,7 @@ V.security = (el) => {
 /* ----- Traffic ----- */
 V.traffic = (el) => {
   const raw = S.snap.raw, rows = S.idx.rows;
-  el.innerHTML = `<h1>Traffic</h1>`;
+  el.innerHTML = `<h1>Traffic map</h1>`;
   const agg = (field) => { const o = {}; for (const d of Object.values(raw.devices || {})) for (const [k, v] of entries(d[field])) o[k] = (o[k] || 0) + (typeof v === "object" ? v.bytes || 0 : v); return o; };
   const ctry = agg("countries"), asn = agg("asns"), proto = agg("protocols");
   const topAsn = sortDesc(asn).slice(0, 15);
@@ -815,29 +830,42 @@ V.dns = (el) => {
 };
 
 /* ----- UniFi ----- */
-V.unifi = (el) => {
-  const U = S.snap.raw.unifi; el.innerHTML = `<h1>UniFi gateway</h1>`;
-  if (!U) { el.insertAdjacentHTML("beforeend", `<div class="empty">No UniFi data in this snapshot.</div>`); return; }
-  const fl = U.flows || {}, ev = U.events || {}, st = U.settings || {};
-  el.insertAdjacentHTML("beforeend", kpis([["Clients online", fn(U.clients?.online)], ["Known clients", fn(U.clients?.known_total)], ["Flows logged", fn(fl.total)], ["Blocked", fn(fl.actions?.blocked)], ["Security events", fn(ev.counts?.SECURITY)], ["Admin logins", (U.admin?.logins || []).length], ["Config changes", (U.admin?.changes || []).length]]));
-  el.appendChild(grid("g3", card("Health", unifiHealthHtml()), chartCard("Blocks by policy", doughnutCfg(fl.blocked_by_policy)), chartCard("Clients by network", doughnutCfg(U.clients?.by_network))));
+// UniFi gateway data is shown inside other sections (no standalone page): flows/blocks on Traffic map,
+// IPS/admin/events on Posture, client inventory gaps on Hosts. Health is on Overview and Network map.
+const secHead = (id, title, sub = "") => { const h = document.createElement("div"); h.className = "sec-head"; h.id = id; h.innerHTML = `<h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ""}`; return h; };
+function gatewayTraffic(el) {
+  const U = S.snap.raw.unifi; if (!U) return; const fl = U.flows || {};
+  el.appendChild(secHead("gateway", "Gateway (UniFi)", "Firewall flows and blocks seen by the UniFi gateway."));
+  el.insertAdjacentHTML("beforeend", kpis([["Clients online", fn(U.clients?.online)], ["Known clients", fn(U.clients?.known_total)], ["Flows logged", fn(fl.total)], ["Blocked", fn(fl.actions?.blocked)]]));
+  el.appendChild(grid("g3", card("Gateway health", unifiHealthHtml()), chartCard("Blocks by policy", doughnutCfg(fl.blocked_by_policy)), chartCard("Clients by network", doughnutCfg(U.clients?.by_network))));
   el.appendChild(grid("g2",
     card("Top blocked clients", table(null, [{ k: "client", t: "Client" }, { k: "count", t: "Blocks", num: true, bar: true, fmt: fn }, { k: "top_domains", t: "Top blocked domains", cls: "small", fmt: (v) => (v || []).map(([d, n]) => esc(d) + " ×" + n).join("<br>") }], fl.top_blocked_clients || [], { sort: "count", search: false })),
     card("Region blocks", table(null, [{ k: "client", t: "Client" }, { k: "dst", t: "Dst", cls: "mono" }, { k: "region", t: "Region" }, { k: "direction", t: "Dir" }, { k: "count", t: "Count", num: true, bar: true, fmt: fn }], fl.region_blocks || [], { sort: "count", short: true }))));
+  if ((fl.risky || []).length) el.appendChild(card("Risky flows", `<pre>${esc(JSON.stringify(fl.risky, null, 1))}</pre>`));
+}
+function gatewaySecurity(el) {
+  const U = S.snap.raw.unifi; if (!U) return; const ev = U.events || {}, st = U.settings || {};
+  el.appendChild(secHead("gateway-security", "Gateway security (UniFi)", "IPS configuration, security events, admin sign-ins and config changes on the gateway."));
+  el.insertAdjacentHTML("beforeend", kpis([["Security events", fn(ev.counts?.SECURITY)], ["Admin logins", (U.admin?.logins || []).length], ["Config changes", (U.admin?.changes || []).length], ["IPS mode", esc(st.ips_mode ?? "?")]]));
   const evrows = [...(ev.high_severity || []), ...(ev.threats || []), ...(ev.devices || []), ...(U.threats_30d || []).map((t) => ({ ...t, key: "30d" }))];
   const seen = new Set(); const uniq = evrows.filter((e) => { const k = e.time + e.message; if (seen.has(k)) return false; seen.add(k); return true; });
-  el.appendChild(card(`Events (${uniq.length})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], uniq, { sort: "time" })));
   el.appendChild(grid("g2",
-    card("Risky flows", `<pre>${esc(JSON.stringify(fl.risky || [], null, 1))}</pre>`),
-    card("Settings", `<div class="idgrid"><span class="k">IPS mode</span><span>${esc(st.ips_mode)}</span><span class="k">Categories</span><span>${esc(st.categories)}</span><span class="k">Protected nets</span><span>${esc((st.protected_networks || []).join(", "))}</span>
+    card("Gateway protection settings", `<div class="idgrid"><span class="k">IPS mode</span><span>${esc(st.ips_mode)}</span><span class="k">Categories</span><span>${esc(st.categories)}</span><span class="k">Protected nets</span><span>${esc((st.protected_networks || []).join(", "))}</span>
       <span class="k">Honeypot</span><span>${esc(st.honeypot_enabled)} ${esc(JSON.stringify(st.honeypots || []))}</span><span class="k">DNS filtering</span><span>${esc(st.dns_filtering)}</span><span class="k">Ad blocking nets</span><span>${esc(st.ad_blocking_networks)}</span>
-      <span class="k">Endpoint scanning</span><span>${esc(st.endpoint_scanning)}</span><span class="k">DPI</span><span>${esc(st.dpi)}</span></div>
-      <h3>Not in inventory</h3>${(U.clients?.not_in_inventory || []).map((c) => `<div class="small">${ipLink(c.ip)} ${esc(c.name)} <span class="mono">${esc(c.mac)}</span> (${esc(c.network)})</div>`).join("") || '<div class="empty">none</div>'}
-      <h3>First seen in window</h3>${(U.clients?.first_seen_in_window || []).map((c) => `<div class="small mono">${esc(c.mac)} ${esc(c.ip || "")} ${esc(c.name)} ${ft(c.first_seen)}</div>`).join("") || '<div class="empty">none</div>'}`)));
+      <span class="k">Endpoint scanning</span><span>${esc(st.endpoint_scanning)}</span><span class="k">DPI</span><span>${esc(st.dpi)}</span></div>`),
+    card(`Gateway events (${uniq.length})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], uniq, { sort: "time", short: true }))));
   el.appendChild(grid("g2",
-    card("Admin logins", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "admin", t: "Admin" }, { k: "ip", t: "From", cls: "mono" }, { k: "platform", t: "Platform" }, { k: "unexpected_source", t: "Unexpected", fmt: (v) => (v ? badge("high") : "") }], U.admin?.logins || [], { sort: "time", short: true })),
-    card("Config changes", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "actor", t: "Actor" }, { k: "section", t: "Section", cls: "small" }, { k: "object", t: "Object" }, { k: "operation", t: "Op" }], U.admin?.changes || [], { sort: "time", short: true }))));
-};
+    card("Gateway admin logins", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "admin", t: "Admin" }, { k: "ip", t: "From", cls: "mono" }, { k: "platform", t: "Platform" }, { k: "unexpected_source", t: "Unexpected", fmt: (v) => (v ? badge("high") : "") }], U.admin?.logins || [], { sort: "time", short: true })),
+    card("Gateway config changes", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "actor", t: "Actor" }, { k: "section", t: "Section", cls: "small" }, { k: "object", t: "Object" }, { k: "operation", t: "Op" }], U.admin?.changes || [], { sort: "time", short: true }))));
+}
+function gatewayClients(el) {
+  const U = S.snap.raw.unifi; if (!U) return; const ni = U.clients?.not_in_inventory || [], fs = U.clients?.first_seen_in_window || [];
+  if (!ni.length && !fs.length) return;
+  el.appendChild(grid("g2",
+    card(`Gateway clients not in inventory (${ni.length})`, table(null, [{ k: "ip", t: "IP", fmt: (v) => ipLink(v) }, { k: "name", t: "Name" }, { k: "mac", t: "MAC", cls: "mono" }, { k: "network", t: "Network" }], ni, { search: false, short: true })),
+    card(`Gateway clients first seen in window (${fs.length})`, table(null, [{ k: "mac", t: "MAC", cls: "mono" }, { k: "ip", t: "IP", fmt: (v) => (v ? ipLink(v) : "") }, { k: "name", t: "Name" }, { k: "first_seen", t: "First seen", fmt: ft }], fs, { search: false, short: true }))));
+}
+V.unifi = () => location.replace("#/traffic?at=gateway");  // old bookmarks
 
 /* ----- History ----- */
 
@@ -872,23 +900,30 @@ V.attack = async (el, arg) => {
   if (M.unmapped.length) el.appendChild(card(`Not mapped (${M.unmapped.length}) <span class="muted small">— add a rule in netmon/mitre.py if these should map</span>`, table(null, [{ k: "source", t: "Source" }, { k: "ref", t: "Kind", cls: "mono small" }, { k: "title", t: "Item" }], M.unmapped, { short: true })));
 };
 
-V.history = (el) => {
-  const H = S.hist; el.innerHTML = `<h1>History</h1><div class="sub">${H.length} banked baseline snapshots (each a 24h window).</div>`;
-  if (!H.length) return;
-  const lab = H.map((h) => ft(h.generated));
-  const tot = (h, k) => h.totals?.[k] ?? Object.values(h.devices || {}).reduce((s, d) => s + (d[k] || 0), 0);
+function historyNetwork(el) {
+  const H = S.hist; if (!H.length) return; const lab = H.map((h) => ft(h.generated));
+  el.appendChild(secHead("trend", "Trend across snapshots", `${H.length} banked baseline snapshots (each a 24h window).`));
   el.appendChild(grid("g2",
     chartCard("Total bytes per snapshot", { type: "line", data: { labels: lab, datasets: [{ label: "total", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.total || 0), 0)), borderColor: PALETTE[0], tension: 0.3 }, { label: "internet up", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.ext_out || 0), 0)), borderColor: PALETTE[3], tension: 0.3 }] }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip } } }),
-    chartCard("Devices & connections per snapshot", { type: "bar", data: { labels: lab, datasets: [{ label: "devices", data: H.map((h) => Object.keys(h.devices).length), backgroundColor: PALETTE[1], yAxisID: "y" }, { type: "line", label: "conns", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.conns || 0), 0)), borderColor: PALETTE[2], yAxisID: "y1" }] }, options: { scales: { y1: { position: "right", grid: { display: false } } } } })));
-  // top devices trend
+    chartCard("Hosts & connections per snapshot", { type: "bar", data: { labels: lab, datasets: [{ label: "hosts", data: H.map((h) => Object.keys(h.devices).length), backgroundColor: PALETTE[1], yAxisID: "y" }, { type: "line", label: "conns", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.conns || 0), 0)), borderColor: PALETTE[2], yAxisID: "y1" }] }, options: { scales: { y1: { position: "right", grid: { display: false } } } } })));
+}
+function historyHosts(el) {
+  const H = S.hist; if (!H.length) return; const lab = H.map((h) => ft(h.generated));
+  el.appendChild(secHead("trend", "Host trends across snapshots", `${H.length} banked 24h baseline snapshots.`));
   const keys = new Set(H.flatMap((h) => Object.keys(h.devices)));
   const series = [...keys].map((k) => { const pts = H.map((h) => h.devices[k]?.total || 0); const last = [...H].reverse().map((h) => h.devices[k]).find(Boolean) || {}; return { k, ip: last.ip, name: last.name || last.ip || k, pts, sum: pts.reduce((a, b) => a + b, 0), known: last.known }; }).sort((a, b) => b.sum - a.sum);
   const top = series.slice(0, 10);
-  el.appendChild(chartCard("Top 10 devices over time (total bytes, click a line to drill down)", { type: "line", data: { labels: lab, datasets: top.map((s, i) => ({ label: s.name, data: s.pts, borderColor: PALETTE[i % PALETTE.length], tension: 0.3 })) }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip }, ...clickable((i, ds) => { const ip = top[ds]?.ip; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); }) } }, "", "tall"));
+  el.appendChild(chartCard("Top 10 hosts over time (total bytes, click a line to drill down)", { type: "line", data: { labels: lab, datasets: top.map((s, i) => ({ label: s.name, data: s.pts, borderColor: PALETTE[i % PALETTE.length], tension: 0.3 })) }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip }, ...clickable((i, ds) => { const ip = top[ds]?.ip; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); }) } }, "", "tall"));
   const spark = (pts) => { const m = Math.max(1, ...pts), w = 120, hh = 24; const p = pts.map((v, i) => `${(i * w) / Math.max(1, pts.length - 1)},${hh - (v / m) * (hh - 2) - 1}`).join(" "); return `<svg class="spark" width="${w}" height="${hh}"><polyline fill="none" stroke="#58a6ff" stroke-width="1.5" points="${p}"/></svg>`; };
-  el.appendChild(card("Per-device trend", table(null, [{ k: "name", t: "Device", fmt: (v, r) => (r.ip && S.snap.raw.devices?.[r.ip] ? `<a href="#/device/${r.ip}">${esc(v)}</a>` : esc(v)) }, { k: "k", t: "Key", cls: "mono small" }, { k: "pts", t: "Trend", fmt: spark, sort: (r) => r.pts[r.pts.length - 1] - r.pts[0] }, { k: "last", t: "Latest", num: true, fmt: fb }, { k: "sum", t: "Sum", num: true, bar: true, fmt: fb }],
-    series.map((s) => ({ ...s, last: s.pts[s.pts.length - 1] })), { sort: "sum" })));
-};
+  el.appendChild(card("Per-host trend", table(null, [{ k: "name", t: "Host", fmt: (v, r) => (r.ip && S.snap.raw.devices?.[r.ip] ? `<a href="#/device/${r.ip}">${esc(v)}</a>` : esc(v)) }, { k: "k", t: "Key", cls: "mono small" }, { k: "pts", t: "Trend", fmt: spark, sort: (r) => r.pts[r.pts.length - 1] - r.pts[0] }, { k: "last", t: "Latest", num: true, fmt: fb }, { k: "sum", t: "Sum", num: true, bar: true, fmt: fb }],
+    series.map((s) => ({ ...s, last: s.pts[s.pts.length - 1] })), { sort: "sum", limit: 25 })));
+}
+V.history = () => location.replace("#/traffic?at=trend");  // old bookmarks
+// attach the consolidated sections to their new homes
+{ const sec = V.security, tr = V.traffic, dv = V.devices;
+  V.security = (el, a) => { sec(el, a); gatewaySecurity(el); };
+  V.traffic = (el, a) => { tr(el, a); gatewayTraffic(el); historyNetwork(el); };
+  V.devices = (el, a) => { dv(el, a); gatewayClients(el); historyHosts(el); }; }
 
 /* ---------- router ---------- */
 function go(r) { location.hash = "#/" + r; }
@@ -897,6 +932,7 @@ async function route(keep) {
   const [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || "overview").split("/");
   const arg = decodeURIComponent(rest.join("/"));
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (a.dataset.r + "s" === view + "s" && false) || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
+  document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
   const el = $("#main"); el.innerHTML = "";
   try { (V[view] || V.overview)(el, arg); } catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
   flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);

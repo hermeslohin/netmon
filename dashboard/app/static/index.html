@@ -20,23 +20,29 @@
   <nav id="nav">
     <a href="#/overview" data-r="overview">Overview</a>
     <a href="#/alerts" data-r="alerts">Alerts <span class="alert-count badge sev-high" style="display:none"></span></a>
-    <a href="#/netmap" data-r="netmap">Network map</a>
-    <a href="#/risk" data-r="risk">Risk</a>
-    <a href="#/lateral" data-r="lateral">Lateral movement</a>
-    <a href="#/issues" data-r="issues">Fix list <span id="issueCount" class="badge sev-medium" style="display:none"></span></a>
-    <a href="#/devices" data-r="devices">Devices</a>
-    <a href="#/endpoints" data-r="endpoints">Endpoints</a>
-    <a href="#/security" data-r="security">Security</a>
-    <a href="#/attack" data-r="attack">ATT&amp;CK</a>
-    <a href="#/traffic" data-r="traffic">Traffic</a>
-    <a href="#/dns" data-r="dns">DNS &amp; TLS</a>
-    <a href="#/threatintel" data-r="threatintel">Threat intel</a>
-    <a href="#/unifi" data-r="unifi">UniFi</a>
-    <a href="#/history" data-r="history">History</a>
-    <a href="#/reports" data-r="reports">Reports</a>
-    <a href="#/chat" data-r="chat">Ask Hermes</a>
-    <a href="#/checked" data-r="checked">Checked</a>
-    <a href="#/users" data-r="users">Users</a>
+    <div class="ngroup"><button type="button" class="ngh" aria-haspopup="true" aria-expanded="false">Security <span class="chev">▾</span></button><div class="ngm">
+      <a href="#/security" data-r="security">Posture</a>
+      <a href="#/threatintel" data-r="threatintel">Threat intel</a>
+      <a href="#/attack" data-r="attack">ATT&amp;CK</a>
+      <a href="#/risk" data-r="risk">Risk</a>
+      <a href="#/issues" data-r="issues">Fix list <span id="issueCount" class="badge sev-medium" style="display:none"></span></a>
+    </div></div>
+    <div class="ngroup"><button type="button" class="ngh" aria-haspopup="true" aria-expanded="false">Network <span class="chev">▾</span></button><div class="ngm">
+      <a href="#/netmap" data-r="netmap">Network map</a>
+      <a href="#/lateral" data-r="lateral">Lateral movement</a>
+      <a href="#/dns" data-r="dns">DNS &amp; TLS</a>
+      <a href="#/traffic" data-r="traffic">Traffic map</a>
+    </div></div>
+    <div class="ngroup"><button type="button" class="ngh" aria-haspopup="true" aria-expanded="false">Devices <span class="chev">▾</span></button><div class="ngm">
+      <a href="#/devices" data-r="devices">Hosts</a>
+      <a href="#/endpoints" data-r="endpoints">Endpoints</a>
+    </div></div>
+    <div class="ngroup"><button type="button" class="ngh" aria-haspopup="true" aria-expanded="false">More <span class="chev">▾</span></button><div class="ngm">
+      <a href="#/reports" data-r="reports">Reports</a>
+      <a href="#/chat" data-r="chat">Ask Hermes</a>
+      <a href="#/checked" data-r="checked">Checked</a>
+      <a href="#/users" data-r="users">Users</a>
+    </div></div>
   </nav>
   <a id="bell" class="bell" href="#/alerts" title="Urgent alerts">🔔<span class="alert-count bell-n" style="display:none"></span></a>
   <div class="snap">

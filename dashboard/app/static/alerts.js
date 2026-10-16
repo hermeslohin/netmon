@@ -35,43 +35,60 @@
   }
   setInterval(poll, 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); }); poll();
 
-  // ---- which devices this user gets alerts for (applies to every device/browser they enabled) ----
-  async function devicePicker() {
-    const { prefs, devices } = await api("/api/push/prefs");
+  // ---- device picker: which devices a user gets alerts for. Used here (self) and on the Users page (assign to a user) ----
+  // o: {prefs, devices, save(mode, devs) -> message, title, intro, allLabel, someLabel}
+  let pickerN = 0;
+  function devicePicker(o) {
+    const { prefs, devices } = o, rn = "dpm" + ++pickerN;
     let mode = prefs.mode, sel = new Set(prefs.devices), q = "";
-    const c = card("Which devices alert me", "");
+    const c = card(o.title, "");
     const label = (d) => d.name || d.ips[0] || d.mac || d.id;
     const draw = () => {
       const vis = devices.filter((d) => !q || `${label(d)} ${d.ips.join(" ")} ${d.mac}`.toLowerCase().includes(q))
         .sort((a, b) => (sel.has(b.id) ? 1 : 0) - (sel.has(a.id) ? 1 : 0));  // chosen devices first
-      c.innerHTML = `<h2>Which devices alert me</h2>
-        <div class="small muted" style="margin-bottom:8px">Applies to your account on every browser/phone where you enabled notifications, and to the 🔔 count. Alerts that aren't tied to a specific device go only to people watching all devices.</div>
-        <label class="dp-opt"><input type="radio" name="dpm" value="all" ${mode === "all" ? "checked" : ""}> <b>All devices</b> — every urgent alert</label>
-        <label class="dp-opt"><input type="radio" name="dpm" value="some" ${mode === "some" ? "checked" : ""}> <b>Only devices I choose</b> ${sel.size ? `<span class="muted">(${sel.size} selected)</span>` : ""}</label>
+      c.innerHTML = `${o.title ? `<h2>${esc(o.title)}</h2>` : ""}
+        <div class="small muted" style="margin-bottom:8px">${o.intro}</div>
+        <label class="dp-opt"><input type="radio" name="${rn}" value="all" ${mode === "all" ? "checked" : ""}> <b>All devices</b> — every urgent alert</label>
+        <label class="dp-opt"><input type="radio" name="${rn}" value="some" ${mode === "some" ? "checked" : ""}> <b>${esc(o.someLabel || "Only devices I choose")}</b> ${sel.size ? `<span class="muted">(${sel.size} selected)</span>` : ""}</label>
         <div class="dp-list" style="${mode === "some" ? "" : "display:none"}">
           <div class="tbltools"><input type="search" placeholder="Filter devices…" value="${esc(q)}"><button class="dp-none" type="button">Clear</button></div>
           <div class="dp-items">${vis.map((d) => `<label class="dp-item"><input type="checkbox" value="${esc(d.id)}" ${sel.has(d.id) ? "checked" : ""}>
              <span><b>${esc(label(d))}</b>${d.endpoint ? ' <span class="badge sev-info">endpoint</span>' : ""}${d.known ? "" : ' <span class="badge sev-unknown">unknown</span>'}<br><span class="muted small mono">${esc([...d.ips.slice(0, 2), d.mac].filter(Boolean).join(" · "))}</span></span></label>`).join("") || '<div class="empty">No match.</div>'}</div>
         </div>
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="dp-save">Save</button><span class="dp-msg small"></span></div>`;
-      c.querySelectorAll("input[name=dpm]").forEach((r) => r.onchange = () => { mode = r.value; draw(); });
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button class="dp-save">Save</button>${o.cancel ? '<button class="dp-cancel" type="button">Cancel</button>' : ""}<span class="dp-msg small"></span></div>`;
+      c.querySelector(".dp-cancel")?.addEventListener("click", o.cancel);
+      c.querySelectorAll(`input[name=${rn}]`).forEach((r) => r.onchange = () => { mode = r.value; draw(); });
       const s = c.querySelector(".dp-list input[type=search]");
       s.oninput = () => { q = s.value.toLowerCase(); const pos = s.selectionStart; draw(); const n = c.querySelector(".dp-list input[type=search]"); n.focus(); n.setSelectionRange(pos, pos); };
       c.querySelectorAll(".dp-items input").forEach((b) => b.onchange = () => { b.checked ? sel.add(b.value) : sel.delete(b.value); c.querySelector(".dp-opt:nth-of-type(2) .muted")?.replaceChildren(`(${sel.size} selected)`); });
       c.querySelector(".dp-none").onclick = () => { sel.clear(); draw(); };
       c.querySelector(".dp-save").onclick = async () => {
         const m = c.querySelector(".dp-msg");
-        try { await apiPost("/api/push/prefs", { mode, devices: [...sel] }); m.style.color = "var(--good)"; m.textContent = mode === "all" ? "Saved — you'll get every urgent alert." : `Saved — alerts only for ${sel.size} device${sel.size === 1 ? "" : "s"}.`; await poll(); }
+        try { m.style.color = "var(--good)"; m.textContent = await o.save(mode, [...sel]); }
         catch (e) { m.style.color = "var(--bad)"; m.textContent = String(e.message || e); }
       };
     };
     draw();
     return c;
   }
+  window.devicePicker = devicePicker;
+  const myPicker = async () => { const { prefs, devices } = await api("/api/push/prefs"); A.myMode = prefs.mode; A.myN = prefs.devices.length;
+    return devicePicker({ prefs, devices, title: "Which devices alert me",
+      intro: "Applies to your account on every browser/phone where you enabled notifications, and to the 🔔 count. Alerts that aren't tied to a specific device go only to people watching all devices. Admins can also assign devices to you on the Users page.",
+      save: async (mode, devs) => { await apiPost("/api/push/prefs", { mode, devices: devs }); A.myMode = mode; A.myN = devs.length; paintBar(); await poll();
+        return mode === "all" ? "Saved — you'll get every urgent alert." : `Saved — alerts only for ${devs.length} device${devs.length === 1 ? "" : "s"}.`; } }); };
+  // settings live in a collapsed bar; clicking it slides the panel down
+  const barSummary = async () => { const sub = pushOK() ? await currentSub().catch(() => null) : null;
+    return `Push on this device: <b>${sub ? "on" : "off"}</b> · Alerting on: <b>${A.myMode === "some" ? `${A.myN} device${A.myN === 1 ? "" : "s"}` : "all devices"}</b>`; };
+  async function paintBar() { const s = document.querySelector("#alSetBar .sb-sum"); if (s) s.innerHTML = await barSummary(); }
 
   V.alerts = async (el) => {
-    el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Kept 30 days.</div>`;
-    const pc = card("Notifications on this device", `<div id="pushBox" class="muted">Checking…</div>`); el.appendChild(pc);
+    el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Kept 30 days.</div>
+      <button id="alSetBar" class="settings-bar" aria-expanded="${A.setOpen ? "true" : "false"}" aria-controls="alSet"><span>⚙ Notification settings</span><span class="sb-sum muted small"></span><span class="sb-chev">▾</span></button>
+      <div id="alSet" class="slide ${A.setOpen ? "open" : ""}"><div class="slide-in"></div></div>`;
+    const bar = el.querySelector("#alSetBar"), slide = el.querySelector("#alSet"), inner = slide.querySelector(".slide-in");
+    bar.onclick = () => { A.setOpen = !A.setOpen; slide.classList.toggle("open", A.setOpen); bar.setAttribute("aria-expanded", String(A.setOpen)); };
+    const pc = card("Notifications on this device", `<div id="pushBox" class="muted">Checking…</div>`); inner.appendChild(pc);
     const box = pc.querySelector("#pushBox");
     const render = async () => {
       if (!pushOK()) {
@@ -88,10 +105,11 @@
       const msg = (t, bad) => { const m = box.querySelector("#pMsg"); m.textContent = t; m.style.color = bad ? "var(--bad)" : "var(--muted)"; };
       box.querySelector("#pOn")?.addEventListener("click", async () => { try { await enable(); await render(); msg("Enabled. Sending a test…"); const s = await currentSub(); const r = await apiPost("/api/push/test", { endpoint: s.endpoint }); msg(r.sent ? "Test sent — you should see it now." : "Test failed: " + (r.errors[0] || "no target"), !r.sent); } catch (e) { msg(String(e.message || e), true); } });
       box.querySelector("#pOff")?.addEventListener("click", async () => { await disable(); render(); });
+      paintBar();
       box.querySelector("#pTest")?.addEventListener("click", async () => { const s = await currentSub(); const r = await apiPost("/api/push/test", { endpoint: s.endpoint }); msg(r.sent ? "Test sent." : "Test failed: " + (r.errors[0] || "no target"), !r.sent); });
     };
     render();
-    el.appendChild(await devicePicker());
+    inner.appendChild(await myPicker()); paintBar();
     const filt = A.mode === "some" && !A.showAll;
     const rows = A.list.filter((a) => !filt || a.mine).map((a) => ({ ...a, _t: a.ts }));
     const tog = A.mode === "some" ? `<a href="javascript:void 0" id="fTog" class="ack-toggle small">${filt ? `show all ${A.list.length}` : "only my devices"}</a>` : "";

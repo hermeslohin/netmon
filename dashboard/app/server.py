@@ -387,6 +387,15 @@ class H(BaseHTTPRequestHandler):
                     err = auth.delete(name, user)
                 elif act == "password":
                     err = auth.set_password(name, str(body.get("password", "")), actor=user, current=str(body.get("current", "")))
+                elif act == "devices":  # assign devices to a user = the devices they get alerts / the bell count for
+                    mode = str(body.get("mode", "all"))
+                    devs = [str(x)[:120] for x in (body.get("devices") or [])][:500]
+                    err = (None if name in {x["username"] for x in auth.public_list()} else "no such user") \
+                        or (None if mode in ("all", "some") else "mode must be all or some") \
+                        or ("pick at least one device, or choose All devices" if mode == "some" and not devs else None)
+                    if not err:
+                        store.prefs_set(name, mode, devs)
+                        print(f"user admin: {user} assigned {name} -> {mode} ({len(devs)} devices)", file=sys.stderr)
                 else:
                     err = "unknown action"
                 if err:
@@ -464,7 +473,9 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/account":
                 return self._json(auth.account_info(user))
             if path == "/api/users":
-                return self._json({"users": auth.public_list(), "me": user, "min_password": auth.MIN_PW})
+                ul = auth.public_list()
+                return self._json({"users": ul, "me": user, "min_password": auth.MIN_PW,
+                                   "prefs": {x["username"]: store.prefs_get(x["username"]) for x in ul}, "devices": device_catalog()})
             if path == "/api/snapshots":
                 return self._json(snapshots())
             if path == "/api/snapshot":
