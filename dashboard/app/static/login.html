@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netmon · sign in</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div style="max-width:360px;margin:12vh auto;padding:0 16px">
+  <div class="brand" style="margin-bottom:18px;font-size:20px"><span class="dot"></span> netmon</div>
+  <form id="f" class="card" autocomplete="on" method="post" action="/api/login">
+    <h2>Sign in</h2>
+    <label class="k small" for="u">Username</label>
+    <input id="u" name="username" autocomplete="username" required style="width:100%;margin:4px 0 12px">
+    <label class="k small" for="p">Password</label>
+    <input id="p" name="password" type="password" autocomplete="current-password" required style="width:100%;margin:4px 0 14px">
+    <button type="submit" style="width:100%">Sign in</button>
+    <div id="err" style="color:var(--bad);margin-top:10px;min-height:1.2em"></div>
+  </form>
+</div>
+<script src="/login.js"></script>
+</body>
+</html>

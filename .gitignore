@@ -1,0 +1,32 @@
+# --- never commit: runtime data, state, credentials ---
+data/
+baseline/
+dashboard/state/
+dashboard/certs/
+dashboard/.env
+*.env
+.env*
+*.pem
+*.key
+*.db
+*.db-*
+# --- regenerated caches / threat feeds (refreshed nightly) ---
+intel/*
+!intel/attack_enterprise.json
+# --- generated / scratch ---
+__pycache__/
+*.pyc
+*.bak*
+host_findings.html
+.ruff_cache/
+node_modules/
+# Contains sensitive information
+dashboard/*.json
+# Site-specific configuration and policy (IPs, host names, inventory, accepted findings) - local only
+site.json
+policy.json
+host_policy.json
+known_benign.json
+sec_accepted.json
+*.pdf
+*.jsonl

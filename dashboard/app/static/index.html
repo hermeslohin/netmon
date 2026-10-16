@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netmon</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0b0e13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="netmon">
+<link rel="apple-touch-icon" href="/icon-192.png">
+</head>
+<body>
+<header>
+  <button id="navToggle" class="hamburger" aria-label="Menu" aria-controls="nav" aria-expanded="false"><span></span><span></span><span></span></button>
+  <div class="brand"><span class="dot"></span> netmon <small></small></div>
+  <span id="navCurrent" class="nav-current"></span>
+  <nav id="nav">
+    <a href="#/overview" data-r="overview">Overview</a>
+    <a href="#/alerts" data-r="alerts">Alerts <span class="alert-count badge sev-high" style="display:none"></span></a>
+    <a href="#/netmap" data-r="netmap">Network map</a>
+    <a href="#/risk" data-r="risk">Risk</a>
+    <a href="#/lateral" data-r="lateral">Lateral movement</a>
+    <a href="#/issues" data-r="issues">Fix list <span id="issueCount" class="badge sev-medium" style="display:none"></span></a>
+    <a href="#/devices" data-r="devices">Devices</a>
+    <a href="#/endpoints" data-r="endpoints">Endpoints</a>
+    <a href="#/security" data-r="security">Security</a>
+    <a href="#/attack" data-r="attack">ATT&amp;CK</a>
+    <a href="#/traffic" data-r="traffic">Traffic</a>
+    <a href="#/dns" data-r="dns">DNS &amp; TLS</a>
+    <a href="#/threatintel" data-r="threatintel">Threat intel</a>
+    <a href="#/unifi" data-r="unifi">UniFi</a>
+    <a href="#/history" data-r="history">History</a>
+    <a href="#/reports" data-r="reports">Reports</a>
+    <a href="#/checked" data-r="checked">Checked</a>
+    <a href="#/users" data-r="users">Users</a>
+  </nav>
+  <a id="bell" class="bell" href="#/alerts" title="Urgent alerts">🔔<span class="alert-count bell-n" style="display:none"></span></a>
+  <div class="snap">
+    <label for="snapSel">Snapshot</label>
+    <select id="snapSel"></select>
+    <button id="reload" title="Reload data">⟳</button>
+  </div>
+  <div id="userBox" class="snap" style="margin-left:8px"></div>
+</header>
+<div id="navScrim" class="nav-scrim"></div>
+<main id="main"><div class="loading">Loading…</div></main>
+<footer id="foot"></footer>
+<script src="/chart.umd.min.js"></script>
+<script src="/app.js"></script>
+<script src="/mobile.js"></script>
+<script src="/alerts.js"></script>
+<script src="/account.js"></script>
+<script src="/reports.js"></script>
+<script src="/lateral.js"></script>
+<script src="/netmap.js"></script>
+<script src="/tlsintel.js"></script>
+<script src="/endpointsdetail.js"></script>
+</body>
+</html>

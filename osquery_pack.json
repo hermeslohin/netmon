@@ -1,0 +1,85 @@
+{
+ "platform": "linux",
+ "queries": {
+  "listening": {
+   "query": "SELECT DISTINCT p.name, p.path, p.uid, lp.address, lp.port, lp.protocol FROM listening_ports lp JOIN processes p USING (pid) WHERE lp.port != 0 AND lp.address NOT IN ('127.0.0.1','::1','127.0.0.53','127.0.0.54') AND lp.address NOT LIKE '127.%';",
+   "interval": 3600, "snapshot": true, "description": "Network listeners reachable from other hosts, with owning process"
+  },
+  "proc_nonsystem": {
+   "query": "SELECT DISTINCT p.path, p.uid, u.username, h.sha256 FROM processes p LEFT JOIN users u ON u.uid = p.uid LEFT JOIN hash h ON h.path = p.path WHERE p.path != '' AND p.path NOT LIKE '/usr/bin/%' AND p.path NOT LIKE '/usr/sbin/%' AND p.path NOT LIKE '/usr/lib%' AND p.path NOT LIKE '/usr/libexec/%' AND p.path NOT LIKE '/bin/%' AND p.path NOT LIKE '/sbin/%' AND p.path NOT LIKE '/lib%' AND p.path NOT LIKE '/opt/Elastic/%' AND p.path NOT LIKE '/snap/%';",
+   "interval": 3600, "snapshot": true, "description": "Running binaries outside package-managed paths, with hash"
+  },
+  "proc_deleted": {
+   "query": "SELECT pid, name, path, uid, cmdline FROM processes WHERE on_disk = 0 AND path != '';",
+   "interval": 3600, "snapshot": true, "description": "Processes whose binary is no longer on disk (fileless malware, or not restarted after update)"
+  },
+  "ld_preload": {
+   "query": "SELECT 'env' AS src, p.path AS target, e.value FROM process_envs e JOIN processes p USING (pid) WHERE e.key = 'LD_PRELOAD' UNION ALL SELECT 'file' AS src, path AS target, size AS value FROM file WHERE path = '/etc/ld.so.preload';",
+   "interval": 3600, "snapshot": true, "description": "LD_PRELOAD injection (rootkit technique)"
+  },
+  "uid0": {
+   "query": "SELECT username, uid, gid, shell, directory FROM users WHERE uid = 0;",
+   "interval": 21600, "snapshot": true, "description": "Accounts with UID 0"
+  },
+  "login_users": {
+   "query": "SELECT username, uid, shell, directory FROM users WHERE shell NOT LIKE '%nologin' AND shell NOT LIKE '%false' AND shell NOT LIKE '%sync' AND shell NOT LIKE '%halt' AND shell NOT LIKE '%shutdown';",
+   "interval": 21600, "snapshot": true, "description": "Accounts with a login shell"
+  },
+  "authorized_keys": {
+   "query": "SELECT u.username, ak.key_file, ak.algorithm, substr(ak.key, -24) AS key_tail, ak.comment, ak.options FROM users u CROSS JOIN authorized_keys ak USING (uid);",
+   "interval": 21600, "snapshot": true, "description": "SSH authorized keys per user"
+  },
+  "sudoers": {
+   "query": "SELECT source, header, rule_details FROM sudoers;",
+   "interval": 21600, "snapshot": true, "description": "sudoers rules"
+  },
+  "suid": {
+   "query": "SELECT path, username, groupname, permissions FROM suid_bin;",
+   "interval": 86400, "snapshot": true, "description": "setuid/setgid binaries"
+  },
+  "kernel_modules": {
+   "query": "SELECT name, status FROM kernel_modules;",
+   "interval": 21600, "snapshot": true, "description": "Loaded kernel modules"
+  },
+  "crontab": {
+   "query": "SELECT path, minute, hour, day_of_month, month, day_of_week, command FROM crontab;",
+   "interval": 21600, "snapshot": true, "description": "Cron entries"
+  },
+  "systemd_custom": {
+   "query": "SELECT id, fragment_path, active_state, sub_state, user FROM systemd_units WHERE fragment_path != '' AND fragment_path NOT LIKE '/usr/lib/%' AND fragment_path NOT LIKE '/lib/%' AND fragment_path NOT LIKE '/run/%';",
+   "interval": 21600, "snapshot": true, "description": "Locally added/overridden systemd units (persistence)"
+  },
+  "security_services": {
+   "query": "SELECT id, active_state, sub_state FROM systemd_units WHERE id IN ('auditd.service','unattended-upgrades.service','ufw.service','firewalld.service','nftables.service','apparmor.service','fail2ban.service','dnf-automatic.timer','sshd.service','ssh.service','ssh.socket','xrdp.service','cups.service','avahi-daemon.service','elastic-agent.service','ElasticEndpoint.service');",
+   "interval": 21600, "snapshot": true, "description": "State of security-relevant services"
+  },
+  "firewall": {
+   "query": "SELECT 'ufw.conf' AS src, label AS name, value FROM augeas WHERE path = '/etc/ufw/ufw.conf' UNION ALL SELECT 'firewalld' AS src, label AS name, value FROM augeas WHERE path = '/etc/firewalld/firewalld.conf' AND label = 'DefaultZone' UNION ALL SELECT 'iptables' AS src, filter_name || ':' || chain AS name, policy || ' rules=' || count(*) AS value FROM iptables WHERE filter_name = 'filter' AND chain IN ('INPUT','FORWARD') GROUP BY filter_name, chain;",
+   "interval": 21600, "snapshot": true, "description": "Host firewall configuration"
+  },
+  "sshd_config": {
+   "query": "SELECT path, label, value FROM augeas WHERE (path = '/etc/ssh/sshd_config' OR path LIKE '/etc/ssh/sshd_config.d/%') AND label IN ('PermitRootLogin','PasswordAuthentication','PermitEmptyPasswords','X11Forwarding','PubkeyAuthentication','KbdInteractiveAuthentication','ChallengeResponseAuthentication','AllowTcpForwarding','GatewayPorts','PermitTunnel','UsePAM','Port','ListenAddress','MaxAuthTries');",
+   "interval": 21600, "snapshot": true, "description": "Explicit sshd settings"
+  },
+  "sysctl": {
+   "query": "SELECT name, current_value FROM system_controls WHERE name IN ('kernel.randomize_va_space','kernel.kptr_restrict','kernel.dmesg_restrict','kernel.yama.ptrace_scope','kernel.unprivileged_bpf_disabled','kernel.unprivileged_userns_clone','kernel.kexec_load_disabled','kernel.sysrq','fs.suid_dumpable','fs.protected_symlinks','fs.protected_hardlinks','net.ipv4.ip_forward','net.ipv4.conf.all.accept_redirects','net.ipv4.conf.all.send_redirects','net.ipv4.conf.all.accept_source_route','net.ipv4.conf.all.rp_filter','net.ipv4.tcp_syncookies','net.ipv6.conf.all.accept_redirects','net.ipv4.conf.all.log_martians');",
+   "interval": 21600, "snapshot": true, "description": "Kernel hardening sysctls"
+  },
+  "docker": {
+   "query": "SELECT c.name, c.image, c.state, c.privileged, c.pid_namespace, c.net_namespace, group_concat(m.source || ':' || m.destination || ':' || m.rw, ' ') AS mounts FROM docker_containers c LEFT JOIN docker_container_mounts m ON m.id = c.id GROUP BY c.id;",
+   "interval": 21600, "snapshot": true, "description": "Docker containers, privilege and host mounts"
+  },
+  "packages_deb": {
+   "query": "SELECT name, version FROM deb_packages WHERE status LIKE '%installed%';",
+   "interval": 86400, "snapshot": true, "description": "Installed Debian/Ubuntu packages"
+  },
+  "packages_rpm": {
+   "query": "SELECT name, version || '-' || release AS version FROM rpm_packages;",
+   "interval": 86400, "snapshot": true, "description": "Installed RPM packages"
+  },
+  "os": {
+   "query": "SELECT o.name, o.version, k.version AS kernel, (SELECT total_seconds FROM uptime) AS uptime_s FROM os_version o, kernel_info k;",
+   "interval": 21600, "snapshot": true, "description": "OS / kernel / uptime"
+  }
+ }
+}
