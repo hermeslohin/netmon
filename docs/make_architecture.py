@@ -3,7 +3,7 @@
 Generate docs/architecture.svg (netmon architecture) in the architecture-diagram skill's design system."""
 from html import escape as E
 
-W, H = 1300, 900
+W, H = 1300, 1010
 C = {  # semantic palette: fill, stroke
     "front": ("rgba(8,51,68,0.4)", "#22d3ee"), "back": ("rgba(6,78,59,0.4)", "#34d399"),
     "db": ("rgba(76,29,149,0.4)", "#a78bfa"), "cloud": ("rgba(120,53,15,0.3)", "#fbbf24"),
@@ -67,10 +67,10 @@ def lab2(cx, y, color, l1, l2):  # two-line label for the narrow gaps between re
 
 
 # ---------------- regions
-region(20, 70, 380, 640, "HOME NETWORK", "#34d399")
+region(20, 70, 380, 740, "HOME NETWORK", "#34d399")
 region(36, 280, 348, 290, "SECURITY ONION", "#fb7185", "4,4")
-region(440, 70, 500, 640, "MONITORING HOST (local AI box)", "#22d3ee")
-region(980, 70, 300, 640, "CLOUD SERVICES", "#fbbf24")
+region(440, 70, 500, 740, "MONITORING HOST (local AI box)", "#22d3ee")
+region(980, 70, 300, 740, "CLOUD SERVICES", "#fbbf24")
 
 # ---------------- home network
 node("ep", 50, 100, 320, 84, "back", "Endpoints · Elastic Agent", ["Elastic Defend (process / network / file)", "osquery (osquerybeat) · system auth & syslog"], "HOSTS")
@@ -84,16 +84,18 @@ node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio · Gemma", "on-box
 node("hermes", 626, 100, 294, 76, "ai", "Hermes Agent", ["\"Lady Brains\" · cron · skills", "tools · memory · runs every job"], "AGENT")
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "new devices · IDS · host anomalies"], "EVERY 15 MIN")
 node("nightly", 698, 226, 222, 82, "back", "Nightly pipeline", ["collect → analyze → triage", "baseline · ATT&CK · report.py"], "05:00 UTC")
-node("db", 460, 348, 222, 76, "db", "SQLite store (WAL)", ["devices · baselines · alerts", "acks · push subscriptions"])
+node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "nightly snapshots + triage JSON"])
 node("pdf", 698, 348, 222, 76, "db", "PDF reports", ["one per night, kept locally", "served for download"])
 node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Overview · Risk · Fix list · Endpoints · Lateral map", "ATT&CK · Alerts · Reports (PDF download) · Users", "Web Push urgent notifications · per-user device subscriptions"], "WEB APP")
-node("ship", 460, 608, 460, 70, "sec", "ship.sh · weekly_rebuild.sh", ["Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
+node("mcp", 460, 608, 222, 76, "bus", "netmon MCP server", ["netmon_mcp.py · stdio", "9 read-only query tools"], "READ-ONLY")
+node("chatp", 698, 608, 222, 76, "ai", "Hermes chat profile", ["netmonchat · API on loopback", "tools: web + netmon only"], "ASK HERMES")
+node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
 
 # ---------------- cloud
 node("claude", 1000, 100, 260, 76, "ai", "Claude  (Anthropic API)", ["nightly triage · web research", "verdicts with citations · coding"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
-node("gh", 1000, 608, 260, 70, "ext", "GitHub", ["public repo · ghcr.io image", "no site data (site.json local)"], "CODE")
+node("gh", 1000, 716, 260, 64, "ext", "GitHub", ["public repo · ghcr.io image", "no site data (site.json local)"], "CODE")
 
 # ---------------- connections
 arrow(anchor("ep", "b"), anchor("fleet", "t"), "#34d399", "enroll / policy", ldy=4)
@@ -106,7 +108,7 @@ arrows.append('<path d="M545,201 L545,226" fill="none" stroke="#a78bfa" stroke-w
 arrows.append('<path d="M880,201 L880,226" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#ah-a78bfa)"/>')
 arrows.append('<rect x="372" y="300" width="64" height="26" rx="3" fill="#020617" opacity="0.92"/><text x="404" y="311" text-anchor="middle" fill="#a78bfa" font-size="9">_search</text><text x="404" y="322" text-anchor="middle" fill="#a78bfa" font-size="9">read-only</text>')
 # UniFi gateway -> cloud API (around the bottom/right edge) -> nightly pipeline
-arrows.append('<path d="M210,670 L210,696 L1272,696 L1272,280 L1260,280" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
+arrows.append('<path d="M210,670 L210,796 L1272,796 L1272,280 L1260,280" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
 arrows.append('<rect x="222" y="689" width="132" height="13" rx="3" fill="#020617"/><text x="288" y="699" text-anchor="middle" fill="#fbbf24" font-size="9">telemetry via UniFi cloud</text>')
 arrow(anchor("uapi", "l", 0.4), (920, 259), "#fbbf24", dash="6,3")
 lab2(960, 236, "#fbbf24", "events", "flows")
@@ -124,14 +126,20 @@ arrow(anchor("db", "b"), (571, 464), "#a78bfa", "reads", ldy=4)
 arrow(anchor("pdf", "b"), (809, 464), "#a78bfa", "downloads", ldy=4)
 arrow(anchor("dash", "r", 0.4), anchor("users", "l", 0.6), "#22d3ee", both=True)
 lab2(960, 468, "#22d3ee", "HTTPS", "Web Push")
-arrow(anchor("dash", "b"), anchor("ship", "t"), "#fb7185", "scan + rebuild", ldy=4)
 arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
-lab2(960, 618, "#94a3b8", "scanned", "push")
+lab2(960, 726, "#94a3b8", "scanned", "push")
+# Ask Hermes: dashboard -> restricted chat profile -> read-only MCP server -> netmon data; chat model = Claude
+arrow((809, 568), (809, 608), "#e879f9", "Ask Hermes", ldy=4)
+arrow(anchor("chatp", "l"), anchor("mcp", "r"), "#fb923c", "MCP", ldy=-6)
+arrows.append('<path d="M460,410 L450,410 L450,646 L460,646" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#ah-a78bfa)"/>')
+lab2(450, 520, "#a78bfa", "read", "only")
+arrows.append('<path d="M920,646 L990,646 L990,160 L1000,160" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-e879f9)"/>')
+lab2(990, 600, "#e879f9", "chat", "model")
 
 # ---------------- legend
-ly = 740
+ly = 850
 legend = [("#34d399", "data pipeline"), ("#fb7185", "security sensor / gate"), ("#a78bfa", "storage / query"),
-          ("#e879f9", "AI: agent & LLMs"), ("#fbbf24", "cloud API"), ("#22d3ee", "user-facing")]
+          ("#e879f9", "AI: agent & LLMs"), ("#fbbf24", "cloud API"), ("#22d3ee", "user-facing"), ("#fb923c", "MCP tool bridge")]
 out_leg = [f'<text x="20" y="{ly}" fill="#e2e8f0" font-size="11" font-weight="700" letter-spacing="1.5">LEGEND</text>']
 for i, (c, t) in enumerate(legend):
     x = 20 + (i % 3) * 230
@@ -141,11 +149,12 @@ out_leg.append(f'<line x1="720" y1="{ly + 18}" x2="760" y2="{ly + 18}" stroke="#
 out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6,3"/><text x="768" y="{ly + 42}" fill="#94a3b8" font-size="10">via internet / cloud</text>')
 notes = ["Elasticsearch is queried read-only; netmon never changes Security Onion, UniFi or the network.",
          "Nightly: Claude triages findings with web research; report.py renders the PDF (downloadable in the dashboard).",
-         "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat."]
+         "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
+         "Ask Hermes: dashboard chat → isolated Hermes profile (no terminal/files/memory) → read-only netmon MCP server."]
 for i, t in enumerate(notes):
-    out_leg.append(f'<text x="20" y="{ly + 82 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
+    out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
 
-colors = sorted({"34d399", "fb7185", "a78bfa", "e879f9", "fbbf24", "22d3ee", "94a3b8", "64748b"})
+colors = sorted({"fb923c", "34d399", "fb7185", "a78bfa", "e879f9", "fbbf24", "22d3ee", "94a3b8", "64748b"})
 markers = "".join(f'<marker id="ah-{c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#{c}"/></marker>' for c in colors)
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" font-family="{FONT}">
 <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>{markers}</defs>

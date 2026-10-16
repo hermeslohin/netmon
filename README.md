@@ -5,9 +5,9 @@ Built specific to me and by an AI.  Queries Elasticsearch and Unifi to collect s
 I have recently been working with Hermes Agent... and it is wild what it can do along with an LLM.  As my first test I started having it generate reports for security finding of my home network.  It pulls this information from Security Onion Solutions, LLC
 Elastic and Unifi API.  For host collection it uses the builtin Elastic Fleet and OsQuery.  It started off generating a report every 24 hours with Claude and every 15 minutes it runs code and checks for "critical" events using a local LLM with a much smaller model.  It does really well at presenting useful information on security and immediately gave me actionable intel like:
 
-Admin access between zones (recurring, awaiting allow rules) Galaxy Mac -gt; < hostname> 22/tcp, lordbrain 9090/tcp; lordbrain -gt; ladybrain 22/tcp
+Admin access between zones (recurring, awaiting allow rules): admin laptop → server 22/tcp, server 9090/tcp; server → AI host 22/tcp
 
-iPad upload spikes = Google cloud uploads (Photos/Drive backup) iPad 01:57 (96:6c:d1:1f:01:57, <ip>); Zachs Ipad (1e:cd:31:ed:1f:16, <ip>)
+iPad upload spikes = Google cloud uploads (Photos/Drive backup) from two family iPads
 
 Domains that were recently registered, Devices bypassing DNS and more.  I did this all in under an hour.  Finds spike in usage patterns, DNS, compares events to threat intel. Warns me of changes made to devices that are relevant to security. 
 
@@ -50,6 +50,7 @@ Home-network security monitoring for the home network, run by the Hermes agent (
 - **Data sources:** Elastic Agent on each endpoint (Elastic Defend + osquery, managed by Fleet) and the Security Onion sensor (Suricata, Zeek) write to Security Onion's Elasticsearch. The UniFi gateway is read through the UniFi Site Manager cloud API.
 - **Hermes agent** schedules every job. The 15-minute watcher is deterministic and calls no model. The nightly run uses **Claude** for triage and web research. A **local LLM** (LM Studio) runs on the same machine for on-box work.
 - **Outputs:** SQLite state, nightly PDF reports and the HTTPS dashboard with Web Push. Nothing is posted to chat.
+- **Ask Hermes:** the dashboard's chat (and the 💬 button on every finding) talks to a separate, restricted Hermes profile (`netmonchat`) over its loopback-only API. That profile has no terminal, file or memory tools. It gets web search plus `netmon_mcp.py`, a read-only MCP server with nine query tools over the netmon data (snapshots, triage, findings, devices, endpoint findings, IDS and recent alerts, reports). The MCP server opens SQLite read-only.
 - Regenerate the diagram with `python3 docs/make_architecture.py`.
 
 ## Components
@@ -61,6 +62,7 @@ Home-network security monitoring for the home network, run by the Hermes agent (
 - `store.py`: SQLite state store (WAL).
 - `dashboard/`: HTTPS dashboard container (stdlib server, plain JS front end, Web Push).
 - `sec_scan.sh`: security scan suite (Semgrep, Ruff/Bandit, pip-audit, ESLint no-unsanitized, Trivy, Hadolint, Gitleaks, ZAP).
+- `netmon_mcp.py`: read-only MCP server (stdio, stdlib only) that serves netmon data to the Ask Hermes assistant.
 - `ship.sh`: scan, commit and push (required for every code change).
 - `weekly_rebuild.sh`: weekly container rebuild with updated libraries, a versioned image, a security scan, and in-app vulnerability alerts.
 
