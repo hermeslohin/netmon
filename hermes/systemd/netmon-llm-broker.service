@@ -1,0 +1,12 @@
+[Unit]
+Description=netmon LLM broker (dashboard -> Anthropic/LM Studio, research model changes)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.hermes/netmon/llm_broker.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

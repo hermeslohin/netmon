@@ -139,6 +139,25 @@ The report can also run several times a day (for example `'0 1,5,9,13,17,21 * * 
 
 The nightly job uses your default Hermes model. Pin a model with `--model`/`--provider` if you want, for example a strong reasoning model for triage. Make sure the Hermes gateway (scheduler) is running: `hermes gateway install`.
 
+## 7b. Model choice and model comparison (optional)
+
+The AI review page lets an admin choose the model for the **correlation reviewer** and for the **research job**. The choices are local LM Studio models or Anthropic models. On any current decision, the ⇄ button asks up to 4 models the same question side by side and can store one model's answer as the decision.
+
+The dashboard container has no provider credentials. A small loopback-only broker on the host, `llm_broker.py`, runs under Hermes' own runtime and uses Hermes' configured Anthropic credentials. It also applies research-model changes with `hermes cron edit`.
+
+```bash
+# dashboard/.env
+NETMON_BROKER_URL=http://127.0.0.1:8650
+NETMON_BROKER_KEY=<long random string>      # python3 -c "import secrets;print(secrets.token_urlsafe(32))"
+NETMON_ADMINS=<dashboard user>[,<user>...]  # who may change models / run comparisons (default: DASH_USER)
+
+cp hermes/systemd/netmon-llm-broker.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now netmon-llm-broker
+cd dashboard && ./deploy.sh
+```
+
+The broker only accepts `anthropic` and `lmstudio` models from its own model list, and limits Anthropic calls to 120 per hour. If the broker is down, the page still offers local models. The correlation choice is stored in `dashboard/state/llm_config.json`; deleting that file returns to the model loaded in LM Studio.
+
 ## 8. Ask Hermes chat (optional)
 
 The chat runs as a **separate, restricted Hermes profile**. It has no terminal, file, memory or skill tools, and no secrets beyond an LLM key. It can only search the web and query netmon through `netmon_mcp.py`, a read-only MCP server.

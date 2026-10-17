@@ -20,6 +20,27 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 ROOT = os.environ.get("NETMON_DIR", "/netmon")
+ADMINS = {u.strip() for u in os.environ.get("NETMON_ADMINS", os.environ.get("DASH_USER", "")).split(",") if u.strip()}
+LLM_PROVIDERS = ("lmstudio", "anthropic")
+
+
+def llm_models():
+    """Models the AI review page may choose: from the host broker (Anthropic + LM Studio), else LM Studio only."""
+    try:
+        return corr_llm.broker("/models", timeout=15)
+    except Exception as e:  # noqa: BLE001 - broker down: local models still work
+        try:
+            d = corr_llm._get(corr_llm.URL.replace("/v1", "/api/v0") + "/models", timeout=5)
+            loc = [{"id": m["id"], "loaded": m.get("state") == "loaded"} for m in d.get("data", []) if m.get("type") in ("llm", "vlm")]
+        except Exception:  # noqa: BLE001
+            loc = []
+        return {"anthropic": [], "local": loc, "error": f"LLM broker unavailable: {str(e)[:160]}"}
+
+
+def llm_allowed(provider, model, M=None):
+    M = M or llm_models()
+    return (provider == "anthropic" and model in {m["id"] for m in M.get("anthropic", [])}) or \
+        (provider == "lmstudio" and model in {m["id"] for m in M.get("local", [])})
 DATA = os.path.join(ROOT, "data")
 BASE = os.path.join(ROOT, "baseline")
 STATE = os.environ.get("STATE_DIR", "/state")
@@ -476,6 +497,43 @@ class H(BaseHTTPRequestHandler):
                 p = store.prefs_set(user, mode, devs)
                 print(f"push prefs: {user} -> {mode} ({len(devs)} devices)", file=sys.stderr)
                 return self._json({"prefs": p})
+            if u.path in ("/api/llm/config", "/api/aireview/compare") or (u.path == "/api/aireview" and body.get("action") == "adopt"):
+                if user not in ADMINS:
+                    return self._json({"error": "only an admin can change models or run comparisons"}, 403)
+            if u.path == "/api/llm/config":  # choose the correlation reviewer or the research job's model
+                sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
+                if sec not in ("correlation", "research") or prov not in LLM_PROVIDERS or not llm_allowed(prov, model):
+                    return self._json({"error": "unknown section, provider or model"}, 400)
+                if sec == "correlation":
+                    corr_llm.set_correlation(prov, model, user)
+                    res = corr_llm.config()["correlation"]
+                else:
+                    try:
+                        res = corr_llm.broker("/research", {"provider": prov, "model": model}, timeout=90)
+                    except Exception as e:  # noqa: BLE001
+                        return self._json({"error": str(e)[:300]}, 502)
+                print(f"llm config: {user} set {sec} -> {prov}/{model}", file=sys.stderr)
+                return self._json({"ok": True, sec: res})
+            if u.path == "/api/aireview/compare":  # one decision, several models, side by side
+                pr = str(body.get("pair", ""))[:1200]
+                M = llm_models()
+                tg = [{"provider": str(t.get("provider")), "model": str(t.get("model"))[:120]} for t in (body.get("targets") or [])[:4] if isinstance(t, dict)]
+                tg = [t for t in tg if llm_allowed(t["provider"], t["model"], M)]
+                if not tg or "\x1f" not in pr:
+                    return self._json({"error": "pick 1-4 available models"}, 400)
+                s_ = snapshots()
+                base = correlation(s_[-1]["id"] if s_ else "") or {}
+                try:
+                    res = corr_llm.compare(pr, base, tg, user)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                print(f"ai compare: {user} {len(tg)} models on {pr[:100]!r}", file=sys.stderr)
+                return self._json(res)
+            if u.path == "/api/aireview" and body.get("action") == "adopt":
+                pr = str(body.get("pair", ""))[:1200]
+                corr_llm.adopt(pr, bool(body.get("related")), body.get("confidence"), str(body.get("reason") or ""), str(body.get("model") or "model"), user)
+                print(f"ai review: {user} adopted {str(body.get('model'))[:60]} on {pr[:100]!r}", file=sys.stderr)
+                return self._json({"ok": True})
             if u.path == "/api/aireview":  # override or re-review one AI verdict
                 act, pr = str(body.get("action", "")), str(body.get("pair", ""))
                 if act not in ("confirm", "reject", "rereview"):
@@ -572,11 +630,19 @@ class H(BaseHTTPRequestHandler):
                 if path == "/api/risk":
                     return self._json(rr)
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kb))
+            if path == "/api/llm/models":
+                return self._json({**llm_models(), "admin": user in ADMINS})
+            if path == "/api/aireview/compare":
+                return self._json({"history": corr_llm.comparisons(str((q.get("pair") or [""])[0])[:1200])})
             if path == "/api/aireview":
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
                 base = correlation(sid) or {}
-                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid}
+                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": user in ADMINS}
+                try:
+                    ov["research"] = corr_llm.broker("/research", timeout=10)
+                except Exception as e:  # noqa: BLE001
+                    ov["research"] = {"error": str(e)[:200]}
                 try:
                     ov["claude"] = enrich.status((base.get("events") or {}).keys())
                 except Exception as e:  # noqa: BLE001 - the local-LLM view must not depend on the Claude status

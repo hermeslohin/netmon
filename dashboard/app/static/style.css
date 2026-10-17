@@ -384,3 +384,17 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .seg-clr:hover{background:#3fb95022}
 .seg-clr input{width:16px;height:16px;margin:0;accent-color:var(--good);cursor:pointer}
 .seg-clr.on{background:var(--good);color:#0d1117}
+
+/* AI review: model choice + per-decision comparison */
+.llm-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+.llm-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.llm-row .k{min-width:190px;color:var(--muted)}
+.llm-sel{min-width:260px;max-width:100%}
+.ai-acts button[data-cmp]{color:var(--violet);border-color:var(--violet)}
+.cmp-dlg{width:min(980px,96vw);max-height:90vh;overflow:auto;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:14px}
+.cmp-dlg::backdrop{background:#000a}
+.cmp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.cmp-pick{display:flex;flex-wrap:wrap;gap:4px 14px;margin:10px 0;align-items:center}.cmp-pick > div{flex:1 1 100%}
+.cmp-opt{display:inline-flex;align-items:center;gap:4px;font-size:13px}
+.cmp-out{margin:10px 0}
+.cmp-tbl{width:100%;border-collapse:collapse;font-size:13px}.cmp-tbl th,.cmp-tbl td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;vertical-align:top}
+@media (max-width:900px){.llm-row .k{min-width:100%}.llm-sel{width:100%}.cmp-tbl td{display:block;border:0;padding:2px 0}.cmp-tbl tr{display:block;border-bottom:1px solid var(--border);padding:6px 0}.cmp-tbl thead{display:none}}

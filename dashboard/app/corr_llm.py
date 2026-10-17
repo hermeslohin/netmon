@@ -9,10 +9,15 @@ Runs as a background thread in the dashboard server:
 apply() merges verdicts into /api/correlate: rejected links are dropped, confirmed ones carry the model's reason,
 undecided ones are shown as "awaiting review" until the worker gets to them.
 
+Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}). provider
+"lmstudio" talks to LM Studio directly; "anthropic" goes through the host LLM broker (llm_broker.py, which owns
+the credentials). compare() asks several models about ONE decision for the side-by-side view (not stored as a
+verdict unless a person adopts one).
+
 Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (default: the model loaded in LM Studio),
      NETMON_LLM_REASONING (default "none" - fast, clean JSON), NETMON_LLM_WORKERS (default 2), NETMON_LLM=off to disable.
 """
-import json, os, sqlite3, sys, threading, time, urllib.request
+import json, os, sqlite3, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -28,6 +33,47 @@ MAX_CAND = 10
 STATUS = {"enabled": ENABLED, "model": MODEL, "error": "", "last_run": None, "busy": False, "decided_this_run": 0}
 _lock = threading.Lock()
 _wanted = {}  # snapshot id -> last time a user asked for it
+CONFIG = os.path.join(os.environ.get("STATE_DIR", "/state"), "llm_config.json")
+BROKER = os.environ.get("NETMON_BROKER_URL", "").rstrip("/")
+BROKER_KEY = os.environ.get("NETMON_BROKER_KEY", "")
+if BROKER and not BROKER.startswith(("http://127.0.0.1", "http://localhost")):
+    raise ValueError("NETMON_BROKER_URL must be a loopback http URL")
+
+
+def config():
+    try:
+        c = json.load(open(CONFIG))
+    except (OSError, ValueError):
+        c = {}
+    cor = c.get("correlation") or {}
+    return {"correlation": {"provider": cor.get("provider") or "lmstudio", "model": cor.get("model") or MODEL}}
+
+
+def set_correlation(provider, model, user):
+    c = {}
+    try:
+        c = json.load(open(CONFIG))
+    except (OSError, ValueError):
+        pass
+    c["correlation"] = {"provider": provider, "model": model, "by": user, "at": time.time()}
+    tmp = CONFIG + ".tmp"
+    json.dump(c, open(tmp, "w"), indent=1)
+    os.replace(tmp, CONFIG)
+
+
+def broker(path, body=None, timeout=330):
+    if not (BROKER and BROKER_KEY):
+        raise RuntimeError("LLM broker not configured (NETMON_BROKER_URL / NETMON_BROKER_KEY)")
+    req = urllib.request.Request(BROKER + path, data=json.dumps(body).encode() if body is not None else None,  # noqa: S310 - loopback http checked at import
+                                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {BROKER_KEY}"})
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=timeout))  # noqa: S310 - loopback URL checked at import
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.load(e).get("error")
+        except Exception:  # noqa: BLE001
+            msg = str(e)
+        raise RuntimeError(f"broker: {msg}") from None
 
 SYSTEM = """You are a senior SOC analyst reviewing a home network's security monitoring.
 A correlation script proposed links between security events. For EACH candidate decide whether it is genuinely
@@ -55,6 +101,8 @@ def _db():
     c = sqlite3.connect(DB, timeout=10)
     c.execute("PRAGMA temp_store=MEMORY")  # the container's / and /tmp are read-only: sorts must not spill to temp files
     c.execute("CREATE TABLE IF NOT EXISTS verdicts (pair TEXT PRIMARY KEY, related INTEGER, confidence REAL, reason TEXT, model TEXT, ts REAL)")
+    c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
+                 related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
     return c
 
 
@@ -133,18 +181,42 @@ def _model():
     return d["data"][0]["id"]
 
 
-def _ask(model, anchor, cands):
+def _complete(target, system, user, max_tokens):
+    """One JSON completion from the chosen provider -> (text, usage dict, seconds)."""
+    t = time.time()
+    if target["provider"] == "anthropic":
+        r = broker("/complete", {"provider": "anthropic", "model": target["model"], "max_tokens": max_tokens,
+                                  "system": system + "\nReturn ONLY a JSON object of the form {\"decisions\": [{\"id\", \"related\", \"confidence\", \"reason\"}]} - no prose, no code fences.",
+                                  "user": user})
+        return r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
+    body = {"model": target["model"], "temperature": 0, "max_tokens": max_tokens, "reasoning_effort": REASONING,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "response_format": {"type": "json_schema", "json_schema": {"name": "decisions", "strict": True, "schema": SCHEMA}}}
+    d = _get(URL + "/chat/completions", json.dumps(body).encode(), timeout=300)
+    u = d.get("usage") or {}
+    return d["choices"][0]["message"].get("content") or "", {"prompt": u.get("prompt_tokens", 0), "completion": u.get("completion_tokens", 0)}, round(time.time() - t, 2)
+
+
+def _target(model=None):
+    c = config()["correlation"]
+    if c["provider"] == "anthropic":
+        return {"provider": "anthropic", "model": c["model"] or "claude-sonnet-5-5"}
+    return {"provider": "lmstudio", "model": model or c["model"] or _model()}
+
+
+def _ask_full(target, anchor, cands):
     def ev(tag, e, extra=""):
         return f'<event id="{tag}" type="{e["type"]} - {TYPE_DESC.get(e["type"], "")}" when="{_when(e.get("t0"), e["type"])}" severity="{e.get("sev", "")}">{e["label"][:400]}</event>{extra}'
     lines = ["ANCHOR:", ev("anchor", anchor), "", "CANDIDATES (with the correlation script's evidence):"]
     for i, (e, r) in enumerate(cands, 1):
-        lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r["score"]}): {"; ".join(r["why"])}'))
-    body = {"model": model, "temperature": 0, "max_tokens": 120 + 90 * len(cands), "reasoning_effort": REASONING,
-            "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "\n".join(lines)}],
-            "response_format": {"type": "json_schema", "json_schema": {"name": "decisions", "strict": True, "schema": SCHEMA}}}
-    d = _get(URL + "/chat/completions", json.dumps(body).encode(), timeout=300)
-    txt = d["choices"][0]["message"].get("content") or ""
-    return json.loads(txt[txt.find("{"):txt.rfind("}") + 1])["decisions"]
+        lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))
+    txt, usage, secs = _complete(target, SYSTEM, "\n".join(lines), 120 + 90 * len(cands))
+    return json.loads(txt[txt.find("{"):txt.rfind("}") + 1])["decisions"], usage, secs
+
+
+def _ask(model, anchor, cands):
+    t = model if isinstance(model, dict) else {"provider": "lmstudio", "model": model}
+    return _ask_full(t, anchor, cands)[0]
 
 
 def _review(model, aid, base, todo):
@@ -158,7 +230,8 @@ def _review(model, aid, base, todo):
         d = dec.get(f"c{i}")
         if d is None:
             continue  # model skipped it: stays pending, retried next round
-        rows.append((pair(aid, r["id"]), 1 if d.get("related") else 0, float(d.get("confidence") or 0), str(d.get("reason") or "")[:300], model, time.time()))
+        rows.append((pair(aid, r["id"]), 1 if d.get("related") else 0, float(d.get("confidence") or 0), str(d.get("reason") or "")[:300],
+                     model["model"] if isinstance(model, dict) else model, time.time()))
     with _lock, _db() as c:
         c.executemany("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)", rows)
     return len(rows)
@@ -167,8 +240,8 @@ def _review(model, aid, base, todo):
 def run_once(get_base, latest_sid):
     """One pass: review every undecided candidate of the newest snapshot (and recently opened ones)."""
     sids = [latest_sid] + [s for s, t in sorted(_wanted.items(), key=lambda x: -x[1]) if s != latest_sid and time.time() - t < 3600][:2]
-    model = _model()
-    STATUS.update(model=model, busy=True, decided_this_run=0)
+    model = _target()
+    STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0)
     done = 0
     for sid in filter(None, sids):
         base = get_base(sid)
@@ -217,6 +290,55 @@ def start(get_base, latest_sid_fn, every=60):
     threading.Thread(target=loop, name="corr-llm", daemon=True).start()
 
 
+# ---------------------------------------------------------------- compare one decision across models
+def compare(p, base, targets, user):
+    """Ask each target model about ONE pair (anchor = first event of the pair); results are logged in
+    `comparisons`, never written as verdicts. Returns the stored verdict too."""
+    a, b = p.split("\x1f", 1)
+    E = (base or {}).get("events") or {}
+    if a not in E or b not in E:
+        raise ValueError("this decision's events are not in the current snapshot; compare works on current decisions")
+    r = next((x for x in (base.get("related") or {}).get(a, []) if x["id"] == b), None) or \
+        next((x for x in (base.get("related") or {}).get(b, []) if x["id"] == a), None) or {"score": 0, "why": []}
+
+    def one(t):
+        out = {"provider": t["provider"], "model": t["model"]}
+        try:
+            dec, usage, secs = _ask_full(t, E[a], [(E[b], r)])
+            d = next((x for x in dec if x.get("id") == "c1"), dec[0] if dec else {})
+            out.update(related=bool(d.get("related")), confidence=float(d.get("confidence") or 0), reason=str(d.get("reason") or "")[:300],
+                       seconds=secs, usage=usage)
+        except Exception as e:  # noqa: BLE001 - one model failing must not hide the others
+            out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        return out
+    with ThreadPoolExecutor(min(4, len(targets))) as ex:
+        res = list(ex.map(one, targets))
+    now = time.time()
+    with _lock, _db() as c:
+        c.executemany("INSERT INTO comparisons (pair, ts, user, provider, model, related, confidence, reason, seconds, prompt_tokens, completion_tokens, error) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      [(p, now, user, x["provider"], x["model"], None if "error" in x else int(x["related"]), x.get("confidence"), x.get("reason"),
+                        x.get("seconds"), (x.get("usage") or {}).get("prompt"), (x.get("usage") or {}).get("completion"), x.get("error")) for x in res])
+    return {"pair": p, "anchor": E[a]["label"], "candidate": E[b]["label"], "evidence": r.get("why") or [],
+            "stored": verdicts([p]).get(p), "results": res}
+
+
+def comparisons(p):
+    with _db() as c:
+        rows = c.execute("SELECT ts, user, provider, model, related, confidence, reason, seconds, prompt_tokens, completion_tokens, error "
+                         "FROM comparisons WHERE pair=? ORDER BY ts DESC LIMIT 40", (p,)).fetchall()
+    return [dict(zip(("ts", "user", "provider", "model", "related", "confidence", "reason", "seconds", "prompt_tokens", "completion_tokens", "error"), r)) for r in rows]
+
+
+def adopt(p, related, confidence, reason, model, user):
+    """A person picks one model's answer from a comparison: stored as that model's verdict (labelled)."""
+    if "\x1f" not in p:
+        raise ValueError("bad pair")
+    with _lock, _db() as c:
+        c.execute("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)",
+                  (p, 1 if related else 0, max(0.0, min(1.0, float(confidence or 0))), str(reason or "")[:300], f"{str(model)[:60]} (chosen by {user})", time.time()))
+
+
 # ---------------------------------------------------------------- status page (#/aireview)
 def overview(events, applied):
     """Everything the AI-review page shows: worker status, queue for the current snapshot, totals, throughput,
@@ -245,7 +367,8 @@ def overview(events, applied):
     models = {}
     for r in out:
         models[r["model"]] = models.get(r["model"], 0) + 1
-    return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "error", "busy", "last_run", "decided_this_run")},
+    return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "provider", "error", "busy", "last_run", "decided_this_run")},
+            "config": config(),
             "url": URL, "workers": WORKERS, "reasoning": REASONING,
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
