@@ -110,7 +110,8 @@ def want(sid):
 
 # ---------------------------------------------------------------- worker
 def _get(url, data=None, timeout=10):
-    assert url.startswith(("http://", "https://"))
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("http(s) only")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     return json.load(urllib.request.urlopen(req, timeout=timeout))  # noqa: S310 - scheme checked above
 
