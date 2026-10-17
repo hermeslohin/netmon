@@ -377,3 +377,10 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 }
 
 .card[id]{scroll-margin-top:110px}
+
+/* Posture > Segmentation violations: an obvious "Clear" check box (clears the flow everywhere, ack type seg) */
+.seg-clr{display:inline-flex;align-items:center;gap:5px;padding:3px 9px 3px 6px;border:1px solid var(--good);border-radius:12px;color:var(--good);
+  font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;user-select:none}
+.seg-clr:hover{background:#3fb95022}
+.seg-clr input{width:16px;height:16px;margin:0;accent-color:var(--good);cursor:pointer}
+.seg-clr.on{background:var(--good);color:#0d1117}

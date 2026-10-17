@@ -262,13 +262,22 @@ const ACK = {
   finding: (f) => fnv(`${f.device}|${f.kind}|${f.detail}`),
   issue: (i) => i.key,
   host: (f) => f.key,
+  violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
 const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", seg: "Cleared segmentation flow" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
 const SEG_RE = /\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)\/(\w+)/;
+// flow key for a src IP: reuse a key that is already cleared (IP or MAC form), else the one the baseline finding
+// uses, else the MAC form (follows the device through DHCP changes); matches lateral.js and risk.seg_is_cleared
+function segFlowKey(src, dst, port) {
+  const ks = [src, S.snap?.raw?.devices?.[src]?.mac].filter(Boolean).map((v) => `${String(v).toLowerCase()}|${dst}|${port}`);
+  const seen = (S.snap?.analysis?.findings || []).map((f) => segKey("finding", f)).find((v) => ks.includes(v));
+  return ks.find((v) => S.acks?.seg?.[v]) || seen || ks[ks.length - 1];
+}
 function segKey(type, x) {
   if (type === "finding" && x.kind === "segmentation") { const m = String(x.detail || "").split("->").pop().match(SEG_RE); return m ? `${String(x.device || "").toLowerCase()}|${m[2]}|${m[3]}` : null; }
+  if (type === "violation") return segFlowKey(x.src, x.dst, x.port);
   if (type === "issue" && String(x.key || "").startsWith("seg|")) { const p = x.key.split("|"); return p.length >= 4 ? `${p[1].toLowerCase()}|${p[2]}|${p[3]}` : null; }
   return null;
 }
@@ -878,8 +887,11 @@ V.security = (el) => {
   el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [askCol("IDS signature", (x) => x.name), { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
     { k: "src", t: "Sources", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.src || {}).join() }, { k: "dst", t: "Destinations", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.dst || {}).join() },
     { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count", evId: (x) => x.name && `ids|${x.name}`, urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
+  const SV = ackSplit("violation", an.violations || [], "sec-viol");
   el.appendChild(grid("g2",
-    card(`Segmentation violations (${(an.violations || []).length})`, table(null, [askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], an.violations || [], { sort: "severity", dir: 1 })),
+    card(`Segmentation violations (${SV.open.length} open)${SV.toggle}`, SV.show.length ? table(null, [{ k: "_ack", t: "Clear", sort: (x) => (acked("violation", x) ? 1 : 0),
+      fmt: (v, x) => `<label class="seg-clr${acked("violation", x) ? " on" : ""}">${ackBox("violation", x, "")}<span>${acked("violation", x) ? "Cleared" : "Clear"}</span></label>` },
+      askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], SV.show, { sort: "severity", dir: 1, rowClass: ackRowCls("violation") }) : `<div class="empty">All segmentation violations cleared. Cleared flows are listed under Cleared segmentation.</div>`),
     card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [askCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));
   el.appendChild(grid("g3",
     (() => { const c = card("Threat-intel feeds", table(null, [{ k: "f", t: "Feed" }, { k: "s", t: "Status", cls: "small" }], entries(ti.feed_status).map(([f, s]) => ({ f, s })), { search: false }));
