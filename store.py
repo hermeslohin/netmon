@@ -78,6 +78,7 @@ def connect(path=None):
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=NORMAL")
     c.execute("PRAGMA foreign_keys=ON")
+    c.execute("PRAGMA temp_store=MEMORY")  # dashboard container has a read-only /tmp
     c.execute("PRAGMA busy_timeout=15000")
     c.executescript(SCHEMA)
     if "targets" not in {r[1] for r in c.execute("PRAGMA table_info(alerts)")}:  # schema v2: devices an alert is about

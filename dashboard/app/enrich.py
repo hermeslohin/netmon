@@ -28,6 +28,9 @@ def _db():
     c = sqlite3.connect(DB, timeout=10)
     c.execute("""CREATE TABLE IF NOT EXISTS notes (skey TEXT PRIMARY KEY, eid TEXT, label TEXT, verdict TEXT, priority TEXT,
                  summary TEXT, research TEXT, links TEXT, model TEXT, via TEXT, ts REAL, snapshot TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, snapshot TEXT, started REAL, listed INTEGER, todo INTEGER,
+                 note_keys INTEGER, stored REAL, notes INTEGER, links INTEGER, rejected INTEGER, model TEXT)""")
+    c.execute("PRAGMA temp_store=MEMORY")
     return c
 
 
@@ -118,7 +121,41 @@ def put(doc, events=None):
             lrows.append((p, 1 if l.get("related") else 0, max(0.0, min(1.0, float(l.get("confidence") or 0))),
                           str(l.get("reason") or "")[:300], model, now))
         c.executemany("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)", lrows)
+    with _db() as c:  # close the newest open run of this snapshot (opened by `events`), else log a standalone one
+        r = c.execute("SELECT id FROM runs WHERE snapshot=? AND stored IS NULL ORDER BY id DESC LIMIT 1", (sid,)).fetchone()
+        if r:
+            c.execute("UPDATE runs SET stored=?, notes=?, links=?, rejected=?, model=? WHERE id=?", (now, len(rows), len(lrows), len(bad), model, r[0]))
+        else:
+            c.execute("INSERT INTO runs (snapshot, started, stored, notes, links, rejected, model) VALUES (?,?,?,?,?,?,?)",
+                      (sid, now, now, len(rows), len(lrows), len(bad), model))
     return {"notes": len(rows), "links": len(lrows), "manual_kept": kept, "rejected_ids": bad[:50]}
+
+
+def status(event_ids=()):
+    """Claude enrichment status for the AI-review page: host-exported cron job state (claude_jobs.json),
+    the enrichment run log, note coverage of the current snapshot and Claude's correlation verdicts."""
+    import corr_llm
+    st = os.path.join(os.path.dirname(DB), "claude_jobs.json")
+    try:
+        jobs = json.load(open(st))
+    except (OSError, ValueError):
+        jobs = {"jobs": [], "exported": None}
+    now = time.time()
+    with _db() as c:
+        runs = [dict(zip(("snapshot", "started", "listed", "todo", "note_keys", "stored", "notes", "links", "rejected", "model"), r))
+                for r in c.execute("SELECT snapshot, started, listed, todo, note_keys, stored, notes, links, rejected, model FROM runs ORDER BY id DESC LIMIT 20")]
+        n_total, n_24 = c.execute("SELECT count(*), sum(ts > ?) FROM notes", (now - 86400,)).fetchone()
+        verd = dict(c.execute("SELECT verdict, count(*) FROM notes GROUP BY verdict").fetchall())
+        models = sorted({m for (m,) in c.execute("SELECT DISTINCT model FROM runs WHERE model IS NOT NULL")} | {"claude"})
+    with corr_llm._db() as c:  # verdicts written by the enrichment runs' model(s)
+        cv = c.execute(f"SELECT count(*), sum(related), sum(ts > ?), max(ts), group_concat(DISTINCT model) FROM verdicts "
+                       f"WHERE model IN ({','.join('?' * len(models))}) OR model LIKE '%claude%'", (now - 86400, *models)).fetchone()
+    ids = list(event_ids)
+    covered = len(load(ids)) if ids else 0
+    return {"jobs": jobs.get("jobs") or [], "exported": jobs.get("exported"), "runs": runs,
+            "notes": {"total": n_total or 0, "last_24h": n_24 or 0, "by_verdict": verd,
+                      "current_events": len(ids), "current_with_note": covered},
+            "links": {"total": cv[0] or 0, "related": cv[1] or 0, "last_24h": cv[2] or 0, "last": cv[3], "models": (cv[4] or "").split(",") if cv[4] else []}}
 
 
 RANK = {"critical": 0, "high": 1, "investigate": 1, "medium": 2, "urgent": 3, "low": 4}
@@ -163,7 +200,12 @@ def main(argv):
     if argv[:1] == ["events"]:
         sid = argv[argv.index("--sid") + 1] if "--sid" in argv else None
         lim = int(argv[argv.index("--max") + 1]) if "--max" in argv else 40
-        print(json.dumps(_events(sid, "--all" in argv, lim), indent=1, default=str))
+        res = _events(sid, "--all" in argv, lim)
+        if not res.get("error"):
+            with _db() as c:
+                c.execute("INSERT INTO runs (snapshot, started, listed, todo, note_keys) VALUES (?,?,?,?,?)",
+                          (res["snapshot"], time.time(), res["listed"], res["without_note"], res["note_keys"]))
+        print(json.dumps(res, indent=1, default=str))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
         import server

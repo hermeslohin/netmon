@@ -44,6 +44,7 @@ def enabled():
 
 def _db():
     c = sqlite3.connect(DB, timeout=10)
+    c.execute("PRAGMA temp_store=MEMORY")
     c.execute("create table if not exists chats (id text primary key, user text not null, title text, "
               "created real, updated real)")
     c.execute("create index if not exists chats_user on chats(user, updated)")

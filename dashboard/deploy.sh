@@ -13,7 +13,7 @@ if [ -z "${IMAGE:-}" ]; then
 fi
 docker rm -f netmon-dashboard >/dev/null 2>&1 || true
 docker run -d --name netmon-dashboard --restart unless-stopped \
-  --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges \
   --env-file .env --network host \
   -v "$(cd .. && pwd):/netmon:ro" \
   -v "$PWD/certs:/certs:ro" \

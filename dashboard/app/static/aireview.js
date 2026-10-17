@@ -15,8 +15,59 @@
 
   const aiColors = (cfg) => { const C = { Confirmed: "#3fb950", Rejected: "#f85149", "Set by a person": "#58a6ff" };
     cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => C[l] || "#8b949e"); return cfg; };
+  // Claude (Hermes cron) triage + enrichment: job state exported by claude_status.py, run log + coverage from enrich.py
+  const until = (ts) => { if (!ts) return "—"; const s = ts - Date.now() / 1000; return s < 0 ? "due now" : s < 5400 ? `in ${Math.round(s / 60)} min` : `in ${(s / 3600).toFixed(1)} h`; };
+  const dur = (s) => (s == null ? "" : s < 90 ? `${s} s` : `${Math.round(s / 60)} min`);
+  const clock = (ts) => (ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+  function claudeCard(C) {
+    if (C.error) return card("Claude triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`);
+    const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
+    const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
+    const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
+    const health = !J ? ["No job found", "sev-unknown"] : !J.enabled ? ["Paused", "sev-unknown"] : J.running ? ["Running now", "sev-good"]
+      : lastRun && lastRun.status === "failed" ? ["Last run failed", "sev-high"] : J.failure_streak ? ["Failing", "sev-high"] : ["Idle · scheduled", "sev-good"];
+    const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
+    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.model, via: "Hermes triage + enrichment", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
+        <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
+    const c = card("Claude triage &amp; enrichment (every 4 h)", `
+      <div class="idgrid">
+        <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
+        ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "default model")}</span></span>
+        <span class="k">Schedule</span><span><span class="mono">${esc(J.schedule || "")}</span> UTC · PDF only on the 05:00 UTC run · next run ${esc(until(J.next_run))} (${esc(clock(J.next_run))})</span>
+        <span class="k">Last run</span><span>${lastRun ? `${esc(ago(lastRun.finished || lastRun.started))} · ${esc(lastRun.status)}${lastRun.duration_s ? ` in ${esc(dur(lastRun.duration_s))}` : ""}` : "never"}${J.failure_streak ? ` · <span class="bad">${fn(J.failure_streak)} failure(s) in a row</span>` : ""}</span>
+        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>No Hermes cron job with the home-network-report skill was found.</span>`}
+        <span class="k">Research notes</span><span>${fn(N.total || 0)} stored · ${fn(N.last_24h || 0)} in the last 24 h${Object.keys(N.by_verdict || {}).length ? " · " + Object.entries(N.by_verdict).map(([k, v]) => `${esc(k)} ${fn(v)}`).join(" · ") : ""}</span>
+        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by Claude (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
+        ${stale ? `<span class="k">Note</span><span class="warn">Job status last refreshed ${esc(ago(C.exported))} (the 15-minute watcher refreshes it).</span>` : ""}
+      </div>
+      <div style="margin-top:12px"><div class="small muted">Current snapshot: ${cov}% of events have a Claude note (${fn(N.current_with_note || 0)} of ${fn(N.current_events || 0)})</div>
+        <div class="bar" style="height:10px;margin-top:4px"><span style="width:${cov}%"></span></div></div>
+      ${sum}
+      <div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">
+        <div class="cl-runs"><div class="small"><b>Recent runs</b></div></div>
+        <div class="cl-enr"><div class="small"><b>Enrichment passes</b></div></div>
+      </div>`);
+    c.id = "ai-claude";
+    const runs = (J && J.runs) || [];
+    c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
+      { k: "started", t: "Started", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },
+      { k: "status", t: "Result", fmt: (v, r) => `<span class="badge ${v === "completed" ? "sev-good" : v === "running" || v === "claimed" ? "sev-medium" : "sev-high"}">${esc(v === "claimed" ? "starting" : v)}</span>${r.error ? ` <span class="small bad">${esc(r.error)}</span>` : ""}` },
+      { k: "pdf_run", t: "Type", fmt: (v, r) => `${v ? "Triage + PDF" : "Triage + enrichment"}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
+      { k: "duration_s", t: "Took", num: true, fmt: (v, r) => esc(r.status === "running" ? `${dur(Math.round(now - r.started))} so far` : dur(v)) },
+    ], runs, { sort: "started", limit: 12 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No runs recorded yet." }));
+    c.querySelector(".cl-enr").appendChild(R.length ? table(null, [
+      { k: "started", t: "When", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },
+      { k: "snapshot", t: "Snapshot", fmt: (v) => `<span class="mono small">${esc(v || "")}</span>` },
+      { k: "todo", t: "Needed notes", num: true, fmt: (v, r) => (v == null ? "" : `${fn(v)} of ${fn(r.note_keys)}`) },
+      { k: "notes", t: "Notes written", num: true, fmt: (v, r) => (r.stored ? fn(v) : `<span class="muted">${r.started && now - r.started > 7200 ? "not stored" : "researching…"}</span>`) },
+      { k: "links", t: "Links reviewed", num: true, fmt: (v, r) => (r.stored ? fn(v) : "") },
+      { k: "rejected", t: "Rejected ids", num: true, fmt: (v) => (v ? `<span class="bad">${fn(v)}</span>` : v === 0 ? "0" : "") },
+    ], R, { sort: "started", limit: 10 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No enrichment passes logged yet (the log starts with the next run)." }));
+    return c;
+  }
+
   V.aireview = async (el) => {
-    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The local LLM decides whether each link is real. Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The local LLM decides whether each link is real, and every 4 hours Claude researches the important events and re-reviews their links (its verdicts replace the local model's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     const st = D.status, q = D.queue, T = D.totals;
@@ -27,6 +78,8 @@
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
       ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
+
+    el.appendChild(claudeCard(D.claude || {}));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
     const info = card("Reviewer", `<div class="idgrid">

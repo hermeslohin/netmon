@@ -576,7 +576,12 @@ class H(BaseHTTPRequestHandler):
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
                 base = correlation(sid) or {}
-                return self._json({**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid})
+                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid}
+                try:
+                    ov["claude"] = enrich.status((base.get("events") or {}).keys())
+                except Exception as e:  # noqa: BLE001 - the local-LLM view must not depend on the Claude status
+                    ov["claude"] = {"error": str(e)[:200]}
+                return self._json(ov)
             if path == "/api/correlate":
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":

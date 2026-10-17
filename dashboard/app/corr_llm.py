@@ -52,6 +52,7 @@ TYPE_DESC = {"alert": "real-time watcher alert", "finding": "baseline behaviour 
 
 def _db():
     c = sqlite3.connect(DB, timeout=10)
+    c.execute("PRAGMA temp_store=MEMORY")  # the container's / and /tmp are read-only: sorts must not spill to temp files
     c.execute("CREATE TABLE IF NOT EXISTS verdicts (pair TEXT PRIMARY KEY, related INTEGER, confidence REAL, reason TEXT, model TEXT, ts REAL)")
     return c
 
