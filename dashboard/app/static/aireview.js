@@ -51,7 +51,7 @@
       { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
       { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
       { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
-      { k: "reason", t: "Reason", cls: "small" },
+      { k: "reason", t: "Reason", cls: "small", fmt: (v, r) => `${esc(v)} ${r.manual ? "" : aiFlare({ model: r.model, via: "correlation review", at: new Date(r.ts * 1000).toISOString() })}` },
       { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
     ], D.verdicts, { sort: "ts", limit: 100, urlFilter: FILTERS }));
     lst.id = "ai-list"; lst.dataset.open = "1"; el.appendChild(lst);

@@ -40,7 +40,7 @@
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || [e.type, ""];
-        const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed by the local LLM (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ AI</span>`
+        const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
           : `<span class="rel-ai pend" title="The local LLM has not reviewed this link yet">AI review pending</span>`;
         return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}

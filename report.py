@@ -23,6 +23,38 @@ stem = snap_path[:-5]
 snap = json.load(open(snap_path))
 ana = json.load(open(stem + ".analysis.json")) if os.path.exists(stem + ".analysis.json") else {}
 tri = json.load(open(stem + ".triage.json")) if os.path.exists(stem + ".triage.json") else {}
+
+
+def _stamp_llm(path, doc, via):
+    """Record which LLM wrote a companion file (shown as the AI flare in the dashboard and PDF). The nightly agent
+    is asked to fill generated_by itself; otherwise use the model the Hermes cron job / default config runs with."""
+    if not doc or (doc.get("generated_by") or {}).get("model"):
+        return doc
+    model = os.environ.get("NETMON_LLM_MODEL_USED", "")
+    try:
+        hh = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+        jobs = json.load(open(os.path.join(hh, "cron", "jobs.json")))
+        jobs = jobs.get("jobs", jobs) if isinstance(jobs, dict) else jobs
+        for j in (jobs.values() if isinstance(jobs, dict) else jobs):
+            if "nightly" in str(j.get("name", "")).lower() and any(w in str(j.get("name", "")).lower() for w in ("netmon", "network")):
+                model = model or j.get("model") or ""
+        if not model:
+            import re as _r
+            m = _r.search(r"^model:\s*\n(?:\s+#.*\n)*\s+(?:default|model):\s*\"?([^\"\n]+)", open(os.path.join(hh, "config.yaml")).read(), _r.M)
+            model = m.group(1).strip() if m else ""
+    except (OSError, ValueError):
+        pass
+    doc["generated_by"] = {"model": model or "unknown", "via": via, "at": snap.get("generated"), "stamped": "report.py"}
+    try:
+        with open(path + ".tmp", "w") as f:
+            json.dump(doc, f, indent=1)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+    return doc
+
+
+tri = _stamp_llm(stem + ".triage.json", tri, "Hermes nightly triage")
 # citation ledger written by grounded-citations sources.py (HERMES_CITATION_LEDGER=<stem>.sources.json)
 SOURCES = {}
 if os.path.exists(stem + ".sources.json"):
@@ -32,6 +64,7 @@ if os.path.exists(stem + ".sources.json"):
 kb = json.load(open(f"{NM}/known_benign.json"))
 NAMES = kb.get("names", {})
 brief = json.load(open(stem + ".briefing.json")) if os.path.exists(stem + ".briefing.json") else {}
+brief = _stamp_llm(stem + ".briefing.json", brief, "Hermes nightly research")
 
 ss = getSampleStyleSheet()
 H1, H2, B = ss["Title"], ss["Heading2"], ss["BodyText"]
@@ -224,7 +257,10 @@ kpi = [["Connections", "Wire bytes seen", "Internet bytes", "Missed (cap. loss)"
 story += [table(kpi, [1.15 * inch] * 6, zebra=False, extra=[("FONTSIZE", (0, 1), (-1, 1), 11), ("ALIGN", (0, 0), (-1, -1), "CENTER")]),
           Spacer(1, 8)]
 if tri.get("summary"):
-    story += [Paragraph("<b>Bottom line:</b> " + cite_links(tri["summary"]), B), Spacer(1, 6)]
+    _g = tri.get("generated_by") or {}
+    story += [Paragraph("<b>Bottom line:</b> " + cite_links(tri["summary"]), B),
+              Paragraph(f'<font color="#8250df">AI-generated analysis ({(_g.get("model") or "model not recorded")}, {_g.get("via") or "nightly triage"}). '
+                        "Verify before acting.</font>", SM), Spacer(1, 6)]
 
 # ---------- 1. Alarms ----------
 _SEC = [0]

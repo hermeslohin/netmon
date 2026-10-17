@@ -4,7 +4,7 @@ Produce the nightly home-network security report for the last 24 hours. Follow t
 2. Analyze: `/usr/bin/python3 ~/.hermes/netmon/analyze.py`. Read the .analysis.json (baseline_ready, findings, new_devices, unknown_devices, dns_tunnel, violations).
 3. Triage every high/medium finding and the other item types listed in the skill, using read-only Elasticsearch drill-downs (`~/.hermes/netmon/esq.py`). Decide benign vs worth investigating with specific evidence. Compare with the previous day's triage so recurring items are marked recurring.
 4. Research new or unexplained items on the web (primary sources first) and cite the pages you actually read.
-5. Write ~/.hermes/netmon/data/<stamp>.triage.json in the schema from the skill. Record conclusively benign items in known_benign.json. Propose (do not apply) policy.json allow rules in the summary.
+5. Write ~/.hermes/netmon/data/<stamp>.triage.json in the schema from the skill, including "generated_by": {"model": "<your exact model id>", "via": "Hermes nightly triage"} (the dashboard shows it on every AI-written item). Record conclusively benign items in known_benign.json. Propose (do not apply) policy.json allow rules in the summary.
 6. Render: `/usr/bin/python3 ~/.hermes/netmon/report.py`. Verify the PDF in ~/network_reports exists and is non-empty. It is delivered through the dashboard's Reports page - do not post it anywhere.
 
 Never change Security Onion, the gateway or the network; queries are read-only. Never print API keys or tokens.

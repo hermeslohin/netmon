@@ -94,7 +94,7 @@ def apply(base):
             if v is None:
                 keep.append({**r, "llm": "pending"}); P.add(pair(a, r["id"]))
             elif v["related"]:
-                keep.append({**r, "llm": "yes", "llm_reason": v["reason"], "llm_conf": v["confidence"]}); C.add(pair(a, r["id"]))
+                keep.append({**r, "llm": "yes", "llm_reason": v["reason"], "llm_conf": v["confidence"], "llm_model": v["model"]}); C.add(pair(a, r["id"]))
             else:
                 X.add(pair(a, r["id"]))
         keep.sort(key=lambda r: (r["llm"] != "yes", -(r.get("llm_conf") or 0) * 2 - r["score"]))

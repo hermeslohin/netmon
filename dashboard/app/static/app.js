@@ -113,6 +113,16 @@ function drill(view, params) { location.hash = hashWith(view, params); }
 function drillHere(params) { const p = hq(); entries(params).forEach(([k, v]) => p.set(k, v)); location.hash = location.hash.split("?")[0] + "?" + p.toString(); }
 const clickable = (fn) => ({ onClick: (e, els) => els.length && fn(els[0].index, els[0].datasetIndex), onHover: (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") });
 
+/* ---------- AI provenance flare: every piece of LLM-written text says which model wrote it ---------- */
+// g = {model, via, at}. Unknown provenance still gets a flare ("AI") so LLM text is never mistaken for raw data.
+function aiFlare(g, fallbackVia = "") {
+  if (!g) return "";
+  const m = String(g.model || "").trim(), via = g.via || fallbackVia, at = g.at ? " · " + ft(g.at) : "";
+  const short = !m || m === "unknown" ? "AI" : m.replace(/^.*\//, "").replace(/-(qat|gguf|instruct)$/i, "");
+  return `<span class="ai-flare" title="${esc(`AI-generated${m && m !== "unknown" ? " by " + m : " (model not recorded)"}${via ? " · " + via : ""}${at}. Verify before acting.`)}">✨ ${esc(short)}</span>`;
+}
+const trFlare = () => (S.snap?.triage ? aiFlare(S.snap.triage.generated_by || {}, "Hermes nightly triage") : "");
+
 /* ---------- correlation (related.js fills the cells once /api/correlate is loaded) ---------- */
 const relCol = (idFn) => ({ k: "_rel", t: "Related", sort: (x) => (S.corr?.related?.[idFn(x)] || []).length,
   fmt: (v, x) => { const i = idFn(x); return i ? `<button type="button" class="rel-btn" data-rel="${esc(i)}" title="Related events">${S.corr ? (S.corr.related?.[i] || []).length || "–" : "…"}</button>` : ""; } });
@@ -317,7 +327,7 @@ V.overview = (el) => {
       ["Recurring issues to fix", `<a href="#/issues">${(S.issues?.open || []).filter((x) => x.recurring).length}</a>`, (S.issues?.open || []).some((x) => x.recurring && x.severity === "high") ? "bad" : "warn"],
       ["Highest-risk host", S.risk?.hosts?.[0] ? `<a href="#/risk" style="font-size:16px">${esc(S.risk.hosts[0].name)} · ${S.risk.hosts[0].score}</a>` : "—", S.risk?.hosts?.[0]?.score >= 40 ? "bad" : "warn"],
       ["Issues fixed", `<a href="#/issues">${(S.issues?.fixed || []).length}</a>`, "good"]]);
-  if (tr.summary) el.appendChild(card("Triage summary", `<div>${linkifyIps(tr.summary)}</div>`));
+  if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, `<div>${linkifyIps(tr.summary)}</div>`));
   const hl = Object.keys(T.hourly || {}).sort();
   el.appendChild(grid("g2",
     chartCard("Traffic per hour", { type: "line", data: { labels: hl.map((k) => k.slice(11, 16)), datasets: [
@@ -330,10 +340,10 @@ V.overview = (el) => {
     chartCard("Finding kinds", doughnutCfg((an.findings || []).reduce((o, f) => ((o[f.kind] = (o[f.kind] || 0) + 1), o), {}), { top: 10, onClick: (l) => drill("security", { kind: l }) })),
     chartCard("Devices by zone", doughnutCfg(S.idx.rows.reduce((o, r) => ((o[r.zone || "?"] = (o[r.zone || "?"] || 0) + 1), o), {}), { onClick: (l) => drill("devices", { zone: l }) }))));
   if (alarms.length) { const A = ackSplit("alarm", alarms, "ov-alarms"); const lst = A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority));
-    const c = card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(lst.slice(0, S.showAcked["ov-alarms"] ? 50 : 6)) || `<div class="empty">All alarms checked off.</div>`); if (A.show.length > 6) c.insertAdjacentHTML("beforeend", `<a href="#/security">All alarms →</a>`); el.appendChild(c); }
+    const c = card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(lst.slice(0, S.showAcked["ov-alarms"] ? 50 : 6)) || `<div class="empty">All alarms checked off.</div>`); if (A.show.length > 6) c.insertAdjacentHTML("beforeend", `<a href="#/security">All alarms →</a>`); el.appendChild(c); }
   el.appendChild(grid("g2", card("Endpoint fleet", fleetTable()), card("Gateway health", unifiHealthHtml())));
   const brief = S.snap.briefing?.items || [];
-  if (brief.length) el.appendChild(card("Security news briefing", brief.map((i) => `<div class="alarm info"><div class="t"><span class="chip">${esc(i.category)}</span> <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></div><p>${esc(i.summary)}</p></div>`).join("")));
+  if (brief.length) el.appendChild(card(`Security news briefing ${aiFlare(S.snap.briefing.generated_by || {}, "Hermes nightly research")}`, brief.map((i) => `<div class="alarm info"><div class="t"><span class="chip">${esc(i.category)}</span> <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></div><p>${esc(i.summary)}</p></div>`).join("")));
 };
 
 function topTalkersChart(n) {
@@ -348,7 +358,7 @@ function alarmsHtml(list) {
   return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
     ${a.who ? `<p><span class="k">Who:</span> ${linkifyIps(a.who)}</p>` : ""}${a.evidence ? `<p><span class="k">Evidence:</span> ${linkifyIps(a.evidence)}</p>` : ""}
     ${a.why ? `<p><span class="k">Why:</span> ${linkifyIps(a.why)}</p>` : ""}${a.context ? `<p><span class="k">Context:</span> ${linkifyIps(a.context)}</p>` : ""}
-    ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)}</p>` : ""}
+    ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)} ${trFlare()}</p>` : ""}
     ${(a.links || []).length ? `<p class="small">${a.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>`).join(" · ")}</p>` : ""}</div>`).join("");
 }
 function fleetTable(filterHost) {
@@ -408,7 +418,7 @@ V.device = (el, ip) => {
     <span class="k">First seen</span><span>${ft(seen.first_seen || d.zeek_first_seen)}</span><span class="k">Last seen</span><span>${ft(seen.last_seen)}</span>
     <span class="k">Days seen</span><span>${esc(seen.days_seen ?? "—")}</span><span class="k">Other IPs</span><span>${esc((seen.ips || []).filter((x) => x !== ip).join(", ") || "—")}</span>
     <span class="k">Elastic agent</span><span>${r.hosts.length ? r.hosts.map(hostLink).join(", ") : "—"}</span></div>
-    ${r.note ? `<div class="note">${linkifyIps(r.note)}</div>` : ""}`);
+    ${r.note ? `<div class="note">${trFlare()} ${linkifyIps(r.note)}</div>` : ""}`);
   el.appendChild(id);
   el.insertAdjacentHTML("beforeend", kpis([["Total", fb(d.total_bytes)], ["Sent", fb(d.total_sent)], ["Received", fb(d.total_recv)], ["Out conns", fn(d.orig_conns)], ["In conns", fn(d.resp_conns)],
     ["Peers", fn(d.peers)], ["Internet peers", fn(d.ext_peers)], ["Internet up", fb(d.ext_out_bytes)], ["Internet down", fb(d.ext_in_bytes)], ["Rejected", fn(d.rejected_conns), d.rejected_conns > 1000 ? "warn" : ""],
@@ -421,7 +431,7 @@ V.device = (el, ip) => {
   if (findings.length || alarms.length) {
     const DF = ackSplit("finding", findings, "dev-find"), DA = ackSplit("alarm", alarms, "dev-alarm");
     const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
-    if (alarms.length) c.insertAdjacentHTML("beforeend", `<h3>Triage alarms (${DA.open.length})${DA.toggle}</h3>` + alarmsHtml(DA.show));
+    if (alarms.length) c.insertAdjacentHTML("beforeend", `<h3>Triage alarms (${DA.open.length}) ${trFlare()}${DA.toggle}</h3>` + alarmsHtml(DA.show));
     el.appendChild(c);
   }
   const hrs = hourLabels();
@@ -774,10 +784,10 @@ V.checked = (el) => {
 V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
   el.innerHTML = `<h1>Posture</h1>`;
-  if (tr.summary) el.appendChild(card("Triage summary", linkifyIps(tr.summary)));
+  if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, linkifyIps(tr.summary)));
   if ((tr.alarms || []).length) { const A = ackSplit("alarm", tr.alarms, "sec-alarms");
-    el.appendChild(card(`Triage alarms (${A.open.length} open)${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
-  if ((tr.research_notes || []).length) el.appendChild(card("Research notes", "<ul>" + tr.research_notes.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>"));
+    el.appendChild(card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
+  if ((tr.research_notes || []).length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + tr.research_notes.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>"));
   const BF = ackSplit("finding", an.findings || [], "sec-find");
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));

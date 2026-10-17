@@ -104,6 +104,7 @@ def history(user, cid):
     if not owns(user, cid):
         return None
     d = _hermes("GET", f"/api/sessions/{cid}/messages?inline_images=false")
+    model = session_model(cid)
     out, tools = [], []
     for m in d.get("data", []):
         role = m.get("role")
@@ -122,9 +123,17 @@ def history(user, cid):
                         names = []
                 tools += [_tool_label(n) for n in names]
             if (m.get("content") or "").strip():
-                out.append({"role": "assistant", "text": m["content"], "tools": [t for t in tools if t]})
+                out.append({"role": "assistant", "text": m["content"], "tools": [t for t in tools if t], "model": model})
                 tools = []
     return out
+
+
+def session_model(cid):
+    """Model that answered in this Hermes session (shown as the AI flare on chat answers)."""
+    try:
+        return (_hermes("GET", f"/api/sessions/{cid}").get("session") or {}).get("model") or ""
+    except Exception:  # noqa: BLE001 - provenance is best effort
+        return ""
 
 
 def _tool_label(name):
@@ -183,6 +192,7 @@ def stream(user, cid, text, emit, ctx=None):
                 final = d.get("content") or final
             elif ev in ("run.completed", "run.failed", "run.cancelled"):
                 status = ev.split(".")[1]
+                emit("model", {"model": session_model(cid)})
                 emit("end", {"status": status, "error": (d.get("error") or "")[:300] if status != "completed" else ""})
                 break
     with _db() as c:

@@ -302,3 +302,9 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
 .grid.cc-flex>.card.span{flex-basis:100%}
 @media (max-width:900px){.cc-rs{left:50%;right:auto;bottom:0;transform:translateX(-50%);width:44px;height:14px;cursor:ns-resize;opacity:.6;
   background:linear-gradient(var(--muted),var(--muted)) center 5px/24px 2px no-repeat,linear-gradient(var(--muted),var(--muted)) center 9px/24px 2px no-repeat}}
+
+/* AI provenance flare */
+.ai-flare{display:inline-block;font-size:10.5px;font-weight:600;line-height:1.5;padding:0 7px;border-radius:9px;white-space:nowrap;vertical-align:middle;
+  color:#d2a8ff;background:rgba(188,140,255,.12);border:1px solid rgba(188,140,255,.45);cursor:help;letter-spacing:.2px}
+h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4px}
+.chat-by{margin-top:6px;text-align:right}

@@ -49,7 +49,7 @@
 
   const msgHTML = (m) => m.role === "user"
     ? `<div class="chat-msg me"><div class="bubble">${m.about ? `<div class="chat-about">About: ${esc(m.about)}</div>` : ""}${esc(m.text).replace(/\n/g, "<br>")}</div></div>`
-    : `<div class="chat-msg bot"><div class="avatar">⚕︎</div><div class="bubble">${m.tools?.length ? `<div class="chat-tools">${[...new Set(m.tools)].map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}${md(m.text)}</div></div>`;
+    : `<div class="chat-msg bot"><div class="avatar">⚕︎</div><div class="bubble">${m.tools?.length ? `<div class="chat-tools">${[...new Set(m.tools)].map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}${md(m.text)}<div class="chat-by">${aiFlare({ model: m.model, via: "Ask Hermes (netmonchat profile)" })}</div></div></div>`;
 
   function renderList() {
     const el = document.getElementById("chatList"); if (!el) return;
@@ -105,6 +105,7 @@
           const ev = (chunk.match(/^event: (.+)$/m) || [])[1], data = JSON.parse((chunk.match(/^data: (.+)$/m) || [, "{}"])[1]);
           if (ev === "delta") { acc += data.t; if (!pending) pending = requestAnimationFrame(paint); }
           else if (ev === "tool") { if (![...tools.children].some((s) => s.textContent === data.name)) tools.insertAdjacentHTML("beforeend", `<span class="run">${esc(data.name)}</span>`); }
+          else if (ev === "model") live.querySelector(".bubble").insertAdjacentHTML("beforeend", `<div class="chat-by">${aiFlare({ model: data.model, via: "Ask Hermes (netmonchat profile)" })}</div>`);
           else if (ev === "tool_error") tools.insertAdjacentHTML("beforeend", `<span class="bad">${esc(data.name)} failed</span>`);
           else if (ev === "end") {
             ended = true; paint(); tools.querySelectorAll(".run").forEach((s) => s.classList.remove("run"));

@@ -128,3 +128,14 @@ the model), **↻** deletes the verdict so the model reviews that link again.
 
 `alert|<id>` · `f|<kind>|<device>|<detail>` · `ids|<signature>` · `adm|<src>|<dst>|<protocol>` · `hf|<key>` ·
 `ti|in|<ip>` · `ti|out|<ip>` · `ti|dom|<domain>` · `iss|<issue key>`
+
+## AI provenance flares
+
+Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
+triage summary, triage alarms and each alarm's *Next* recommendation, research notes, device notes, the security
+news briefing, Ask Hermes answers, and correlation-review reasons (Related popover, AI review page). The nightly
+agent records `generated_by: {model, via}` in `triage.json` / `briefing.json`; if it doesn't, `report.py` stamps
+the nightly cron job's model (or the Hermes default model). Chat answers use the Hermes session's model; correlation
+verdicts store the LM Studio model id. The PDF report labels the triage summary the same way. Fix-list "How to fix"
+text and risk scores are rule-based (no flare).
+
