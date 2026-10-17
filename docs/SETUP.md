@@ -133,6 +133,8 @@ hermes cron create '0 3 * * 0' --name "netmon weekly rebuild" --script netmon_we
 hermes cron list
 ```
 
+The report can also run several times a day (for example `'0 1,5,9,13,17,21 * * *'`): each run still covers a rolling 24 hours, and `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
+
 The nightly job uses your default Hermes model. Pin a model with `--model`/`--provider` if you want, for example a strong reasoning model for triage. Make sure the Hermes gateway (scheduler) is running: `hermes gateway install`.
 
 ## 8. Ask Hermes chat (optional)

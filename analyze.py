@@ -9,7 +9,7 @@ Baseline model (per device, keyed by MAC when known, else IP), rolling 30 snapsh
   active hours, countries, ASNs, external dst ports, top DNS domains, hourly byte shape.
 Deviation rules need >= MIN_DAYS of history; before that the run only seeds the baseline.
 """
-import glob, json, os, statistics, sys
+import datetime as dt, glob, json, os, statistics, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
@@ -20,6 +20,7 @@ REGISTRY = os.path.join(NM, "baseline", "devices_seen.json")  # legacy, supersed
 BENIGN = os.path.join(NM, "known_benign.json")
 MIN_DAYS = 3
 KEEP = 30
+FOLD_MIN_HOURS = 23  # report runs every 4h; only a snapshot >= 23h after the last baseline record is folded in
 MB = 1e6
 
 
@@ -488,9 +489,14 @@ def main():
     ap = snap_path.replace(".json", ".analysis.json")
     json.dump(out, open(ap, "w"), indent=1)
 
-    # --- fold today into baseline (once per snapshot) ---
+    # --- fold into baseline: one 24h record per ~day, even though the report runs several times a day ---
+    # (overlapping 24h windows would otherwise flood the 30-record baseline with near-duplicates)
     stamp = snap["generated"]
-    if not store.history_has(stamp):
+    last = max((h["generated"] for h in history), default=None)
+    age_h = (dt.datetime.fromisoformat(stamp) - dt.datetime.fromisoformat(last)).total_seconds() / 3600 if last else None
+    fold = not store.history_has(stamp) and (age_h is None or age_h >= FOLD_MIN_HOURS)
+    print("baseline:", "folded this snapshot" if fold else f"not folded (last baseline record {age_h:.1f}h old, < {FOLD_MIN_HOURS}h)")
+    if fold:
         store.history_append({"generated": stamp, "hours": snap["hours"], "devices": today, "signatures": sig_today,
                               "dns_domains": {c["domain"]: c["unique_subdomains"] for c in snap.get("dns_tunnel", [])},
                               "totals": {k: snap["totals"][k] for k in ("conns", "ip_bytes", "internet_ip_bytes", "missed_bytes")}},
