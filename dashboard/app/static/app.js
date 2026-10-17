@@ -206,7 +206,7 @@ function listMode(wrap, cols, st, render) {
     t.classList.toggle("as-list", wide);
     if (wide && !sortSel && sortable.length > 1) {
       sortSel = document.createElement("select"); sortSel.className = "lm-sort"; sortSel.setAttribute("aria-label", "Sort list");
-      sortSel.innerHTML = sortable.map((c) => `<option value="${esc(c.k)}">Sort: ${esc(c.t)}</option>`).join("") + `<option value="__dir">⇅ Reverse order</option>`;
+      [...sortable.map((c) => [c.k, "Sort: " + c.t]), ["__dir", "⇅ Reverse order"]].forEach(([v, t]) => sortSel.add(new Option(t, v)));
       sortSel.onchange = () => { if (sortSel.value === "__dir") st.dir = -st.dir; else { st.dir = st.key === sortSel.value ? st.dir : (cols.find((c) => c.k === sortSel.value)?.num ? -1 : 1); st.key = sortSel.value; }
         sortSel.value = st.key ?? sortable[0].k; render(); };
       (wrap.querySelector(".tbltools") || wrap).prepend(sortSel);
