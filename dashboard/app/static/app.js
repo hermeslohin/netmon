@@ -154,6 +154,12 @@ function table(id, cols, rows, opts = {}) {
     chipHtml = `<div class="fchips">Filtered: ${act.map(([p, [l]]) => `<span class="chip">${esc(l)}: <b${p === "ev" ? ` data-ev="${esc(P.get(p))}"` : ""}>${esc(p === "ev" ? evLabel(P.get(p)) : P.get(p))}</b> <a href="${esc(hashWithout(p))}" title="Remove filter">✕</a></span>`).join(" ")}${act.length > 1 ? ` <a href="${esc(hashWithout(act.map(([p]) => p)))}" class="small">clear all</a>` : ""}</div>`;
     if (!S._noScroll && !S._scrolled) { S._scrolled = true; setTimeout(() => (wrap.closest(".card") || wrap).scrollIntoView({ block: "start" }), 0); }
   }
+  // mobile list layout (see listMode below): which column is the row title, which are badges / action buttons
+  const lc = {}, TITLE = ["name", "label", "title", "text", "detail", "signature", "sig", "a_label", "device", "host", "hostname", "domain", "ip", "src", "key", "k"],
+    BADGE = ["severity", "priority", "status", "level", "related", "verdict", "result", "state", "sev"];
+  const labelled = cols.filter((c) => c.t && !c.k.startsWith("_"));
+  const tcol = opts.titleKey ? cols.find((c) => c.k === opts.titleKey) : (TITLE.map((k) => labelled.find((c) => c.k === k && !c.num)).find(Boolean) || labelled.find((c) => !c.num && !BADGE.includes(c.k)));
+  cols.forEach((c) => { lc[c.k] = c === tcol ? "lc-title" : !c.t || c.k === "_rel" || c.k === "_ack" ? "lc-act" : BADGE.includes(c.k) ? "lc-badge" : ""; });
   const render = () => {
     let r = rows;
     if (st.q) { const q = st.q.toLowerCase(); r = r.filter((x) => cols.some((c) => String(c.sort ? c.sort(x) : x[c.k] ?? "").toLowerCase().includes(q))); }
@@ -166,7 +172,7 @@ function table(id, cols, rows, opts = {}) {
     wrap.querySelector("tbody").innerHTML = lim.length ? lim.map((x) => `<tr class="${opts.onclick ? "click" : ""} ${opts.rowClass ? opts.rowClass(x) : ""}" data-i="${rows.indexOf(x)}">` + cols.map((c) => {
       const v = x[c.k]; let h = c.fmt ? c.fmt(v, x) : esc(v);
       if (c.bar) h = `<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end"><span>${h}</span><div class="bar" style="width:70px"><span style="width:${(100 * (+v || 0)) / max[c.k]}%"></span></div></div>`;
-      return `<td class="${c.num ? "num" : ""} ${c.cls || ""}">${h}</td>`;
+      return `<td class="${c.num ? "num" : ""} ${c.cls || ""} ${lc[c.k] || ""}"${c.t ? ` data-l="${esc(c.t)}"` : ""}>${h}</td>`;
     }).join("") + "</tr>").join("") : `<tr><td colspan="${cols.length}" class="empty">No data</td></tr>`;
     const more = wrap.querySelector(".more");
     if (more) more.innerHTML = opts.limit && r.length > opts.limit && !st.q ? `<button>${st.showAll ? "Show top " + opts.limit : "Show all " + r.length}</button>` : `<span class="muted small">${r.length} rows</span>`;
@@ -179,7 +185,36 @@ function table(id, cols, rows, opts = {}) {
   wrap.addEventListener("click", (e) => { if (e.target.closest(".more button")) { st.showAll = !st.showAll; render(); return; }
     if (opts.onclick && !e.target.closest("a, input, button, summary")) { const tr = e.target.closest("tr[data-i]"); if (tr) opts.onclick(rows[+tr.dataset.i]); } });
   render();
+  listMode(wrap, cols, st, render);
   return wrap;
+}
+// Phones: a table that would need a lot of sideways scrolling becomes a list of cards (like the triage alarms):
+// title line, badges + action buttons, then "Label: value" lines. Decided per table from its real width, re-checked
+// on resize/rotation; a "Sort" picker replaces the hidden column headers.
+const LIST_MQ = window.matchMedia("(max-width: 900px)");
+function listMode(wrap, cols, st, render) {
+  if (wrap.dataset.lm) return; wrap.dataset.lm = "1";
+  const tw = () => wrap.querySelector(".tblwrap"), tbl = () => wrap.querySelector("table");
+  let lastW = 0, sortSel = null;
+  const sortable = cols.filter((c) => c.t && !c.k.startsWith("_"));
+  const decide = () => {
+    const w = wrap.clientWidth; if (!w || !tw()) return;
+    if (w === lastW) return; lastW = w;
+    const t = tw();
+    t.classList.remove("as-list");
+    const wide = LIST_MQ.matches && tbl().scrollWidth > t.clientWidth + 40;
+    t.classList.toggle("as-list", wide);
+    if (wide && !sortSel && sortable.length > 1) {
+      sortSel = document.createElement("select"); sortSel.className = "lm-sort"; sortSel.setAttribute("aria-label", "Sort list");
+      sortSel.innerHTML = sortable.map((c) => `<option value="${esc(c.k)}">Sort: ${esc(c.t)}</option>`).join("") + `<option value="__dir">⇅ Reverse order</option>`;
+      sortSel.onchange = () => { if (sortSel.value === "__dir") st.dir = -st.dir; else { st.dir = st.key === sortSel.value ? st.dir : (cols.find((c) => c.k === sortSel.value)?.num ? -1 : 1); st.key = sortSel.value; }
+        sortSel.value = st.key ?? sortable[0].k; render(); };
+      (wrap.querySelector(".tbltools") || wrap).prepend(sortSel);
+    }
+    if (sortSel) { sortSel.hidden = !wide; if (st.key != null) sortSel.value = st.key; }
+  };
+  new ResizeObserver(decide).observe(wrap);
+  LIST_MQ.addEventListener("change", () => { lastW = 0; decide(); });
 }
 // object {k: number | {conns,bytes,..}} -> table
 function kvTable(obj, keyTitle, valTitle, valFmt = fn, keyFmt = esc, opts = {}) {

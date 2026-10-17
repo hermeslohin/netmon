@@ -345,3 +345,33 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .note-v.v-malicious,.note-v.v-suspicious{color:var(--bad);border-color:var(--bad)}
 .note-v.v-benign,.note-v.v-expected{color:var(--good);border-color:var(--good)}
 .note-v.v-needs-review{color:var(--warn);border-color:var(--warn)}
+
+/* Phones: wide tables become a list of cards, styled like the triage alarms (app.js listMode).
+   Line 1: check box, severity/status badges, action buttons (ask / related / notes) on the right.
+   Line 2: the title in bold. Then one "Label: value" line per remaining column. */
+@media (max-width:900px){
+  .tblwrap.as-list{overflow:visible;max-height:none}
+  .tblwrap.as-list.short{max-height:70vh;overflow-y:auto}
+  .as-list table,.as-list tbody{display:block;width:100%}
+  .as-list thead{display:none}
+  .as-list tr{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px;border-left:4px solid var(--border);background:var(--panel2);
+    border-radius:6px;padding:8px 10px;margin-bottom:8px}
+  .as-list tr:has(.sev-critical,.sev-high,.sev-investigate,.sev-bad){border-left-color:var(--bad)}
+  .as-list tr:has(.sev-medium,.sev-warn,.sev-review){border-left-color:var(--warn)}
+  .as-list tr:has(.sev-good,.sev-low,.sev-info){border-left-color:var(--good)}
+  .as-list tr.click{cursor:pointer}
+  .as-list td{display:block;border:0;padding:1px 0;text-align:left;white-space:normal;flex:1 1 100%;min-width:0;font-size:13px;overflow-wrap:anywhere}
+  .as-list td.num{text-align:left}
+  .as-list td[data-l]:not(.lc-title):not(.lc-act):not(:has(.badge))::before{content:attr(data-l) ": ";color:var(--muted);font-weight:600;font-size:12px}
+  .as-list td > div[style*="display:flex"]{display:inline!important}
+  .as-list td > div[style*="display:flex"] > span{display:inline}
+  .as-list td.lc-act:has(input[type=checkbox]){order:-4;flex:0 0 auto;padding:0}
+  .as-list td.lc-badge{order:-3;flex:0 0 auto}
+  .as-list td.lc-act{order:-2;flex:0 0 auto;width:auto;max-width:none;padding:0}
+  .as-list td.askcell,.as-list tr:not(:has(td.askcell)) td.lc-act:not(:has(input)){margin-left:auto}
+  .as-list td.lc-title{order:-1;flex:1 1 100%;font-weight:600;font-size:14px}
+  .as-list td:empty{display:none}
+  .as-list td.empty{flex:1 1 100%;text-align:center}
+  .as-list td .bar{display:none}
+  .lm-sort{max-width:100%;font-size:14px}
+}
