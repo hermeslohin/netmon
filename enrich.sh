@@ -1,7 +1,7 @@
 #!/bin/bash
 # Claude event enrichment for the dashboard (runs dashboard/app/enrich.py inside the netmon-dashboard container,
 # which owns /state). Used by the 4-hourly Hermes report job.
-#   enrich.sh events OUT.json [--all] [--max N]   events of the newest snapshot that need notes (+ candidate links)
+#   enrich.sh events OUT.json [--all] [--max N] [--hosts N]   host findings (all, up to 60) + events that need notes
 #   enrich.sh put NOTES.json                      store notes + correlation verdicts, prints counts
 # Both steps are logged (enrich.db runs) and refresh the job status on the AI-review page (claude_status.py).
 set -eu
@@ -9,10 +9,10 @@ C=${NETMON_CONTAINER:-netmon-dashboard}
 NM=$(cd "$(dirname "$0")" && pwd)
 status() { /usr/bin/python3 "$NM/claude_status.py" >/dev/null 2>&1 || true; }
 case "${1:-}" in
-  events) OUT=${2:?usage: enrich.sh events OUT.json [--all] [--max N]}; shift 2
+  events) OUT=${2:?usage: enrich.sh events OUT.json [--all] [--max N] [--hosts N]}; shift 2
           status
           docker exec "$C" python /app/enrich.py events "$@" > "$OUT"
-          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[1], {k: d.get(k) for k in ("snapshot","total_events","note_keys","without_note","listed","error")})' "$OUT" ;;
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[1], {k: d.get(k) for k in ("snapshot","total_events","note_keys","without_note","host_findings","host_without_note","listed","error")})' "$OUT" ;;
   put)    IN=${2:?usage: enrich.sh put NOTES.json}
           docker exec -i "$C" python /app/enrich.py put - < "$IN"
           status ;;

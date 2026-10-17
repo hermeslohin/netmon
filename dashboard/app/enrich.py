@@ -12,7 +12,7 @@ Notes are keyed by a stable event key so they carry over to later snapshots: fin
 family (first 3 parts of the alert key, e.g. host|hnet-interp|<host>), so one note covers repeats of the same alert.
 
 CLI (runs inside the dashboard container; host wrapper: netmon/enrich.sh):
-  enrich.py events [--sid ID] [--all] [--max N]   work list: events needing notes first (+ candidate links, notes)
+  enrich.py events [--sid ID] [--all] [--max N] [--hosts N]   work list: host findings + events needing notes first
   enrich.py put -                       read {"model", "notes": [...], "links": [...]} from stdin and store it
 """
 import json, os, re, sqlite3, sys, time
@@ -161,9 +161,11 @@ def status(event_ids=()):
 RANK = {"critical": 0, "high": 1, "investigate": 1, "medium": 2, "urgent": 3, "low": 4}
 
 
-def _events(sid=None, everything=False, limit=40):
+def _events(sid=None, everything=False, limit=40, hosts=60):
     """Work list for the enrichment run: one entry per note key (alert families and repeat findings collapse),
-    events without a note first, most severe first, capped at `limit` (0 = no cap)."""
+    events without a note first, most severe first, capped at `limit` (0 = no cap). Endpoint host findings
+    (hf|..., the Posture "Host findings" box) are always included, whatever their severity, in their own
+    quota of `hosts` items on top of `limit`, so they are researched every run instead of losing to network events."""
     import server, corr_llm
     sid = sid or (server.snapshots() or [{"id": ""}])[-1]["id"]
     res = corr_llm.apply(server.correlation(sid))
@@ -172,7 +174,7 @@ def _events(sid=None, everything=False, limit=40):
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
     for eid, e in E.items():
-        if not everything and e.get("sev") in ("low", "info", "") and e["type"] not in ("ti",):
+        if not everything and e.get("sev") in ("low", "info", "") and e["type"] not in ("ti", "host"):
             continue
         groups.setdefault(skey(eid, ak), []).append(eid)
     out = []
@@ -189,10 +191,14 @@ def _events(sid=None, everything=False, limit=40):
                                  "verdict": r.get("llm"), "by": r.get("llm_model"), "reason": r.get("llm_reason")} for r in rel[:8]]})
     out.sort(key=lambda x: (x["note"] is not None, RANK.get(x["sev"], 5) - (1 if x["type"] in ("ti", "ids") else 0), -x["repeats"]))
     todo = sum(1 for x in out if not x["note"])
+    hostq = [x for x in out if x["type"] == "host"]
+    rest = [x for x in out if x["type"] != "host"]
+    pick = (hostq[:hosts] if hosts else hostq) + (rest[:limit] if limit else rest)
+    pick.sort(key=lambda x: (x["note"] is not None, x["type"] != "host"))
     return {"snapshot": sid, "total_events": len(E), "note_keys": len(out), "without_note": todo,
-            "listed": min(len(out), limit) if limit else len(out),
-            "llm": {k: res.get("llm", {}).get(k) for k in ("model", "confirmed", "rejected", "pending")},
-            "events": out[:limit] if limit else out}
+            "host_findings": len(hostq), "host_without_note": sum(1 for x in hostq if not x["note"]),
+            "listed": len(pick), "llm": {k: res.get("llm", {}).get(k) for k in ("model", "confirmed", "rejected", "pending")},
+            "events": pick}
 
 
 def main(argv):
@@ -200,7 +206,8 @@ def main(argv):
     if argv[:1] == ["events"]:
         sid = argv[argv.index("--sid") + 1] if "--sid" in argv else None
         lim = int(argv[argv.index("--max") + 1]) if "--max" in argv else 40
-        res = _events(sid, "--all" in argv, lim)
+        hq = int(argv[argv.index("--hosts") + 1]) if "--hosts" in argv else 60
+        res = _events(sid, "--all" in argv, lim, hq)
         if not res.get("error"):
             with _db() as c:
                 c.execute("INSERT INTO runs (snapshot, started, listed, todo, note_keys) VALUES (?,?,?,?,?)",
