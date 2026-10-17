@@ -104,12 +104,23 @@ cd ~/.hermes/netmon/dashboard && ./deploy.sh
 - **Phone push notifications** need HTTPS with a certificate the phone trusts. A Cloudflare Tunnel (`cloudflared`) pointing at `https://127.0.0.1:8443` with "No TLS Verify" works well. On iPhone, add the site to the Home Screen first, then enable notifications on the Alerts page.
 - The login lockout trusts `CF-Connecting-IP` only from loopback, which is how cloudflared connects.
 
+### Local LLM for correlation review (optional, recommended)
+
+The dashboard links related events and vulnerabilities, then asks a **local LLM** to confirm or reject each link (details in [CORRELATION.md](CORRELATION.md)). Install [LM Studio](https://lmstudio.ai), load a capable instruction model (tested with Gemma 4 31B), and enable its server on port 1234. The container uses host networking and finds the loaded model automatically. Nothing leaves the machine.
+
+```bash
+lms server start && lms load google/gemma-4-31b-qat     # or load a model in the LM Studio app
+curl -s http://127.0.0.1:1234/v1/models                 # the dashboard uses this endpoint
+```
+
+Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`, `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2). Without an LLM, links show the script's evidence only.
+
 ## 7. Scheduled jobs (Hermes cron)
 
 All three deliver **locally**: results go to the dashboard and the Hermes cron log, never to a chat platform.
 
 ```bash
-# 15-minute urgent watcher (deterministic, no LLM)
+# 15-minute urgent watcher (deterministic, no LLM; includes failed admin logins)
 hermes cron create '*/15 * * * *' --name "netmon watcher" --script netmon_watch.sh --no-agent --deliver local
 
 # nightly AI triage + PDF (05:00 UTC; pick your own time)
@@ -151,6 +162,9 @@ The script copies your Anthropic credential (`ANTHROPIC_API_KEY`, or else `ANTHR
 | Locked out of the dashboard | 8 failed logins → 5-minute lockout. `docker restart netmon-dashboard` clears it. To reset a password: `docker exec -it netmon-dashboard python /app/server.py set-password <user>` |
 | Chat says "unavailable" | `curl http://127.0.0.1:8643/health`, `journalctl --user -u hermes-gateway-netmonchat` |
 | Push notifications never arrive | The site must be reached over a trusted HTTPS name (tunnel), not the self-signed IP. |
+| Related links all say "AI review pending" | LM Studio running with a model loaded? `curl http://127.0.0.1:1234/v1/models`. The popover footer shows the last error. A first full review takes 1–2 h. |
+| LLM returns empty answers | Reasoning models use the whole token budget on hidden thinking. Keep `NETMON_LLM_REASONING=none`. |
+| No admin-access data | The section starts with the first snapshot after the feature was added. Login results need Elastic Agent on the target (Linux auth logs / Windows security log). Without it you still see connection attempts. |
 | Watcher testing | Never run the live `watch.py` by hand to test, because it mutes alerts for 12 h. Use `NETMON_DB=/tmp/copy.db /usr/bin/python3 watch.py`. |
 
 ## File map
@@ -159,6 +173,9 @@ The script copies your Anthropic credential (`ANTHROPIC_API_KEY`, or else `ANTHR
 |---|---|
 | `collect.py`, `extras.py`, `unifi.py`, `hosts.py`, `hostdetail.py`, `osq.py` | data collection (Elasticsearch, UniFi, endpoints) |
 | `analyze.py`, `mitre.py` | baselines, findings, ATT&CK mapping |
+| `adminproto.py` | admin / lateral-movement protocol + tool catalog, session merger |
+| `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk |
+| `dashboard/app/correlate.py`, `corr_llm.py` | event correlation, local-LLM review ([CORRELATION.md](CORRELATION.md)) |
 | `report.py` | PDF rendering |
 | `watch.py` | 15-minute urgent watcher |
 | `store.py` | SQLite state store (WAL) |

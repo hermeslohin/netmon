@@ -80,13 +80,13 @@ node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/d
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
 
 # ---------------- monitoring host
-node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio · Gemma", "on-box inference"], "LOCAL")
+node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio · Gemma", "reviews correlations"], "LOCAL")
 node("hermes", 626, 100, 294, 76, "ai", "Hermes Agent", ["\"Lady Brains\" · cron · skills", "tools · memory · runs every job"], "AGENT")
-node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "new devices · IDS · host anomalies"], "EVERY 15 MIN")
+node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
 node("nightly", 698, 226, 222, 82, "back", "Nightly pipeline", ["collect → analyze → triage", "baseline · ATT&CK · report.py"], "05:00 UTC")
 node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "nightly snapshots + triage JSON"])
 node("pdf", 698, 348, 222, 76, "db", "PDF reports", ["one per night, kept locally", "served for download"])
-node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Overview · Risk · Fix list · Endpoints · Lateral map", "ATT&CK · Alerts · Reports (PDF download) · Users", "Web Push urgent notifications · per-user device subscriptions"], "WEB APP")
+node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed) · chart drill-down", "Web Push urgent notifications · per-user device subscriptions"], "WEB APP")
 node("mcp", 460, 608, 222, 76, "bus", "netmon MCP server", ["netmon_mcp.py · stdio", "9 read-only query tools"], "READ-ONLY")
 node("chatp", 698, 608, 222, 76, "ai", "Hermes chat profile", ["netmonchat · API on loopback", "tools: web + netmon only"], "ASK HERMES")
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
@@ -128,6 +128,9 @@ arrow(anchor("dash", "r", 0.4), anchor("users", "l", 0.6), "#22d3ee", both=True)
 lab2(960, 468, "#22d3ee", "HTTPS", "Web Push")
 arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
 lab2(960, 726, "#94a3b8", "scanned", "push")
+# local LLM <-> dashboard: correlation review (left edge of the monitoring host column)
+arrows.append('<path d="M470,176 L440,176 L440,500 L460,500" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="3,3" marker-start="url(#ah-e879f9)" marker-end="url(#ah-e879f9)"/>')
+lab2(440, 420, "#e879f9", "link", "review")
 # Ask Hermes: dashboard -> restricted chat profile -> read-only MCP server -> netmon data; chat model = Claude
 arrow((809, 568), (809, 608), "#e879f9", "Ask Hermes", ldy=4)
 arrow(anchor("chatp", "l"), anchor("mcp", "r"), "#fb923c", "MCP", ldy=-6)
@@ -150,7 +153,8 @@ out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#
 notes = ["Elasticsearch is queried read-only; netmon never changes Security Onion, UniFi or the network.",
          "Nightly: Claude triages findings with web research; report.py renders the PDF (downloadable in the dashboard).",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
-         "Ask Hermes: dashboard chat → isolated Hermes profile (no terminal/files/memory) → read-only netmon MCP server."]
+         "Ask Hermes: dashboard chat → isolated Hermes profile (no terminal/files/memory) → read-only netmon MCP server.",
+         "Correlation: the script proposes links between events and vulnerabilities; the local LLM confirms or rejects each one."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
 

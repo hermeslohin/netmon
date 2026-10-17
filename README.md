@@ -26,7 +26,11 @@ Features:
 
 - Calculates a risk rating of each system
 
-- Shows lateral movement between zones and hosts.
+- Shows lateral movement between zones and hosts, including every admin login (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...), successful and failed. Failed logins raise the risk and trigger the 15-minute watcher.
+
+- Correlates events with each other and with known vulnerabilities (shared hosts, IPs, accounts, time, ATT&CK). The local LLM reviews every proposed link and decides whether it is real. Click "Related" on any event to pivot.
+
+- Every chart drills down to the filtered list behind it. Boxes can be collapsed and dragged into your own layout.
 
 Way more stuff that it just sorta came up with.
 
@@ -54,15 +58,17 @@ Want to run this on your own network with your own Hermes? Follow **[docs/SETUP.
 ![netmon architecture: endpoints with Elastic Agent (Elastic Defend, osquery) and the Security Onion sensor feed Elasticsearch; the Hermes agent on the monitoring host runs a 15-minute watcher and a nightly pipeline that query Elasticsearch read-only and the UniFi Site Manager API, use Claude and a local LLM, and serve results through the netmon dashboard to family browsers and phones](docs/architecture.svg)
 
 - **Data sources:** Elastic Agent on each endpoint (Elastic Defend + osquery, managed by Fleet) and the Security Onion sensor (Suricata, Zeek) write to Security Onion's Elasticsearch. The UniFi gateway is read through the UniFi Site Manager cloud API.
-- **Hermes agent** schedules every job. The 15-minute watcher is deterministic and calls no model. The nightly run uses **Claude** for triage and web research. A **local LLM** (LM Studio) runs on the same machine for on-box work.
+- **Hermes agent** schedules every job. The 15-minute watcher is deterministic and calls no model. The nightly run uses **Claude** for triage and web research. A **local LLM** (LM Studio) on the same machine reviews the dashboard's event correlations: the script proposes links, the model decides (see [docs/CORRELATION.md](docs/CORRELATION.md)).
 - **Outputs:** SQLite state, nightly PDF reports and the HTTPS dashboard with Web Push. Nothing is posted to chat.
 - **Ask Hermes:** the dashboard's chat (and the 💬 button on every finding) talks to a separate, restricted Hermes profile (`netmonchat`) over its loopback-only API. That profile has no terminal, file or memory tools. It gets web search plus `netmon_mcp.py`, a read-only MCP server with nine query tools over the netmon data (snapshots, triage, findings, devices, endpoint findings, IDS and recent alerts, reports). The MCP server opens SQLite read-only.
 - Regenerate the diagram with `python3 docs/make_architecture.py`.
 
 ## Components
 
+- `adminproto.py`: catalog of admin / lateral-movement protocols and tools, plus the session merger (network + login + endpoint evidence).
+- `dashboard/app/correlate.py`, `dashboard/app/corr_llm.py`: event correlation and the local-LLM review of every proposed link ([docs/CORRELATION.md](docs/CORRELATION.md)).
 - `collect.py` / `analyze.py` / `report.py`: nightly pipeline. Security Onion Elasticsearch, UniFi and Elastic Agent data go into a snapshot, which is compared against a per-device baseline and rendered as a PDF report.
-- `watch.py`: 15-minute urgent watcher. It records dashboard alerts and push notifications (nothing is posted to Discord). Nightly PDFs are downloadable from the dashboard's Reports page.
+- `watch.py`: 15-minute urgent watcher (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). It records dashboard alerts and push notifications (nothing is posted to Discord). Nightly PDFs are downloadable from the dashboard's Reports page.
 - `hosts.py`, `osq.py`, `hostdetail.py`: host and endpoint telemetry (Elastic Defend, osquery).
 - `mitre.py`: maps findings to MITRE ATT&CK.
 - `store.py`: SQLite state store (WAL).
