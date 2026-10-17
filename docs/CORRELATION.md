@@ -139,3 +139,13 @@ the nightly cron job's model (or the Hermes default model). Chat answers use the
 verdicts store the LM Studio model id. The PDF report labels the triage summary the same way. Fix-list "How to fix"
 text and risk scores are rule-based (no flare).
 
+## Clearing segmentation findings
+
+Tick the box on a segmentation finding (Posture), a `Segmentation:` Fix-list item, or a flagged port in a Lateral
+movement link to mark the flow as expected. It is stored once as a stable flow key (`<source MAC or IP>|<dest>|<port>`,
+ack type `seg`), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots. Cleared flows
+are hidden from Posture, the Fix list and Risk, shown as *allowed* on Lateral movement, dropped from correlation and
+the PDF, and no longer raise host risk. Failed admin logins on a cleared flow still escalate. They are listed in a
+separate **Cleared segmentation** section (Posture, Fix list, Lateral movement, Checked); untick to bring one back.
+For a permanent rule that also applies to the nightly analysis, add it to `policy.json` `allow`.
+

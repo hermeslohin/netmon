@@ -169,8 +169,8 @@ def with_cleared(pol):
     """policy + the set of segmentation flows people have cleared (ack type "seg"); see risk.seg_key."""
     try:
         pol = dict(pol or {}); pol["_cleared_seg"] = set((store.acks_load().get("seg") or {}).keys())
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 - without the ack store nothing is cleared
+        print(f"cleared segmentation lookup failed: {e}", file=sys.stderr)
     return pol
 
 
