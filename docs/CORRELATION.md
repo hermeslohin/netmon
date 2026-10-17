@@ -100,6 +100,14 @@ Throughput with Gemma 4 31B on the monitoring host is about 15–30 links a minu
 candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If LM Studio is down, the
 worker backs off and retries, and links stay *pending*.
 
+### AI review page (More → AI review)
+
+Shows the reviewer's status (reviewing / waiting / idle / error / off), the model and endpoint, the queue for the
+current snapshot with % reviewed and an ETA, verdicts per hour, and every decision with both events (linked),
+the verdict, confidence and the model's reason. Filters: confirmed, rejected, set by a person, low confidence,
+this snapshot only. Per decision: **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten by
+the model), **↻** deletes the verdict so the model reviews that link again.
+
 ## 4. Working through it on the dashboard
 
 - **Related column** on every event list (Alerts, Posture findings, IDS, Admin sessions, Endpoint findings, Threat

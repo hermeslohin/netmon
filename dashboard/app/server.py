@@ -463,6 +463,16 @@ class H(BaseHTTPRequestHandler):
                 p = store.prefs_set(user, mode, devs)
                 print(f"push prefs: {user} -> {mode} ({len(devs)} devices)", file=sys.stderr)
                 return self._json({"prefs": p})
+            if u.path == "/api/aireview":  # override or re-review one AI verdict
+                act, pr = str(body.get("action", "")), str(body.get("pair", ""))
+                if act not in ("confirm", "reject", "rereview"):
+                    return self._json({"error": "action must be confirm, reject or rereview"}, 400)
+                try:
+                    corr_llm.override(pr, {"confirm": True, "reject": False, "rereview": None}[act], user)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                print(f"ai review: {user} {act} {pr[:120]!r}", file=sys.stderr)
+                return self._json({"ok": True})
             if u.path == "/api/alerts/read":
                 store.alerts_read_all()
                 return self._json({"ok": True})
@@ -549,6 +559,11 @@ class H(BaseHTTPRequestHandler):
                 if path == "/api/risk":
                     return self._json(rr)
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kb))
+            if path == "/api/aireview":
+                s_ = snapshots()
+                sid = s_[-1]["id"] if s_ else ""
+                base = correlation(sid) or {}
+                return self._json({**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid})
             if path == "/api/correlate":
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":

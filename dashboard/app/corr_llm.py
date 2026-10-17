@@ -213,3 +213,54 @@ def start(get_base, latest_sid_fn, every=60):
                 STATUS.update(busy=False, error=f"{type(e).__name__}: {str(e)[:200]}")
                 time.sleep(180)
     threading.Thread(target=loop, name="corr-llm", daemon=True).start()
+
+
+# ---------------------------------------------------------------- status page (#/aireview)
+def overview(events, applied):
+    """Everything the AI-review page shows: worker status, queue for the current snapshot, totals, throughput,
+    and all stored verdicts (labelled with the current snapshot's events where known)."""
+    now = time.time()
+    with _db() as c:
+        rows = c.execute("SELECT pair, related, confidence, reason, model, ts FROM verdicts ORDER BY ts DESC").fetchall()
+    hours = {}
+    for _, _, _, _, m, ts in rows:
+        if now - ts <= 86400:
+            h = int((now - ts) // 3600)
+            hours[h] = hours.get(h, 0) + 1
+    last_hour = sum(1 for r in rows if now - r[5] <= 3600)
+    llm = (applied or {}).get("llm") or {}
+    pend = llm.get("pending", 0)
+    rate = sum(1 for r in rows if now - r[5] <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
+    out = []
+    for p, rel, conf, why, m, ts in rows:
+        a, b = p.split("\x1f", 1)
+        ea, eb = events.get(a) or {}, events.get(b) or {}
+        out.append({"pair": p, "a": a, "b": b, "a_label": ea.get("label") or a, "b_label": eb.get("label") or b,
+                    "a_type": ea.get("type") or a.split("|")[0], "b_type": eb.get("type") or b.split("|")[0],
+                    "a_link": ea.get("link") or "", "b_link": eb.get("link") or "", "current": bool(ea and eb),
+                    "related": bool(rel), "confidence": conf, "reason": why, "model": m, "ts": ts,
+                    "manual": str(m).startswith("manual:")})
+    models = {}
+    for r in out:
+        models[r["model"]] = models.get(r["model"], 0) + 1
+    return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "error", "busy", "last_run", "decided_this_run")},
+            "url": URL, "workers": WORKERS, "reasoning": REASONING,
+            "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
+                      "eta_min": round(pend / rate * 60) if rate and pend else None},
+            "totals": {"verdicts": len(out), "related": sum(r["related"] for r in out), "rejected": sum(not r["related"] for r in out),
+                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate,
+                       "avg_conf": round(sum(r["confidence"] or 0 for r in out) / len(out), 2) if out else None},
+            "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out[:3000]}
+
+
+def override(p, related, user):
+    """A person's decision replaces the model's (kept, labelled manual:<user>); related=None deletes the verdict
+    so the model reviews the link again on its next pass."""
+    if "\x1f" not in p or len(p) > 2000:
+        raise ValueError("bad pair")
+    with _lock, _db() as c:
+        if related is None:
+            c.execute("DELETE FROM verdicts WHERE pair=?", (p,))
+        else:
+            c.execute("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)",
+                      (p, 1 if related else 0, 1.0, f"Set by {user}", f"manual:{user}", time.time()))
