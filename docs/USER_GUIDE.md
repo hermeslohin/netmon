@@ -1,0 +1,477 @@
+# netmon user guide
+
+This guide covers everyday use of the netmon dashboard: what each page shows, how to work through alarms and findings, how notifications work, and how to use the AI features. For installation see [SETUP.md](SETUP.md). For how events are linked to each other, see [CORRELATION.md](CORRELATION.md).
+
+## Contents
+
+1. [What netmon does](#1-what-netmon-does)
+2. [Signing in and your account](#2-signing-in-and-your-account)
+3. [Finding your way around](#3-finding-your-way-around)
+4. [Notifications and alerts](#4-notifications-and-alerts)
+5. [Working through findings](#5-working-through-findings)
+6. [Page by page](#6-page-by-page)
+7. [AI features](#7-ai-features)
+8. [Reports](#8-reports)
+9. [Phones and tablets](#9-phones-and-tablets)
+10. [Admin tasks](#10-admin-tasks)
+11. [FAQ and troubleshooting](#11-faq-and-troubleshooting)
+12. [Glossary](#12-glossary)
+
+---
+
+## 1. What netmon does
+
+netmon watches the home network and the computers on it and tells you what changed, what looks risky and what to fix.
+
+| When | What runs | What you get |
+|---|---|---|
+| Every 15 minutes | **Urgent watcher.** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
+| Every 4 hours (01, 05, 09, 13, 17, 21 UTC) | **Collection, analysis, Claude triage and research.** | A new *snapshot* (the last 24 hours), triage alarms, research notes on events, and correlation reviews. |
+| 05:00 UTC (1 AM Eastern in summer) | The same run, plus the **PDF report** and a news briefing. | A downloadable PDF on the Reports page. |
+| All the time | The **correlation reviewer**, a local AI model. | It decides which events are really related (see [AI review](#ai-review)). |
+
+The data comes from:
+
+- **Security Onion:** Zeek connection logs, Suricata IDS alerts, DNS and TLS.
+- **Elastic Agent** on each computer: Elastic Defend, osquery, logins and system logs.
+- **The UniFi gateway:** IPS events, firewall flows, admin sign-ins and configuration changes.
+
+netmon only reads data. It never changes the network, the gateway or Security Onion.
+
+---
+
+## 2. Signing in and your account
+
+- Open the dashboard at the address you were given (HTTPS). Your browser may warn about the certificate the first time, because it is a private certificate for the home network.
+- **More → My account** shows who you are signed in as and lets you change your password. Changing it signs out your other browsers and phones; the one you are using stays signed in.
+- If you are locked out after too many wrong passwords, wait for the lockout to expire or ask an admin (see [Users](#10-admin-tasks)).
+
+---
+
+## 3. Finding your way around
+
+### Header
+
+| Item | What it does |
+|---|---|
+| **Overview** | The summary page. |
+| **Alerts** | Urgent alerts from the 15-minute watcher. The number is your unread count. |
+| **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
+| **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map. |
+| **Devices ▾** | Hosts (everything on the network) and Endpoints (computers running the Elastic Agent). |
+| **More ▾** | Reports, Ask Hermes, AI review, Checked, Users. |
+| 🔔 | Unread urgent alerts. Click to open Alerts. |
+| **Snapshot** | Which 24-hour window you are looking at. The newest is selected by default; pick an older one to see how things looked then. ⟳ reloads the data. |
+
+### Boxes
+
+Every page is made of boxes (cards).
+
+- **Collapse or expand:** click a box's title. The first three boxes on a page start open.
+- **Rearrange:** drag a box by its ⠿ grip.
+- **Resize:** drag a box's bottom-right corner (on phones, height only).
+- **Remembered:** your layout is saved per page in this browser. **Original order and sizes** at the bottom of a page puts it back.
+
+### Tables
+
+- Click a column header to sort, and use the filter box to search.
+- Many rows are clickable and open the device, host or detail behind them.
+- **Charts drill down:** click a bar, slice or line to open the filtered list behind it. A chip at the top shows the active filter; click ✕ on the chip to clear it.
+
+### Buttons you will see on rows
+
+| Button | Meaning |
+|---|---|
+| ☐ (check box) | **Check off**, meaning "I've looked at this". The item is hidden from its list. See [Checking things off](#checking-things-off). |
+| ☐ **Clear** (green) | On segmentation violations: "this flow is expected". See [Segmentation](#segmentation-violations). |
+| 💬 | **Ask Hermes** about this item. See [Ask Hermes](#ask-hermes). |
+| ⇄ (purple) | **Compare models**: ask several AI models for their assessment of this item. Admins only. |
+| **Related** (number) | Other events linked to this one. Click it for the list. See [Related events](#related-events). |
+| ✨ *verdict* | Claude's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
+| ✨ *model name* | Marks text written by an AI and which model wrote it. |
+
+---
+
+## 4. Notifications and alerts
+
+The 15-minute watcher raises an **urgent alert** for things such as:
+
+- a device that has never been seen before;
+- a high-severity IDS hit;
+- a threat-intelligence match (a connection to or from a known-bad address);
+- a new port open to the internet;
+- DNS tunnelling;
+- failed admin logins;
+- a serious problem on a computer, such as an agent going offline or a suspicious process.
+
+### Getting push notifications
+
+1. Open **Alerts**.
+2. Under **Notifications on this device**, tap **Enable** and allow notifications when the browser asks.
+   - **iPhone and iPad:** first add the dashboard to the home screen (**Share → Add to Home Screen**), open netmon from that icon, then tap Enable.
+3. Under **Which devices alert me**, choose **All devices** or pick only the devices you care about (for example your own laptop and phone), then **Save**.
+
+Push is set up per browser or phone, so do it on each one you use. The device choice belongs to your account.
+
+### Reading alerts
+
+**Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter. Each alert has a **Related** count that links to the network and endpoint events around it.
+
+---
+
+## 5. Working through findings
+
+### Severity and priority
+
+| Term | Where | Meaning |
+|---|---|---|
+| **Investigate / Review / Info** | Triage alarms, research notes | Claude's priority. *Investigate* means look at it now. *Review* means look when you can. *Info* means explained and benign. |
+| **high / medium / low** | Baseline and host findings, IDS | How serious the rule considers it. |
+| **malicious / suspicious / needs-review / benign / expected** | Research notes, comparisons | The AI's verdict after looking into it. |
+
+### Checking things off
+
+When you have looked at an alarm or finding and are satisfied, tick its check box.
+
+- The item disappears from the list and is recorded under **More → Checked** with who checked it and when.
+- **show N checked** in a box's title brings checked items back into view.
+- **Unchecking** restores an item, either in its list or on the Checked page.
+- **Carries over:** checking off is remembered across snapshots, so the same finding stays checked when it shows up again.
+
+### Segmentation violations
+
+The network is split into zones (for example main, IoT, servers, guest). `policy.json` says which zone may talk to which. A *segmentation violation* is a connection the policy doesn't allow.
+
+- If the flow is expected (for example your laptop managing a server over SSH), click the green **Clear** box on **Posture → Segmentation violations**, or the Clear box on **Lateral movement**.
+- **What clearing does:** the flow is hidden on Posture, the Fix list and Lateral movement; it stops counting toward host risk; and it is listed under **Cleared segmentation**.
+- **To bring a flow back:** uncheck it in Cleared segmentation.
+- For a permanent rule, ask the admin to add an `allow` entry to `policy.json`. The triage summary proposes such rules but never applies them itself.
+
+### Related events
+
+Events that share a host, an IP address, a domain or an account, happen close together, or map to the same ATT&CK technique are proposed as *related* by a script. The correlation reviewer (an AI model) confirms or rejects each link.
+
+The **Related** column shows how many links an event has. Click it to see them, each with the reason and the reviewer's verdict, then click any one to jump to it. Details: [CORRELATION.md](CORRELATION.md).
+
+### Research notes on events
+
+Every 4 hours Claude researches the important events. The work list includes:
+
+- every host finding;
+- every Suricata severity 1 and 2 signature;
+- every UniFi gateway event family;
+- up to 40 other events.
+
+An event with a note shows a **✨ verdict** button next to its Related count. Click it to read:
+
+- the verdict and priority;
+- a short summary;
+- what was checked and found (hosts, ports and times);
+- links to the sources the AI actually read.
+
+Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI review** page shows how many events have notes.
+
+AI notes can be wrong. Treat them as a well-informed second opinion, and check the evidence before acting on anything important.
+
+---
+
+## 6. Page by page
+
+### Overview
+
+The one-page summary of the selected snapshot.
+
+- **Tiles:** devices seen, traffic, IDS alerts, high findings, alarms Claude wants investigated, unhealthy endpoints, threat-intel hits, capture loss, recurring issues and the highest-risk host.
+- **Triage summary and alarms:** Claude's short write-up of the window, and the alarms to look at.
+- **Charts:** traffic per hour, top talkers, findings by severity and kind, devices by zone.
+- **Health:** the endpoint fleet and the gateway's health.
+
+### Alerts
+
+Urgent watcher alerts and your notification settings (see [section 4](#4-notifications-and-alerts)).
+
+### Security → Posture
+
+The main working page.
+
+| Box | What it is |
+|---|---|
+| Triage summary / Triage alarms | Claude's assessment of the window, with Investigate / Review / Info alarms. Each alarm says who, what was seen, why it matters, what to do next, and gives sources. |
+| Research notes | Background research from the triage run, with numbered sources. |
+| Baseline findings | Things a device did differently from its own normal: new ports or services, traffic spikes, new countries or ASNs, new DNS habits, new TLS fingerprints. Needs 3 days of history. |
+| Cleared segmentation | Flows you marked as expected. |
+| Host findings | Problems seen on the computers themselves: new accounts or groups, failed logins, sudo use, agent problems, Defend failures, system-log errors, new listening ports, unusual processes. |
+| IDS signatures / alerts | Suricata detections in the window, grouped by rule. |
+| Segmentation violations | Connections the zone policy doesn't allow, each with a **Clear** box. |
+| Beacon candidates | Connections that repeat on a regular timer (possible malware check-ins; usually updates or telemetry). |
+| Threat intel | Matches against threat-intelligence feeds (see Threat intel below). |
+| DNS-tunnel scoring | Domains with many random-looking subdomains (possible data smuggling over DNS). |
+| Zeek notices / weird | Protocol oddities and notices from Zeek. |
+| Files | Files transferred over the network and their reputation. |
+| Software inventory from traffic | Software versions seen in network traffic. |
+| Gateway security (UniFi) | IPS settings, security and gateway events (with Related links and research notes), admin sign-ins and configuration changes. |
+
+### Security → Threat intel
+
+Every DNS name, TLS server name, JA3 fingerprint and internet IP address in the window, checked against the threat feeds. The page also has an **Indicator lookup** box: paste an IP, domain or hash to check it against the loaded feeds.
+
+### Security → ATT&CK
+
+Everything in the snapshot mapped to MITRE ATT&CK techniques.
+
+- **Observed:** behaviour that was actually seen.
+- **Exposure only:** a weakness that would allow the technique.
+
+Click a technique in the matrix to list the items behind it.
+
+### Security → Risk
+
+Hosts and vulnerabilities ranked by the risk they pose to the whole network. Host risk is how likely it is to be compromised (its exposure, weaknesses and threat activity) multiplied by how much damage that would do (its role and what it can reach). The **Scoring model** box explains every component.
+
+### Security → Fix list
+
+Misconfigurations and security suggestions from all snapshots, such as SSH password logins, legacy TLS, exposed admin ports or segmentation gaps.
+
+- **Recurring:** an item becomes recurring once it shows up in 2 or more snapshots.
+- **New / seen once:** an item seen only once stays here and moves up to Recurring if it comes back.
+- **Fixed:** items that stopped appearing move here automatically.
+
+### Network → Network map
+
+Every internal host in its zone behind the gateway. Click a host for details.
+
+### Network → Lateral movement
+
+Host-to-host connections inside the network, compared against the zone policy.
+
+- **Admin access:** lists every admin session (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC, Docker, Kubernetes, remote-support tools) with its successful and failed logins.
+- **Failed logins** raise host risk and alert the watcher.
+
+### Network → DNS & TLS
+
+- **DNS:** queries and failures by device, top domains, query types, resolvers and TLDs.
+- **TLS:** versions in use, certificates with problems, and client and server fingerprints (JA3, JA3S, JA4).
+- **Devices using legacy TLS or bad certificates** are listed at the end.
+
+### Network → Traffic map
+
+- **Traffic:** top talkers, internet upload by device, traffic by country and ASN, protocols.
+- **Zone-to-zone matrix:** hover a cell for the top ports.
+- **UniFi firewall flows and blocks**, and trends across snapshots.
+
+### Devices → Hosts
+
+Every internal address with traffic in the snapshot, plus devices that are new this window or not in the inventory. Click a host for its full page:
+
+- **Identity and risk.**
+- **Traffic:** by country, ASN, service and port, and its internal flows.
+- **DNS and TLS habits.**
+- **Detections:** IDS alerts, segmentation violations and beacons.
+- **Files and software.**
+- **Endpoint data:** shown if the device runs the Elastic Agent.
+
+### Devices → Endpoints
+
+Computers running the Elastic Agent: agent health, telemetry and auth/sudo/Defend counts. The open host-findings count links to the **Host findings** box on Posture. Click a host for its endpoint page:
+
+- agent status and telemetry streams;
+- findings, notable system-log entries and logins;
+- network connections by process;
+- what the host's baseline has learned.
+
+### More → Reports
+
+The daily PDF reports (see [section 8](#8-reports)).
+
+### More → Ask Hermes
+
+The AI assistant (see [Ask Hermes](#ask-hermes)).
+
+### More → AI review
+
+What the AI is doing and how well (see [AI review](#ai-review)).
+
+### More → Checked
+
+Everything checked off or cleared, with who did it and when. Uncheck to restore.
+
+### More → Users
+
+Accounts (see [section 10](#10-admin-tasks)).
+
+---
+
+## 7. AI features
+
+netmon uses two kinds of AI:
+
+- **Claude** (Anthropic, a cloud service): triage, web research and the PDF report.
+- **A local model** (LM Studio, running on the monitoring computer): the correlation reviewer. It runs all the time and costs nothing per request.
+
+Anything an AI wrote is labelled ✨ with the model name.
+
+### Ask Hermes
+
+A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data and reports, and search the web. It is **read-only**: it cannot change anything.
+
+- **Starting a chat:** open **More → Ask Hermes** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
+- **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What Hermes will be given* shows exactly what is sent.
+- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the assistant's usual model), any Anthropic model, or any local LM Studio model. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
+
+Answers can be wrong. Check important findings on the dashboard pages.
+
+### Comparing models
+
+The purple **⇄** button asks several models for their opinion on one item, side by side. Admins only.
+
+**Where it appears:**
+
+- triage alarms and research notes;
+- baseline findings and host findings (on Posture, device pages and endpoint pages);
+- event research notes (the ✨ popup);
+- correlation decisions on the AI review page.
+
+**How to use it:**
+
+1. Click **⇄**.
+2. Tick up to 4 models. The loaded local model, Claude Sonnet and Claude Opus are ticked by default.
+3. Click **Run comparison**.
+
+Each model answers with a verdict, a priority, a summary and its reasoning. The results also show the time taken and the tokens used. For items, the models see only the item's data and cannot look anything up. For correlation decisions, each model gets exactly the question the reviewer gets.
+
+**"Use this"** stores one model's answer:
+
+- for a correlation decision, as the decision;
+- for an event research note, as the note, with the original research kept underneath.
+
+**Earlier comparisons** lists every past comparison for that item.
+
+### AI review
+
+**More → AI review** shows the AI's work and lets admins configure it.
+
+| Box | What it shows |
+|---|---|
+| **Models** | The model for the **correlation reviewer** and for the **research job** (local or Anthropic). Admins change them here (see the cost notes below). |
+| **Claude triage & enrichment** | Whether a research run is going on now, the schedule and next run, recent runs and how long they took, each enrichment pass (events researched, links reviewed), how many events have notes, and the latest run's summary. |
+| **Time and tokens per research run** | A chart of input and output tokens and run time for each research run. Hover a bar for details. |
+| **Reviewer** | The correlation reviewer's model, its queue and its throughput. |
+| **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
+| **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), ask for a new review (↻), or **⇄ compare** models on it. Manual decisions always win and are never overwritten. |
+
+### Things to know about model choices
+
+- **Anthropic models** are faster and better at research, but cost money per request:
+  - **Research job:** a run uses several million tokens.
+  - **Correlation reviewer:** if it uses an Anthropic model, it decides every new link around the clock.
+  - **Cap:** a safety limit of 120 Anthropic requests an hour applies to comparisons and the reviewer.
+- **Local models** are free, but slower and weaker at research and tool use. A model that isn't loaded in LM Studio has to load first, which takes time and may unload the model the reviewer is using.
+
+---
+
+## 8. Reports
+
+- **When:** one PDF a day, made by the 05:00 UTC run (1 AM Eastern in summer, midnight in winter).
+- **What it covers:** the last 24 hours. It contains:
+  - the triage summary and alarms, with sources;
+  - IDS signal versus known noise;
+  - findings per device;
+  - threat intel and UniFi;
+  - ATT&CK mapping;
+  - risk;
+  - a short news briefing (security, cycling, local news).
+- **Where:** **More → Reports**. **Download** saves the PDF; **Open** views it in the browser. The report for the selected snapshot is highlighted.
+- **Notification:** when a new report is ready, a notification appears in the dashboard.
+
+The other runs of the day update the dashboard but don't make a PDF.
+
+---
+
+## 9. Phones and tablets
+
+- **Install it:** add the dashboard to your home screen for an app-like experience and push notifications (required on iPhone and iPad).
+- **Menu:** the ☰ button opens the menu. Your name and **Sign out** are at the bottom of it.
+- **Lists instead of wide tables:** tables that would need sideways scrolling become a list of cards. Each card shows:
+  - its badges and buttons on the first line;
+  - the title in bold;
+  - one *Label: value* line per column.
+
+  A **Sort:** menu replaces the column headers.
+- **Boxes:** they can be collapsed, rearranged and resized (height only) just like on a computer.
+
+---
+
+## 10. Admin tasks
+
+Admins are the dashboard users listed in `NETMON_ADMINS` in `dashboard/.env`. Only admins can:
+
+- change the correlation and research models (AI review → Models);
+- run model comparisons and use "Use this";
+- choose the model in Ask Hermes.
+
+Everyone else can see everything and check things off, and Ask Hermes uses its default model for them.
+
+**More → Users** (any signed-in user) lets you:
+
+- **Add user:** pick a username and a password that meets the rules shown.
+- **Change a password:** set a new one for a user. That user's other sessions are signed out.
+- **Choose which devices alert someone:** set their alert devices for them.
+- **Delete a user.**
+- **Locked out?:** explains how to unlock an account after too many failed sign-ins.
+
+Installation, adding admins and other configuration are in [SETUP.md](SETUP.md).
+
+---
+
+## 11. FAQ and troubleshooting
+
+**The page looks old after an update.**
+Reload once (⟳ in the header, or the browser's reload). On a phone, close the app and open it again.
+
+**I don't get push notifications.**
+- **Is push on?** Check that Alerts → Notifications on this device says *on*.
+- **Are notifications allowed?** Check the browser's site settings.
+- **Is the device selected?** Check that the device is included under *Which devices alert me*.
+- **iPhone/iPad:** notifications only work from the home-screen app.
+
+**A finding keeps coming back after I checked it off.**
+Checking off is tied to the finding's wording. If the finding's details change (for example a different port), it counts as a new finding. For segmentation flows, use **Clear**; it follows the device even if its IP address changes.
+
+**There are no baseline findings, or the Overview says the baseline is not ready.**
+Baselines need 3 days of history before deviation rules switch on. Until then the Overview subtitle says the baseline is "warming up"; it shows how many days are banked.
+
+**The research note says "written for an earlier run".**
+The note was written for the same finding in an earlier snapshot, so the numbers in it may be out of date. It is refreshed when the evidence changes enough.
+
+**Ask Hermes says it is unavailable.**
+The assistant service may be restarting. Try again in a minute. If it keeps failing, tell the admin.
+
+**AI review shows "Last run failed".**
+The latest research run failed. The error is shown in the box. The next scheduled run usually recovers; otherwise tell the admin.
+
+**Why did a model comparison show an error for one model?**
+That model didn't return a usable answer, or wasn't reachable (for example LM Studio was loading it). The other models' answers are still valid.
+
+---
+
+## 12. Glossary
+
+| Term | Meaning |
+|---|---|
+| **Snapshot** | One collection run covering the previous 24 hours. A new one is made every 4 hours. |
+| **Baseline** | What is normal for each device, learned from about one snapshot a day over the last 30 days. |
+| **Triage** | Claude's review of a snapshot: a summary plus Investigate / Review / Info alarms. |
+| **Finding** | Something a rule flagged: a *baseline* finding (network behaviour) or a *host* finding (on the computer itself). |
+| **IDS / Suricata** | Intrusion detection: rules that match known attack or suspicious traffic patterns. Severity 1 is highest. |
+| **Zeek** | Network sensor that logs every connection, DNS query, TLS handshake and file. |
+| **Elastic Agent / Defend / osquery** | Software on each computer that reports processes, logins, files and settings (Defend is the anti-malware part). |
+| **UniFi gateway** | The home router/firewall; its IPS blocks and logs attacks. |
+| **Threat intel (TI)** | Public lists of known-bad IP addresses, domains and fingerprints. |
+| **Beacon** | Traffic repeating on a regular timer. Malware does this, but so do updates and telemetry. |
+| **Segmentation / zone** | Splitting the network into groups (main, IoT, servers, guest) with rules for which may talk to which. |
+| **Lateral movement** | Moving from one computer to another inside the network, for example over SSH or RDP. |
+| **JA3 / JA4** | Fingerprints of the software that opened a TLS (HTTPS) connection. |
+| **ATT&CK** | MITRE's catalogue of attacker techniques. |
+| **Correlation** | Linking events that are about the same activity. |
+| **Research note** | Claude's per-event research: verdict, summary, evidence and sources. |
+| **Capture loss** | Traffic the sensor couldn't record. High loss means parts of the network are invisible. |

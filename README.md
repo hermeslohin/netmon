@@ -54,6 +54,8 @@ Home-network security monitoring for the home network, run by the Hermes agent (
 
 ## Set it up yourself
 
+Using the dashboard? See the **[user guide](docs/USER_GUIDE.md)**.
+
 Want to run this on your own network with your own Hermes? Follow **[docs/SETUP.md](docs/SETUP.md)**: clone to `~/.hermes/netmon`, run `./setup.sh`, describe your network in a few local JSON files, add a read-only Elasticsearch key, then start the dashboard and the Hermes jobs. Everything specific to your network stays in git-ignored local files.
 
 ## Architecture

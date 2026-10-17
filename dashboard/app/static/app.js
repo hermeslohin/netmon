@@ -783,7 +783,7 @@ V.issues = (el) => {
 
 /* ----- Users ----- */
 V.users = async (el) => {
-  el.innerHTML = `<h1>Users</h1><div class="sub">Everyone listed here can sign in and has full access (no roles). Passwords are stored as salted scrypt hashes in <span class="mono">dashboard/state/users.json</span>. Changing a password signs that user out everywhere.</div><div class="loading">Loading…</div>`;
+  el.innerHTML = `<h1>Users</h1><div class="sub">Everyone listed here can sign in and see and check off everything. Changing AI models, running model comparisons and choosing the Ask Hermes model are limited to the admins in NETMON_ADMINS (dashboard/.env). Passwords are stored as salted scrypt hashes in <span class="mono">dashboard/state/users.json</span>. Changing a password signs that user out everywhere.</div><div class="loading">Loading…</div>`;
   let U; try { U = await api("/api/users"); } catch (e) { el.querySelector(".loading").textContent = String(e); return; }
   el.querySelector(".loading").remove();
   const min = U.min_password || 10;
