@@ -953,7 +953,8 @@ async function route(keep) {
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (a.dataset.r + "s" === view + "s" && false) || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
   const el = $("#main"); el.innerHTML = "";
-  try { (V[view] || V.overview)(el, arg); } catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
+  try { const p = (V[view] || V.overview)(el, arg); if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
+  catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
   flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
   const at = !keep && hq().get("at"); if (at) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 0);
 }

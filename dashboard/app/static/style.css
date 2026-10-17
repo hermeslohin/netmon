@@ -285,3 +285,5 @@ td.askcell{width:1%;padding-right:2px}
 body.cc-drag-on{user-select:none;cursor:grabbing}
 .cc-bar .cc-hint{align-self:center;margin-right:auto}
 @media (max-width:900px){.cc-grip{opacity:1;font-size:18px;padding:2px 6px}.cc-bar .cc-hint{display:none}}
+.rel-ai{font-size:10px;padding:0 6px;border-radius:8px;border:1px solid var(--border);white-space:nowrap}
+.rel-ai.yes{color:var(--good);border-color:var(--good)}.rel-ai.pend{color:var(--muted)}

@@ -9,6 +9,7 @@ import issues
 import risk
 import lateral
 import correlate
+import corr_llm
 import auth
 import tintel
 import chat
@@ -553,7 +554,8 @@ class H(BaseHTTPRequestHandler):
                 if sid == "latest":
                     s_ = snapshots()
                     sid = s_[-1]["id"] if s_ else ""
-                return self._json(correlation(sid) or {"error": "not found"}, 200)
+                corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
+                return self._json(corr_llm.apply(correlation(sid)) or {"error": "not found"}, 200)
             if path == "/api/mitre":
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":
@@ -619,6 +621,11 @@ def main():
         print(f"web push enabled ({len(store.push_subs())} subscribers)", flush=True)
     except Exception as e:
         print("web push disabled:", e, flush=True)
+    try:  # local-LLM review of correlation candidates (corr_llm.py); no-op when NETMON_LLM=off
+        corr_llm.start(correlation, lambda: (snapshots() or [{"id": ""}])[-1]["id"])
+        print(f"correlation review: local LLM at {corr_llm.URL} ({'on' if corr_llm.ENABLED else 'off'})", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"correlation review disabled: {e}", file=sys.stderr)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2

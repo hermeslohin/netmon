@@ -25,6 +25,12 @@
   function relabelChips() {  // drill-down chip shows the event's label once correlations are loaded
     main.querySelectorAll(".fchips b[data-ev]").forEach((b) => { b.textContent = evLabel(b.dataset.ev); });
   }
+  const llmLine = () => { const L = S.corr?.llm;
+    if (!L || !L.enabled) return "Linked by shared hosts, IPs, domains or accounts, time, ATT&CK technique and vulnerabilities on the hosts involved. (Local LLM review is off.)";
+    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the local LLM (${L.model || "?"}) decides. `
+      + `${L.confirmed} confirmed, ${L.rejected} rejected, ${L.pending} awaiting review${L.busy ? " (reviewing now)" : ""}${L.error ? ` · last error: ${L.error}` : ""}.`; };
+  // while reviews are pending, refresh the verdicts every 2 minutes so counts and badges catch up
+  setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
   let pop = null;
   const close = () => { pop?.remove(); pop = null; };
   function open(btn) {
@@ -34,9 +40,12 @@
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || [e.type, ""];
-        return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
-          <span class="rel-why small muted">${esc(r.why.join(" · "))}</span></a>`; }).join("")}
-      <div class="small muted" style="padding:6px 10px">Linked by shared hosts, IPs, domains or accounts, closeness in time, the same ATT&amp;CK technique, and known vulnerabilities on the hosts involved.</div>`;
+        const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed by the local LLM (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ AI</span>`
+          : `<span class="rel-ai pend" title="The local LLM has not reviewed this link yet">AI review pending</span>`;
+        return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
+          ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
+          <span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span></a>`; }).join("")}
+      <div class="small muted" style="padding:6px 10px">${esc(llmLine())}</div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(520, innerWidth - 16);
     pop.style.width = w + "px";
