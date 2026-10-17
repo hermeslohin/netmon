@@ -12,11 +12,13 @@ undecided ones are shown as "awaiting review" until the worker gets to them.
 Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (default: the model loaded in LM Studio),
      NETMON_LLM_REASONING (default "none" - fast, clean JSON), NETMON_LLM_WORKERS (default 2), NETMON_LLM=off to disable.
 """
-import json, os, sqlite3, threading, time, urllib.request
+import json, os, sqlite3, sys, threading, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 URL = os.environ.get("NETMON_LLM_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+if not URL.startswith(("http://", "https://")):  # never let a config typo turn into file:// or another scheme
+    raise ValueError("NETMON_LLM_URL must be http(s)")
 MODEL = os.environ.get("NETMON_LLM_MODEL", "")
 REASONING = os.environ.get("NETMON_LLM_REASONING", "none")
 WORKERS = max(1, int(os.environ.get("NETMON_LLM_WORKERS", "2")))
@@ -107,18 +109,24 @@ def want(sid):
 
 
 # ---------------------------------------------------------------- worker
+def _get(url, data=None, timeout=10):
+    assert url.startswith(("http://", "https://"))
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    return json.load(urllib.request.urlopen(req, timeout=timeout))  # noqa: S310 - scheme checked above
+
+
 def _model():
     global MODEL
     if MODEL:
         return MODEL
     try:  # LM Studio's native API says which models are loaded; prefer a loaded LLM so nothing has to swap in
-        d = json.load(urllib.request.urlopen(URL.replace("/v1", "/api/v0") + "/models", timeout=10))
+        d = _get(URL.replace("/v1", "/api/v0") + "/models")
         loaded = [m["id"] for m in d.get("data", []) if m.get("state") == "loaded" and m.get("type") in ("llm", "vlm")]
         if loaded:
             return loaded[0]
-    except Exception:  # noqa: BLE001
-        pass
-    d = json.load(urllib.request.urlopen(URL + "/models", timeout=10))
+    except Exception as e:  # noqa: BLE001 - not LM Studio (or older): fall back to the OpenAI model list
+        print(f"corr_llm: loaded-model lookup failed ({e}); using /v1/models", file=sys.stderr)
+    d = _get(URL + "/models")
     return d["data"][0]["id"]
 
 
@@ -131,8 +139,7 @@ def _ask(model, anchor, cands):
     body = {"model": model, "temperature": 0, "max_tokens": 120 + 90 * len(cands), "reasoning_effort": REASONING,
             "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "\n".join(lines)}],
             "response_format": {"type": "json_schema", "json_schema": {"name": "decisions", "strict": True, "schema": SCHEMA}}}
-    req = urllib.request.Request(URL + "/chat/completions", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-    d = json.load(urllib.request.urlopen(req, timeout=300))
+    d = _get(URL + "/chat/completions", json.dumps(body).encode(), timeout=300)
     txt = d["choices"][0]["message"].get("content") or ""
     return json.loads(txt[txt.find("{"):txt.rfind("}") + 1])["decisions"]
 
@@ -174,7 +181,7 @@ def run_once(get_base, latest_sid):
                 seen.update(pair(a, r["id"]) for r in todo[:MAX_CAND])
                 jobs.append((a, todo))
         with ThreadPoolExecutor(WORKERS) as ex:
-            for n in ex.map(lambda j: _safe_review(model, j[0], base, j[1]), jobs):
+            for n in ex.map(_safe_review, [model] * len(jobs), [j[0] for j in jobs], [base] * len(jobs), [j[1] for j in jobs]):
                 done += n
                 STATUS["decided_this_run"] = done
     STATUS.update(busy=False, last_run=time.time())
