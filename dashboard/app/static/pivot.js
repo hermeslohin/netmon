@@ -11,7 +11,7 @@ function pivotBtn(kind, item) {
 const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivotBtn(kind, x) });
 
 (() => {
-  const IP_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, DOM_RE = /\b[a-z0-9][a-z0-9.-]{1,200}\.[a-z]{2,12}\b/gi;  // domain-like tokens (single quantifier: no ReDoS)
+  const IP_RE = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, DOM_RE = /\b[a-z0-9][a-z0-9.-]{1,200}\.[a-z]{2,12}\b/gi;  // domain-like tokens (single quantifier: no ReDoS)
   const COLS = { ids: ["rule.name", "source.ip", "destination.ip", "destination.port", "rule.category"],
     conn: ["source.ip", "destination.ip", "destination.port", "network.transport", "network.bytes", "connection.state"],
     dns: ["source.ip", "dns.query.name", "dns.answers.name", "dns.response_code"], ssl: ["source.ip", "destination.ip", "ssl.server_name"],
