@@ -35,7 +35,6 @@
       c.dataset.cc = "1";
       const h = c.querySelector(":scope > h2"); h.classList.add("cc-h"); h.setAttribute("role", "button"); h.tabIndex = 0;
       wrapBody(c);
-      const fd = document.createElement("div"); fd.className = "cc-fade"; c.appendChild(fd);
       const mo = document.createElement("button"); mo.type = "button"; mo.className = "cc-more"; mo.textContent = "More below ↓"; mo.tabIndex = -1; c.appendChild(mo);
       const rs = document.createElement("div"); rs.className = "cc-rs"; rs.title = "Drag to resize · double-click to reset"; c.appendChild(rs);
       const g = document.createElement("span"); g.className = "cc-grip"; g.textContent = "⠿"; g.title = "Drag to move this box"; g.setAttribute("aria-hidden", "true"); h.appendChild(g);
@@ -75,6 +74,7 @@
       if (w && w.classList.contains("cc-tw") && w.classList.contains("sc-x-more") !== xm) w.classList.toggle("sc-x-more", xm);
       if (!more && vy && s.offsetParent && s.scrollHeight - s.clientHeight - s.scrollTop > 12) more = s;
     }
+    if (c._more !== more) { c._more?.classList.remove("sc-more-y"); more?.classList.add("sc-more-y"); }
     c._more = more; const hm = !!more && !c.classList.contains("collapsed");
     if (c.classList.contains("cc-has-more") !== hm) c.classList.toggle("cc-has-more", hm);  // only touch the DOM on change
   }

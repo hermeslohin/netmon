@@ -2,7 +2,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;padding:10px 18px;background:#0b0e13ee;border-bottom:1px solid var(--border);backdrop-filter:blur(6px);flex-wrap:wrap}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;padding:10px 18px;background:#0b0e13;border-bottom:1px solid var(--border);flex-wrap:wrap}
 .brand{font-weight:700;font-size:17px;letter-spacing:.3px}.brand small{color:var(--muted);font-weight:400;margin-left:4px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);margin-right:4px}
 nav{display:flex;gap:4px;flex-wrap:wrap}
@@ -290,12 +290,12 @@ body.cc-drag-on{user-select:none;cursor:grabbing}
 
 /* resizable boxes (cards.js) */
 .card[data-cc]{position:relative}
-.cc-rs{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;opacity:.35;
+.cc-rs{position:absolute;right:1px;bottom:1px;width:12px;height:12px;cursor:nwse-resize;touch-action:none;opacity:.35;
   background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 58%,transparent 58%,transparent 70%,var(--muted) 70%,var(--muted) 78%,transparent 78%)}
 .card:hover>.cc-rs,.cc-rs:hover{opacity:1}.card.collapsed>.cc-rs{display:none}
 body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;user-select:none}
 /* box layout: title fixed, content in .cc-body; unsized boxes start a bit below the screen height */
-.card[data-cc]{display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 150px);max-height:calc(100svh - 150px)}
+.card[data-cc]{display:flex;flex-direction:column;max-height:calc(100vh - 150px);max-height:calc(100svh - 150px)}
 .card[data-cc]>h2{flex-shrink:0}
 .cc-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:auto}
 .cc-body>*{flex-shrink:0}
@@ -308,21 +308,19 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
 .cc-body,.tblwrap,pre{scrollbar-width:thin;scrollbar-color:#56606e transparent}
 .cc-body::-webkit-scrollbar,.tblwrap::-webkit-scrollbar,pre::-webkit-scrollbar{width:9px;height:9px}
 .cc-body::-webkit-scrollbar-thumb,.tblwrap::-webkit-scrollbar-thumb,pre::-webkit-scrollbar-thumb{background:#56606e;border-radius:6px;border:2px solid var(--panel)}
-/* edge fades are overlay elements outside the scroller (background-attachment:local made Safari repaint/flash on scroll) */
-.cc-fade{display:none;position:absolute;left:1px;right:1px;bottom:1px;height:40px;pointer-events:none;z-index:2;border-radius:0 0 10px 10px;
-  background:linear-gradient(rgba(22,27,34,0),var(--panel) 85%);box-shadow:inset 0 -3px 0 -1px rgba(88,166,255,.55)}
-.card.cc-has-more>.cc-fade{display:block}.card.collapsed>.cc-fade{display:none!important}
-.cc-tw{position:relative}
-.cc-tw.sc-x-more::after{content:"";position:absolute;top:0;right:0;bottom:0;width:26px;pointer-events:none;
-  background:linear-gradient(90deg,rgba(22,27,34,0),var(--panel));box-shadow:inset -3px 0 0 -1px rgba(88,166,255,.55)}
-.cc-more{display:none;position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:3;font-size:11px;padding:2px 10px;border-radius:12px;
-  background:var(--accent);color:#0d1117;border:0;box-shadow:0 2px 8px #000a;cursor:pointer;opacity:.92}
+/* scroll cues without extra compositing layers: no absolutely positioned overlays above scrollers (they force
+   layer promotion next to the sticky table headers and made the page flash while scrolling) - just inset shadows on
+   the scrolling element itself and an in-flow "More below" bar */
+.cc-fade{display:none!important}
+.card.cc-has-more .sc-more-y{box-shadow:inset 0 -14px 12px -12px rgba(88,166,255,.75)}
+.cc-tw.sc-x-more>.tblwrap{box-shadow:inset -14px 0 12px -12px rgba(88,166,255,.75)}
+.cc-more{display:none;flex-shrink:0;align-self:center;margin-top:6px;font-size:11px;padding:2px 12px;border-radius:12px;background:var(--accent);color:#0d1117;border:0;cursor:pointer;opacity:.9}
 .card.cc-has-more>.cc-more{display:block}.card.collapsed>.cc-more{display:none!important}
 .card.cc-has-more>.cc-more:hover{opacity:1}
 .card.collapsed{height:auto!important;max-height:none}
 .grid.cc-flex{display:flex;flex-wrap:wrap;align-items:flex-start}.grid.cc-flex>.card{flex:1 1 var(--cc-min,320px);min-width:min(240px,100%)}
 .grid.cc-flex>.card.span{flex-basis:100%}
-@media (max-width:900px){.cc-rs{left:50%;right:auto;bottom:0;transform:translateX(-50%);width:44px;height:14px;cursor:ns-resize;opacity:.6;
+@media (max-width:900px){.cc-rs{left:50%;right:auto;bottom:0;transform:translateX(-50%);width:44px;height:11px;cursor:ns-resize;opacity:.6;
   background:linear-gradient(var(--muted),var(--muted)) center 5px/24px 2px no-repeat,linear-gradient(var(--muted),var(--muted)) center 9px/24px 2px no-repeat}}
 
 /* AI provenance flare */
@@ -330,4 +328,4 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
   color:#d2a8ff;background:rgba(188,140,255,.12);border:1px solid rgba(188,140,255,.45);cursor:help;letter-spacing:.2px}
 h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4px}
 .chat-by{margin-top:6px;text-align:right}
-@media (max-width:900px){.card[data-cc]{max-height:calc(100svh - 120px)}.cc-more{bottom:16px}}
+@media (max-width:900px){.card[data-cc]{max-height:calc(100svh - 120px)}.cc-more{margin-bottom:10px}}
