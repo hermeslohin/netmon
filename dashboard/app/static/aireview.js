@@ -53,7 +53,10 @@
       const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
       const tot = U.reduce((a, u) => a + u.total, 0), mins = U.reduce((a, u) => a + u.duration_s, 0) / 60;
       const chart = document.createElement("div");
-      chart.innerHTML = `<div class="small" style="margin-top:12px"><b>Time and tokens per research run</b> <span class="muted">last ${U.length} runs · ${(tot / 1e6).toFixed(1)} M tokens · ${Math.round(mins)} min in total · average ${(tot / U.length / 1e6).toFixed(1)} M tokens, ${Math.round(mins / U.length)} min per run</span></div><div class="chart"><canvas></canvas></div>`;
+      const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" })); hd.style.marginTop = "12px";
+      hd.append(Object.assign(document.createElement("b"), { textContent: "Time and tokens per research run" }), " ",
+        Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${(tot / 1e6).toFixed(1)} M tokens · ${Math.round(mins)} min in total · average ${(tot / U.length / 1e6).toFixed(1)} M tokens, ${Math.round(mins / U.length)} min per run` }));
+      chart.appendChild(Object.assign(document.createElement("div"), { className: "chart" })).appendChild(document.createElement("canvas"));
       c.appendChild(chart);
       queueChart(chart.querySelector("canvas"), { type: "bar", data: { labels: lbl, datasets: [
         { label: "Input tokens (M)", data: U.map((u) => +(u.prompt / 1e6).toFixed(2)), backgroundColor: "#58a6ff99", stack: "t", yAxisID: "y" },
