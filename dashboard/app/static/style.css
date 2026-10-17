@@ -402,3 +402,9 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .cmph{padding:2px 6px;font-size:13px;line-height:1.2;border-radius:6px;background:rgba(188,140,255,.12);border:1px solid var(--violet);color:var(--violet);cursor:pointer;vertical-align:middle;margin-left:3px}
 .cmph:hover{background:var(--violet);color:#0d1117}
 @media (max-width:900px){.cmph{padding:4px 8px}}
+
+/* Ask Hermes model picker */
+.chatm{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
+.chatm-sel{max-width:240px;font-size:12px;padding:2px 4px}
+.askdlg-f .chatm{margin-left:0;margin-right:auto}
+@media (max-width:900px){.chatm{flex:1 1 100%;margin-left:0}.chatm-sel{max-width:100%;flex:1}}

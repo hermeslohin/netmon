@@ -158,11 +158,15 @@ def rate_check(user):
     return None
 
 
-def stream(user, cid, text, emit, ctx=None):
-    """Run one turn and call emit(event, dict) for each UI event. Returns when the turn ends."""
+def stream(user, cid, text, emit, ctx=None, model=None):
+    """Run one turn and call emit(event, dict) for each UI event. Returns when the turn ends.
+    model = {"provider", "model"} (already validated by the server) picks the model for this turn;
+    None = the netmonchat profile's default."""
     first = not history_len(cid)
     block = context_block(ctx)
     body = {"input": f"[netmon dashboard · user: {user}]\n{block}{text}"}
+    if model:
+        body.update(provider=model["provider"], model=model["model"])
     req = urllib.request.Request(f"{URL}/api/sessions/{cid}/chat/stream", method="POST", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json",
                                           "Accept": "text/event-stream"})

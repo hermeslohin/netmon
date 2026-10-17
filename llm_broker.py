@@ -57,8 +57,26 @@ def local_models():
         return []
 
 
+def chat_default():
+    """Model the Ask Hermes profile (netmonchat) uses when the dashboard does not pick one."""
+    out, inside = {}, False
+    try:
+        for line in open(os.path.join(HOME, "profiles", "netmonchat", "config.yaml")):
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            if not line[0].isspace():
+                inside = line.startswith("model:")
+                continue
+            k, _, v = line.strip().partition(":")
+            if inside and k in ("default", "provider"):
+                out["model" if k == "default" else "provider"] = v.split("#")[0].strip().strip("'\"")
+    except OSError:
+        pass
+    return out
+
+
 def models():
-    return {"anthropic": [{"id": m} for m in anthropic_models()], "local": local_models()}
+    return {"anthropic": [{"id": m} for m in anthropic_models()], "local": local_models(), "chat_default": chat_default()}
 
 
 def _allowed(provider, model):

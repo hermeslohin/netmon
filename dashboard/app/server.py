@@ -377,10 +377,15 @@ class H(BaseHTTPRequestHandler):
         def emit(ev, data):
             self.wfile.write(f"event: {ev}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode())
             self.wfile.flush()
-        print(f"chat: {user} -> {cid} ({len(text)} chars)", file=sys.stderr)
+        chat_model, m = None, body.get("model")
+        if isinstance(m, dict) and m.get("model") and user in ADMINS:
+            m = {"provider": str(m.get("provider", ""))[:40], "model": str(m.get("model", ""))[:120]}
+            if m["provider"] in LLM_PROVIDERS and llm_allowed(m["provider"], m["model"]):
+                chat_model = m
+        print(f"chat: {user} -> {cid} ({len(text)} chars){' model ' + chat_model['model'] if chat_model else ''}", file=sys.stderr)
         try:
             emit("start", {})
-            chat.stream(user, cid, text, emit, body.get("context"))
+            chat.stream(user, cid, text, emit, body.get("context"), chat_model)
         except (BrokenPipeError, ConnectionResetError):
             print(f"chat: {user} disconnected mid-answer", file=sys.stderr)
         except Exception as e:  # Hermes down / timeout: tell the browser, keep the server alive

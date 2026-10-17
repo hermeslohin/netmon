@@ -330,6 +330,30 @@ function cmpBtn(kind, title, item, eid) {
 }
 const askCmpCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) });
 const askCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(typeof kind === "function" ? kind(x) : kind, titleFn(x), x) });
+// model picker for Ask Hermes (chat page + "Ask about this" dialog); choice kept per browser in localStorage
+const CHAT_MODEL_KEY = "netmonChatModel";
+let _llmModels = null;
+const chatModel = () => { try { return JSON.parse(localStorage.getItem(CHAT_MODEL_KEY) || "null"); } catch (_) { return null; } };
+async function chatModelPicker() {
+  const wrap = document.createElement("span"); wrap.className = "chatm";
+  try { _llmModels = _llmModels || await api("/api/llm/models"); } catch (_) { return wrap; }
+  const M = _llmModels; if (!M.admin) return wrap;
+  const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask Hermes");
+  const def = M.chat_default || {};
+  sel.add(new Option(`Default (${def.model || "profile model"})`, ""));
+  for (const [label, prov, list] of [["Anthropic", "anthropic", M.anthropic || []], ["Local (LM Studio)", "lmstudio", M.local || []]]) {
+    if (!list.length) continue;
+    const g = document.createElement("optgroup"); g.label = label;
+    list.forEach((m) => g.appendChild(new Option(m.id + (m.loaded ? " (loaded)" : prov === "lmstudio" ? " (not loaded)" : ""), `${prov}|${m.id}`)));
+    sel.appendChild(g);
+  }
+  const cur = chatModel(); sel.value = cur ? `${cur.provider}|${cur.model}` : "";
+  if (sel.selectedIndex < 0) sel.value = "";
+  sel.onchange = () => { if (!sel.value) localStorage.removeItem(CHAT_MODEL_KEY); else { const [provider, ...m] = sel.value.split("|"); localStorage.setItem(CHAT_MODEL_KEY, JSON.stringify({ provider, model: m.join("|") })); }
+    document.querySelectorAll(".chatm-sel").forEach((o) => { if (o !== sel) o.value = sel.value; }); };
+  wrap.append(Object.assign(document.createElement("span"), { className: "muted small", textContent: "Model " }), sel);
+  return wrap;
+}
 function askOpen(a) {
   document.getElementById("askDlg")?.remove();
   let details = ""; try { details = JSON.stringify(askClean(a.item), null, 1).slice(0, 3000); } catch (_) { /* ignore */ }
@@ -342,6 +366,7 @@ function askOpen(a) {
     <form><textarea rows="3" maxlength="2000" placeholder="Or type your own question about this ${esc(a.kind)}…"></textarea>
     <div class="askdlg-f"><span class="muted small">Opens in Ask Hermes as a new chat.</span><button type="submit">Ask Hermes ➤</button></div></form></div>`;
   document.body.appendChild(d);
+  chatModelPicker().then((p) => d.querySelector(".askdlg-f").prepend(p));
   const ta = d.querySelector("textarea");
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { d.remove(); removeEventListener("keydown", onKey); };
