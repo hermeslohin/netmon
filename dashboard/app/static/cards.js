@@ -30,9 +30,10 @@
     const tEl = target && document.getElementById(target), inSec = new Set();
     if (tEl?.classList.contains("sec-head")) { const all = [...main.querySelectorAll(".sec-head, .card")]; let on = false;
       for (const x of all) { if (x.classList.contains("sec-head")) on = x === tEl; else if (on) inSec.add(x); } }
+    let fresh = 0;
     list.forEach((c, i) => {
       if (c.dataset.cc) { wrapBody(c); return; }  // content added after enhancing goes into the scroll body too
-      c.dataset.cc = "1";
+      c.dataset.cc = "1"; fresh++;
       const h = c.querySelector(":scope > h2"); h.classList.add("cc-h"); h.setAttribute("role", "button"); h.tabIndex = 0;
       wrapBody(c);
       const mo = document.createElement("button"); mo.type = "button"; mo.className = "cc-more"; mo.textContent = "More below ↓"; mo.tabIndex = -1; c.appendChild(mo);
@@ -46,7 +47,7 @@
     });
     bar(list);
     snapshotKeys();  // key every container by its ORIGINAL first box now, before anything is moved
-    restore();
+    if (fresh) restore();  // only when boxes were (re)rendered - re-ordering on every DOM change can oscillate
     applySizes();
     list.forEach(watchScroll);
   }
@@ -156,7 +157,15 @@
      Saved per page as {containerKey: [box ids in order]}. containerKey = "main" for the page, else the id of the box
      that was FIRST in that grid when the page rendered (stable across visits). Restoring refills each container's
      box slots in the saved order, so headings, KPIs and tables around the boxes stay where they are. */
-  const uid = () => { const seen = {}; const m = new Map(); boxes().forEach((c) => { const k = id(c); seen[k] = (seen[k] || 0) + 1; m.set(c, seen[k] > 1 ? `${k}#${seen[k]}` : k); }); return m; };
+  // Each box's id is stamped ONCE, in the order the page rendered it. Boxes with the same title get #2, #3... If ids were
+  // recomputed from the current page order, moving one same-named box would swap their ids, the next pass would move
+  // them back, and so on forever (the two "IDS signatures" boxes flashed between two places).
+  const uid = () => {
+    const bx = boxes(), used = new Set(bx.map((c) => c.dataset.ccUid).filter(Boolean)), m = new Map();
+    bx.forEach((c) => { if (!c.dataset.ccUid) { const k = id(c); let u = k, n = 1; while (used.has(u)) u = `${k}#${++n}`; c.dataset.ccUid = u; used.add(u); }
+      m.set(c, c.dataset.ccUid); });
+    return m;
+  };
   const ckey = (el, ids) => (el === main ? "main" : el.dataset.ccKey || (el.dataset.ccKey = ids.get([...el.children].find((x) => ids.has(x))) || ""));
   function snapshotKeys() {  // remember each container's key from its original first box
     const ids = uid(); boxes().forEach((c) => ckey(c.parentElement, ids)); return ids;
