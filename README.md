@@ -40,16 +40,6 @@ Way more stuff that it just sorta came up with.
 
 Is this "enterprise ready"... no probably not.  I think of most tools and they add a ton of complexity because they try to support a million different things their customer... this is designed for me.  It does things in ways that likely only make sense for me.  And perhaps that is the future of software... Significantly more customized solutions rapidly developed.  If I finding it lacking a feature... I ask for it and 10 minutes later it appears.
 
-<img width="670" height="401" alt="Screenshot 2026-10-16 at 7 56 20 AM" src="https://github.com/user-attachments/assets/035c674b-a802-4661-ba82-b204dc17b32a" />
-<img width="301" height="450" alt="Screenshot 2026-10-16 at 7 39 35 AM" src="https://github.com/user-attachments/assets/af2e18f7-9b59-49d4-b71f-04f2163bf500" />
-<img width="301" height="650" alt="Screenshot 2026-10-16 at 7 41 18 AM" src="https://github.com/user-attachments/assets/3eebb19c-dc13-44ae-8f36-263dfde570cb" />
-<img width="301" height="650" alt="Screenshot 2026-10-16 at 7 44 08 AM" src="https://github.com/user-attachments/assets/ac66bee9-0b9c-46c3-8aa0-e47c45f9fe51" />
-<img width="301" height="300" alt="Screenshot 2026-10-16 at 8 57 59 AM" src="https://github.com/user-attachments/assets/8f7f32c1-cb61-4c58-a16b-8b31c18bb8d5" />
-<img width="301" height="400" alt="Screenshot 2026-10-16 at 9 30 54 AM" src="https://github.com/user-attachments/assets/d417b9a6-2ecc-40c7-8aa7-8997a5df813b" />
-<img width="301" height="400" alt="Screenshot 2026-10-16 at 9 32 35 AM" src="https://github.com/user-attachments/assets/6832b148-a61b-4de0-9f71-c25d900bec27" />
-<img width="301" height="400" alt="image" src="https://github.com/user-attachments/assets/9544af8f-75f5-4057-a3db-e2867db1184e" />
-
-
 Home-network security monitoring for the home network, run by the Hermes agent ("Lady Brains").
 
 ## Set it up yourself
