@@ -10,6 +10,7 @@ import risk
 import lateral
 import correlate
 import corr_llm
+import enrich
 import auth
 import tintel
 import chat
@@ -582,7 +583,7 @@ class H(BaseHTTPRequestHandler):
                     s_ = snapshots()
                     sid = s_[-1]["id"] if s_ else ""
                 corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
-                return self._json(corr_llm.apply(correlation(sid)) or {"error": "not found"}, 200)
+                return self._json(enrich.apply(corr_llm.apply(correlation(sid))) or {"error": "not found"}, 200)
             if path == "/api/mitre":
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":

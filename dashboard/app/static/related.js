@@ -20,6 +20,12 @@
       const t = n ? String(n) : "–";
       if (b.textContent !== t) b.textContent = t;
       b.classList.toggle("has", n > 0); b.disabled = !n;
+      // Claude research note for this event: a "✨ notes" button right after the Related count
+      const note = S.corr.notes?.[b.dataset.rel]; let nb = b.nextElementSibling?.classList.contains("note-btn") ? b.nextElementSibling : null;
+      if (note && !nb) { nb = document.createElement("button"); nb.type = "button"; nb.className = "note-btn"; nb.dataset.note = b.dataset.rel; b.after(nb); }
+      if (!note && nb) nb.remove();
+      if (note && nb) { const t = "✨ " + (note.verdict || "notes"); if (nb.textContent !== t) nb.textContent = t;
+        nb.className = "note-btn v-" + String(note.verdict || "").replace(/[^a-z-]/g, ""); nb.title = (note.summary || "Research notes").slice(0, 200); }
     });
   }
   function relabelChips() {  // drill-down chip shows the event's label once correlations are loaded
@@ -27,7 +33,7 @@
   }
   const llmLine = () => { const L = S.corr?.llm;
     if (!L || !L.enabled) return "Linked by shared hosts, IPs, domains or accounts, time, ATT&CK technique and vulnerabilities on the hosts involved. (Local LLM review is off.)";
-    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the local LLM (${L.model || "?"}) decides. `
+    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the local LLM (${L.model || "?"}) decides, and Claude re-reviews important events every 4 hours (its verdicts replace the local model's). `
       + `${L.confirmed} confirmed, ${L.rejected} rejected, ${L.pending} awaiting review${L.busy ? " (reviewing now)" : ""}${L.error ? ` · last error: ${L.error}` : ""}.`; };
   // while reviews are pending, refresh the verdicts every 2 minutes so counts and badges catch up
   setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
@@ -54,7 +60,35 @@
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
   }
+  const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
+  function openNote(btn) {
+    close();
+    const id = btn.dataset.note, n = S.corr?.notes?.[id], me = S.corr?.events?.[id];
+    if (!n) return;
+    const links = (n.links || []).filter((l) => safeUrl(l.url));
+    pop = document.createElement("div"); pop.className = "rel-pop note-pop"; pop.setAttribute("role", "dialog");
+    pop.innerHTML = `<div class="rel-head"><b>Research notes</b> ${aiFlare({ model: n.model, via: n.via || "event enrichment", at: n.at ? new Date(n.at * 1000).toISOString() : "" })}
+        <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
+      <div class="note-body">
+        <div><span class="note-v v-${esc(String(n.verdict || "").replace(/[^a-z-]/g, ""))}">${esc(n.verdict || "")}</span> <span class="badge">${esc(n.priority || "")}</span>
+          ${n.same_event ? "" : `<span class="small muted">written for an earlier run of this finding (${esc(n.snapshot || "")}); numbers may differ</span>`}</div>
+        ${n.summary ? `<p><b>${esc(n.summary)}</b></p>` : ""}
+        ${n.research ? `<div class="note-research">${esc(n.research)}</div>` : ""}
+        ${links.length ? `<div class="small"><b>Sources</b><ol class="note-links">${links.map((l) => `<li><a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a></li>`).join("")}</ol></div>` : ""}
+        <div class="small muted">AI research from the 4-hourly Hermes run. Verify before acting.</div>
+      </div>`;
+    document.body.appendChild(pop);
+    const r = btn.getBoundingClientRect(), w = Math.min(560, innerWidth - 16);
+    pop.style.width = w + "px";
+    pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
+    const below = r.bottom + 6, h = pop.offsetHeight;
+    pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
+    pop.querySelector(".rel-x").onclick = close;
+  }
   document.addEventListener("click", (e) => {
+    const nbt = e.target.closest(".note-btn");
+    if (nbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === nbt) return close(); openNote(nbt); if (pop) pop._for = nbt; return; }
+    if (pop && pop.classList.contains("note-pop") && e.target.closest(".note-pop a")) return;
     const b = e.target.closest(".rel-btn");
     if (b) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === b) return close(); open(b); if (pop) pop._for = b; return; }
     if (pop && !e.target.closest(".rel-pop")) close();

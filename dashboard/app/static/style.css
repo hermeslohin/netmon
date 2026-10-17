@@ -331,3 +331,17 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
 h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4px}
 .chat-by{margin-top:6px;text-align:right}
 @media (max-width:900px){.card[data-cc]{max-height:var(--cc-cap,calc(100svh - 120px))}.cc-more{margin-bottom:10px}}
+
+/* Claude research notes on events (related.js) */
+.note-btn{margin-left:4px;padding:1px 7px;font-size:11px;border-radius:10px;background:var(--panel2);border:1px solid var(--violet);color:var(--violet);cursor:pointer;white-space:nowrap}
+.note-btn:hover{background:var(--violet);color:#0d1117}
+.note-btn.v-malicious,.note-btn.v-suspicious{border-color:var(--bad);color:var(--bad)}
+.note-btn.v-benign,.note-btn.v-expected{border-color:var(--good);color:var(--good)}
+.note-body{padding:8px 12px;display:flex;flex-direction:column;gap:6px}
+.note-body p{margin:0}
+.note-research{white-space:pre-wrap;font-size:12.5px;line-height:1.45}
+.note-links{margin:4px 0 0 18px;padding:0}.note-links li{margin:2px 0;word-break:break-word}
+.note-v{font-size:11px;font-weight:600;padding:0 7px;border-radius:9px;border:1px solid var(--border);text-transform:uppercase}
+.note-v.v-malicious,.note-v.v-suspicious{color:var(--bad);border-color:var(--bad)}
+.note-v.v-benign,.note-v.v-expected{color:var(--good);border-color:var(--good)}
+.note-v.v-needs-review{color:var(--warn);border-color:var(--warn)}
