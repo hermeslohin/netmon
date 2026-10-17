@@ -35,6 +35,7 @@
       c.dataset.cc = "1";
       const h = c.querySelector(":scope > h2"); h.classList.add("cc-h"); h.setAttribute("role", "button"); h.tabIndex = 0;
       wrapBody(c);
+      const fd = document.createElement("div"); fd.className = "cc-fade"; c.appendChild(fd);
       const mo = document.createElement("button"); mo.type = "button"; mo.className = "cc-more"; mo.textContent = "More below ↓"; mo.tabIndex = -1; c.appendChild(mo);
       const rs = document.createElement("div"); rs.className = "cc-rs"; rs.title = "Drag to resize · double-click to reset"; c.appendChild(rs);
       const g = document.createElement("span"); g.className = "cc-grip"; g.textContent = "⠿"; g.title = "Drag to move this box"; g.setAttribute("aria-hidden", "true"); h.appendChild(g);
@@ -58,21 +59,24 @@
   function wrapBody(c) {
     let b = c.querySelector(":scope > .cc-body");
     const h2 = c.querySelector(":scope > h2");
-    const stray = [...c.childNodes].filter((n) => n !== b && n !== h2 && !(n.nodeType === 1 && n.matches(".cc-rs, .cc-more"))
+    const stray = [...c.childNodes].filter((n) => n !== b && n !== h2 && !(n.nodeType === 1 && n.matches(".cc-rs, .cc-more, .cc-fade"))
       && !(n.nodeType === 3 && !n.textContent.trim()));
     if (!stray.length) return;
     if (!b) { b = document.createElement("div"); b.className = "cc-body"; const h = c.querySelector(":scope > h2"); h ? h.after(b) : c.prepend(b); }
     stray.forEach((n) => b.appendChild(n));
+    [...b.children].forEach((x) => { if (x.querySelector(":scope > .tblwrap")) x.classList.add("cc-tw"); });  // table wrappers
   }
   const scrollers = (c) => { const b = c.querySelector(":scope > .cc-body"); return b ? [b, ...b.querySelectorAll(".tblwrap, pre")] : []; };
   function cue(c) {
     let more = null;
     for (const s of scrollers(c)) {
       const vy = s.scrollHeight - s.clientHeight > 4, vx = s.scrollWidth - s.clientWidth > 4;
-      s.classList.toggle("sc-y", vy); s.classList.toggle("sc-x", vx);
+      const xm = vx && s.scrollWidth - s.clientWidth - s.scrollLeft > 12, w = s.parentElement;
+      if (w && w.classList.contains("cc-tw") && w.classList.contains("sc-x-more") !== xm) w.classList.toggle("sc-x-more", xm);
       if (!more && vy && s.offsetParent && s.scrollHeight - s.clientHeight - s.scrollTop > 12) more = s;
     }
-    c._more = more; c.classList.toggle("cc-has-more", !!more && !c.classList.contains("collapsed"));
+    c._more = more; const hm = !!more && !c.classList.contains("collapsed");
+    if (c.classList.contains("cc-has-more") !== hm) c.classList.toggle("cc-has-more", hm);  // only touch the DOM on change
   }
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver((es) => es.forEach((e) => { const c = e.target.closest(".card[data-cc]"); if (c) cue(c); })) : null;
   function watchScroll(c) {
@@ -80,7 +84,9 @@
     if (ro) c.querySelectorAll(":scope > .cc-body .tblwrap").forEach((t) => { if (!t._ccw) { t._ccw = 1; ro.observe(t); } });
     cue(c);
   }
-  document.addEventListener("scroll", (e) => { const c = e.target?.closest?.(".card[data-cc]"); if (c) cue(c); }, true);
+  const pend = new Set(); let raf2 = 0;
+  document.addEventListener("scroll", (e) => { const c = e.target?.closest?.(".card[data-cc]"); if (!c) return; pend.add(c);
+    if (!raf2) raf2 = requestAnimationFrame(() => { raf2 = 0; pend.forEach(cue); pend.clear(); }); }, { capture: true, passive: true });
   main.addEventListener("click", (e) => { const m = e.target.closest(".cc-more"); if (!m) return; const c = m.parentElement, s = c._more;
     if (s) s.scrollBy({ top: Math.max(120, s.clientHeight * 0.8), behavior: "smooth" }); }, true);
 
