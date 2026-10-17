@@ -287,3 +287,18 @@ body.cc-drag-on{user-select:none;cursor:grabbing}
 @media (max-width:900px){.cc-grip{opacity:1;font-size:18px;padding:2px 6px}.cc-bar .cc-hint{display:none}}
 .rel-ai{font-size:10px;padding:0 6px;border-radius:8px;border:1px solid var(--border);white-space:nowrap}
 .rel-ai.yes{color:var(--good);border-color:var(--good)}.rel-ai.pend{color:var(--muted)}
+
+/* resizable boxes (cards.js) */
+.card[data-cc]{position:relative}
+.cc-rs{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;opacity:.35;
+  background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 58%,transparent 58%,transparent 70%,var(--muted) 70%,var(--muted) 78%,transparent 78%)}
+.card:hover>.cc-rs,.cc-rs:hover{opacity:1}.card.collapsed>.cc-rs{display:none}
+body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;user-select:none}
+.card.cc-sized{display:flex;flex-direction:column;overflow:auto}
+.card.cc-sized>*{flex-shrink:0}.card.cc-sized>.chart{flex:1 1 auto;height:auto!important;min-height:60px}
+.card.cc-sized .tblwrap{max-height:none}
+.card.collapsed{height:auto!important}
+.grid.cc-flex{display:flex;flex-wrap:wrap;align-items:flex-start}.grid.cc-flex>.card{flex:1 1 var(--cc-min,320px);min-width:min(240px,100%)}
+.grid.cc-flex>.card.span{flex-basis:100%}
+@media (max-width:900px){.cc-rs{left:50%;right:auto;bottom:0;transform:translateX(-50%);width:44px;height:14px;cursor:ns-resize;opacity:.6;
+  background:linear-gradient(var(--muted),var(--muted)) center 5px/24px 2px no-repeat,linear-gradient(var(--muted),var(--muted)) center 9px/24px 2px no-repeat}}

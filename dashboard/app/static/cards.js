@@ -1,6 +1,7 @@
 // Collapsible + rearrangeable boxes: every titled .card in #main can be shrunk/expanded by clicking its title and
 // dragged to a new place by its ⠿ grip (mouse or touch). Default: the first 3 boxes on a page are open, the rest collapsed.
-// Collapse state and box order are remembered per page in this browser (localStorage), saved on every change.
+// Boxes are also resizable from their bottom-right corner: width + height on desktop, height only on phones (<= 900px).
+// Collapse state, box order and sizes are remembered per page in this browser (localStorage), saved on every change.
 (() => {
   const main = document.getElementById("main"); if (!main) return;
   const KEY = "netmon_cards", OPEN_N = 3;
@@ -11,6 +12,9 @@
   const LKEY = "netmon_layout";
   let layout = {}; try { layout = JSON.parse(localStorage.getItem(LKEY) || "{}"); } catch (_) {}
   const saveLayout = () => { try { localStorage.setItem(LKEY, JSON.stringify(layout)); } catch (_) {} };
+  const SKEY = "netmon_sizes", mobile = window.matchMedia("(max-width: 900px)");
+  let sizes = {}; try { sizes = JSON.parse(localStorage.getItem(SKEY) || "{}"); } catch (_) {}
+  const saveSizes = () => { try { localStorage.setItem(SKEY, JSON.stringify(sizes)); } catch (_) {} };
   // top-level, titled boxes only (nested cards and the Alerts settings panel are left alone)
   const boxes = () => [...main.querySelectorAll(".card")].filter((c) => c.querySelector(":scope > h2") && !c.parentElement.closest(".card, .slide"));
   const set = (c, collapsed, remember) => {
@@ -28,6 +32,7 @@
     list.forEach((c, i) => {
       if (c.dataset.cc) return; c.dataset.cc = "1";
       const h = c.querySelector(":scope > h2"); h.classList.add("cc-h"); h.setAttribute("role", "button"); h.tabIndex = 0;
+      const rs = document.createElement("div"); rs.className = "cc-rs"; rs.title = "Drag to resize · double-click to reset"; c.appendChild(rs);
       const g = document.createElement("span"); g.className = "cc-grip"; g.textContent = "⠿"; g.title = "Drag to move this box"; g.setAttribute("aria-hidden", "true"); h.appendChild(g);
       const k = id(c), pref = saved[k];
       // a drill-down filter or ?at= target must be visible
@@ -38,7 +43,63 @@
     bar(list);
     snapshotKeys();  // key every container by its ORIGINAL first box now, before anything is moved
     restore();
+    applySizes();
   }
+
+  /* ---------- sizes: {view: {boxId: {h: px, w: % of its row}}} ----------
+     Height: fixed px, content scrolls inside (charts stretch to fill). Width (desktop only): % of the box's row;
+     a grid row with any sized box switches to flex-wrap so neighbours share the rest of the row. */
+  const MIN_BASIS = { g2: 460, g3: 360, g4: 280 };
+  function flexify(grid) {
+    if (!grid.classList.contains("grid") || grid.classList.contains("cc-flex")) return;
+    const k = Object.keys(MIN_BASIS).find((c) => grid.classList.contains(c));
+    grid.style.setProperty("--cc-min", (MIN_BASIS[k] || 320) + "px"); grid.classList.add("cc-flex");
+  }
+  function applyOne(c, z) {
+    c.style.height = z && z.h ? z.h + "px" : ""; c.classList.toggle("cc-sized", !!(z && z.h));
+    const p = c.parentElement, inGrid = p.classList.contains("grid");
+    if (z && z.w && !mobile.matches) {
+      if (inGrid) { flexify(p); c.style.flex = `0 1 calc(${z.w}% - 14px)`; c.style.width = ""; }
+      else { c.style.width = z.w + "%"; c.style.flex = ""; }
+    } else { c.style.flex = ""; c.style.width = ""; }
+  }
+  function applySizes() {
+    const S = sizes[view()] || {}, ids = uid();
+    for (const [c, k] of ids) if (S[k] || c.style.height || c.style.flex || c.style.width) applyOne(c, S[k]);
+    main.querySelectorAll(".grid.cc-flex").forEach((g) => {  // back to a normal grid when nothing in it is sized any more
+      if (mobile.matches || ![...g.children].some((x) => x.style.flex)) g.classList.remove("cc-flex"); });
+  }
+  mobile.addEventListener("change", applySizes);
+  let rsz = null;
+  main.addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(".cc-rs"); if (!h || e.button > 0) return;
+    const c = h.parentElement; if (c.classList.contains("collapsed")) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = c.getBoundingClientRect(), row = c.parentElement.getBoundingClientRect();
+    rsz = { c, id: e.pointerId, x: e.clientX, y: e.clientY, w: r.width, h: r.height, rowW: row.width, mob: mobile.matches };
+    h.setPointerCapture?.(e.pointerId); document.body.classList.add(rsz.mob ? "cc-rs-v" : "cc-rs-on");
+  });
+  main.addEventListener("pointermove", (e) => {
+    if (!rsz || e.pointerId !== rsz.id) return;
+    const z = { h: Math.max(90, Math.round(rsz.h + e.clientY - rsz.y)) };
+    if (!rsz.mob) z.w = Math.min(100, Math.max(20, Math.round(((rsz.w + e.clientX - rsz.x) / rsz.rowW) * 1000) / 10));
+    else z.w = (sizes[view()] || {})[uid().get(rsz.c)]?.w;  // phones keep the desktop width setting untouched
+    rsz.z = z; applyOne(rsz.c, z);
+  });
+  const rsEnd = (e) => {
+    if (!rsz || (e && e.pointerId !== rsz.id)) return;
+    const { c, z } = rsz; rsz = null; document.body.classList.remove("cc-rs-on", "cc-rs-v");
+    if (!z) return;
+    const k = uid().get(c); (sizes[view()] = sizes[view()] || {})[k] = z; saveSizes(); bar(boxes());
+    setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
+  };
+  main.addEventListener("pointerup", rsEnd); main.addEventListener("pointercancel", rsEnd);
+  main.addEventListener("dblclick", (e) => {
+    const h = e.target.closest(".cc-rs"); if (!h) return;
+    const c = h.parentElement, k = uid().get(c);
+    if (sizes[view()]) { delete sizes[view()][k]; if (!Object.keys(sizes[view()]).length) delete sizes[view()]; saveSizes(); }
+    applyOne(c, null); applySizes(); bar(boxes()); setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
+  });
 
   /* ---------- order: units = boxes; a "container" is the box's parent (a grid row or the page itself) ----------
      Saved per page as {containerKey: [box ids in order]}. containerKey = "main" for the page, else the id of the box
@@ -94,7 +155,7 @@
     const t = el.closest(".card[data-cc]");
     if (t && t !== drag.c && main.contains(t) && !t.parentElement.closest(".card, .slide")) {
       const r = t.getBoundingClientRect(), p = getComputedStyle(t.parentElement);
-      const inRow = p.display === "grid" && p.gridTemplateColumns.split(" ").length > 1 && !t.classList.contains("span");
+      const inRow = ((p.display === "grid" && p.gridTemplateColumns.split(" ").length > 1) || p.display === "flex") && !t.classList.contains("span");
       const after = inRow ? x > r.left + r.width / 2 : y > r.top + r.height / 2;
       after ? t.after(drag.ph) : t.before(drag.ph);
       drag.ph.classList.toggle("span", drag.c.classList.contains("span"));
@@ -126,16 +187,16 @@
   function bar(list) {  // page-level "Expand all / Collapse all", only when there is something to toggle
     let b = main.querySelector(":scope > .cc-bar");
     if (list.length < 2) { b?.remove(); return; }
-    b?.querySelector("[data-cc=reset]")?.toggleAttribute("hidden", !layout[view()]);
+    b?.querySelector("[data-cc=reset]")?.toggleAttribute("hidden", !layout[view()] && !sizes[view()]);
     if (!b) { b = document.createElement("div"); b.className = "cc-bar small";
-      b.innerHTML = `<span class="muted cc-hint">Drag ⠿ to rearrange</span><button type="button" data-cc="reset" title="Put the boxes back in their original order">Reset layout</button><button type="button" data-cc="open">Expand all</button><button type="button" data-cc="close">Collapse all</button>`;
+      b.innerHTML = `<span class="muted cc-hint">Drag ⠿ to rearrange · drag a corner to resize</span><button type="button" data-cc="reset" title="Original order and sizes">Reset layout</button><button type="button" data-cc="open">Expand all</button><button type="button" data-cc="close">Collapse all</button>`;
       const h1 = main.querySelector(":scope > h1"); let after = h1; while (after?.nextElementSibling?.classList.contains("sub")) after = after.nextElementSibling;
       after ? after.after(b) : main.prepend(b);
-      b.querySelector("[data-cc=reset]").toggleAttribute("hidden", !layout[view()]); }
+      b.querySelector("[data-cc=reset]").toggleAttribute("hidden", !layout[view()] && !sizes[view()]); }
   }
   main.addEventListener("click", (e) => {
     const all = e.target.closest(".cc-bar [data-cc]");
-    if (all?.dataset.cc === "reset") { delete layout[view()]; saveLayout(); typeof rerender === "function" ? rerender() : location.reload(); return; }
+    if (all?.dataset.cc === "reset") { delete layout[view()]; saveLayout(); delete sizes[view()]; saveSizes(); typeof rerender === "function" ? rerender() : location.reload(); return; }
     if (all) { boxes().forEach((c) => set(c, all.dataset.cc === "close", true)); return; }
     const h = e.target.closest(".cc-h"); if (!h || e.target.closest("a, button, input, select, label, summary, textarea, .cc-grip")) return;
     const c = h.parentElement; set(c, !c.classList.contains("collapsed"), true);
