@@ -30,7 +30,10 @@ Features:
 
 - Correlates events with each other and with known vulnerabilities (shared hosts, IPs, accounts, time, ATT&CK). The local LLM reviews every proposed link and decides whether it is real. Click "Related" on any event to pivot.
 
+- Correlates events together using statistical analysis and LLM assistance.
+
 - Every chart drills down to the filtered list behind it. Boxes can be collapsed and dragged into your own layout.
+
 
 Way more stuff that it just sorta came up with.
 
