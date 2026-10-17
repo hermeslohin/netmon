@@ -48,6 +48,23 @@
         <div class="cl-enr"><div class="small"><b>Enrichment passes</b></div></div>
       </div>`);
     c.id = "ai-claude";
+    const U = (J && J.usage) || [];
+    if (U.length) {  // time + token use of each research run
+      const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
+      const tot = U.reduce((a, u) => a + u.total, 0), mins = U.reduce((a, u) => a + u.duration_s, 0) / 60;
+      const chart = document.createElement("div");
+      chart.innerHTML = `<div class="small" style="margin-top:12px"><b>Time and tokens per research run</b> <span class="muted">last ${U.length} runs · ${(tot / 1e6).toFixed(1)} M tokens · ${Math.round(mins)} min in total · average ${(tot / U.length / 1e6).toFixed(1)} M tokens, ${Math.round(mins / U.length)} min per run</span></div><div class="chart"><canvas></canvas></div>`;
+      c.appendChild(chart);
+      queueChart(chart.querySelector("canvas"), { type: "bar", data: { labels: lbl, datasets: [
+        { label: "Input tokens (M)", data: U.map((u) => +(u.prompt / 1e6).toFixed(2)), backgroundColor: "#58a6ff99", stack: "t", yAxisID: "y" },
+        { label: "Output tokens (M)", data: U.map((u) => +(u.completion / 1e6).toFixed(3)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
+        { label: "Run time (min)", type: "line", data: U.map((u) => +(u.duration_s / 60).toFixed(1)), borderColor: "#3fb950", backgroundColor: "#3fb950",
+          pointRadius: 3, tension: 0.2, yAxisID: "y1" }] },
+        options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
+          y: { stacked: true, beginAtZero: true, title: { display: true, text: "tokens (millions)" } },
+          y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "minutes" } } },
+          plugins: { tooltip: { callbacks: { footer: (it) => { const u = U[it[0].dataIndex]; return `Total ${(u.total / 1e6).toFixed(2)} M tokens · ${u.model || ""}${u.error ? " · failed" : ""}`; } } } } } });
+    }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
       { k: "started", t: "Started", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },

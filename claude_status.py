@@ -55,6 +55,29 @@ def _runs(job_id, n=12):
     return out[:n]
 
 
+def _usage(job_id, n=60):
+    """Token use and duration of each finished run (Hermes writes one usage_audit.jsonl line per cron fire)."""
+    p = os.path.join(HOME, "cron", "usage_audit.jsonl")
+    out = []
+    try:
+        with open(p) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("job_id") != job_id:
+                    continue
+                out.append({"at": _iso(str(r.get("ts", "")).replace("Z", "+00:00")), "prompt": r.get("prompt_tokens") or 0,
+                            "completion": r.get("completion_tokens") or 0, "total": r.get("total_tokens") or 0,
+                            "duration_s": round((r.get("duration_ms") or 0) / 1000), "model": r.get("model"), "error": bool(r.get("error"))})
+    except OSError:
+        return []
+    for u in out:  # PDF run = the scheduled 05:00 UTC fire (finishes a few minutes later)
+        u["pdf_run"] = bool(u["at"]) and dt.datetime.fromtimestamp(u["at"] - u["duration_s"], dt.timezone.utc).hour == 5
+    return out[-n:]
+
+
 def _summary(job_id):
     files = sorted(glob.glob(os.path.join(HOME, "cron", "output", job_id, "*.md")))
     if not files:
@@ -74,7 +97,7 @@ def main():
                      "next_run": _iso(j.get("next_run_at")), "last_run": _iso(j.get("last_run_at")), "last_status": j.get("last_status"),
                      "last_error": (j.get("last_error") or "")[:300] or None, "failure_streak": j.get("failure_streak") or 0,
                      "running": next((r for r in runs if r["status"] in ("running", "claimed")), None),
-                     "runs": runs, "summary": _summary(j["id"])})
+                     "runs": runs, "usage": _usage(j["id"]), "summary": _summary(j["id"])})
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     tmp = OUT + ".tmp"
     json.dump({"exported": dt.datetime.now(dt.timezone.utc).timestamp(), "jobs": jobs}, open(tmp, "w"), indent=1)
