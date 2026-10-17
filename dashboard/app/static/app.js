@@ -849,6 +849,9 @@ V.checked = (el) => {
 };
 
 /* ----- Security ----- */
+// triage research_notes: list of strings (schema), but tolerate a single string (paragraphs) or other junk
+const researchNotes = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(/\n\s*\n|\n(?=\s*[-*•] )/) : [])
+  .map((n) => (typeof n === "string" ? n : JSON.stringify(n)).replace(/^\s*[-*•]\s+/, "").trim()).filter(Boolean);
 V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
   el.innerHTML = `<h1>Posture</h1>`;
@@ -856,7 +859,7 @@ V.security = (el) => {
   if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, linkifyIps(tr.summary)));
   if ((tr.alarms || []).length) { const A = ackSplit("alarm", tr.alarms, "sec-alarms");
     el.appendChild(card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
-  if ((tr.research_notes || []).length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + tr.research_notes.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>"));
+  { const rn = researchNotes(tr.research_notes); if (rn.length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + rn.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>")); }
   const BF = ackSplit("finding", an.findings || [], "sec-find");
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));

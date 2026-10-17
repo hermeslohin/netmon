@@ -4,7 +4,7 @@
 Inputs (same stem): <snap>.json (collect.py), <snap>.analysis.json (analyze.py),
 optional <snap>.triage.json (analyst-written alarms), known_benign.json.
 """
-import glob, json, os, sys
+import glob, json, os, re, sys
 from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
@@ -300,10 +300,20 @@ if info_alarms:
     story.append(Spacer(1, 3))
     story.append(Paragraph("<b>Checked and benign</b> (details kept in the triage data): " + cite_links("; ".join(a["title"] for a in info_alarms) + "."), SM))
 
-if tri.get("research_notes"):
+def _research_notes(v):
+    """research_notes is a list of strings; tolerate a single string (paragraphs / bullet lines)."""
+    if isinstance(v, str):
+        v = re.split(r"\n\s*\n|\n(?=\s*[-*\u2022] )", v)
+    if not isinstance(v, list):
+        return []
+    return [n for n in (re.sub(r"^\s*[-*\u2022]\s+", "", x if isinstance(x, str) else json.dumps(x)).strip() for x in v) if n]
+
+
+_rn = _research_notes(tri.get("research_notes"))
+if _rn:
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Research notes</b> (web context; numbered sources at the end of the report)", SM))
-    for n in tri["research_notes"]:
+    for n in _rn:
         story.append(PL("- " + n, SM))
 
 # ---------- 2. Alerts signal vs noise ----------
