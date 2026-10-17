@@ -47,7 +47,8 @@ SCHEMA = {"type": "object", "properties": {"decisions": {"type": "array", "items
 
 TYPE_DESC = {"alert": "real-time watcher alert", "finding": "baseline behaviour finding (24h window)", "ids": "IDS (Suricata) signature",
              "admin": "admin/remote-access session (SSH/RDP/SMB/WinRM...) with login outcomes", "host": "endpoint (Elastic Agent) finding",
-             "ti": "threat-intelligence hit", "vuln": "open vulnerability / misconfiguration (ongoing state, no single time)"}
+             "ti": "threat-intelligence hit", "vuln": "open vulnerability / misconfiguration (ongoing state, no single time)",
+             "gw": "UniFi gateway event (IPS/IDS threat detection, WAN, device or VPN event from the router)"}
 
 
 def _db():

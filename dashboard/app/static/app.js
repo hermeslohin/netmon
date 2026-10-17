@@ -964,6 +964,8 @@ function gatewayTraffic(el) {
     card("Region blocks", table(null, [{ k: "client", t: "Client" }, { k: "dst", t: "Dst", cls: "mono" }, { k: "region", t: "Region" }, { k: "direction", t: "Dir" }, { k: "count", t: "Count", num: true, bar: true, fmt: fn }], fl.region_blocks || [], { sort: "count", short: true }))));
   if ((fl.risky || []).length) el.appendChild(card("Risky flows", `<pre>${esc(JSON.stringify(fl.risky, null, 1))}</pre>`));
 }
+// stable id of a UniFi gateway event (same format as correlate.gw_id)
+const gwId = (g) => `gw|${g.time || ""}|${g.key || ""}|${g.src || ""}|${g.dst || ""}`;
 function gatewaySecurity(el) {
   const U = S.snap.raw.unifi; if (!U) return; const ev = U.events || {}, st = U.settings || {};
   el.appendChild(secHead("gateway-security", "Gateway security (UniFi)", "IPS configuration, security events, admin sign-ins and config changes on the gateway."));
@@ -974,7 +976,7 @@ function gatewaySecurity(el) {
     card("Gateway protection settings", `<div class="idgrid"><span class="k">IPS mode</span><span>${esc(st.ips_mode)}</span><span class="k">Categories</span><span>${esc(st.categories)}</span><span class="k">Protected nets</span><span>${esc((st.protected_networks || []).join(", "))}</span>
       <span class="k">Honeypot</span><span>${esc(st.honeypot_enabled)} ${esc(JSON.stringify(st.honeypots || []))}</span><span class="k">DNS filtering</span><span>${esc(st.dns_filtering)}</span><span class="k">Ad blocking nets</span><span>${esc(st.ad_blocking_networks)}</span>
       <span class="k">Endpoint scanning</span><span>${esc(st.endpoint_scanning)}</span><span class="k">DPI</span><span>${esc(st.dpi)}</span></div>`),
-    card(`Gateway events (${uniq.length})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], uniq, { sort: "time", short: true }))));
+    card(`Gateway events (${uniq.length})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], uniq, { sort: "time", short: true, evId: (x) => (x.key === "30d" ? "" : gwId(x)) }))));
   el.appendChild(grid("g2",
     card("Gateway admin logins", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "admin", t: "Admin" }, { k: "ip", t: "From", cls: "mono" }, { k: "platform", t: "Platform" }, { k: "unexpected_source", t: "Unexpected", fmt: (v) => (v ? badge("high") : "") }], U.admin?.logins || [], { sort: "time", short: true })),
     card("Gateway config changes", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "actor", t: "Actor" }, { k: "section", t: "Section", cls: "small" }, { k: "object", t: "Object" }, { k: "operation", t: "Op" }], U.admin?.changes || [], { sort: "time", short: true }))));

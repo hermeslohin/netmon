@@ -56,6 +56,7 @@ services), muted for 12 h per *(from, to, protocol, level)*.
 | IDS | Suricata signatures (very chatty info rules are skipped) |
 | Admin | admin sessions (above) |
 | Endpoint | Elastic Agent / osquery host findings |
+| Gateway | UniFi gateway events: IPS threat detections, high-severity, WAN, device and VPN events (`gw|<time>|<key>|<src>|<dst>`) |
 | Threat intel | inbound / outbound listed IPs, listed domains |
 | Vulnerability | open Fix-list items: timeless, related by host |
 

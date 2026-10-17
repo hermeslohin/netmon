@@ -9,6 +9,7 @@ Events (each gets a stable id the dashboard can rebuild from the row it already 
   hf|<key>                          endpoint / host findings (raw.hosts.findings)
   ti|in|<ip>, ti|out|<ip>, ti|dom|<domain>   threat-intel hits
   iss|<key>                         open fix-list issues = vulnerabilities / misconfigurations (time-less state)
+  gw|<time>|<key>|<src>|<dst>       UniFi gateway events (raw.unifi.events: IPS threats, high-severity, WAN, devices, VPN)
 
 Two events are related when they share an entity (internal host, external IP, domain, user account) and are
 close in time; vulnerabilities relate by host alone (a weakness on a host that is being attacked or is doing
@@ -67,6 +68,11 @@ def _ts(v):
     except ValueError:
         return None
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def gw_id(g):
+    """Stable id of one UniFi gateway event (same format as gwId() in static/app.js)."""
+    return f"gw|{g.get('time') or ''}|{g.get('key') or ''}|{g.get('src') or ''}|{g.get('dst') or ''}"
 
 
 def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False, cleared=frozenset()):
@@ -199,6 +205,26 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         e = ents_from_text(str(h), {("dom", str(h.get("domain", "")).lower())})
         add(f"ti|dom|{h.get('domain')}", "ti", f"Listed domain {h.get('domain')}", w0, w1, e, ["T1071"], "#/threatintel?ev=ti|dom|" + str(h.get("domain")), "high", topics={"threat-intel"})
 
+    # --- UniFi gateway events (the Posture "Gateway events" card; ids match gwId() in app.js)
+    uev = ((raw.get("unifi") or {}).get("events") or {})
+    for g in [x for k in ("high_severity", "threats", "devices", "wan", "vpn") for x in (uev.get(k) or [])]:
+        t = _ts(g.get("time"))
+        if t is None or not (w0 - SLACK_S <= t <= w1 + SLACK_S):
+            continue
+        eid = gw_id(g)
+        if eid in ev:
+            continue  # high_severity and threats overlap
+        key, msg = str(g.get("key") or ""), str(g.get("message") or "")
+        e = ents_from_text(msg)
+        for side in ("src", "dst"):
+            ip = g.get(side)
+            if ip:
+                e.add(("ip" if internal(ip) else "ext", ip))
+        threat = key.startswith("THREAT") or "INTRUSION" in str(g.get("subcategory") or "")
+        sev = {"HIGH": "high", "CRITICAL": "high", "MEDIUM": "medium", "LOW": "low"}.get(str(g.get("severity") or "").upper(), "low")
+        add(eid, "gw", f"Gateway {key}: {msg}", t, t, e, ["T1595"] if threat else [], "#/security?at=gateway-security&ev=" + eid, sev,
+            topics={"scan"} if threat else ({"wan"} if "INTERNET" in str(g.get("subcategory") or "") or key.startswith(("ISP", "WAN")) else set()))
+
     # --- vulnerabilities / misconfigurations (open issues): time-less, relate by host
     for i in issues:
         e = ents_from_text(" ".join(str(i.get(k) or "") for k in ("key", "title", "target", "evidence")))
@@ -270,4 +296,4 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         out[eid] = keep
     events = {eid: {k: x[k] for k in ("type", "label", "link", "sev", "t0")} for eid, x in ev.items()}
     return {"events": events, "related": out, "window": [w0, w1], "counts": {t: sum(1 for x in ev.values() if x["type"] == t) for t in
-                                                                              ("alert", "finding", "ids", "admin", "host", "ti", "vuln")}}
+                                                                              ("alert", "finding", "ids", "admin", "host", "ti", "vuln", "gw")}}

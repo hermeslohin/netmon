@@ -12,7 +12,7 @@ Notes are keyed by a stable event key so they carry over to later snapshots: fin
 family (first 3 parts of the alert key, e.g. host|hnet-interp|<host>), so one note covers repeats of the same alert.
 
 CLI (runs inside the dashboard container; host wrapper: netmon/enrich.sh):
-  enrich.py events [--sid ID] [--all] [--max N] [--hosts N] [--ids N]   work list: host findings, Suricata sev 1-2, then other events
+  enrich.py events [--sid ID] [--all] [--max N] [--hosts N] [--ids N] [--gw N]   work list: host findings, Suricata sev 1-2, gateway events, then other events
   enrich.py put -                       read {"model", "notes": [...], "links": [...]} from stdin and store it
 """
 import json, os, re, sqlite3, sys, time
@@ -46,6 +46,8 @@ def skey(eid, akeys=None):
     p = str(eid).split("|")
     if p[0] == "f":  # same finding in a later run: numbers in the detail (MB, counts, ratios) are masked
         return _NUM.sub("#", str(eid))
+    if p[0] == "gw" and len(p) >= 5:  # gateway events: one note per type + destination (a scanner wave = one note)
+        return f"gwfam|{p[2]}|{p[4] or _NUM.sub('#', p[3])}"
     if p[0] == "alert" and akeys is not None and akeys.get(p[1] if len(p) > 1 else ""):
         return "alertfam|" + "|".join(akeys[p[1]].split("|")[:3])
     return str(eid)
@@ -171,12 +173,13 @@ def _sigs(sid):
     return {x.get("name"): x for x in ((raw.get("alerts") or {}).get("signatures") or [])}
 
 
-def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40):
+def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=30):
     """Work list for the enrichment run: one entry per note key (alert families and repeat findings collapse),
     events without a note first, most severe first, capped at `limit` (0 = no cap). Endpoint host findings
     (hf|..., the Posture "Host findings" box) are always included, whatever their severity, in their own
     quota of `hosts` items on top of `limit`, so they are researched every run instead of losing to network events.
-    Suricata severity 1 and 2 signatures (ids|...) get the same treatment with their own quota of `idsq_max` items."""
+    Suricata severity 1 and 2 signatures (ids|...) get the same treatment with their own quota of `idsq_max` items,
+    and so do UniFi gateway events (gw|..., the Posture "Gateway events" card; quota `gw_max`, any severity)."""
     import server, corr_llm
     sid = sid or (server.snapshots() or [{"id": ""}])[-1]["id"]
     res = corr_llm.apply(server.correlation(sid))
@@ -185,7 +188,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40):
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
     for eid, e in E.items():
-        if not everything and e.get("sev") in ("low", "info", "") and e["type"] not in ("ti", "host"):
+        if not everything and e.get("sev") in ("low", "info", "") and e["type"] not in ("ti", "host", "gw"):
             continue
         groups.setdefault(skey(eid, ak), []).append(eid)
     out = []
@@ -211,12 +214,15 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40):
     sev12 = lambda x: x["type"] == "ids" and (x.get("suricata") or {}).get("severity") in (1, 2)  # noqa: E731
     hostq = [x for x in out if x["type"] == "host"]
     idsq = [x for x in out if sev12(x)]
-    rest = [x for x in out if x["type"] != "host" and not sev12(x)]
-    pick = (hostq[:hosts] if hosts else hostq) + (idsq[:idsq_max] if idsq_max else idsq) + (rest[:limit] if limit else rest)
-    pick.sort(key=lambda x: (x["note"] is not None, not (x["type"] == "host" or sev12(x))))
+    gwq = [x for x in out if x["type"] == "gw"]
+    rest = [x for x in out if x["type"] not in ("host", "gw") and not sev12(x)]
+    pick = ((hostq[:hosts] if hosts else hostq) + (idsq[:idsq_max] if idsq_max else idsq) + (gwq[:gw_max] if gw_max else gwq)
+            + (rest[:limit] if limit else rest))
+    pick.sort(key=lambda x: (x["note"] is not None, not (x["type"] in ("host", "gw") or sev12(x))))
     return {"snapshot": sid, "total_events": len(E), "note_keys": len(out), "without_note": todo,
             "host_findings": len(hostq), "host_without_note": sum(1 for x in hostq if not x["note"]),
             "ids_sev12": len(idsq), "ids_sev12_without_note": sum(1 for x in idsq if not x["note"]),
+            "gateway": len(gwq), "gateway_without_note": sum(1 for x in gwq if not x["note"]),
             "listed": len(pick), "llm": {k: res.get("llm", {}).get(k) for k in ("model", "confirmed", "rejected", "pending")},
             "events": pick}
 
@@ -228,7 +234,8 @@ def main(argv):
         lim = int(argv[argv.index("--max") + 1]) if "--max" in argv else 40
         hq = int(argv[argv.index("--hosts") + 1]) if "--hosts" in argv else 60
         iq = int(argv[argv.index("--ids") + 1]) if "--ids" in argv else 40
-        res = _events(sid, "--all" in argv, lim, hq, iq)
+        gq = int(argv[argv.index("--gw") + 1]) if "--gw" in argv else 30
+        res = _events(sid, "--all" in argv, lim, hq, iq, gq)
         if not res.get("error"):
             with _db() as c:
                 c.execute("INSERT INTO runs (snapshot, started, listed, todo, note_keys) VALUES (?,?,?,?,?)",
