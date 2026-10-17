@@ -3,7 +3,7 @@
 Generate docs/architecture.svg (netmon architecture) in the architecture-diagram skill's design system."""
 from html import escape as E
 
-W, H = 1300, 1010
+W, H = 1300, 1026
 C = {  # semantic palette: fill, stroke
     "front": ("rgba(8,51,68,0.4)", "#22d3ee"), "back": ("rgba(6,78,59,0.4)", "#34d399"),
     "db": ("rgba(76,29,149,0.4)", "#a78bfa"), "cloud": ("rgba(120,53,15,0.3)", "#fbbf24"),
@@ -94,6 +94,7 @@ node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly 
 # ---------------- cloud
 node("claude", 1000, 100, 260, 76, "ai", "Claude  (Anthropic API)", ["nightly triage · web research", "verdicts with citations · coding"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
+node("fc", 1000, 356, 260, 76, "cloud", "Firecrawl", ["web_extract backend · page → markdown", "source pages for cited research"], "WEB")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
 node("gh", 1000, 716, 260, 64, "ext", "GitHub", ["public repo · ghcr.io image", "no site data (site.json local)"], "CODE")
 
@@ -125,7 +126,7 @@ arrow((830, 308), (830, 348), "#34d399", "report.py", ldy=4)
 arrow(anchor("db", "b"), (571, 464), "#a78bfa", "reads", ldy=4)
 arrow(anchor("pdf", "b"), (809, 464), "#a78bfa", "downloads", ldy=4)
 arrow(anchor("dash", "r", 0.4), anchor("users", "l", 0.6), "#22d3ee", both=True)
-lab2(960, 468, "#22d3ee", "HTTPS", "Web Push")
+lab2(947, 468, "#22d3ee", "HTTPS", "Web Push")
 arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
 lab2(960, 726, "#94a3b8", "scanned", "push")
 # local LLM <-> dashboard: correlation review (left edge of the monitoring host column)
@@ -137,7 +138,12 @@ arrow(anchor("chatp", "l"), anchor("mcp", "r"), "#fb923c", "MCP", ldy=-6)
 arrows.append('<path d="M460,410 L450,410 L450,646 L460,646" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#ah-a78bfa)"/>')
 lab2(450, 520, "#a78bfa", "read", "only")
 arrows.append('<path d="M920,646 L990,646 L990,160 L1000,160" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-e879f9)"/>')
-lab2(990, 600, "#e879f9", "chat", "model")
+lab2(990, 194, "#e879f9", "chat", "model")
+# web research: nightly pipeline (Hermes) and the chat profile read pages through Firecrawl
+arrows.append('<path d="M920,292 L958,292 L958,384 L1000,384" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
+lab2(958, 330, "#fbbf24", "web", "extract")
+arrows.append('<path d="M920,624 L974,624 L974,414 L1000,414" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
+lab2(974, 572, "#fbbf24", "web", "extract")
 
 # ---------------- legend
 ly = 850
@@ -154,6 +160,7 @@ notes = ["Elasticsearch is queried read-only; netmon never changes Security Onio
          "Nightly: Claude triages findings with web research; report.py renders the PDF (downloadable in the dashboard).",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask Hermes: dashboard chat → isolated Hermes profile (no terminal/files/memory) → read-only netmon MCP server.",
+         "Web research: the nightly job and Ask Hermes fetch and read source pages through Firecrawl (web_extract).",
          "Correlation: the script proposes links between events and vulnerabilities; the local LLM confirms or rejects each one."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
@@ -164,7 +171,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{
 <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>{markers}</defs>
 <rect width="{W}" height="{H}" fill="#020617"/><rect width="{W}" height="{H}" fill="url(#grid)"/>
 <circle cx="30" cy="34" r="5" fill="#22d3ee"/><text x="44" y="39" fill="#f8fafc" font-size="18" font-weight="700">netmon · home network &amp; endpoint security monitoring</text>
-<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Hermes agent · Security Onion · Elastic · UniFi · Claude · local LLM</text>
+<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Hermes agent · Security Onion · Elastic · UniFi · Claude · Firecrawl · local LLM</text>
 {"".join(arrows)}
 {"".join(out)}
 {"".join(out_leg)}

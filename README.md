@@ -60,7 +60,7 @@ Want to run this on your own network with your own Hermes? Follow **[docs/SETUP.
 
 ## Architecture
 
-![netmon architecture: endpoints with Elastic Agent (Elastic Defend, osquery) and the Security Onion sensor feed Elasticsearch; the Hermes agent on the monitoring host runs a 15-minute watcher and a nightly pipeline that query Elasticsearch read-only and the UniFi Site Manager API, use Claude and a local LLM, and serve results through the netmon dashboard to family browsers and phones](docs/architecture.svg)
+![netmon architecture: endpoints with Elastic Agent (Elastic Defend, osquery) and the Security Onion sensor feed Elasticsearch; the Hermes agent on the monitoring host runs a 15-minute watcher and a nightly pipeline that query Elasticsearch read-only and the UniFi Site Manager API, use Claude, Firecrawl for web research and a local LLM, and serve results through the netmon dashboard to family browsers and phones](docs/architecture.svg)
 
 - **Data sources:** Elastic Agent on each endpoint (Elastic Defend + osquery, managed by Fleet) and the Security Onion sensor (Suricata, Zeek) write to Security Onion's Elasticsearch. The UniFi gateway is read through the UniFi Site Manager cloud API.
 - **Hermes agent** schedules every job. The 15-minute watcher is deterministic and calls no model. The nightly run uses **Claude** for triage and web research. A **local LLM** (LM Studio) on the same machine reviews the dashboard's event correlations: the script proposes links, the model decides (see [docs/CORRELATION.md](docs/CORRELATION.md)).
