@@ -587,7 +587,7 @@ V.endpoints = (el, arg) => {
   el.innerHTML = `<h1>Endpoints</h1><div class="sub">Elastic Agent / Security Onion host telemetry (window ${esc(H.window_minutes ? H.window_minutes / 60 + "h" : "")}). Click a host for detail.</div>`;
   const hf = H.findings || [];
   const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-  el.insertAdjacentHTML("beforeend", kpis([["Agents", (H.fleet || []).length], ["Open host findings", hfo.length, hfo.length ? "warn" : "good"], ["Investigate (open)", hfo.filter((f) => /investigate/i.test(f.priority)).length, "bad"], ["Checked off", `<a href="#/checked">${HF.done.length}</a>`],
+  el.insertAdjacentHTML("beforeend", kpis([["Agents", (H.fleet || []).length], ["Open host findings", `<a href="#/security?to=sec-hostfind" title="Listed on Posture">${hfo.length} <span style="font-size:13px">›</span></a>`, hfo.length ? "warn" : "good"], ["Investigate (open)", hfo.filter((f) => /investigate/i.test(f.priority)).length, "bad"], ["Checked off", `<a href="#/checked">${HF.done.length}</a>`],
     ["Auth failures", kpiLink("authfail", (H.auth?.failures || []).reduce((s, f) => s + (f.count || 0), 0))], ["sudo events", kpiLink("sudo", (H.auth?.sudo || []).reduce((s, f) => s + (f.count || 0), 0))],
     ["Defend failures", kpiLink("defend", (H.defend || []).filter((d) => d.status !== "success").length), (H.defend || []).some((d) => d.status !== "success") ? "bad" : "good"]]));
   if (EP_KINDS[arg]) epDrill(arg, el);
@@ -598,8 +598,6 @@ V.endpoints = (el, arg) => {
   el.appendChild(grid("g2",
     card("Hosts", table(null, [{ k: "host", t: "Host", fmt: hostLink }, { k: "ip", t: "Network device", fmt: (v) => ipLink(v) }, { k: "findings", t: "Findings", num: true }, { k: "events", t: "Telemetry docs", num: true, bar: true, fmt: fn }, { k: "syslog", t: "Notable syslog", num: true, fmt: fn }, { k: "exec", t: "Execs", num: true }], rows, { sort: "findings", search: false, onclick: (r) => go("endpoint/" + r.host) })),
     chartCard("Telemetry volume by host", barCfg(rows.map((r) => r.host), rows.map((r) => r.events), { onClick: (i) => go("endpoint/" + rows[i].host) }))));
-  el.appendChild(card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`));
-  if (HF.done.length) el.appendChild(card(`Checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
 };
 V.endpoint = (el, h) => {
   const ip = S.idx.hostIp[h];
@@ -854,6 +852,7 @@ V.checked = (el) => {
 V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
   el.innerHTML = `<h1>Posture</h1>`;
+  { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
   if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, linkifyIps(tr.summary)));
   if ((tr.alarms || []).length) { const A = ackSplit("alarm", tr.alarms, "sec-alarms");
     el.appendChild(card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
@@ -862,6 +861,13 @@ V.security = (el) => {
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
+  { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
+    const hf = (S.snap.raw.hosts || {}).findings || [];
+    const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
+    hc.id = "sec-hostfind"; el.appendChild(hc);
+    if (HF.done.length) el.appendChild(card(`Host findings checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
+  }
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
     chartCard("IDS signatures (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2], onClick: (i) => drill("security", { sig: sigs[i].name }) }), "", "tall"),

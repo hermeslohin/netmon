@@ -375,3 +375,5 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
   .as-list td .bar{display:none}
   .lm-sort{max-width:100%;font-size:14px}
 }
+
+.card[id]{scroll-margin-top:110px}

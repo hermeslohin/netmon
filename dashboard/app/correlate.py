@@ -182,7 +182,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             e |= host_ents(p)
         top = _topics_key(key) | ({"ssh-auth"} if parts[0].startswith("login") and "ssh" in key.lower() else set()) \
             | ({"edr"} if parts[0] in ("agent-off", "agent-deg", "defend-pol", "silent") else set())
-        add(f"hf|{key}", "host", text, w0, w1, e, techniques("host", f"{key}|{text}"), "#/endpoints?ev=hf|" + key,
+        add(f"hf|{key}", "host", text, w0, w1, e, techniques("host", f"{key}|{text}"), "#/security?ev=hf|" + key,
             "high" if f.get("priority") == "Investigate" else "medium", topics=top)
 
     # --- threat intel
