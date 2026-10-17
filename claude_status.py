@@ -32,8 +32,8 @@ def _jobs():
         sys.path.insert(0, NM)
         import site_cfg
         want = set(site_cfg.get("claude_jobs") or [])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 - optional setting; fall back to the skill match
+        print("claude_status: site.json claude_jobs not read:", e, file=sys.stderr)
     return [j for j in jobs if j.get("id") in want or SKILLS & set(j.get("skills") or [j.get("skill")])]
 
 
