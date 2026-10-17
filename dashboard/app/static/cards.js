@@ -19,6 +19,7 @@
   const boxes = () => [...main.querySelectorAll(".card")].filter((c) => c.querySelector(":scope > h2") && !c.parentElement.closest(".card, .slide"));
   const set = (c, collapsed, remember) => {
     c.classList.toggle("collapsed", collapsed); const h = c.querySelector(":scope > h2"); if (h) h.setAttribute("aria-expanded", String(!collapsed));
+    if (c.dataset.cc) setTimeout(() => cue(c), 0);
     if (!collapsed) setTimeout(() => window.dispatchEvent(new Event("resize")), 0);  // charts/graphs sized while hidden
     if (remember) { saved[id(c)] = collapsed ? 1 : 0; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (_) {} }
   };
@@ -30,8 +31,11 @@
     if (tEl?.classList.contains("sec-head")) { const all = [...main.querySelectorAll(".sec-head, .card")]; let on = false;
       for (const x of all) { if (x.classList.contains("sec-head")) on = x === tEl; else if (on) inSec.add(x); } }
     list.forEach((c, i) => {
-      if (c.dataset.cc) return; c.dataset.cc = "1";
+      if (c.dataset.cc) { wrapBody(c); return; }  // content added after enhancing goes into the scroll body too
+      c.dataset.cc = "1";
       const h = c.querySelector(":scope > h2"); h.classList.add("cc-h"); h.setAttribute("role", "button"); h.tabIndex = 0;
+      wrapBody(c);
+      const mo = document.createElement("button"); mo.type = "button"; mo.className = "cc-more"; mo.textContent = "More below ↓"; mo.tabIndex = -1; c.appendChild(mo);
       const rs = document.createElement("div"); rs.className = "cc-rs"; rs.title = "Drag to resize · double-click to reset"; c.appendChild(rs);
       const g = document.createElement("span"); g.className = "cc-grip"; g.textContent = "⠿"; g.title = "Drag to move this box"; g.setAttribute("aria-hidden", "true"); h.appendChild(g);
       const k = id(c), pref = saved[k];
@@ -44,7 +48,41 @@
     snapshotKeys();  // key every container by its ORIGINAL first box now, before anything is moved
     restore();
     applySizes();
+    list.forEach(watchScroll);
   }
+
+  /* ---------- default size + scroll cues ----------
+     Every box's content sits in a .cc-body; unsized boxes are capped a bit below the screen height (CSS), so a long
+     list scrolls inside its box with the title still visible. Users can drag the corner to make it bigger. Scroll cues:
+     fading edges where there is more (CSS), visible scrollbars, and a "More below ↓" pill while content is hidden. */
+  function wrapBody(c) {
+    let b = c.querySelector(":scope > .cc-body");
+    const h2 = c.querySelector(":scope > h2");
+    const stray = [...c.childNodes].filter((n) => n !== b && n !== h2 && !(n.nodeType === 1 && n.matches(".cc-rs, .cc-more"))
+      && !(n.nodeType === 3 && !n.textContent.trim()));
+    if (!stray.length) return;
+    if (!b) { b = document.createElement("div"); b.className = "cc-body"; const h = c.querySelector(":scope > h2"); h ? h.after(b) : c.prepend(b); }
+    stray.forEach((n) => b.appendChild(n));
+  }
+  const scrollers = (c) => { const b = c.querySelector(":scope > .cc-body"); return b ? [b, ...b.querySelectorAll(".tblwrap, pre")] : []; };
+  function cue(c) {
+    let more = null;
+    for (const s of scrollers(c)) {
+      const vy = s.scrollHeight - s.clientHeight > 4, vx = s.scrollWidth - s.clientWidth > 4;
+      s.classList.toggle("sc-y", vy); s.classList.toggle("sc-x", vx);
+      if (!more && vy && s.offsetParent && s.scrollHeight - s.clientHeight - s.scrollTop > 12) more = s;
+    }
+    c._more = more; c.classList.toggle("cc-has-more", !!more && !c.classList.contains("collapsed"));
+  }
+  const ro = typeof ResizeObserver === "function" ? new ResizeObserver((es) => es.forEach((e) => { const c = e.target.closest(".card[data-cc]"); if (c) cue(c); })) : null;
+  function watchScroll(c) {
+    if (!c._ccw) { c._ccw = 1; const b = c.querySelector(":scope > .cc-body"); if (b && ro) ro.observe(b); }
+    if (ro) c.querySelectorAll(":scope > .cc-body .tblwrap").forEach((t) => { if (!t._ccw) { t._ccw = 1; ro.observe(t); } });
+    cue(c);
+  }
+  document.addEventListener("scroll", (e) => { const c = e.target?.closest?.(".card[data-cc]"); if (c) cue(c); }, true);
+  main.addEventListener("click", (e) => { const m = e.target.closest(".cc-more"); if (!m) return; const c = m.parentElement, s = c._more;
+    if (s) s.scrollBy({ top: Math.max(120, s.clientHeight * 0.8), behavior: "smooth" }); }, true);
 
   /* ---------- sizes: {view: {boxId: {h: px, w: % of its row}}} ----------
      Height: fixed px, content scrolls inside (charts stretch to fill). Width (desktop only): % of the box's row;

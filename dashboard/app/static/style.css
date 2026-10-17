@@ -294,10 +294,35 @@ body.cc-drag-on{user-select:none;cursor:grabbing}
   background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 58%,transparent 58%,transparent 70%,var(--muted) 70%,var(--muted) 78%,transparent 78%)}
 .card:hover>.cc-rs,.cc-rs:hover{opacity:1}.card.collapsed>.cc-rs{display:none}
 body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;user-select:none}
-.card.cc-sized{display:flex;flex-direction:column;overflow:auto}
-.card.cc-sized>*{flex-shrink:0}.card.cc-sized>.chart{flex:1 1 auto;height:auto!important;min-height:60px}
-.card.cc-sized .tblwrap{max-height:none}
-.card.collapsed{height:auto!important}
+/* box layout: title fixed, content in .cc-body; unsized boxes start a bit below the screen height */
+.card[data-cc]{display:flex;flex-direction:column;overflow:hidden;max-height:calc(100vh - 150px);max-height:calc(100dvh - 150px)}
+.card[data-cc]>h2{flex-shrink:0}
+.cc-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain}
+.cc-body>*{flex-shrink:0}
+.cc-body>div:has(>.tblwrap){flex:0 1 auto;min-height:0;display:flex;flex-direction:column}
+.cc-body .tblwrap{flex:0 1 auto;min-height:140px;max-height:none}
+.cc-body>div:has(>.tblwrap)>.tblwrap{min-height:0;max-height:none}
+.card.cc-sized{max-height:none}
+.card.cc-sized .cc-body>.chart{flex:1 1 auto;height:auto!important;min-height:60px}
+/* scroll cues: fading edges where more content is hidden, visible scrollbars, "More below" pill */
+.cc-body,.tblwrap,pre{scrollbar-width:thin;scrollbar-color:#56606e transparent}
+.cc-body::-webkit-scrollbar,.tblwrap::-webkit-scrollbar,pre::-webkit-scrollbar{width:9px;height:9px}
+.cc-body::-webkit-scrollbar-thumb,.tblwrap::-webkit-scrollbar-thumb,pre::-webkit-scrollbar-thumb{background:#56606e;border-radius:6px;border:2px solid var(--panel)}
+.sc-y,.sc-x{background:
+  linear-gradient(var(--panel) 30%,transparent) center top/100% 28px no-repeat local,
+  linear-gradient(transparent,var(--panel) 70%) center bottom/100% 28px no-repeat local,
+  linear-gradient(90deg,var(--panel) 30%,transparent) left center/28px 100% no-repeat local,
+  linear-gradient(90deg,transparent,var(--panel) 70%) right center/28px 100% no-repeat local,
+  radial-gradient(farthest-side at 50% 0,rgba(88,166,255,.35),transparent) center top/100% 12px no-repeat scroll,
+  radial-gradient(farthest-side at 50% 100%,rgba(88,166,255,.45),transparent) center bottom/100% 14px no-repeat scroll,
+  radial-gradient(farthest-side at 0 50%,rgba(88,166,255,.35),transparent) left center/12px 100% no-repeat scroll,
+  radial-gradient(farthest-side at 100% 50%,rgba(88,166,255,.45),transparent) right center/14px 100% no-repeat scroll;
+  background-color:var(--panel)}
+.cc-more{display:none;position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:3;font-size:11px;padding:2px 10px;border-radius:12px;
+  background:var(--accent);color:#0d1117;border:0;box-shadow:0 2px 8px #000a;cursor:pointer;opacity:.92}
+.card.cc-has-more>.cc-more{display:block}.card.collapsed>.cc-more{display:none!important}
+.card.cc-has-more>.cc-more:hover{opacity:1}
+.card.collapsed{height:auto!important;max-height:none}
 .grid.cc-flex{display:flex;flex-wrap:wrap;align-items:flex-start}.grid.cc-flex>.card{flex:1 1 var(--cc-min,320px);min-width:min(240px,100%)}
 .grid.cc-flex>.card.span{flex-basis:100%}
 @media (max-width:900px){.cc-rs{left:50%;right:auto;bottom:0;transform:translateX(-50%);width:44px;height:14px;cursor:ns-resize;opacity:.6;
@@ -308,3 +333,4 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
   color:#d2a8ff;background:rgba(188,140,255,.12);border:1px solid rgba(188,140,255,.45);cursor:help;letter-spacing:.2px}
 h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4px}
 .chat-by{margin-top:6px;text-align:right}
+@media (max-width:900px){.card[data-cc]{max-height:calc(100dvh - 120px)}.cc-more{bottom:16px}}

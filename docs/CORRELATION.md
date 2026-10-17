@@ -119,7 +119,9 @@ the model), **↻** deletes the verdict so the model reviews that link again.
 - **Boxes:** click a title to collapse or expand it. On first visit the first 3 boxes on a page are open. Drag the
   **⠿** grip to rearrange (mouse or touch). Drag the bottom-right corner to resize: width and height on desktop
   (neighbours in the row share the remaining width), height only on phones. Double-click the corner to reset one
-  box, and use **Reset layout** to restore the page's original order and sizes. Collapse state, order and sizes are
+  box, and use **Reset layout** to restore the page's original order and sizes. Boxes start a little shorter than the screen
+  (long lists scroll inside the box with the title kept visible); drag the corner to make one taller. Scrollable
+  areas show fading blue edges where more content is hidden, a visible scrollbar, and a **More below ↓** button. Collapse state, order and sizes are
   saved per page in the browser.
 - **Users** page: admins assign devices to each person. That sets which devices they get push notifications and the
   🔔 count for (the same setting people edit on their own Alerts page).
