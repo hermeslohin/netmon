@@ -197,13 +197,13 @@ function queueChart(canvas, cfg) { _pending.push([canvas, cfg]); }
 function flushCharts() { while (_pending.length) { const [cv, cfg] = _pending.shift(); if (cv.isConnected) S.charts.push(new Chart(cv, cfg)); } }
 
 Chart.defaults.color = "#8b949e"; Chart.defaults.borderColor = "#2a323d"; Chart.defaults.font.family = "system-ui, sans-serif";
-Chart.defaults.maintainAspectRatio = false; Chart.defaults.plugins.legend.labels.boxWidth = 12;
+Chart.defaults.maintainAspectRatio = false; Chart.defaults.resizeDelay = 150; Chart.defaults.plugins.legend.labels.boxWidth = 12;
 const bytesAxis = { ticks: { callback: (v) => fb(v) } };
 const bytesTip = { callbacks: { label: (c) => `${c.dataset.label || c.label}: ${fb(c.parsed.y ?? c.parsed.x ?? c.parsed)}` } };
 function barCfg(labels, data, { label = "", bytes = false, horizontal = true, color = PALETTE[0], onClick } = {}) {
   return { type: "bar", data: { labels, datasets: [{ label, data, backgroundColor: color, borderRadius: 3 }] },
     options: { indexAxis: horizontal ? "y" : "x", plugins: { legend: { display: false }, tooltip: bytes ? { callbacks: { label: (c) => fb(horizontal ? c.parsed.x : c.parsed.y) } } : {} },
-      scales: { [horizontal ? "x" : "y"]: bytes ? bytesAxis : {}, [horizontal ? "y" : "x"]: { ticks: { autoSkip: false, font: { size: 11 } } } },
+      scales: { [horizontal ? "x" : "y"]: bytes ? bytesAxis : {}, [horizontal ? "y" : "x"]: { ticks: { autoSkip: false, font: { size: 11 }, ...(horizontal ? { callback(v) { const l = String(this.getLabelForValue(v)), n = innerWidth < 700 ? 26 : 48; return l.length > n ? l.slice(0, n - 1) + "…" : l; } } : {}) } } },
       onClick: onClick ? (e, els) => els.length && onClick(els[0].index) : undefined, onHover: onClick ? (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") : undefined } };
 }
 function doughnutCfg(obj, { bytes = false, top = 8, onClick } = {}) {

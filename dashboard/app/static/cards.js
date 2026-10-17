@@ -64,6 +64,7 @@
     if (!b) { b = document.createElement("div"); b.className = "cc-body"; const h = c.querySelector(":scope > h2"); h ? h.after(b) : c.prepend(b); }
     stray.forEach((n) => b.appendChild(n));
     [...b.children].forEach((x) => { if (x.querySelector(":scope > .tblwrap")) x.classList.add("cc-tw"); });  // table wrappers
+    c.classList.toggle("cc-chart", !!b.querySelector(":scope > .chart") && !b.querySelector(".tblwrap"));
   }
   const scrollers = (c) => { const b = c.querySelector(":scope > .cc-body"); return b ? [b, ...b.querySelectorAll(".tblwrap, pre")] : []; };
   function cue(c) {
@@ -84,6 +85,12 @@
     if (ro) c.querySelectorAll(":scope > .cc-body .tblwrap").forEach((t) => { if (!t._ccw) { t._ccw = 1; ro.observe(t); } });
     cue(c);
   }
+  // Box height cap fixed in px from the screen height at load (and on rotation / real width changes only), so the
+  // iOS address bar hiding/showing while scrolling never resizes boxes or redraws their charts.
+  let capW = 0;
+  const setCap = () => { if (innerWidth === capW) return; capW = innerWidth;
+    document.documentElement.style.setProperty("--cc-cap", Math.max(320, innerHeight - (innerWidth <= 900 ? 120 : 150)) + "px"); };
+  setCap(); addEventListener("resize", setCap); addEventListener("orientationchange", () => { capW = 0; setTimeout(setCap, 300); });
   const pend = new Set(); let raf2 = 0;
   document.addEventListener("scroll", (e) => { const c = e.target?.closest?.(".card[data-cc]"); if (!c) return; pend.add(c);
     if (!raf2) raf2 = requestAnimationFrame(() => { raf2 = 0; pend.forEach(cue); pend.clear(); }); }, { capture: true, passive: true });

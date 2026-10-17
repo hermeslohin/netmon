@@ -295,7 +295,9 @@ body.cc-drag-on{user-select:none;cursor:grabbing}
 .card:hover>.cc-rs,.cc-rs:hover{opacity:1}.card.collapsed>.cc-rs{display:none}
 body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;user-select:none}
 /* box layout: title fixed, content in .cc-body; unsized boxes start a bit below the screen height */
-.card[data-cc]{display:flex;flex-direction:column;max-height:calc(100vh - 150px);max-height:calc(100svh - 150px)}
+.card[data-cc]{display:flex;flex-direction:column;max-height:calc(100vh - 150px);max-height:var(--cc-cap,calc(100svh - 150px))}
+/* chart boxes never scroll: a canvas inside an overflow scroller flickers on iOS Safari while the page scrolls */
+.card.cc-chart{max-height:none}.card.cc-chart>.cc-body{overflow:visible}
 .card[data-cc]>h2{flex-shrink:0}
 .cc-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:auto}
 .cc-body>*{flex-shrink:0}
@@ -328,4 +330,4 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
   color:#d2a8ff;background:rgba(188,140,255,.12);border:1px solid rgba(188,140,255,.45);cursor:help;letter-spacing:.2px}
 h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4px}
 .chat-by{margin-top:6px;text-align:right}
-@media (max-width:900px){.card[data-cc]{max-height:calc(100svh - 120px)}.cc-more{margin-bottom:10px}}
+@media (max-width:900px){.card[data-cc]{max-height:var(--cc-cap,calc(100svh - 120px))}.cc-more{margin-bottom:10px}}
