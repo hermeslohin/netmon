@@ -401,6 +401,9 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 
 .cmph{padding:2px 6px;font-size:13px;line-height:1.2;border-radius:6px;background:rgba(188,140,255,.12);border:1px solid var(--violet);color:var(--violet);cursor:pointer;vertical-align:middle;margin-left:3px}
 .cmph:hover{background:var(--violet);color:#0d1117}
+.pivh{padding:2px 6px;font-size:13px;line-height:1.2;border-radius:6px;background:rgba(56,139,253,.12);border:1px solid rgba(56,139,253,.45);cursor:pointer;vertical-align:middle;margin-left:3px}
+.pivh:hover,.pivh:focus-visible{background:rgba(56,139,253,.32)}
+@media (max-width:900px){.pivh{padding:4px 8px}}
 @media (max-width:900px){.cmph{padding:4px 8px}}
 
 /* Ask Hermes model picker */

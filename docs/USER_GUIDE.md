@@ -88,6 +88,7 @@ Every page is made of boxes (cards).
 | ☐ **Clear** (green) | On segmentation violations: "this flow is expected". See [Segmentation](#segmentation-violations). |
 | 💬 | **Ask Hermes** about this item. See [Ask Hermes](#ask-hermes). |
 | ⇄ (purple) | **Compare models**: ask several AI models for their assessment of this item. Admins only. |
+| 🔎 (blue) | **Open in Kibana**: a list of links to the raw events behind this item in Kibana Discover (IDS alerts, Zeek connections/DNS/TLS, endpoint and syslog events), already filtered to the IPs, host, signature or process involved and to the item's time range (or the snapshot window). On gateway events it also links to the UniFi web app (Security detections, Flows; search for the source IP there). Shown on baseline findings, IDS signatures, host findings, beacon candidates, triage alarms and gateway events. |
 | **Related** (number) | Other events linked to this one. Click it for the list. See [Related events](#related-events). |
 | ✨ *verdict* | Claude's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
 | ✨ *model name* | Marks text written by an AI and which model wrote it. |

@@ -1,9 +1,13 @@
 {
  "_doc": "Template for site.json (copy to site.json and fill in). site.json is git-ignored and holds every network-specific value.",
  "site_name": "example.lan",
- "own_domains": ["example.lan"],
+ "own_domains": [
+  "example.lan"
+ ],
  "internal_cidr": "10.0.0.0/16",
- "internal_prefixes": ["10.0."],
+ "internal_prefixes": [
+  "10.0."
+ ],
  "es_url": "https://10.0.0.10:9200",
  "sensor_ip": "10.0.0.10",
  "self_ip": "10.0.0.20",
@@ -12,16 +16,32 @@
  "gateway_dns_ip": "10.0.0.1",
  "unifi_console_ip": "10.0.0.1",
  "home_wan": "203.0.113.10",
- "vpn_prefixes": ["10.99."],
+ "vpn_prefixes": [
+  "10.99."
+ ],
  "honeypot_ips": [],
  "admin_workstations": "admin laptop",
- "host_ips": {"monitor-host": "10.0.0.20"},
+ "host_ips": {
+  "monitor-host": "10.0.0.20"
+ },
  "display_names": {},
- "crown_jewels": {"10.0.0.10": "network sensor - sees all traffic"},
+ "crown_jewels": {
+  "10.0.0.10": "network sensor - sees all traffic"
+ },
  "game_ports": {},
  "vapid_contact": "mailto:admin@example.invalid",
  "github_user": "your-user",
  "github_repo": "your-user/netmon",
  "image_repo": "ghcr.io/your-user/netmon-dashboard",
- "sensitive_terms": ["example.lan", "monitor-host"]
+ "sensitive_terms": [
+  "example.lan",
+  "monitor-host"
+ ],
+ "kibana_url": "https://so.example.lan/kibana/",
+ "kibana_data_view": "logs-*",
+ "unifi_web_url": "https://unifi.ui.com/consoles/<console-id>/network/default/",
+ "unifi_paths": {
+  "Security detections (System Log)": "logs/threats",
+  "Flows": "insights/flows"
+ }
 }

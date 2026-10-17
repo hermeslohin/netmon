@@ -14,6 +14,9 @@ DEFAULTS = {
     "admin_workstations": "your admin workstation", "host_ips": {}, "display_names": {}, "crown_jewels": {},
     "game_ports": {}, "vapid_contact": "mailto:admin@example.invalid", "github_user": "", "github_repo": "",
     "image_repo": "", "sensitive_terms": [],
+    # pivot links (dashboard 🔎 buttons): Kibana base URL + Discover data view, UniFi Network web app base + pages
+    "kibana_url": "", "kibana_data_view": "logs-*", "unifi_web_url": "",
+    "unifi_paths": {"Security detections (System Log)": "logs/threats", "Flows": "insights/flows"},
 }
 _cache = None
 
@@ -43,7 +46,7 @@ def public():
     """Subset safe to hand to the (authenticated) browser."""
     s = load()
     return {k: s[k] for k in ("site_name", "internal_prefixes", "host_ips", "display_names", "honeypot_ips", "self_host",
-                              "sensor_ip", "admin_workstations")}
+                              "sensor_ip", "admin_workstations", "kibana_url", "kibana_data_view", "unifi_web_url", "unifi_paths")}
 
 
 if __name__ == "__main__":
