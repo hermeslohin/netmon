@@ -321,6 +321,14 @@ function askBtn(kind, title, item) {
   if (ASK.size > 4000) ASK.delete(ASK.keys().next().value);
   return `<button type="button" class="askh" data-ask="${id}" title="Ask Hermes about this" aria-label="Ask Hermes about this">💬</button>`;
 }
+// "compare models" button (compare.js): same registry idea as askBtn
+const CMP = new Map(); let cmpSeq = 0;
+function cmpBtn(kind, title, item, eid) {
+  const id = "c" + ++cmpSeq; CMP.set(id, { kind, title: String(title || "").slice(0, 300), item, eid });
+  if (CMP.size > 4000) CMP.delete(CMP.keys().next().value);
+  return `<button type="button" class="cmph" data-icmp="${id}" title="Compare models on this" aria-label="Compare models on this">⇄</button>`;
+}
+const askCmpCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) });
 const askCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(typeof kind === "function" ? kind(x) : kind, titleFn(x), x) });
 function askOpen(a) {
   document.getElementById("askDlg")?.remove();
@@ -415,7 +423,7 @@ function topTalkersChart(n) {
 }
 
 function alarmsHtml(list) {
-  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
+  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${cmpBtn("triage alarm", a.title, a)}${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
     ${a.who ? `<p><span class="k">Who:</span> ${linkifyIps(a.who)}</p>` : ""}${a.evidence ? `<p><span class="k">Evidence:</span> ${linkifyIps(a.evidence)}</p>` : ""}
     ${a.why ? `<p><span class="k">Why:</span> ${linkifyIps(a.why)}</p>` : ""}${a.context ? `<p><span class="k">Context:</span> ${linkifyIps(a.context)}</p>` : ""}
     ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)} ${trFlare()}</p>` : ""}
@@ -490,7 +498,7 @@ V.device = (el, ip) => {
   if (devIss.length) el.appendChild(card(`Open issues to fix (${DI.open.length}) · <a href="#/issues">all</a>${DI.toggle}`, issueTable(DI.show, { short: true })));
   if (findings.length || alarms.length) {
     const DF = ackSplit("finding", findings, "dev-find"), DA = ackSplit("alarm", alarms, "dev-alarm");
-    const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
+    const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpCol("baseline finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
     if (alarms.length) c.insertAdjacentHTML("beforeend", `<h3>Triage alarms (${DA.open.length}) ${trFlare()}${DA.toggle}</h3>` + alarmsHtml(DA.show));
     el.appendChild(c);
   }
@@ -629,7 +637,7 @@ function endpointSections(el, h) {
   for (const x of dfd) cards.push(card("Elastic Defend" + ` <a class="small" href="#/endpoints/defend?host=${encodeURIComponent(h)}">details ›</a>`, `<div>${badge(x.status)} at ${ft(x.at)}</div><div class="chips" style="margin:8px 0">${(x.failed_protections || []).map((p) => `<span class="chip">${esc(p)}</span>`).join("")}</div>` +
     (x.problems || []).map((p) => `<div class="small">${badge(p.status)} <b>${esc(p.action)}</b> — ${esc(p.message)}</div>`).join("")));
   if (hf.length) { const EF = ackSplit("host", hf, "epd-find-" + h);
-    cards.push(card(`Findings (${EF.open.length} open)${EF.toggle}`, EF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: linkifyIps }], EF.show, { sort: "priority", dir: 1, short: true, rowClass: ackRowCls("host") }) : `<div class="empty">All findings for this host checked off.</div>`)); }
+    cards.push(card(`Findings (${EF.open.length} open)${EF.toggle}`, EF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpCol("host finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: linkifyIps }], EF.show, { sort: "priority", dir: 1, short: true, rowClass: ackRowCls("host") }) : `<div class="empty">All findings for this host checked off.</div>`)); }
   const sl = H.syslog?.[h];
   if (sl) cards.push(card("Notable syslog", table(null, [{ k: "cat", t: "Category" }, { k: "sev", t: "Sev", fmt: badge }, { k: "count", t: "Count", num: true, fmt: fn }, { k: "last", t: "Last", fmt: ft }, { k: "sample", t: "Sample", cls: "mono small" }], entries(sl).map(([cat, v]) => ({ cat, ...v })), { sort: "count", search: false })));
   const au = H.auth || {};
@@ -868,15 +876,15 @@ V.security = (el) => {
   if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, linkifyIps(tr.summary)));
   if ((tr.alarms || []).length) { const A = ackSplit("alarm", tr.alarms, "sec-alarms");
     el.appendChild(card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`)); }
-  { const rn = researchNotes(tr.research_notes); if (rn.length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + rn.map((n) => `<li>${linkifyIps(n)}</li>`).join("") + "</ul>")); }
+  { const rn = researchNotes(tr.research_notes); if (rn.length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + rn.map((n) => `<li>${linkifyIps(n)} ${cmpBtn("triage research note", n, { note: n, triage_summary: tr.summary })}</li>`).join("") + "</ul>")); }
   const BF = ackSplit("finding", an.findings || [], "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpCol("baseline finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCol("endpoint finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpCol("host finding", (x) => x.text), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
     if (HF.done.length) el.appendChild(card(`Host findings checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
   }

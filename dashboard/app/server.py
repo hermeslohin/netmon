@@ -11,6 +11,7 @@ import lateral
 import correlate
 import corr_llm
 import enrich
+import itemcmp
 import auth
 import tintel
 import chat
@@ -497,7 +498,7 @@ class H(BaseHTTPRequestHandler):
                 p = store.prefs_set(user, mode, devs)
                 print(f"push prefs: {user} -> {mode} ({len(devs)} devices)", file=sys.stderr)
                 return self._json({"prefs": p})
-            if u.path in ("/api/llm/config", "/api/aireview/compare") or (u.path == "/api/aireview" and body.get("action") == "adopt"):
+            if u.path in ("/api/llm/config", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt") or (u.path == "/api/aireview" and body.get("action") == "adopt"):
                 if user not in ADMINS:
                     return self._json({"error": "only an admin can change models or run comparisons"}, 403)
             if u.path == "/api/llm/config":  # choose the correlation reviewer or the research job's model
@@ -514,6 +515,24 @@ class H(BaseHTTPRequestHandler):
                         return self._json({"error": str(e)[:300]}, 502)
                 print(f"llm config: {user} set {sec} -> {prov}/{model}", file=sys.stderr)
                 return self._json({"ok": True, sec: res})
+            if u.path == "/api/compare/item":  # one finding / alarm / note, several models, side by side
+                kind, title = str(body.get("kind", ""))[:60], str(body.get("title", ""))[:300]
+                item = body.get("item")
+                M = llm_models()
+                tg = [{"provider": str(t.get("provider")), "model": str(t.get("model"))[:120]} for t in (body.get("targets") or [])[:4] if isinstance(t, dict)]
+                tg = [t for t in tg if llm_allowed(t["provider"], t["model"], M)]
+                if not tg or not (kind and title) or len(json.dumps(item, default=str)) > 40000:
+                    return self._json({"error": "pick 1-4 available models"}, 400)
+                print(f"item compare: {user} {len(tg)} models on {kind}: {title[:80]!r}", file=sys.stderr)
+                return self._json(itemcmp.compare(kind, title, item, tg, user))
+            if u.path == "/api/compare/adopt":  # use one model's assessment as an event's research note
+                eid = str(body.get("event", ""))[:1200]
+                if not eid:
+                    return self._json({"error": "event required"}, 400)
+                enrich.adopt_note(eid, body.get("verdict"), body.get("priority"), str(body.get("summary") or ""), str(body.get("reasoning") or ""),
+                                  str(body.get("model") or "model"), user)
+                print(f"item compare: {user} adopted {str(body.get('model'))[:60]} for {eid[:100]!r}", file=sys.stderr)
+                return self._json({"ok": True})
             if u.path == "/api/aireview/compare":  # one decision, several models, side by side
                 pr = str(body.get("pair", ""))[:1200]
                 M = llm_models()
@@ -632,6 +651,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kb))
             if path == "/api/llm/models":
                 return self._json({**llm_models(), "admin": user in ADMINS})
+            if path == "/api/compare/item":
+                return self._json({"history": itemcmp.history(str((q.get("key") or [""])[0])[:64])})
             if path == "/api/aireview/compare":
                 return self._json({"history": corr_llm.comparisons(str((q.get("pair") or [""])[0])[:1200])})
             if path == "/api/aireview":

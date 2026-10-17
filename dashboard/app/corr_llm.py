@@ -211,7 +211,8 @@ def _ask_full(target, anchor, cands):
     for i, (e, r) in enumerate(cands, 1):
         lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))
     txt, usage, secs = _complete(target, SYSTEM, "\n".join(lines), 120 + 90 * len(cands))
-    return json.loads(txt[txt.find("{"):txt.rfind("}") + 1])["decisions"], usage, secs
+    i = txt.find("{")
+    return json.JSONDecoder().raw_decode(txt[i:] if i >= 0 else txt)[0]["decisions"], usage, secs
 
 
 def _ask(model, anchor, cands):

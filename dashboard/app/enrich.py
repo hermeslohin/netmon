@@ -84,6 +84,23 @@ def apply(res):
         return res
 
 
+def adopt_note(eid, verdict, priority, summary, reasoning, model, user):
+    """A person picked another model's assessment in a comparison: it replaces the note's verdict/priority/summary;
+    the original research text and links are kept below it."""
+    ak = _alert_keys()
+    k = skey(eid, ak)
+    v = str(verdict or "").lower()
+    with _db() as c:
+        old = c.execute("SELECT research, links, label, snapshot FROM notes WHERE skey=?", (k,)).fetchone()
+        research = f"[{model} - chosen by {user} in a model comparison] {str(reasoning or '')[:1500]}"
+        if old and old[0]:
+            research += "\n\nEarlier research: " + old[0]
+        c.execute("INSERT OR REPLACE INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (k, eid, old[2] if old else "", v if v in VERDICTS else "needs-review", priority if priority in PRIORITIES else "Review",
+                   str(summary or "")[:600], research[:4000], old[1] if old else "[]", f"{str(model)[:60]} (chosen by {user})",
+                   "model comparison", time.time(), old[3] if old else ""))
+
+
 def _clean_links(links):
     out = []
     for l in links or []:
