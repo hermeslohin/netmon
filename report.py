@@ -657,8 +657,22 @@ if notes:
 SEVC = {"high": PRI["Investigate"], "medium": PRI["Review"], "low": PRI["Info"]}
 
 
+def _cleared_seg():
+    """Segmentation flows people cleared in the dashboard (ack type "seg"); they are left out of the PDF too."""
+    sys.path.insert(0, os.path.join(NM, "dashboard", "app"))
+    try:
+        import store as _st
+        return set((_st.acks_load().get("seg") or {}).keys())
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+_CLEARED = _cleared_seg()
+
+
 def findings_table(kinds, empty):
-    fl = [f for f in ana.get("findings", []) if any(f["kind"].startswith(k) for k in kinds)]
+    from risk import seg_key_finding
+    fl = [f for f in ana.get("findings", []) if any(f["kind"].startswith(k) for k in kinds) and seg_key_finding(f) not in _CLEARED]
     if not fl:
         if empty:
             story.append(P(empty, SM))

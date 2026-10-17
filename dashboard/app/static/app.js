@@ -228,11 +228,23 @@ const ACK = {
   issue: (i) => i.key,
   host: (f) => f.key,
 };
-const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding" };
-const acked = (type, x) => !!S.acks?.[type]?.[ACK[type](x)];
-const ackInfo = (type, x) => S.acks?.[type]?.[ACK[type](x)];
+const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", seg: "Cleared segmentation flow" };
+// Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
+// ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
+const SEG_RE = /\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)\/(\w+)/;
+function segKey(type, x) {
+  if (type === "finding" && x.kind === "segmentation") { const m = String(x.detail || "").split("->").pop().match(SEG_RE); return m ? `${String(x.device || "").toLowerCase()}|${m[2]}|${m[3]}` : null; }
+  if (type === "issue" && String(x.key || "").startsWith("seg|")) { const p = x.key.split("|"); return p.length >= 4 ? `${p[1].toLowerCase()}|${p[2]}|${p[3]}` : null; }
+  return null;
+}
+const ackRef = (type, x) => { const sk = segKey(type, x); return sk ? ["seg", sk] : [type, ACK[type](x)]; };
+const acked = (type, x) => { const [t, k] = ackRef(type, x); return !!S.acks?.[t]?.[k]; };
+const ackInfo = (type, x) => { const [t, k] = ackRef(type, x); return S.acks?.[t]?.[k]; };
 function ackBox(type, x, label) {
-  const k = ACK[type](x), a = S.acks?.[type]?.[k];
+  const [t, k] = ackRef(type, x), a = S.acks?.[t]?.[k]; type = t;
+  if (t === "seg") { const [src, dst, port] = k.split("|"), macIp = (m) => entries(S.snap?.raw?.devices || {}).find(([, d]) => String(d.mac || "").toLowerCase() === m)?.[0];
+    const sip = src.includes(":") ? macIp(src) || src : src; label = `Segmentation: ${S.idx?.nameOf?.(sip) || sip} → ${S.idx?.nameOf?.(dst) || dst}:${port}`; }
+  if (t === "seg") return `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Cleared " + esc(ft(a.at)) + " — uncheck to bring it back" : "Clear: this flow is expected (hides it everywhere and stops it counting toward risk)"}">`;
   return `<input type="checkbox" class="ack-cb" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Checked off " + esc(ft(a.at)) + " — uncheck to restore" : "Check off (hide)"}">`;
 }
 // split rows into open / checked and decide what to show for a section
@@ -301,6 +313,10 @@ document.addEventListener("change", async (e) => {
   const cb = e.target.closest(".ack-cb"); if (!cb) return;
   cb.disabled = true;
   try { await setAck(cb.dataset.t, cb.dataset.k, cb.checked, cb.dataset.l); } catch (err) { alert(err); cb.checked = !cb.checked; }
+  if (cb.dataset.t === "seg") {  // cleared flows change server-side risk, lateral and correlation results
+    S.lateral = null; S.corr = null;
+    try { S.risk = await api("/api/risk?id=" + encodeURIComponent(S.snap.id)); } catch (_) {}
+  }
   rerender();
 });
 document.addEventListener("click", (e) => {
@@ -687,6 +703,7 @@ V.issues = (el) => {
   el.appendChild(card(`Recurring: fix these (${rec.length})${RA.toggle}`, issueTable(RA.show, uf))).id = "iss-rec";
   el.appendChild(card(`New / seen once (${watch.length}) <span class="muted small">— these move to the list above if they show up again</span>${WA.toggle}`, issueTable(WA.show, { short: true, ...uf }))).id = "iss-new";
   el.appendChild(card(`Fixed (${I.fixed.length})`, issueTable(I.fixed, { fixed: true, short: true, sort: "fixed_at", dir: -1, ...uf }))).id = "iss-fixed";
+  { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
 };
 
 /* ----- Users ----- */
@@ -759,6 +776,22 @@ V.users = async (el) => {
 };
 
 /* ----- Checked-off items ----- */
+/* ---------- cleared segmentation flows (a separate list, wherever segmentation is shown) ---------- */
+function segClearedCard() {
+  const C = entries(S.acks?.seg || {}); if (!C.length) return null;
+  const raw = S.snap?.raw || {}, macIp = {}; entries(raw.devices || {}).forEach(([ip, d]) => d.mac && (macIp[String(d.mac).toLowerCase()] = ip));
+  const viol = S.snap?.analysis?.violations || [];
+  const rows = C.map(([k, a]) => { const [src, dst, port] = k.split("|"); const sip = src.includes(":") ? macIp[src] : src;
+    const v = viol.find((x) => x.src === sip && x.dst === dst && String(x.port) === port);
+    return { key: k, at: a.at, label: a.label || k, src: sip || src, dst, port, by: a.note || "", seen: v ? `${fn(v.conns)} conns this snapshot` : "not seen this snapshot", reason: v?.reason || "" }; });
+  const c = card(`Cleared segmentation (${rows.length})`, `<div class="small muted" style="margin-bottom:6px">Flows you marked as expected. They are hidden from Posture, the Fix list and Risk, shown as allowed on Lateral movement, left out of correlation and the PDF report, and stay cleared on future snapshots. Uncheck to bring one back. To make it permanent for everyone (and the nightly analysis), add it to <span class="mono">policy.json</span> <span class="mono">allow</span>.</div>`);
+  c.appendChild(table(null, [
+    { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to bring it back">` },
+    { k: "label", t: "Flow", fmt: (v, r) => `${esc(v)}<div class="small muted mono">${S.idx?.nameOf?.(r.src) ? esc(S.idx.nameOf(r.src)) + " " : ""}${esc(r.src)} → ${esc(r.dst)}:${esc(r.port)}</div>` },
+    { k: "reason", t: "Why it was flagged", cls: "small" }, { k: "seen", t: "Activity", cls: "small" }, { k: "at", t: "Cleared", fmt: ft }], rows, { sort: "at", search: rows.length > 8 }));
+  c.id = "seg-cleared"; return c;
+}
+
 V.checked = (el) => {
   el.innerHTML = `<h1>Checked off</h1><div class="sub">Everything you've checked off, newest first. Checked items are hidden from their lists; uncheck here (or use "show N checked" on any list) to bring them back. Saved on the dashboard host in the netmon SQLite store (<span class="mono">dashboard/state/netmon.db</span>), so it survives restarts and works from any browser.</div>`;
   // resolve current details where we can
@@ -773,6 +806,8 @@ V.checked = (el) => {
   }
   rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   el.insertAdjacentHTML("beforeend", kpis(Object.keys(ACK_LABEL).map((t) => [ACK_LABEL[t] + "s", rows.filter((r) => r.type === t).length])));
+  const segC = segClearedCard(); if (segC) el.appendChild(segC);  // segmentation flows get their own section
+  rows.splice(0, rows.length, ...rows.filter((r) => r.type !== "seg"));
   el.appendChild(card(`Checked items (${rows.length})`, table(null, [
     { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="${r.type}" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to restore">` },
     { k: "at", t: "Checked", fmt: ft }, { k: "type", t: "Type", fmt: (v) => esc(ACK_LABEL[v] || v) }, { k: "label", t: "Item", fmt: linkifyIps },
@@ -791,6 +826,7 @@ V.security = (el) => {
   const BF = ackSplit("finding", an.findings || [], "sec-find");
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCol("finding", (x) => `${x.kind}: ${x.detail}`), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
+  { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
     chartCard("IDS signatures (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2], onClick: (i) => drill("security", { sig: sigs[i].name }) }), "", "tall"),

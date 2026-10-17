@@ -17,7 +17,7 @@ per (src, dst, protocol) with their login outcomes. Failures raise the risk:
   low     - 1-4 refused connections, or a successful admin session not covered by policy.json "allow"
   allowed-admin - successful sessions that policy allows
 """
-from risk import zone_of, _host_ip
+from risk import zone_of, _host_ip, seg_is_cleared, seg_cleared
 import adminproto as AP
 
 SEV_W = {"high": 3, "medium": 2, "low": 1, "allowed-admin": 0.5, "normal": 0}
@@ -80,6 +80,8 @@ def admin_sessions(raw, policy):
             port = (r["ports"] or [None])[0]
             f = {"src": s, "dst": d, "src_zone": r["src_zone"], "dst_zone": r["dst_zone"], "port": port, "proto": "tcp"}
             aw = _allowed(f, cls(s), cls(d), allow) if port else None
+            if not aw and port and seg_is_cleared(seg_cleared(pol), s, d, port, devices):
+                aw = "segmentation flow cleared by a user"  # failed logins on it still escalate above
             lvl, why = ("allowed-admin", f"allowed: {aw}") if aw else ("low", "admin session not covered by the policy allow list")
         if r["auth_fail"] and r["auth_ok"] and lvl != "high":
             why += f"; {ok} successful"
@@ -102,7 +104,9 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
     names = (known_benign or {}).get("names") or {}
     inv = raw.get("inventory_ips") or {}
     flows = (raw.get("internal") or {}).get("flows") or []
-    viol = {(v["src"], v["dst"], v["port"], v["proto"]): v for v in (analysis or {}).get("violations") or []}
+    cleared = seg_cleared(pol)
+    viol = {(v["src"], v["dst"], v["port"], v["proto"]): v for v in (analysis or {}).get("violations") or []
+            if not seg_is_cleared(cleared, v["src"], v["dst"], v["port"], raw.get("devices") or {})}
     scanners = {s["src"]: s for s in (raw.get("internal") or {}).get("scans") or []}
     hrisk = {h["ip"]: h for h in (risk_result or {}).get("hosts") or [] if h.get("ip")}
 
@@ -128,7 +132,9 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
         sc, dc = cls(s), cls(t)
         key = (s, t, f["port"], f["proto"])
         v = viol.get(key)
-        if v:
+        if not v and seg_is_cleared(cleared, s, t, f["port"], devices):
+            lvl, why = "allowed-admin", "segmentation flow cleared by a user"
+        elif v:
             lvl, why = v["severity"], v["reason"]
         elif f["proto"] == "tcp" and f["port"] in sens and not f["answered"] and f["conns"] >= 5 and not t.endswith(".1"):
             lvl, why = "medium", f"{f['conns']} failed attempts at admin/lateral port {f['port']}"

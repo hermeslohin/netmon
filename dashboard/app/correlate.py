@@ -69,7 +69,7 @@ def _ts(v):
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
 
 
-def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False):
+def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False, cleared=frozenset()):
     """raw/analysis = snapshot; alerts = store.alerts_recent(); issues = open fix-list issues; admin = lateral.admin_sessions();
     internal(ip) -> bool; resolve(host name) -> internal IP or ""; techniques(source, text) -> [ATT&CK ids].
     latest = this is the newest snapshot, so watcher alerts raised after it (up to now) are included too."""
@@ -139,8 +139,11 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             f"#/alerts?ev=alert|{a['id']}", a.get("severity", ""), topics=top)
 
     # --- behaviour findings (whole window)
+    from risk import seg_key_finding
     for f in (analysis or {}).get("findings") or []:
         dev = f.get("device") or ""
+        if cleared and seg_key_finding(f) in cleared:
+            continue
         base = ({("ip" if internal(dev) else "ext", dev)} if dev.count(".") == 3 else
                 {("ip", mac2ip[dev.lower()])} if _MAC.match(dev) and mac2ip.get(dev.lower()) else host_ents(dev))
         e = ents_from_text(f.get("detail", ""), base)

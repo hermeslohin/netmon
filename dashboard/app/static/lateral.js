@@ -196,7 +196,13 @@ const lmLevel = (l) => `<span class="badge" style="background:${LM_LEVELS[l].c}2
 
 function lmPortsTable(e) {
   return table(null, [{ k: "port", t: "Port", fmt: (v, p) => `${v}/${esc(p.proto)}` }, { k: "service", t: "Svc" }, { k: "level", t: "Risk", fmt: lmLevel, sort: (p) => Object.keys(LM_LEVELS).indexOf(p.level) },
-    { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "bytes", t: "Bytes", num: true, fmt: fb }, { k: "why", t: "Why", cls: "small" }], e.ports, { sort: "level", dir: 1, search: false, short: true });
+    { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "bytes", t: "Bytes", num: true, fmt: fb }, { k: "why", t: "Why", cls: "small" },
+    { k: "_clr", t: "Clear", fmt: (v, p) => { const viol = (S.snap.analysis?.violations || []).some((x) => x.src === e.src && x.dst === e.dst && x.port === p.port);
+      const ks = [e.src, S.snap.raw.devices?.[e.src]?.mac].filter(Boolean).map((x) => `${String(x).toLowerCase()}|${e.dst}|${p.port}`);
+      const seen = (S.snap.analysis?.findings || []).map((f) => segKey("finding", f)).find((x) => ks.includes(x));  // the key the finding uses
+      const k = ks.find((x) => S.acks?.seg?.[x]) || seen || ks[ks.length - 1], on = !!S.acks?.seg?.[k];
+      return viol || on ? `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(k)}" data-l="${esc(`Segmentation: ${lmName(LM.data, e.src)} → ${lmName(LM.data, e.dst)}:${p.port}`)}" ${on ? "checked" : ""} title="${on ? "Cleared — uncheck to bring it back" : "Clear: this flow is expected"}">` : ""; } }],
+    e.ports, { sort: "level", dir: 1, search: false, short: true });
 }
 function lmRenderPanel(D) {
   const el = document.getElementById("lmPanel"); if (!el) return;
@@ -278,6 +284,7 @@ function lmAdminSection(el, D) {
   lst.id = "admin-list"; lst.dataset.open = "1"; el.appendChild(lst);
   const tools = A.flatMap((a) => a.tools.map((t) => ({ ...t, src: a.src, dst: a.dst, protocol: a.protocol })));
   const at = hq().get("at"); if (at === "admin" || at === "admin-list") setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 50);
+  { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
   if (tools.length) el.appendChild(card(`Admin tools run on endpoints (${tools.length})`, table(null, [{ k: "tool", t: "Tool", cls: "mono" }, { k: "user", t: "User" }, { k: "src", t: "On", fmt: (v) => lmNodeLink(D, v) }, { k: "dst", t: "Target", fmt: (v) => lmNodeLink(D, v) },
     { k: "protocol", t: "Protocol" }, { k: "count", t: "Runs", num: true }, { k: "example", t: "Example (credentials redacted)", cls: "mono small" }], tools, { sort: "count", short: true })));
 }

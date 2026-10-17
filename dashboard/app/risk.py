@@ -47,6 +47,44 @@ EPHEMERAL = 32768
 ICMP_PORTS = {"0", "3", "4", "8", "11"}
 
 
+# ---------- cleared segmentation flows ----------
+# A person can check off a segmentation finding ("this flow is expected"). It is stored as ack type "seg" with a
+# stable flow key "<src MAC or IP>|<dst IP>|<port>" (the same key whether it was cleared from Posture, the Fix list
+# or Lateral movement). Cleared flows stop counting toward risk, lateral risk and correlation.
+SEG_RE = re.compile(r"\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)/(\w+)")
+
+
+def seg_key(src, dst, port, devices=None):
+    """Flow key; src may be a MAC or an IP (IPs are mapped to the device MAC when known, so DHCP changes follow)."""
+    s = str(src or "").lower()
+    if devices and s.count(".") == 3:
+        s = str((devices.get(s) or {}).get("mac") or s).lower()
+    return f"{s}|{dst}|{port}"
+
+
+def seg_key_issue(key):
+    p = key.split("|")
+    return f"{p[1].lower()}|{p[2]}|{p[3]}" if len(p) >= 4 and p[0] == "seg" else None
+
+
+def seg_key_finding(f):
+    m = SEG_RE.search(str(f.get("detail") or "").rsplit("->", 1)[-1])
+    return f"{str(f.get('device') or '').lower()}|{m.group(2)}|{m.group(3)}" if m and f.get("kind") == "segmentation" else None
+
+
+def seg_is_cleared(cleared, src, dst, port, devices=None):
+    """True when the flow was cleared under either its IP form or its MAC form (analysis keys a device by MAC when
+    Zeek saw one, else by IP, so both can occur)."""
+    if not cleared:
+        return False
+    s = str(src or "").lower()
+    return f"{s}|{dst}|{port}" in cleared or seg_key(s, dst, port, devices) in cleared
+
+
+def seg_cleared(policy):
+    return (policy or {}).get("_cleared_seg") or set()
+
+
 def _ip2n(ip):
     try:
         a = [int(x) for x in ip.split(".")]
@@ -102,7 +140,8 @@ def compute(raw, analysis, tracker, policy, known_benign):
     zones = (policy or {}).get("zones") or {}
     classes = (policy or {}).get("device_classes") or {}
     kb = known_benign or {}
-    open_issues = [i for i in (tracker or {}).get("open") or []]
+    cleared = seg_cleared(policy)
+    open_issues = [i for i in (tracker or {}).get("open") or [] if seg_key_issue(i["key"]) not in cleared or not cleared]
 
     # ---------- per-host context ----------
     def ctx(ip):
@@ -169,7 +208,8 @@ def compute(raw, analysis, tracker, policy, known_benign):
         admin = _lat.admin_sessions(raw, policy)
     except Exception:  # noqa: BLE001 - risk must still compute without admin data
         admin = []
-    viol = (analysis or {}).get("violations") or []
+    viol = [v for v in (analysis or {}).get("violations") or []
+            if not seg_is_cleared(seg_cleared(policy), v.get("src"), v.get("dst"), v.get("port"), raw.get("devices") or {})]
     hosts_raw = raw.get("hosts") or {}
     agent_ips = {_host_ip(f["host"], devices): f for f in hosts_raw.get("fleet") or []}
 

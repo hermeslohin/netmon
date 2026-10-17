@@ -165,6 +165,15 @@ def device_catalog():
     return out
 
 
+def with_cleared(pol):
+    """policy + the set of segmentation flows people have cleared (ack type "seg"); see risk.seg_key."""
+    try:
+        pol = dict(pol or {}); pol["_cleared_seg"] = set((store.acks_load().get("seg") or {}).keys())
+    except Exception:  # noqa: BLE001
+        pass
+    return pol
+
+
 def read_acks():
     return store.acks_load()
 
@@ -188,11 +197,13 @@ def correlation(sid):
         return None
     alerts = store.alerts_recent(2000)
     it = issue_tracker()
-    open_iss = [i for i in it.get("open", []) if i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open")]
+    _clr = with_cleared({}).get("_cleared_seg") or set()
+    open_iss = [i for i in it.get("open", []) if (i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open"))
+                and risk.seg_key_issue(i["key"]) not in _clr]
     ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()))
     if _CORR.get("k") == ck:
         return _CORR["v"]
-    pol = load_json(os.path.join(ROOT, "policy.json"), {})
+    pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
     try:
         import mitre
         tech = lambda src, text: [i for _, ids, _ in mitre.rules_for("host" if src == "alert" and text.startswith("host|") else src,
@@ -201,7 +212,8 @@ def correlation(sid):
         tech = lambda src, text: []
     import site_cfg as SITE
     v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, lateral.admin_sessions(res["raw"], pol),
-                        SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=bool(snapshots()) and snapshots()[-1]["id"] == sid)
+                        SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=bool(snapshots()) and snapshots()[-1]["id"] == sid,
+                        cleared=pol.get("_cleared_seg") or set())
     _CORR.update(k=ck, v=v)
     return v
 
@@ -553,7 +565,7 @@ class H(BaseHTTPRequestHandler):
                 res = snapshot(sid)
                 if not res:
                     return self._json({"error": "not found"}, 404)
-                pol = load_json(os.path.join(ROOT, "policy.json"), {})
+                pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
                 kb = load_json(os.path.join(ROOT, "known_benign.json"), {})
                 rr = risk.compute(res["raw"], res["analysis"], issue_tracker(), pol, kb)
                 if path == "/api/risk":
