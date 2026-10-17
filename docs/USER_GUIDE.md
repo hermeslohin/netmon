@@ -2,6 +2,8 @@
 
 This guide covers everyday use of the netmon dashboard: what each page shows, how to work through alarms and findings, how notifications work, and how to use the AI features. For installation see [SETUP.md](SETUP.md). For how events are linked to each other, see [CORRELATION.md](CORRELATION.md).
 
+> Screenshots in this guide come from a real dashboard with every IP address, MAC address, host name and account name replaced by placeholders (`192.0.2.x`, `host-N`, `site-N.example.com`, `alex`). Your dashboard shows your real names.
+
 ## Contents
 
 1. [What netmon does](#1-what-netmon-does)
@@ -90,6 +92,9 @@ Every page is made of boxes (cards).
 | ✨ *verdict* | Claude's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
 | ✨ *model name* | Marks text written by an AI and which model wrote it. |
 
+![Host findings table with check boxes, Ask, Compare, Related and research-note buttons](img/posture-host-findings.png)
+*Host findings on Posture: check box, 💬 Ask, ⇄ Compare, Related count and the ✨ verdict button on each row.*
+
 ---
 
 ## 4. Notifications and alerts
@@ -116,6 +121,8 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 ### Reading alerts
 
 **Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter. Each alert has a **Related** count that links to the network and endpoint events around it.
+
+![Urgent alerts page](img/alerts.png)
 
 ---
 
@@ -147,11 +154,16 @@ The network is split into zones (for example main, IoT, servers, guest). `policy
 - **To bring a flow back:** uncheck it in Cleared segmentation.
 - For a permanent rule, ask the admin to add an `allow` entry to `policy.json`. The triage summary proposes such rules but never applies them itself.
 
+![Segmentation violation with the green Clear check box](img/posture-segmentation.png)
+
 ### Related events
 
 Events that share a host, an IP address, a domain or an account, happen close together, or map to the same ATT&CK technique are proposed as *related* by a script. The correlation reviewer (an AI model) confirms or rejects each link.
 
 The **Related** column shows how many links an event has. Click it to see them, each with the reason and the reviewer's verdict, then click any one to jump to it. Details: [CORRELATION.md](CORRELATION.md).
+
+![Related events popup](img/related-popover.png)
+*The Related popup: each linked event with the reviewer's verdict, its reason and the script's evidence.*
 
 ### Research notes on events
 
@@ -171,6 +183,8 @@ An event with a note shows a **✨ verdict** button next to its Related count. C
 
 Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI review** page shows how many events have notes.
 
+![Research note popup with verdict, summary and compare button](img/research-note.png)
+
 AI notes can be wrong. Treat them as a well-informed second opinion, and check the evidence before acting on anything important.
 
 ---
@@ -180,6 +194,8 @@ AI notes can be wrong. Treat them as a well-informed second opinion, and check t
 ### Overview
 
 The one-page summary of the selected snapshot.
+
+![Overview page](img/overview.png)
 
 - **Tiles:** devices seen, traffic, IDS alerts, high findings, alarms Claude wants investigated, unhealthy endpoints, threat-intel hits, capture loss, recurring issues and the highest-risk host.
 - **Triage summary and alarms:** Claude's short write-up of the window, and the alarms to look at.
@@ -193,6 +209,9 @@ Urgent watcher alerts and your notification settings (see [section 4](#4-notific
 ### Security → Posture
 
 The main working page.
+
+![Triage alarms on Posture](img/posture-triage-alarms.png)
+*Triage alarms: each one says who, what was seen, why it matters and what to do next, with 💬 and ⇄ buttons.*
 
 | Box | What it is |
 |---|---|
@@ -236,9 +255,13 @@ Misconfigurations and security suggestions from all snapshots, such as SSH passw
 - **New / seen once:** an item seen only once stays here and moves up to Recurring if it comes back.
 - **Fixed:** items that stopped appearing move here automatically.
 
+![Fix list page](img/fix-list.png)
+
 ### Network → Network map
 
 Every internal host in its zone behind the gateway. Click a host for details.
+
+![Network map](img/network-map.png)
 
 ### Network → Lateral movement
 
@@ -246,6 +269,8 @@ Host-to-host connections inside the network, compared against the zone policy.
 
 - **Admin access:** lists every admin session (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC, Docker, Kubernetes, remote-support tools) with its successful and failed logins.
 - **Failed logins** raise host risk and alert the watcher.
+
+![Lateral movement map](img/lateral-movement.png)
 
 ### Network → DNS & TLS
 
@@ -279,6 +304,8 @@ Computers running the Elastic Agent: agent health, telemetry and auth/sudo/Defen
 - network connections by process;
 - what the host's baseline has learned.
 
+![Endpoints page](img/endpoints.png)
+
 ### More → Reports
 
 The daily PDF reports (see [section 8](#8-reports)).
@@ -294,6 +321,8 @@ What the AI is doing and how well (see [AI review](#ai-review)).
 ### More → Checked
 
 Everything checked off or cleared, with who did it and when. Uncheck to restore.
+
+![Checked page](img/checked.png)
 
 ### More → Users
 
@@ -320,6 +349,11 @@ A chat assistant that knows the netmon data. It can look up findings, devices, a
 
 Answers can be wrong. Check important findings on the dashboard pages.
 
+![Ask Hermes chat page](img/ask-hermes.png)
+
+![Ask about this dialog with suggested questions and the Model menu](img/ask-dialog.png)
+*The 💬 dialog: suggested questions, your own question, and the Model menu (admins).*
+
 ### Comparing models
 
 The purple **⇄** button asks several models for their opinion on one item, side by side. Admins only.
@@ -337,6 +371,8 @@ The purple **⇄** button asks several models for their opinion on one item, sid
 2. Tick up to 4 models. The loaded local model, Claude Sonnet and Claude Opus are ticked by default.
 3. Click **Run comparison**.
 
+![Compare dialog: picking models](img/compare-pick.png)
+
 Each model answers with a verdict, a priority, a summary and its reasoning. The results also show the time taken and the tokens used. For items, the models see only the item's data and cannot look anything up. For correlation decisions, each model gets exactly the question the reviewer gets.
 
 **"Use this"** stores one model's answer:
@@ -346,9 +382,14 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 
 **Earlier comparisons** lists every past comparison for that item.
 
+![Comparison results from three models side by side](img/compare-results.png)
+*Three models judging the same host finding: verdict, priority, assessment, time and tokens.*
+
 ### AI review
 
 **More → AI review** shows the AI's work and lets admins configure it.
+
+![Models card on AI review](img/aireview-models.png)
 
 | Box | What it shows |
 |---|---|
@@ -358,6 +399,10 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 | **Reviewer** | The correlation reviewer's model, its queue and its throughput. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
 | **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), ask for a new review (↻), or **⇄ compare** models on it. Manual decisions always win and are never overwritten. |
+
+![Claude triage and enrichment card with the time and tokens chart](img/aireview-claude.png)
+
+![Correlation decisions with compare, confirm, reject and re-review buttons](img/aireview-decisions.png)
 
 ### Things to know about model choices
 
@@ -385,6 +430,8 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 
 The other runs of the day update the dashboard but don't make a PDF.
 
+![Reports page](img/reports.png)
+
 ---
 
 ## 9. Phones and tablets
@@ -398,6 +445,9 @@ The other runs of the day update the dashboard but don't make a PDF.
 
   A **Sort:** menu replaces the column headers.
 - **Boxes:** they can be collapsed, rearranged and resized (height only) just like on a computer.
+
+<img src="img/mobile-overview.png" alt="Overview on a phone" width="300"> <img src="img/mobile-list.png" alt="Phone view: a table shown as a list of cards" width="300">
+*On a phone, wide tables become lists of cards.*
 
 ---
 
@@ -418,6 +468,8 @@ Everyone else can see everything and check things off, and Ask Hermes uses its d
 - **Choose which devices alert someone:** set their alert devices for them.
 - **Delete a user.**
 - **Locked out?:** explains how to unlock an account after too many failed sign-ins.
+
+![Users page](img/users.png)
 
 Installation, adding admins and other configuration are in [SETUP.md](SETUP.md).
 
