@@ -51,8 +51,8 @@ window.CARD_INFO = {
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
-"source": "Dashboard LLM configuration; local models are listed from LM Studio, cloud models from Anthropic. Only an admin can change them.",
-"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; Anthropic models are billed per batch. Use the ⇄ compare button on a decision below to test models before switching.",
+"source": "Dashboard LLM configuration; local models are listed from LM Studio, cloud models from Anthropic and OpenAI (OpenAI only once an API key is saved in this box). Only an admin can change them.",
+"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; Anthropic and OpenAI models are billed per batch. Paste an OpenAI API key and press Save key to enable OpenAI models. Use the ⇄ compare button on a decision below to test models before switching.",
 "what": "Which AI model is used for the two AI jobs: the correlation reviewer (decides every proposed link between events) and the twice-daily research job (Claude triage and event research)."
 },
 "aireview|Reviewer": {

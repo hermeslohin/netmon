@@ -4,7 +4,10 @@ The dashboard runs in a locked-down container without provider credentials. This
 service runs on the host under Hermes' own runtime (so it uses Hermes' configured Anthropic credentials
 through agent.auxiliary_client.call_llm - no key is copied anywhere) and offers exactly three things:
 
-  GET  /models              local (LM Studio) + Anthropic models the dashboard may pick
+  GET  /models              local (LM Studio) + Anthropic + OpenAI models the dashboard may pick
+  GET  /openai-key          {set, hint} - whether an OpenAI API key is configured (never the key itself)
+  POST /openai-key          {key} or {remove: true} -> `hermes config set OPENAI_API_KEY` in the main and
+                            netmonchat profiles (key is validated against api.openai.com first)
   POST /complete            one chat completion {provider, model, system, user, max_tokens, json_schema?}
   GET  /research            the research cron job's current model/provider
   POST /research            {provider, model} -> `hermes cron edit <job> --model .. --provider ..`
@@ -16,7 +19,7 @@ through agent.auxiliary_client.call_llm - no key is copied anywhere) and offers 
                             range picker; the container has no Elasticsearch key). Progress: <id>.status.json.
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env). Provider must be
-"anthropic" or "lmstudio" and the model must be in /models. Run: llm_broker.sh (systemd user unit
+"anthropic", "openai-api" or "lmstudio" and the model must be in /models. Run: llm_broker.sh (systemd user unit
 netmon-llm-broker.service, see docs/SETUP.md).
 """
 import glob, hmac, json, os, re, subprocess, sys, threading, time, urllib.request
@@ -27,7 +30,8 @@ HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
 HOST, PORT = "127.0.0.1", int(os.environ.get("NETMON_BROKER_PORT", "8650"))
 LMS = os.environ.get("NETMON_LLM_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 MAX_TOKENS = 4000
-RATE = (120, 3600)  # anthropic completions per hour (comparisons + correlation review)
+RATE = (120, 3600)  # cloud (Anthropic + OpenAI) completions per hour (comparisons + correlation review)
+CLOUD = ("anthropic", "openai-api")
 _sent, _lock = [], threading.Lock()
 
 
@@ -53,6 +57,84 @@ def anthropic_models():
         if m not in keep:
             keep.insert(0, m)
     return keep or ["claude-sonnet-5-5", "claude-opus-5-5", "claude-sonnet-5"]
+
+
+_oa_cache = {"at": 0.0, "ids": None, "key": ""}
+
+
+def _openai_key():
+    """Read live from Hermes' .env, so a key saved here or with `hermes config set` is seen without a restart."""
+    try:
+        from hermes_cli.config import get_env_value_prefer_dotenv
+        return (get_env_value_prefer_dotenv("OPENAI_API_KEY") or "").strip()
+    except Exception:  # noqa: BLE001
+        return (os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def openai_models():
+    """Hermes' curated OpenAI API list, limited to models this key can use (live /v1/models, cached 1 h).
+    Empty when no OPENAI_API_KEY is configured."""
+    key = _openai_key()
+    if not key:
+        return []
+    try:
+        from hermes_cli.models_catalog_static import _PROVIDER_MODELS as M  # noqa: N811
+        ids = list(M.get("openai-api") or [])
+    except Exception:  # noqa: BLE001
+        ids = []
+    ids = ids or ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5-mini", "gpt-4.1"]
+    c = _oa_cache
+    if c["key"] != key or time.time() - c["at"] > 3600:
+        try:
+            req = urllib.request.Request("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {key}"})
+            live = {m["id"] for m in json.load(urllib.request.urlopen(req, timeout=10)).get("data", [])}  # noqa: S310 - fixed https URL
+            c.update(at=time.time(), ids=live, key=key)
+        except Exception:  # noqa: BLE001 - offline: fall back to the curated list
+            c.update(at=time.time() - 3000, ids=None, key=key)
+    return [m for m in ids if c["ids"] is None or m in c["ids"]]
+
+
+def _env_files():
+    return [os.path.join(HOME, ".env"), os.path.join(HOME, "profiles", "netmonchat", ".env")]
+
+
+def openai_key_get():
+    k = _openai_key()
+    return {"set": bool(k), "hint": f"…{k[-4:]}" if len(k) > 12 else ""}
+
+
+def openai_key_set(b):
+    """Save (or remove) the OpenAI API key for Hermes: main profile (research job, broker) + netmonchat (Ask Hermes)."""
+    hermes = os.path.expanduser("~/.local/bin/hermes")
+    if b.get("remove"):
+        key = ""
+    else:
+        key = str(b.get("key") or "").strip()
+        if not re.fullmatch(r"sk-[A-Za-z0-9_\-]{20,300}", key):
+            raise ValueError("that does not look like an OpenAI API key (sk-...)")
+        req = urllib.request.Request("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {key}"})
+        try:
+            urllib.request.urlopen(req, timeout=15).read()  # noqa: S310 - fixed https URL
+        except urllib.error.HTTPError as e:
+            raise ValueError(f"OpenAI rejected the key (HTTP {e.code})") from None
+        except OSError as e:
+            raise ValueError(f"could not reach api.openai.com: {e}") from None
+    for home in (HOME, os.path.join(HOME, "profiles", "netmonchat")):
+        if not os.path.isdir(home):
+            continue
+        argv = [hermes, "config", "set", "OPENAI_API_KEY", key] if key else [hermes, "config", "unset", "OPENAI_API_KEY"]
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=60, env={**os.environ, "HERMES_HOME": home})  # noqa: S603 - fixed argv, validated key
+        if p.returncode and key:  # unset of a missing key may fail; harmless
+            raise ValueError(re.sub(r"sk-[A-Za-z0-9_\-]+", "sk-…", (p.stderr or p.stdout)[-300:]))
+    if key:
+        os.environ["OPENAI_API_KEY"] = key
+    else:
+        os.environ.pop("OPENAI_API_KEY", None)
+    _oa_cache.update(at=0.0, key="")
+    # Ask Hermes (netmonchat gateway) reads its .env at start; restart it so the new key is used (best effort)
+    subprocess.run(["systemctl", "--user", "restart", "hermes-gateway-netmonchat.service"],  # noqa: S603, S607 - fixed argv
+                   capture_output=True, timeout=120)
+    return openai_key_get()
 
 
 def local_models():
@@ -82,12 +164,15 @@ def chat_default():
 
 
 def models():
-    return {"anthropic": [{"id": m} for m in anthropic_models()], "local": local_models(), "chat_default": chat_default()}
+    return {"anthropic": [{"id": m} for m in anthropic_models()], "openai": [{"id": m} for m in openai_models()],
+            "local": local_models(), "chat_default": chat_default(), "openai_key": openai_key_get()}
 
 
 def _allowed(provider, model):
     if provider == "anthropic":
         return model in anthropic_models()
+    if provider == "openai-api":
+        return model in openai_models()
     if provider == "lmstudio":
         return model in {m["id"] for m in local_models()}
     return False
@@ -98,17 +183,19 @@ def complete(b):
     provider, model = str(b.get("provider")), str(b.get("model"))
     if not _allowed(provider, model):
         raise ValueError("model not allowed")
-    if provider == "anthropic":
+    if provider in CLOUD:
         with _lock:
             now = time.time()
             _sent[:] = [t for t in _sent if now - t < RATE[1]]
             if len(_sent) >= RATE[0]:
-                raise ValueError("rate limit: too many Anthropic requests this hour")
+                raise ValueError("rate limit: too many cloud model requests this hour")
             _sent.append(now)
     msgs = [{"role": "system", "content": str(b.get("system") or "")[:20000]}, {"role": "user", "content": str(b.get("user") or "")[:60000]}]
     t = time.time()
-    r = call_llm(provider=provider, model=model, messages=msgs, temperature=0, timeout=300,
-                 max_tokens=max(50, min(int(b.get("max_tokens") or 1000), MAX_TOKENS)))
+    mt = max(50, min(int(b.get("max_tokens") or 1000), MAX_TOKENS))
+    if provider == "openai-api":  # GPT-5 reasoning tokens count against the same budget; leave room for the answer
+        mt += 3000
+    r = call_llm(provider=provider, model=model, messages=msgs, temperature=0, timeout=300, max_tokens=mt)
     u = getattr(r, "usage", None)
     return {"content": r.choices[0].message.content or "", "seconds": round(time.time() - t, 2),
             "usage": {"prompt": getattr(u, "prompt_tokens", 0) or 0, "completion": getattr(u, "completion_tokens", 0) or 0}}
@@ -375,6 +462,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, research_get())
             if self.path == "/costlimit":
                 return self._send(200, costlimit_get())
+            if self.path == "/openai-key":
+                return self._send(200, openai_key_get())
             return self._send(404, {"error": "not found"})
         except Exception as e:  # noqa: BLE001
             return self._send(500, {"error": f"{type(e).__name__}: {str(e)[:300]}"})
@@ -397,6 +486,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, costlimit_set(b))
             if self.path == "/range":
                 return self._send(200, range_start(b))
+            if self.path == "/openai-key":
+                return self._send(200, openai_key_set(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})

@@ -68,10 +68,10 @@ def _ask(target, kind, title, item, actor="?"):
 
 
 def _ask_raw(target, user, t, log):
-    if target["provider"] == "anthropic":
+    if target["provider"] in corr_llm.CLOUD:
         # no structured-output mode through the broker: tagged fields survive quotes in the text, JSON often does not
         log["system"] = SYSTEM + "\nAnswer with exactly these four tags and nothing else:\n<verdict>...</verdict>\n<priority>...</priority>\n<summary>...</summary>\n<reasoning>...</reasoning>"
-        r = corr_llm.broker("/complete", {"provider": "anthropic", "model": target["model"], "max_tokens": 900, "user": user, "system": log["system"]})
+        r = corr_llm.broker("/complete", {"provider": target["provider"], "model": target["model"], "max_tokens": 900, "user": user, "system": log["system"]})
         txt, usage, secs = r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
         log["txt"] = txt
         a = {k: (re.search(rf"<{k}>(.*?)</{k}>", txt, re.S) or re.search(rf"<{k}>(.*)", txt, re.S) or [None, ""])[1].strip() for k in ("verdict", "priority", "summary", "reasoning")}

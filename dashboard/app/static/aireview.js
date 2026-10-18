@@ -108,11 +108,12 @@
   // ---- model choice (correlation reviewer + research job) and per-decision model comparison
   let MODELS = null;
   const loadModels = async () => (MODELS = MODELS || await api("/api/llm/models"));
-  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic" };
+  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic", "openai-api": "OpenAI" };
   const optKey = (p, m) => `${p}|${m}`;
   function modelSelect(M, cur) {
     const sel = document.createElement("select"); sel.className = "llm-sel";
-    const groups = [["lmstudio", (M.local || []).map((m) => [m.id, m.id + (m.loaded ? " (loaded)" : "")])], ["anthropic", (M.anthropic || []).map((m) => [m.id, m.id])]];
+    const groups = [["lmstudio", (M.local || []).map((m) => [m.id, m.id + (m.loaded ? " (loaded)" : "")])], ["anthropic", (M.anthropic || []).map((m) => [m.id, m.id])],
+      ["openai-api", (M.openai || []).map((m) => [m.id, m.id])]];
     for (const [prov, items] of groups) {
       if (!items.length) continue;
       const g = document.createElement("optgroup"); g.label = PROV[prov];
@@ -128,7 +129,7 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (Anthropic models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage and event research (local models are much slower and weaker at web research)."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (Anthropic and OpenAI models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage and event research (local models are much slower and weaker at web research)."
       : "Only an admin can change models.";
     const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(D.research?.schedule, D.research?.interval_minutes)})`, D.research && !D.research.error ? D.research : {}]];
     loadModels().then((M) => {
@@ -149,8 +150,31 @@
           catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
         };
       }
+      if (D.admin) body.appendChild(openaiKeyRow(M));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
+  }
+  // OpenAI API key (write-only): the broker checks it with OpenAI, then stores it in Hermes' .env (main + Ask Hermes profiles)
+  function openaiKeyRow(M) {
+    const st = M.openai_key || {};
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "OpenAI API key" }));
+    const inp = r.appendChild(Object.assign(document.createElement("input"), { type: "password", autocomplete: "off", spellcheck: false,
+      placeholder: st.set ? `saved (${st.hint || "set"}) - paste a new key to replace` : "sk-...", className: "llm-sel" }));
+    inp.setAttribute("aria-label", "OpenAI API key");
+    const save = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save key" }));
+    const del = Object.assign(document.createElement("button"), { type: "button", textContent: "Remove" });
+    if (st.set) r.appendChild(del);
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    msg.textContent = st.set ? `OpenAI models available: ${(M.openai || []).length}` : "No key saved: OpenAI models are hidden until you add one.";
+    const send = async (body, what) => {
+      save.disabled = del.disabled = true; msg.textContent = what;
+      try { await apiPost("/api/llm/openai-key", body); MODELS = null; inp.value = ""; msg.textContent = body.remove ? "removed - reloading…" : "saved - reloading…"; setTimeout(() => location.reload(), 600); }
+      catch (e) { msg.textContent = "error: " + e.message; save.disabled = del.disabled = false; }
+    };
+    save.onclick = () => { const k = inp.value.trim(); if (!k) { msg.textContent = "paste a key first"; return; } send({ key: k }, "checking the key with OpenAI…"); };
+    del.onclick = () => { if (confirm("Remove the OpenAI API key from Hermes? OpenAI models stop working until a new key is saved.")) send({ remove: true }, "removing…"); };
+    return r;
   }
 
   // ---- cost limits: the Hermes cost_limit plugin's $ caps (plugins.entries.cost_limit.settings, via the host broker)
@@ -253,7 +277,7 @@
       pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the correlation reviewer uses, for this one link." }));
       const cor = D.config?.correlation || {}, curLocal = cor.model || D.status.model || (M.local || []).find((m) => m.loaded)?.id || "";
       const def = new Set([optKey(cor.provider, curLocal), "anthropic|claude-sonnet-5-5", "anthropic|claude-opus-5-5"]);
-      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(M.anthropic || []).map((m) => ["anthropic", m.id, ""])];
+      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(M.anthropic || []).map((m) => ["anthropic", m.id, ""]), ...(M.openai || []).map((m) => ["openai-api", m.id, ""])];
       for (const [prov, id, extra] of all) {
         const l = pick.appendChild(document.createElement("label")); l.className = "cmp-opt";
         const cb = l.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", value: optKey(prov, id), checked: def.has(optKey(prov, id)) }));

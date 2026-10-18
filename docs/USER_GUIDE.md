@@ -396,7 +396,7 @@ A chat assistant that knows the netmon data. It can look up findings, devices, a
 
 - **Starting a chat:** open **More → Ask Hermes** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
 - **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What Hermes will be given* shows exactly what is sent.
-- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the assistant's usual model), any Anthropic model, or any local LM Studio model. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
+- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the assistant's usual model), any Anthropic model, any OpenAI model (once a key is saved on AI review > Models), or any local LM Studio model. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
 
 Answers can be wrong. Check important findings on the dashboard pages.
 
@@ -444,7 +444,7 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 
 | Box | What it shows |
 |---|---|
-| **Models** | The model for the **correlation reviewer** and for the **research job** (local or Anthropic). Admins change them here (see the cost notes below). |
+| **Models** | The model for the **correlation reviewer** and for the **research job** (local, Anthropic or OpenAI). Admins change them here (see the cost notes below). Admins can also paste an **OpenAI API key** here: it is checked with OpenAI, saved in Hermes (never shown again, only its last 4 characters), and OpenAI models then appear in every model menu. **Remove** deletes it. |
 | **Cost limits** | Admins set a dollar cap **per run** (one research-job firing, or one message to Hermes, subagents included) and **per session** (a whole conversation, all its runs added up). Hermes stops the work right after the model call that passes a cap (it can overshoot by one call). 0 = no limit. The box shows what recent research runs cost, warns when a cap would have stopped them, and lists recent stops. It sets the Hermes `cost_limit` plugin; the correlation reviewer, comparisons and Ask Hermes are not covered. |
 | **Claude triage & enrichment** | Whether a research run is going on now, the schedule and next run, recent runs and how long they took, each enrichment pass (events researched, links reviewed), how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
 | **Time and tokens per research run** | Run time plus the tokens of each research run, split into new input, cache writes and output. Cache re-reads (the conversation re-sent on every API call; ~95% of the raw input count but billed at ~10% of the input price) are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost at API list prices. Runs Hermes couldn't split show as one grey input bar. |
@@ -458,10 +458,10 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 
 ### Things to know about model choices
 
-- **Anthropic models** are faster and better at research, but cost money per request:
+- **Anthropic and OpenAI models** are faster and better at research, but cost money per request:
   - **Research job:** a run uses several million tokens.
-  - **Correlation reviewer:** if it uses an Anthropic model, it decides every new link around the clock.
-  - **Cap:** a safety limit of 120 Anthropic requests an hour applies to comparisons and the reviewer.
+  - **Correlation reviewer:** if it uses a cloud model, it decides every new link around the clock.
+  - **Cap:** a safety limit of 120 cloud-model requests an hour (Anthropic and OpenAI together) applies to comparisons and the reviewer.
 - **Local models** are free, but slower and weaker at research and tool use. A model that isn't loaded in LM Studio has to load first, which takes time and may unload the model the reviewer is using.
 
 ---

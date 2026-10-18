@@ -348,7 +348,7 @@ async function chatModelPicker() {
   const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask Hermes");
   const def = M.chat_default || {};
   sel.add(new Option(`Default (${def.model || "profile model"})`, ""));
-  for (const [label, prov, list] of [["Anthropic", "anthropic", M.anthropic || []], ["Local (LM Studio)", "lmstudio", M.local || []]]) {
+  for (const [label, prov, list] of [["Anthropic", "anthropic", M.anthropic || []], ["OpenAI", "openai-api", M.openai || []], ["Local (LM Studio)", "lmstudio", M.local || []]]) {
     if (!list.length) continue;
     const g = document.createElement("optgroup"); g.label = label;
     list.forEach((m) => g.appendChild(new Option(m.id + (m.loaded ? " (loaded)" : prov === "lmstudio" ? " (not loaded)" : ""), `${prov}|${m.id}`)));

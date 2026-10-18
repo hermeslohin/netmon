@@ -31,7 +31,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/costlimit", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/costlimit", "/api/llm/openai-key", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -69,11 +69,12 @@ def my_events(user):
         print(f"my notes unavailable: {e}", file=sys.stderr)
         un = {}
     return {"snapshot": sid, "devices": assigned_devices(user), "events": out, "unotes": un}
-LLM_PROVIDERS = ("lmstudio", "anthropic")
+LLM_PROVIDERS = ("lmstudio", "anthropic", "openai-api")
+PROV_LIST = {"anthropic": "anthropic", "openai-api": "openai", "lmstudio": "local"}  # provider -> /models list
 
 
 def llm_models():
-    """Models the AI review page may choose: from the host broker (Anthropic + LM Studio), else LM Studio only."""
+    """Models the AI review page may choose: from the host broker (Anthropic + OpenAI + LM Studio), else LM Studio only."""
     try:
         return corr_llm.broker("/models", timeout=15)
     except Exception as e:  # noqa: BLE001 - broker down: local models still work
@@ -82,13 +83,13 @@ def llm_models():
             loc = [{"id": m["id"], "loaded": m.get("state") == "loaded"} for m in d.get("data", []) if m.get("type") in ("llm", "vlm")]
         except Exception:  # noqa: BLE001
             loc = []
-        return {"anthropic": [], "local": loc, "error": f"LLM broker unavailable: {str(e)[:160]}"}
+        return {"anthropic": [], "openai": [], "local": loc, "error": f"LLM broker unavailable: {str(e)[:160]}"}
 
 
 def llm_allowed(provider, model, M=None):
     M = M or llm_models()
-    return (provider == "anthropic" and model in {m["id"] for m in M.get("anthropic", [])}) or \
-        (provider == "lmstudio" and model in {m["id"] for m in M.get("local", [])})
+    lst = PROV_LIST.get(provider)
+    return bool(lst) and model in {m["id"] for m in M.get(lst, [])}
 DATA = os.path.join(ROOT, "data")
 BASE = os.path.join(ROOT, "baseline")
 STATE = os.environ.get("STATE_DIR", "/state")
@@ -798,6 +799,14 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:300]}, 502)
                 print(f"llm costlimit: {user} set {lim}", file=sys.stderr)
                 return self._json({"ok": True, "costlimit": res})
+            if u.path == "/api/llm/openai-key":  # OpenAI API key for Hermes (write-only; the host broker stores it in Hermes' .env)
+                req = {"remove": True} if body.get("remove") else {"key": str(body.get("key") or "").strip()[:400]}
+                try:
+                    res = corr_llm.broker("/openai-key", req, timeout=90)
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": str(e)[:300]}, 400)
+                print(f"llm openai key: {user} {'removed' if req.get('remove') else 'set'} the OpenAI API key", file=sys.stderr)
+                return self._json({"ok": True, "openai_key": res})
             if u.path == "/api/compare/item":  # one finding / alarm / note, several models, side by side
                 kind, title = str(body.get("kind", ""))[:60], str(body.get("title", ""))[:300]
                 item = body.get("item")

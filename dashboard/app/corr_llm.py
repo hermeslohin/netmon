@@ -10,7 +10,7 @@ apply() merges verdicts into /api/correlate: rejected links are dropped, confirm
 undecided ones are shown as "awaiting review" until the worker gets to them.
 
 Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}). provider
-"lmstudio" talks to LM Studio directly; "anthropic" goes through the host LLM broker (llm_broker.py, which owns
+"lmstudio" talks to LM Studio directly; "anthropic" and "openai-api" go through the host LLM broker (llm_broker.py, which owns
 the credentials). compare() asks several models about ONE decision for the side-by-side view (not stored as a
 verdict unless a person adopts one).
 
@@ -40,6 +40,9 @@ BROKER = os.environ.get("NETMON_BROKER_URL", "").rstrip("/")
 BROKER_KEY = os.environ.get("NETMON_BROKER_KEY", "")
 if BROKER and not BROKER.startswith(("http://127.0.0.1", "http://localhost")):
     raise ValueError("NETMON_BROKER_URL must be a loopback http URL")
+
+
+CLOUD = ("anthropic", "openai-api")  # providers reached through the host broker
 
 
 def config():
@@ -199,8 +202,8 @@ def _complete(target, system, user, max_tokens, purpose="correlation-review", ac
 
 
 def _complete_raw(target, system, user, max_tokens, t):
-    if target["provider"] == "anthropic":  # (the audit entry shows the shared system prompt; this suffix only fixes the answer format)
-        r = broker("/complete", {"provider": "anthropic", "model": target["model"], "max_tokens": max_tokens,
+    if target["provider"] in CLOUD:  # (the audit entry shows the shared system prompt; this suffix only fixes the answer format)
+        r = broker("/complete", {"provider": target["provider"], "model": target["model"], "max_tokens": max_tokens,
                                   "system": system + "\nReturn ONLY a JSON object of the form {\"decisions\": [{\"id\", \"related\", \"confidence\", \"reason\"}]} - no prose, no code fences.",
                                   "user": user})
         return r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
@@ -214,8 +217,8 @@ def _complete_raw(target, system, user, max_tokens, t):
 
 def _target(model=None):
     c = config()["correlation"]
-    if c["provider"] == "anthropic":
-        return {"provider": "anthropic", "model": c["model"] or "claude-sonnet-5-5"}
+    if c["provider"] in CLOUD:
+        return {"provider": c["provider"], "model": c["model"] or ("claude-sonnet-5-5" if c["provider"] == "anthropic" else "gpt-5-mini")}
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
 
 

@@ -157,9 +157,9 @@ The nightly job uses your default Hermes model. Pin a model with `--model`/`--pr
 
 ## 7b. Model choice and model comparison (optional)
 
-The AI review page lets an admin choose the model for the **correlation reviewer** and for the **research job**. The choices are local LM Studio models or Anthropic models. On any current decision, the ⇄ button asks up to 4 models the same question side by side and can store one model's answer as the decision.
+The AI review page lets an admin choose the model for the **correlation reviewer** and for the **research job**. The choices are local LM Studio models, Anthropic models, or OpenAI models (shown only when `OPENAI_API_KEY` is set for Hermes; admins can paste the key in the Models box). On any current decision, the ⇄ button asks up to 4 models the same question side by side and can store one model's answer as the decision.
 
-The dashboard container has no provider credentials. A small loopback-only broker on the host, `llm_broker.py`, runs under Hermes' own runtime and uses Hermes' configured Anthropic credentials. It also applies research-model changes with `hermes cron edit`, and the AI review page's **Cost limits** box through `GET/POST /costlimit`, which reads and writes `plugins.entries.cost_limit.settings.max_run_usd` / `max_session_usd` with `hermes config set` (0-1000 USD, 0 = off). These are the settings of the Hermes `cost_limit` plugin (`~/.hermes/plugins/cost_limit`), which stops a run or session once Hermes' estimated cost passes the cap; it is read live, so a change applies from the next model call.
+The dashboard container has no provider credentials. A small loopback-only broker on the host, `llm_broker.py`, runs under Hermes' own runtime and uses Hermes' configured Anthropic and OpenAI credentials. `GET/POST /openai-key` reports whether an OpenAI key is set (only its last 4 characters) and saves a new one: it checks the key against api.openai.com, then runs `hermes config set OPENAI_API_KEY` for the main profile and the `netmonchat` profile, and restarts `hermes-gateway-netmonchat` so Ask Hermes picks it up). The OpenAI model list is Hermes' curated `openai-api` list filtered by the key's live `/v1/models`. It also applies research-model changes with `hermes cron edit`, and the AI review page's **Cost limits** box through `GET/POST /costlimit`, which reads and writes `plugins.entries.cost_limit.settings.max_run_usd` / `max_session_usd` with `hermes config set` (0-1000 USD, 0 = off). These are the settings of the Hermes `cost_limit` plugin (`~/.hermes/plugins/cost_limit`), which stops a run or session once Hermes' estimated cost passes the cap; it is read live, so a change applies from the next model call.
 
 ```bash
 # dashboard/.env
@@ -173,7 +173,7 @@ cd dashboard && ./deploy.sh
 
 Only dashboard **Admins** can change models or run comparisons. Roles are set on the Users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)); the old `NETMON_ADMINS` variable is no longer used.
 
-The broker only accepts `anthropic` and `lmstudio` models from its own model list, and limits Anthropic calls to 120 per hour. If the broker is down, the page still offers local models. The correlation choice is stored in `dashboard/state/llm_config.json`; deleting that file returns to the model loaded in LM Studio.
+The broker only accepts `anthropic`, `openai-api` and `lmstudio` models from its own model list, and limits cloud (Anthropic + OpenAI) calls to 120 per hour. If the broker is down, the page still offers local models. The correlation choice is stored in `dashboard/state/llm_config.json`; deleting that file returns to the model loaded in LM Studio.
 
 ## 8. Ask Hermes chat (optional)
 
