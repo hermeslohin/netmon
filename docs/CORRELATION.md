@@ -93,6 +93,12 @@ in the dashboard container:
 |---|---|---|
 | `NETMON_LLM` | `on` | `off` disables the review (links show the script's evidence only) |
 | `NETMON_LLM_URL` | `http://127.0.0.1:1234/v1` | any OpenAI-compatible endpoint, http(s) only |
+
+Besides LM Studio and the broker's (Hermes') Anthropic / OpenAI models, the reviewer can use any provider an admin adds on
+AI review > **AI providers** (`dashboard/app/llm_providers.py`, stored in `/state/llm_providers.json`, mode 600). These are
+OpenAI-compatible (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs
+called directly from the dashboard container; the model id is `api:<id>` plus the model name. Like the broker's models they get
+the answer format in the prompt (no structured-output mode), and each provider has its own calls-per-hour cap.
 | `NETMON_LLM_MODEL` | the model loaded in LM Studio | pin a model id |
 | `NETMON_LLM_REASONING` | `none` | reasoning models (Gemma, Qwen) spend the token budget on hidden reasoning otherwise |
 | `NETMON_LLM_WORKERS` | `2` | parallel requests (match LM Studio's parallel slots) |

@@ -13,6 +13,7 @@ import corr_llm
 import enrich
 import autoclose
 import itemcmp
+import llm_providers
 import auth
 import tintel
 import chat
@@ -31,7 +32,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/costlimit", "/api/llm/openai-key", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/costlimit", "/api/llm/openai-key", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -69,12 +70,23 @@ def my_events(user):
         print(f"my notes unavailable: {e}", file=sys.stderr)
         un = {}
     return {"snapshot": sid, "devices": assigned_devices(user), "events": out, "unotes": un}
-LLM_PROVIDERS = ("lmstudio", "anthropic", "openai-api")
+LLM_PROVIDERS = ("lmstudio", "anthropic", "openai-api")  # built-ins; admin-added API-key providers are "api:<id>" (llm_providers.py)
 PROV_LIST = {"anthropic": "anthropic", "openai-api": "openai", "lmstudio": "local"}  # provider -> /models list
+HERMES_PROVIDERS = LLM_PROVIDERS  # what the research job and Ask Hermes (both run in Hermes) can use
 
 
 def llm_models():
-    """Models the AI review page may choose: from the host broker (Anthropic + OpenAI + LM Studio), else LM Studio only."""
+    """Models the AI review page may choose: from the host broker (Anthropic + OpenAI + LM Studio), else LM Studio only,
+    plus the admin-added API-key providers ("custom", called directly by the dashboard)."""
+    try:
+        cu = llm_providers.model_groups()
+    except Exception as e:  # noqa: BLE001 - a broken providers file must not hide the built-in models
+        print(f"llm providers unreadable: {e}", file=sys.stderr)
+        cu = []
+    return {**_broker_models(), "custom": cu}
+
+
+def _broker_models():
     try:
         return corr_llm.broker("/models", timeout=15)
     except Exception as e:  # noqa: BLE001 - broker down: local models still work
@@ -87,6 +99,8 @@ def llm_models():
 
 
 def llm_allowed(provider, model, M=None):
+    if llm_providers.is_custom(provider):
+        return llm_providers.allowed(provider, model)
     M = M or llm_models()
     lst = PROV_LIST.get(provider)
     return bool(lst) and model in {m["id"] for m in M.get(lst, [])}
@@ -779,8 +793,10 @@ class H(BaseHTTPRequestHandler):
                 return self._json({**r, "review": review_job(), "admin": True})
             if u.path == "/api/llm/config":  # choose the correlation reviewer or the research job's model
                 sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
-                if sec not in ("correlation", "research") or prov not in LLM_PROVIDERS or not llm_allowed(prov, model):
+                if sec not in ("correlation", "research") or not (prov in LLM_PROVIDERS or llm_providers.is_custom(prov)) or not llm_allowed(prov, model):
                     return self._json({"error": "unknown section, provider or model"}, 400)
+                if sec == "research" and prov not in HERMES_PROVIDERS:
+                    return self._json({"error": "the research job runs in Hermes, so it can only use LM Studio or Hermes' Anthropic / OpenAI models"}, 400)
                 if sec == "correlation":
                     corr_llm.set_correlation(prov, model, user)
                     res = corr_llm.config()["correlation"]
@@ -814,6 +830,31 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:300]}, 400)
                 print(f"llm openai key: {user} {'removed' if req.get('remove') else 'set'} the OpenAI API key", file=sys.stderr)
                 return self._json({"ok": True, "openai_key": res})
+            if u.path == "/api/llm/providers":  # admin-added AI providers (any OpenAI-compatible or Anthropic API with a key)
+                act = str(body.get("action") or "")
+                try:
+                    if act == "save":
+                        res = llm_providers.save(body, user)
+                        print(f"llm providers: {user} saved {res['name']!r} ({res['type']}, {res['base_url']}, {len(res['models'])} models, "
+                              f"key={'changed' if body.get('api_key') else 'kept'})", file=sys.stderr)
+                        return self._json({"ok": True, "provider": res, "providers": llm_providers.public()})
+                    if act == "delete":
+                        pid = str(body.get("id") or "")
+                        cor = corr_llm.config()["correlation"]
+                        if cor["provider"] == llm_providers.PREFIX + pid:
+                            return self._json({"error": "this provider is the correlation reviewer - pick another reviewer model first"}, 400)
+                        llm_providers.delete(pid)
+                        print(f"llm providers: {user} deleted provider {pid}", file=sys.stderr)
+                        return self._json({"ok": True, "providers": llm_providers.public()})
+                    if act == "test":
+                        return self._json(llm_providers.test(body))
+                    if act == "models":
+                        return self._json(llm_providers.fetch_models(body))
+                except ValueError as e:
+                    return self._json({"error": str(e)[:300]}, 400)
+                except RuntimeError as e:  # provider rejected the key / unreachable (key already scrubbed)
+                    return self._json({"error": str(e)[:400]}, 502)
+                return self._json({"error": "unknown action"}, 400)
             if u.path == "/api/compare/item":  # one finding / alarm / note, several models, side by side
                 kind, title = str(body.get("kind", ""))[:60], str(body.get("title", ""))[:300]
                 item = body.get("item")
@@ -1004,6 +1045,11 @@ class H(BaseHTTPRequestHandler):
                 return self._json(res) if res else self._json({"error": "not found"}, 404)
             if path == "/api/acks":
                 return self._json(read_acks())
+            if path == "/api/llm/providers":
+                if not admin:
+                    return self._json({"admin": False, "providers": []})
+                return self._json({"admin": True, "providers": llm_providers.public(),
+                                   "types": {k: v for k, v in llm_providers.TYPES.items()}})
             if path == "/api/config/integrations":
                 if not admin:
                     return self._json({"admin": False})
@@ -1047,7 +1093,8 @@ class H(BaseHTTPRequestHandler):
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
                 base = correlation(sid) or {}
-                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin}
+                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin,
+                      "provider_names": {p["provider"]: p["name"] for p in llm_providers.public()}}
                 try:
                     ov["research"] = corr_llm.broker("/research", timeout=10)
                 except Exception as e:  # noqa: BLE001

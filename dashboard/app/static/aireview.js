@@ -158,13 +158,15 @@
 
   // ---- model choice (correlation reviewer + research job) and per-decision model comparison
   let MODELS = null;
-  const loadModels = async () => (MODELS = MODELS || await api("/api/llm/models"));
-  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic", "openai-api": "OpenAI" };
+  const loadModels = async () => { MODELS = MODELS || await api("/api/llm/models"); for (const g of MODELS.custom || []) PROV[g.provider] = g.name; return MODELS; };
+  // built-in providers; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
+  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic (via Hermes)", "openai-api": "OpenAI (via Hermes)" };
   const optKey = (p, m) => `${p}|${m}`;
-  function modelSelect(M, cur) {
+  // hermesOnly: the research job runs in Hermes, so it can't use the dashboard's own API-key providers
+  function modelSelect(M, cur, hermesOnly) {
     const sel = document.createElement("select"); sel.className = "llm-sel";
     const groups = [["lmstudio", (M.local || []).map((m) => [m.id, m.id + (m.loaded ? " (loaded)" : "")])], ["anthropic", (M.anthropic || []).map((m) => [m.id, m.id])],
-      ["openai-api", (M.openai || []).map((m) => [m.id, m.id])]];
+      ["openai-api", (M.openai || []).map((m) => [m.id, m.id])], ...(hermesOnly ? [] : (M.custom || []).map((g) => [g.provider, g.models.map((m) => [m.id, m.id])]))];
     for (const [prov, items] of groups) {
       if (!items.length) continue;
       const g = document.createElement("optgroup"); g.label = PROV[prov];
@@ -180,7 +182,7 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (Anthropic and OpenAI models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage and event research (local models are much slower and weaker at web research)."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). It can use any provider in the AI providers box. Research job: the scheduled triage and event research; it runs in Hermes, so it can only use LM Studio or Hermes' Anthropic / OpenAI models (local models are much slower and weaker at web research)."
       : "Only an admin can change models.";
     const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(D.research?.schedule, D.research?.interval_minutes)})`, D.research && !D.research.error ? D.research : {}]];
     loadModels().then((M) => {
@@ -188,7 +190,7 @@
       for (const [sec, label, cur] of rows) {
         const r = body.appendChild(document.createElement("div")); r.className = "llm-row";
         r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: label }));
-        const sel = r.appendChild(modelSelect(M, cur)); sel.disabled = !D.admin;
+        const sel = r.appendChild(modelSelect(M, cur, sec === "research")); sel.disabled = !D.admin;
         const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
         const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
         msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : (sec === "research" && D.research?.error ? D.research.error : "now: auto (model loaded in LM Studio)");
@@ -277,6 +279,87 @@
     save.onclick = () => { const k = inp.value.trim(); if (!k) { msg.textContent = "paste a key first"; return; } send({ key: k }, "checking the key with OpenAI…"); };
     del.onclick = () => { if (confirm("Remove the OpenAI API key from Hermes? OpenAI models stop working until a new key is saved.")) send({ remove: true }, "removing…"); };
     return r;
+  }
+
+  // ---- AI providers (admin): any OpenAI-compatible or Anthropic API with a key, called by the dashboard itself
+  function providersCard() {
+    const c = card("AI providers", `<div class="small muted">Add any number of AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
+      OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
+      <b>Anthropic</b> is Claude with an Anthropic API key. The dashboard calls them directly (no Hermes). Their models appear in the correlation
+      reviewer menu and in every Compare dialog. Keys are stored on the dashboard's state volume, readable only by the dashboard, and never shown again.</div>
+      <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
+      <div style="margin-top:8px"><button type="button" class="prov-add">Add provider</button> <span class="small muted prov-msg"></span></div>`);
+    c.id = "ai-providers";
+    const list = c.querySelector(".prov-list"), formBox = c.querySelector(".prov-form"), msg = c.querySelector(".prov-msg");
+    let P = [], TYPES = {};
+    const draw = () => {
+      if (!P.length) { list.innerHTML = `<div class="small muted">No providers yet.</div>`; return; }
+      list.replaceChildren(table(null, [
+        { k: "name", t: "Name", fmt: (v, r) => `<b>${esc(v)}</b>${r.enabled ? "" : ' <span class="badge sev-unknown">off</span>'}` },
+        { k: "type_label", t: "Type" },
+        { k: "base_url", t: "Base URL", cls: "small mono" },
+        { k: "key_hint", t: "Key", cls: "small mono", fmt: (v, r) => (r.key_set ? esc(v) : '<span class="bad">missing</span>') },
+        { k: "models", t: "Models", fmt: (v) => (v.length ? `<span title="${esc(v.join(", "))}">${v.length}: ${esc(v.slice(0, 3).join(", "))}${v.length > 3 ? "…" : ""}</span>` : '<span class="warn">none - add some</span>') },
+        { k: "rate_per_hour", t: "Calls/h", num: true, fmt: (v, r) => `${fn(r.calls_last_hour)} / ${fn(v)}` },
+        { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts"><button data-pe="${esc(r.id)}" title="Edit">✎</button><button data-pt="${esc(r.id)}" title="Test the key">Test</button><button data-pd="${esc(r.id)}" title="Delete">✕</button></span>` },
+      ], P, { sort: "name" }));
+    };
+    const load = async () => { try { const d = await api("/api/llm/providers"); P = d.providers || []; TYPES = d.types || {}; draw(); } catch (e) { list.textContent = "error: " + e.message; } };
+    const reloadModels = () => { MODELS = null; msg.textContent += " · reload the page to see the change in the model menus"; };
+    function form(p) {
+      p = p || { type: "openai", enabled: true, rate_per_hour: 120, reasoning_tokens: 3000, models: [] };
+      formBox.innerHTML = `<div class="llm-grid" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        <div class="llm-row"><span class="k">Name</span><input name="name" class="llm-sel" maxlength="60" placeholder="e.g. OpenAI, OpenRouter, Anthropic (work)"></div>
+        <div class="llm-row"><span class="k">Type</span><select name="type" class="llm-sel">${Object.entries(TYPES).map(([k, t]) => `<option value="${esc(k)}">${esc(t.label)}</option>`).join("")}</select></div>
+        <div class="llm-row"><span class="k">Base URL</span><input name="base_url" class="llm-sel mono" spellcheck="false"><span class="small muted">empty = the official API</span></div>
+        <div class="llm-row"><span class="k">API key</span><input name="api_key" type="password" autocomplete="off" spellcheck="false" class="llm-sel"></div>
+        <div class="llm-row"><span class="k">Models</span><textarea name="models" rows="4" class="llm-sel mono" spellcheck="false" placeholder="one model id per line"></textarea>
+          <button type="button" class="pf-fetch">Fetch from provider</button></div>
+        <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
+          <span class="small muted">cap on this provider's calls (reviewer + comparisons) - limits cost if something loops</span></div>
+        <div class="llm-row"><span class="k">Extra reasoning tokens</span><input name="reasoning_tokens" type="number" min="0" max="32000" step="500" style="width:7em">
+          <span class="small muted">added to each answer's token limit for models that think first (OpenAI gpt-5 / o-series: ~3000; others 0)</span></div>
+        <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
+        <div class="llm-row"><span class="k"></span><button type="button" class="pf-save">Save</button><button type="button" class="pf-test">Test key</button><button type="button" class="pf-cancel">Cancel</button>
+          <span class="small muted pf-msg"></span></div></div>`;
+      const f = (n) => formBox.querySelector(`[name="${n}"]`), fm = formBox.querySelector(".pf-msg");
+      f("name").value = p.name || ""; f("type").value = p.type; f("base_url").value = p.base_url || ""; f("models").value = (p.models || []).join("\n");
+      f("rate_per_hour").value = p.rate_per_hour; f("reasoning_tokens").value = p.reasoning_tokens; f("enabled").checked = p.enabled !== false;
+      const ph = () => { f("base_url").placeholder = (TYPES[f("type").value] || {}).base_url || "";
+        f("api_key").placeholder = p.key_set ? `saved (${p.key_hint}) - leave empty to keep it` : f("type").value === "anthropic" ? "sk-ant-..." : "sk-..."; };
+      f("type").onchange = () => { ph(); if (!p.id) f("reasoning_tokens").value = f("type").value === "openai" ? 3000 : 0; }; ph();
+      const val = () => ({ id: p.id, name: f("name").value.trim(), type: f("type").value, base_url: f("base_url").value.trim(), api_key: f("api_key").value.trim(),
+        models: f("models").value, rate_per_hour: f("rate_per_hour").value, reasoning_tokens: f("reasoning_tokens").value, enabled: f("enabled").checked });
+      const run = async (btn, body, what, done) => { btn.disabled = true; fm.textContent = what;
+        try { done(await apiPost("/api/llm/providers", body)); } catch (e) { fm.textContent = "error: " + e.message; } btn.disabled = false; };
+      formBox.querySelector(".pf-cancel").onclick = () => { formBox.innerHTML = ""; };
+      formBox.querySelector(".pf-test").onclick = (ev) => run(ev.target, { ...val(), action: "test" }, "checking the key…", (r) => { fm.textContent = "✓ " + r.message; });
+      formBox.querySelector(".pf-fetch").onclick = (ev) => run(ev.target, { ...val(), action: "models" }, "asking the provider for its models…", (r) => {
+        const have = new Set(f("models").value.split(/\s+/).filter(Boolean));
+        fm.innerHTML = ""; const box = document.createElement("div"); box.className = "prov-pick small";
+        box.append(`${r.models.length} chat models (of ${r.all}). Tick the ones to offer: `);
+        for (const m of r.models) { const l = box.appendChild(document.createElement("label")); l.className = "cmp-opt";
+          const cb = l.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: have.has(m) })); l.append(" " + m);
+          cb.onchange = () => { const s = new Set(f("models").value.split(/\s+/).filter(Boolean)); cb.checked ? s.add(m) : s.delete(m); f("models").value = [...s].join("\n"); }; }
+        fm.appendChild(box); });
+      formBox.querySelector(".pf-save").onclick = (ev) => run(ev.target, { ...val(), action: "save" }, "saving…", (r) => {
+        P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = `saved ${r.provider.name}`; reloadModels(); });
+      f("name").focus();
+    }
+    c.querySelector(".prov-add").onclick = () => form(null);
+    list.addEventListener("click", async (ev) => {
+      const b = ev.target.closest("button"); if (!b) return;
+      const p = P.find((x) => x.id === (b.dataset.pe || b.dataset.pt || b.dataset.pd)); if (!p) return;
+      if (b.dataset.pe) form(p);
+      else if (b.dataset.pt) { b.disabled = true; msg.textContent = `testing ${p.name}…`;
+        try { const r = await apiPost("/api/llm/providers", { action: "test", id: p.id, type: p.type, base_url: p.base_url }); msg.textContent = `${p.name}: ✓ ${r.message}`; }
+        catch (e) { msg.textContent = `${p.name}: ${e.message}`; } b.disabled = false; }
+      else if (b.dataset.pd && confirm(`Delete the AI provider "${p.name}" and its stored API key?`)) {
+        try { const r = await apiPost("/api/llm/providers", { action: "delete", id: p.id }); P = r.providers || []; draw(); msg.textContent = `deleted ${p.name}`; reloadModels(); }
+        catch (e) { msg.textContent = "error: " + e.message; } }
+    });
+    load();
+    return c;
   }
 
   // ---- cost limits: the Hermes cost_limit plugin's $ caps (plugins.entries.cost_limit.settings, via the host broker)
@@ -379,7 +462,8 @@
       pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the correlation reviewer uses, for this one link." }));
       const cor = D.config?.correlation || {}, curLocal = cor.model || D.status.model || (M.local || []).find((m) => m.loaded)?.id || "";
       const def = new Set([optKey(cor.provider, curLocal), "anthropic|claude-sonnet-5-5", "anthropic|claude-opus-5-5"]);
-      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(M.anthropic || []).map((m) => ["anthropic", m.id, ""]), ...(M.openai || []).map((m) => ["openai-api", m.id, ""])];
+      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(M.anthropic || []).map((m) => ["anthropic", m.id, ""]), ...(M.openai || []).map((m) => ["openai-api", m.id, ""]),
+        ...(M.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))];
       for (const [prov, id, extra] of all) {
         const l = pick.appendChild(document.createElement("label")); l.className = "cmp-opt";
         const cb = l.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", value: optKey(prov, id), checked: def.has(optKey(prov, id)) }));
@@ -410,6 +494,7 @@
     el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The local LLM decides whether each link is real, and on the research schedule (twice a day; Config page) Claude researches the important events and re-reviews their links (its verdicts replace the local model's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
+    Object.assign(PROV, D.provider_names || {});
     const st = D.status, q = D.queue, T = D.totals;
     const health = !st.enabled ? ["Off", "sev-unknown"] : st.error ? ["Error", "sev-high"] : st.busy ? ["Reviewing", "sev-good"] : q.pending ? ["Waiting", "sev-medium"] : ["Idle · up to date", "sev-good"];
     el.insertAdjacentHTML("beforeend", kpis([
@@ -420,6 +505,7 @@
       ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     el.appendChild(modelsCard(D));
+    if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
     el.appendChild(esCard(D));
     el.append(...claudeCard(D.claude || {}));

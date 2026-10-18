@@ -16,7 +16,7 @@ validates and runs them read-only, the results go back to the model as <es_resul
 
 Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}). provider
 "lmstudio" talks to LM Studio directly; "anthropic" and "openai-api" go through the host LLM broker (llm_broker.py, which owns
-the credentials). compare() asks several models about ONE decision for the side-by-side view (not stored as a
+Hermes' credentials); "api:<id>" is an admin-added API-key provider (llm_providers.py, called directly). compare() asks several models about ONE decision for the side-by-side view (not stored as a
 verdict unless a person adopts one).
 
 Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (default: the model loaded in LM Studio),
@@ -26,6 +26,7 @@ import json, os, sqlite3, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 import audit
+import llm_providers
 from datetime import datetime, timezone
 
 URL = os.environ.get("NETMON_LLM_URL", "http://127.0.0.1:1234/v1").rstrip("/")
@@ -47,7 +48,21 @@ if BROKER and not BROKER.startswith(("http://127.0.0.1", "http://localhost")):
     raise ValueError("NETMON_BROKER_URL must be a loopback http URL")
 
 
-CLOUD = ("anthropic", "openai-api")  # providers reached through the host broker
+CLOUD = ("anthropic", "openai-api")  # providers reached through the host broker (Hermes credentials)
+
+
+def text_provider(provider):
+    """Providers answered as plain text (format asked for in the prompt): the broker's and the admin-added API-key ones."""
+    return provider in CLOUD or llm_providers.is_custom(provider)
+
+
+def cloud_complete(target, system, user, max_tokens):
+    """One text completion from a broker provider or an admin-added API-key provider -> (text, usage, seconds)."""
+    t = time.time()
+    if llm_providers.is_custom(target["provider"]):
+        return llm_providers.complete(target["provider"], target["model"], system, user, max_tokens)
+    r = broker("/complete", {"provider": target["provider"], "model": target["model"], "max_tokens": max_tokens, "system": system, "user": user})
+    return r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
 
 
 ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review: default and the most an admin can set
@@ -269,10 +284,8 @@ def _complete(target, system, user, max_tokens, purpose="correlation-review", ac
 
 
 def _complete_raw(target, system, user, max_tokens, t, queries=False):
-    if target["provider"] in CLOUD:  # (the audit entry shows the shared system prompt; this suffix only fixes the answer format)
-        r = broker("/complete", {"provider": target["provider"], "model": target["model"], "max_tokens": max_tokens,
-                                  "system": system + "\n" + (QFMT if queries else FMT), "user": user})
-        return r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
+    if text_provider(target["provider"]):  # (the audit entry shows the shared system prompt; this suffix only fixes the answer format)
+        return cloud_complete(target, system + "\n" + (QFMT if queries else FMT), user, max_tokens)
     body = {"model": target["model"], "temperature": 0, "max_tokens": max_tokens, "reasoning_effort": REASONING,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "response_format": {"type": "json_schema", "json_schema": {"name": "decisions", "strict": True, "schema": QSCHEMA if queries else SCHEMA}}}
@@ -283,6 +296,10 @@ def _complete_raw(target, system, user, max_tokens, t, queries=False):
 
 def _target(model=None):
     c = config()["correlation"]
+    if llm_providers.is_custom(c["provider"]):
+        if not llm_providers.allowed(c["provider"], c["model"]):
+            raise RuntimeError(f"reviewer model {c['model']} on {llm_providers.name(c['provider'])} is no longer available - pick another on AI review > Models")
+        return {"provider": c["provider"], "model": c["model"]}
     if c["provider"] in CLOUD:
         return {"provider": c["provider"], "model": c["model"] or ("claude-sonnet-5-5" if c["provider"] == "anthropic" else "gpt-5-mini")}
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}

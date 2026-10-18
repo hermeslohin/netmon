@@ -1,10 +1,11 @@
 // Compare models on one dashboard item (triage alarm, triage research note, baseline finding, host finding, event
 // research note). Buttons come from cmpBtn() (app.js); the dialog asks up to 4 models (local LM Studio, Anthropic or OpenAI)
+// (or an admin-added API-key provider)
 // for {verdict, priority, summary, reasoning} side by side. For event research notes a person can adopt an answer.
 (() => {
-  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic", "openai-api": "OpenAI" };
+  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic (via Hermes)", "openai-api": "OpenAI (via Hermes)" };
   let M = null, dlg = null;
-  const models = async () => (M = M || await api("/api/llm/models"));
+  const models = async () => { M = M || await api("/api/llm/models"); for (const g of M.custom || []) PROV[g.provider] = g.name; return M; };
   const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter((k) => k != null)); return e; };
   const VCLS = { malicious: "sev-high", suspicious: "sev-high", "needs-review": "sev-medium", benign: "sev-good", expected: "sev-good" };
 
@@ -49,7 +50,8 @@
       pick.append(el("div", { className: "small muted", textContent: "Pick up to 4 models. Each sees only this item's data (no tools or web lookups) and gives a verdict, priority and reasoning." }));
       const loaded = (L.local || []).find((m) => m.loaded)?.id;
       const def = new Set([`lmstudio|${loaded}`, "anthropic|claude-sonnet-5-5", "anthropic|claude-opus-5-5"]);
-      for (const [prov, id, extra] of [...(L.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(L.anthropic || []).map((m) => ["anthropic", m.id, ""]), ...(L.openai || []).map((m) => ["openai-api", m.id, ""])]) {
+      for (const [prov, id, extra] of [...(L.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(L.anthropic || []).map((m) => ["anthropic", m.id, ""]), ...(L.openai || []).map((m) => ["openai-api", m.id, ""]),
+        ...(L.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))]) {
         const cb = el("input", { type: "checkbox", value: `${prov}|${id}`, checked: def.has(`${prov}|${id}`) });
         cb.onchange = () => { if (pick.querySelectorAll("input:checked").length > 4) cb.checked = false; };
         pick.append(el("label", { className: "cmp-opt" }, cb, ` ${id}`, el("span", { className: "muted small", textContent: ` ${PROV[prov]}${extra}` })));
