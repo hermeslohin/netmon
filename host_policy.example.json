@@ -48,8 +48,7 @@
   "/sbin/apk",
   "/usr/lib/systemd/",
   "/usr/lib64/chromium",
-  "/usr/libexec/cockpit-",
-  "/home/YOUR_USER/.hermes/tools/chromium-"
+  "/usr/libexec/cockpit-"
  ],
  "suspicious_exec_dirs": [
   "/tmp/",
@@ -199,8 +198,6 @@
   "/Applications/Safari.app/",
   "/Library/Elastic/",
   "/System/Library/",
-  "/home/YOUR_USER/.hermes/hermes-agent/",
-  "/home/YOUR_USER/.hermes/tools/",
   "/opt/Elastic/",
   "/usr/bin/cloudflared",
   "/usr/bin/dnf",
@@ -212,17 +209,15 @@
  ],
  "_doc_net": "Host network rules: suspicious_ports = outbound to Internet on these ports is Investigate; quiet_procs = path prefixes exempt from 'new destination' (rotating CDN/update traffic). Shell/interpreter/netcat or temp-path binaries reaching the Internet are always Investigate.",
  "trusted_tool_paths": [
-  "/home/YOUR_USER/.hermes/tools/*",
-  "/home/YOUR_USER/.hermes/hermes-agent/*",
   "/home/YOUR_USER/.lmstudio/*",
   "/home/YOUR_USER/.local/bin/*"
  ],
  "trusted_script_dirs": [
-  "/home/YOUR_USER/.hermes/netmon",
-  "/home/YOUR_USER/.hermes/netmon/*"
+  "/home/YOUR_USER/netmon",
+  "/home/YOUR_USER/netmon/*"
  ],
  "_doc_trusted_scripts": "trusted_script_dirs: fnmatch globs matched against an interpreter's working directory / script args (from the Defend exec event). Network events of such processes are dropped from host network analysis - netmon's own collectors (feeds, RDAP, UniFi API) otherwise raise 'interpreter opened an Internet connection'.",
- "_doc_trusted": "trusted_tool_paths: fnmatch globs for known tools installed in hidden dirs (Hermes, LM Studio). They skip the temp/hidden-path and interpreter-to-Internet rules but are still covered by cmdline, service-parent, new-exec, binary-hash-change, MHR, threat-feed and new-destination rules.",
+ "_doc_trusted": "trusted_tool_paths: fnmatch globs for known tools installed in hidden dirs (e.g. LM Studio, AI tools). They skip the temp/hidden-path and interpreter-to-Internet rules but are still covered by cmdline, service-parent, new-exec, binary-hash-change, MHR, threat-feed and new-destination rules.",
  "service_parents": [
   "/(httpd|nginx|php-fpm|java|postgres|mysqld)$",
   "/\\.lmstudio/",
@@ -237,7 +232,7 @@
   "/containerd-shim[^/]*$"
  ],
  "service_child_suspicious": "/(ba|da|z|k|c|fi)?sh$|/(curl|wget|nc|ncat|netcat|socat|telnet|base64|xxd|perl|ruby|php|chmod|crontab|useradd|ssh|scp)$",
- "_doc_service": "service_parents: regexes on process.parent.executable for network/AI services; a child matching service_child_suspicious (shell, downloader, netcat...) is Investigate - the main sign of an exploited inference API, MCP tool or web app. Hermes (python) is deliberately NOT a service parent: it runs shells by design.",
+ "_doc_service": "service_parents: regexes on process.parent.executable for network/AI services; a child matching service_child_suspicious (shell, downloader, netcat...) is Investigate - the main sign of an exploited inference API, MCP tool or web app. a local AI agent running as plain python is deliberately NOT a service parent: it runs shells by design.",
  "package_managed_prefixes": [
   "/usr/bin/",
   "/usr/sbin/",
@@ -265,7 +260,7 @@
    "3389": "RDP",
    "5900": "VNC",
    "8888": "Jupyter-style port",
-   "9119": "Hermes web/API port",
+   "9119": "local AI agent web/API port",
    "2375": "Docker API unauthenticated",
    "6379": "Redis",
    "3000": "Open WebUI / dev server",

@@ -256,7 +256,7 @@ window.CARD_INFO = {
 "what": "Suricata IDS signatures that fired with this device as source or destination, with severity, role, hit count and last time."
 },
 "device|Identity": {
-"source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from policy.json and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the Claude triage run (twice a day).",
+"source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from policy.json and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the scheduled AI triage.",
 "use": "Check that the vendor and hostname match what you expect for this device. 'unknown' means it is not in your inventory: identify and add it. Several other IPs, or a very recent first-seen date, deserve a second look. Click the agent link for endpoint detail.",
 "what": "Who this device is: IP, MAC, vendor (from the MAC prefix), DHCP hostname, network zone and device class, inventory name, first/last seen and days seen, other IPs it has used, and any linked Elastic Agent host."
 },
