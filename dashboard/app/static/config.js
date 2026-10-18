@@ -1,4 +1,4 @@
-// More -> Configuration (#/config). Security Triage card: auto-close events the AI research marked "expected" / "benign".
+// More -> Configuration (#/config): Security Triage (auto-close "expected"/"benign" events) and Integrations (Elasticsearch, UniFi API).
 (() => {
   const EXPLAIN = {
     expected: `<b>Expected</b> — the activity is <i>supposed</i> to happen: a known device doing its known job, or something you did on purpose. Examples: a thermostat checking in with its vendor cloud, OneDrive keeping its push channel open, your own admin SSH logins, the dashboard sending web-push notifications. The detection is accurate (the traffic really is new or unusual against the baseline), it is just explained by normal, intended operation.`,
@@ -47,10 +47,76 @@
       if (confirm(`Reopen every auto-closed “${b.dataset.k}” item? They will not be auto-closed again (the option stays ${s[b.dataset.k] ? "on for new items" : "off"}).`)) save({ kind: b.dataset.k }, "/api/config/triage/reopen");
     }));
   }
+  /* ---------- Integrations: Elasticsearch (Security Onion) + UniFi API ---------- */
+  const fld = (id, label, val, ph, help, type = "text") => `<label class="cfg-f" style="display:block;margin:8px 0">
+      <span class="small"><b>${esc(label)}</b></span><br>
+      <input id="${id}" type="${type}" value="${esc(val || "")}" placeholder="${esc(ph || "")}" autocomplete="off" spellcheck="false"
+        style="width:min(560px,100%);box-sizing:border-box;padding:6px 8px;font-family:var(--mono,monospace)">
+      ${help ? `<div class="muted small">${help}</div>` : ""}</label>`;
+  const keyHelp = (I) => I.key_set ? `Saved key ${esc(I.key_hint)}. Leave blank to keep it; type a new one to replace it.
+      <label style="margin-left:8px"><input type="checkbox" class="cfg-clr"> remove the saved key (fall back to ${esc(I.key_fallback)})</label>`
+    : `Not set here, so the pipeline uses <span class="mono">${esc(I.key_fallback)}</span>${I.key_fallback_present === false ? " (missing)" : ""}. Keys are write-only: they are stored on the server (0600) and never shown again.`;
+  const who = (I) => I.updated_by ? `Last saved by ${esc(I.updated_by)} ${esc(ft(I.updated_at))}.` : "Never saved here (all defaults).";
+  function intCard(sec, title, intro, inner, I) {
+    const c = card(title, `<div class="sub" style="margin:0 0 4px">${intro}</div>${inner}
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+        <button class="cfg-save">Save</button><button class="cfg-test">Test connection</button>
+        <span class="cfg-msg small"></span></div>
+      <div class="cfg-res small" style="margin-top:6px"></div>
+      <div class="muted small" style="margin-top:6px">${who(I)}</div>`);
+    c.dataset.sec = sec; return c;
+  }
+  function formBody(c, sec, I) {
+    const v = (id) => c.querySelector("#" + id)?.value.trim() || "";
+    const b = { url: v(sec + "-url"), api_key: v(sec + "-key"), clear_key: !!c.querySelector(".cfg-clr")?.checked };
+    if (sec === "elasticsearch") b.indices = Object.fromEntries(Object.keys(I.index_defaults).map((k) => [k, v("es-ix-" + k)]));
+    return b;
+  }
+  function wire(c, sec, I, rerender) {
+    const msg = c.querySelector(".cfg-msg"), res = c.querySelector(".cfg-res");
+    c.querySelector(".cfg-save").onclick = async () => {
+      msg.textContent = "Saving…";
+      try { const R = await apiPost(`/api/config/integrations/${sec}`, formBody(c, sec, I)); rerender(R, sec, "Saved. Collectors pick it up on their next run."); }
+      catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
+    };
+    c.querySelector(".cfg-test").onclick = async () => {
+      msg.textContent = "Testing…"; res.innerHTML = "";
+      try {
+        const R = await apiPost(`/api/config/integrations/${sec}/test`, formBody(c, sec, I));
+        msg.innerHTML = R.ok ? '<span class="badge sev-good">Connected</span>' : '<span class="badge sev-high">Failed</span>';
+        if (sec === "elasticsearch" && R.indices) res.innerHTML = Object.entries(R.indices).map(([k, x]) =>
+          `<div>${x.ok ? "✅" : "❌"} <span class="mono">${esc(x.index)}</span> — ${x.ok ? `${Number(x.docs_24h).toLocaleString()} docs in the last 24h` : esc(x.error)}</div>`).join("");
+        else res.innerHTML = R.ok ? `Reached <span class="mono">${esc(R.url)}</span>: ${R.consoles} console(s), ${R.hosts} host(s) on this account.` : esc(R.error || "");
+      } catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
+    };
+  }
+  function paintInt(wrap, D, flash) {
+    wrap.innerHTML = `<h2 style="margin:18px 0 4px">Integrations</h2><div class="sub">Where netmon reads its data. Blank fields use the defaults shown, so
+      saving an empty form changes nothing. The host collectors (snapshots every 4h, the watcher every 15 min) use these on their next run.</div>`;
+    if (!D.admin) { wrap.insertAdjacentHTML("beforeend", `<div class="card"><div class="empty">Only an admin can view or change integrations.</div></div>`); return; }
+    const E = D.elasticsearch, U = D.unifi;
+    const ixRows = Object.keys(E.index_defaults).map((k) => fld("es-ix-" + k, E.index_labels[k], E.indices[k], E.index_defaults[k], `Default <span class="mono">${esc(E.index_defaults[k])}</span>. Comma-separated patterns and <span class="mono">*</span> are allowed.`)).join("");
+    const ce = intCard("elasticsearch", "Elasticsearch (Security Onion)", "Read-only API key with <span class=\"mono\">read</span> + <span class=\"mono\">view_index_metadata</span> on the indices below. TLS certificates are not verified (Security Onion uses its own CA).",
+      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (site.json): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
+      + fld("elasticsearch-key", "API key", "", E.key_set ? E.key_hint : "base64 id:key from Kibana › Stack Management › API keys", keyHelp(E), "password")
+      + `<div class="small" style="margin-top:12px"><b>Indices to search</b></div>` + ixRows, E);
+    const cu = intCard("unifi", "UniFi API", "Site Manager API key from <span class=\"mono\">unifi.ui.com › API</span>. netmon reads clients, devices and events through the console connector (read-only).",
+      fld("unifi-url", "URL", U.url, U.url_fallback, `Default <span class="mono">${esc(U.url_fallback)}</span> (Ubiquiti cloud). Use your console's address only if you run a local API proxy that speaks the same paths.`)
+      + fld("unifi-key", "API key", "", U.key_set ? U.key_hint : "UniFi Site Manager API key", keyHelp(U), "password"), U);
+    wrap.append(ce, cu);
+    const rerender = (R, sec, m) => { paintInt(wrap, R, { sec, m }); };
+    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender);
+    if (flash) { const m = wrap.querySelector(`[data-sec="${flash.sec}"] .cfg-msg`); if (m) m.innerHTML = `<span class="badge sev-good">${esc(flash.m)}</span>`; }
+  }
+
   V.config = async (el) => {
     el.innerHTML = `<h1>Configuration</h1><div class="sub">Dashboard-wide settings (they apply to every user).</div><div class="loading">Loading…</div>`;
-    let D; try { D = await api("/api/config/triage"); } catch (e) { el.querySelector(".loading").textContent = String(e); return; }
+    const [D, I] = await Promise.all([api("/api/config/triage").catch((e) => ({ _err: e })), api("/api/config/integrations").catch((e) => ({ _err: e }))]);
     el.querySelector(".loading").remove();
-    paint(el, D);
+    const tri = document.createElement("div"), ints = document.createElement("div"); tri.id = "cfg-tri-wrap"; ints.id = "cfg-int-wrap";
+    el.append(tri, ints);
+    tri.innerHTML = `<h2 style="margin:12px 0 4px">Security Triage</h2>`;
+    if (D._err) tri.insertAdjacentHTML("beforeend", `<div class="empty">${esc(String(D._err))}</div>`); else paint(tri, D);
+    if (I._err) ints.innerHTML = `<div class="empty">${esc(String(I._err))}</div>`; else paintInt(ints, I);
   };
 })();

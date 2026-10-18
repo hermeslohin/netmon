@@ -4,13 +4,12 @@ import json, os, ssl, sys, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
-HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
-KEY = next(l.split("=", 1)[1].strip().strip("'\"") for l in open(f"{HOME}/.env")
-           if l.startswith("MCP_SO_ELASTICSEARCH_API_KEY="))
+import integrations as INTEG  # noqa: E402  dashboard settings, else site.json es_url / ~/.hermes/.env key
+KEY = INTEG.es_key()
 
 
 def q(index, body):
-    req = urllib.request.Request(f"{SITE.get('es_url')}/{index}/_search", data=json.dumps(body).encode(),
+    req = urllib.request.Request(f"{INTEG.es_url()}/{INTEG.map_index(index)}/_search", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"ApiKey {KEY}", "Content-Type": "application/json"})
     return json.load(urllib.request.urlopen(req, context=ssl._create_unverified_context(), timeout=180))
 

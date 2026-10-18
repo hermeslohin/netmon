@@ -53,6 +53,9 @@ if ROOT not in sys.path:
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
 import pushsvc  # noqa: E402  web push for urgent alerts
 import site_cfg as SITE  # noqa: E402  network-specific values (/netmon/site.json, git-ignored)
+os.environ.setdefault("NETMON_INTEGRATIONS", os.path.join(STATE, "integrations.json"))  # writable /state, 0600
+os.environ["NETMON_IN_DASHBOARD"] = "1"
+import integrations  # noqa: E402  /netmon/integrations.py: Elasticsearch + UniFi settings (More > Configuration)
 SELF_IP, SELF_HOST = SITE.get("self_ip") or "", SITE.get("self_host") or "netmon-host"
 REPORTS = os.environ.get("REPORTS_DIR", "/reports")  # nightly PDFs (read-only mount of ~/network_reports)
 REPORT_RE = re.compile(r"^network-report-(\d{4}-\d{2}-\d{2}T\d{4}Z)\.pdf$")
@@ -522,6 +525,20 @@ class H(BaseHTTPRequestHandler):
             if u.path in ("/api/llm/config", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt") or (u.path == "/api/aireview" and body.get("action") == "adopt"):
                 if user not in ADMINS:
                     return self._json({"error": "only an admin can change models or run comparisons"}, 403)
+            if u.path.startswith("/api/config/integrations/"):
+                if user not in ADMINS:
+                    return self._json({"error": "only an admin can view or change integrations"}, 403)
+                parts = u.path.split("/")  # /api/config/integrations/<section>[/test]
+                sec = parts[4] if len(parts) > 4 else ""
+                try:
+                    if len(parts) > 5 and parts[5] == "test":
+                        return self._json(integrations.test(sec, body))
+                    r = integrations.save(sec, body, user)
+                    print(f"integrations: {user} saved {sec} (url={'set' if body.get('url') else 'default'}, "
+                          f"key={'cleared' if body.get('clear_key') else 'changed' if body.get('api_key') else 'kept'})", file=sys.stderr)
+                    return self._json({**r, "admin": True})
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
             if u.path in ("/api/config/triage", "/api/config/triage/reopen"):
                 if user not in ADMINS:
                     return self._json({"error": "only an admin can change Security Triage settings"}, 403)
@@ -656,6 +673,10 @@ class H(BaseHTTPRequestHandler):
                 return self._json(res) if res else self._json({"error": "not found"}, 404)
             if path == "/api/acks":
                 return self._json(read_acks())
+            if path == "/api/config/integrations":
+                if user not in ADMINS:
+                    return self._json({"admin": False})
+                return self._json({**integrations.public(), "admin": True})
             if path == "/api/config/triage":
                 inp = autoclose_inputs()
                 return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "admin": user in ADMINS})

@@ -15,9 +15,10 @@ from collections import Counter, defaultdict
 import datetime as dt
 
 KEY_FILE = os.environ.get("UNIFI_API_KEY_FILE") or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "secrets", "unifi_api_key")
-API = "https://api.ui.com"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
+import integrations as INTEG  # noqa: E402  URL/key from the dashboard (More > Configuration), else defaults below
+API = INTEG.unifi_url()  # default https://api.ui.com
 HOME_WAN = SITE.get("home_wan")      # admin access from here / the LAN / the VPN is expected
 SKILL_INV = os.environ.get("NETMON_DEVICE_TABLE") or os.path.expanduser("~/.hermes/skills/network/home-network-devices/SKILL.md")  # optional
 _KEY = None
@@ -26,7 +27,7 @@ _BASE = None
 
 def _req(url, body=None, timeout=40):
     global _KEY
-    _KEY = _KEY or open(KEY_FILE).read().strip()
+    _KEY = _KEY or INTEG.unifi_key() or open(KEY_FILE).read().strip()
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"X-API-KEY": _KEY, "Accept": "application/json",
                                           "Content-Type": "application/json"},
@@ -110,8 +111,8 @@ def expected_admin_ip(ip):
 
 
 def collect(hours=24):
-    if not os.path.exists(KEY_FILE):  # UniFi is optional
-        return {"skipped": f"no UniFi API key at {KEY_FILE}"}
+    if not INTEG.unifi_key():  # UniFi is optional
+        return {"skipped": f"no UniFi API key (dashboard Configuration > Integrations or {KEY_FILE})"}
     t1 = int(time.time() * 1000)
     t0 = t1 - hours * 3600_000
     out, errors = {"window_hours": hours}, {}

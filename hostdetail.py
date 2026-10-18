@@ -8,18 +8,9 @@ import collections, json, os, re, ssl, sys, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 
-ES = os.environ.get("ES_URL", SITE.get("es_url"))
-def _key():
-    if os.environ.get("ES_API_KEY"):
-        return os.environ["ES_API_KEY"]
-    try:
-        return next(l.split("=", 1)[1].strip().strip("'\"") for l in open(os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), ".env"))
-                    if l.startswith("MCP_SO_ELASTICSEARCH_API_KEY="))
-    except (OSError, StopIteration):
-        return ""
-
-
-KEY = _key()
+import integrations as INTEG  # noqa: E402  ES_URL/ES_API_KEY env, else dashboard settings, else site.json / ~/.hermes/.env
+ES = INTEG.es_url()
+KEY = INTEG.es_key()
 AUTH = "logs-system.auth-default"
 POLICY = "metrics-endpoint.policy-default"
 _ctx = ssl._create_unverified_context()  # SO uses its own CA
@@ -48,7 +39,7 @@ def configured():
 
 
 def q(index, body):
-    req = urllib.request.Request(f"{ES}/{index}/_search", data=json.dumps(body).encode(),
+    req = urllib.request.Request(f"{ES}/{INTEG.map_index(index)}/_search", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"ApiKey {KEY}", "Content-Type": "application/json"})
     return json.load(urllib.request.urlopen(req, context=_ctx, timeout=60))
 

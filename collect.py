@@ -11,16 +11,17 @@ NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 HOURS = int(sys.argv[1]) if len(sys.argv) > 1 else 24
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
-ES = SITE.get("es_url")
+import integrations as INTEG  # noqa: E402  ES/UniFi settings from the dashboard (More > Configuration), fallbacks below
+ES = INTEG.es_url()
 SELF_IP = SITE.get("self_ip")
 NET = SITE.get("internal_cidr")
 
 
 def env_key():
-    for line in open(os.path.join(HOME, ".env")):
-        if line.startswith("MCP_SO_ELASTICSEARCH_API_KEY="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("API key missing")
+    k = INTEG.es_key()  # dashboard setting, else ~/.hermes/.env MCP_SO_ELASTICSEARCH_API_KEY
+    if not k:
+        raise SystemExit("API key missing")
+    return k
 
 
 KEY = env_key()
@@ -28,7 +29,7 @@ CTX = ssl._create_unverified_context()
 
 
 def q(index, body):
-    req = urllib.request.Request(f"{ES}/{index}/_search", data=json.dumps(body).encode(),
+    req = urllib.request.Request(f"{ES}/{INTEG.map_index(index)}/_search", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"ApiKey {KEY}", "Content-Type": "application/json"})
     return json.load(urllib.request.urlopen(req, context=CTX, timeout=180))
 
