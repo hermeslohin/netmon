@@ -28,8 +28,8 @@ netmon watches the home network and the computers on it and tells you what chang
 | When | What runs | What you get |
 |---|---|---|
 | Every 15 minutes | **Urgent watcher.** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
-| Twice a day (05 and 17 UTC; interval set on the Config page) | **Collection, analysis, Claude triage and research.** | A new *snapshot* (the last 24 hours), triage alarms, research notes on events, and correlation reviews. |
-| 05:00 UTC (1 AM Eastern in summer) | The same run, plus the **PDF report** and a news briefing. | A downloadable PDF on the Reports page. |
+| Every few hours (the **research job**; interval set on the Configuration page, 30 min to 24 h, default every 4 h on a grid starting at 05:00 UTC) | **Collection, analysis, AI triage and research.** | A new *snapshot* (the lookback window, 24 hours by default), triage alarms, research notes on events, and correlation reviews. |
+| First run at or after 05:00 UTC (1 AM Eastern in summer) | The same run, always over 24 hours, plus the **PDF report** and a news briefing. | A downloadable PDF on the Reports page. |
 | All the time | The **correlation reviewer**, a local AI model. | It decides which events are really related (see [AI review](#ai-review)). |
 
 The data comes from:
@@ -62,7 +62,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
 | **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map. |
 | **Devices ▾** | Hosts (everything on the network) and Endpoints (computers running the Elastic Agent). |
-| **More ▾** | Reports, Ask Hermes, AI review, Checked, Users. |
+| **More ▾** | Reports, Ask AI, AI review, Checked, Users. |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
 | **🕒 Time range** | The start and end of the time you are looking at (your local time). The newest nightly report's 24 hours are shown by default. Click it to set a **Start** and **End** date and time, use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**), or pick a **Nightly report window**. See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (and moves to a newer report if you were on the newest). |
 
@@ -112,11 +112,11 @@ Every page is made of boxes (cards).
 |---|---|
 | ☐ (check box) | **Check off**, meaning "I've looked at this". The item is hidden from its list. See [Checking things off](#checking-things-off). |
 | ☐ **Clear** (green) | On segmentation violations: "this flow is expected". See [Segmentation](#segmentation-violations). |
-| 💬 | **Ask Hermes** about this item. See [Ask Hermes](#ask-hermes). |
+| 💬 | **Ask AI** about this item. See [Ask AI](#ask-ai). |
 | ⇄ (purple) | **Compare models**: ask several AI models for their assessment of this item. Admins only. |
 | 🔎 (blue) | **Open in Kibana**: a list of links to the raw events behind this item in Kibana Discover (IDS alerts, Zeek connections/DNS/TLS, endpoint and syslog events), already filtered to the IPs, host, signature or process involved and to the item's time range (or the snapshot window). On gateway events it also links to the UniFi web app (Security detections, Flows; search for the source IP there). Shown on baseline findings, IDS signatures, host findings, beacon candidates, triage alarms and gateway events. |
 | **Related** (number) | Other events linked to this one. Click it for the list. See [Related events](#related-events). |
-| ✨ *verdict* | Claude's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
+| ✨ *verdict* | The AI's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
 | ✨ *model name* | Marks text written by an AI and which model wrote it. |
 
 ![Host findings table with check boxes, Ask, Compare, Related and research-note buttons](img/posture-host-findings.png)
@@ -159,7 +159,7 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 
 | Term | Where | Meaning |
 |---|---|---|
-| **Investigate / Review / Info** | Triage alarms, research notes | Claude's priority. *Investigate* means look at it now. *Review* means look when you can. *Info* means explained and benign. |
+| **Investigate / Review / Info** | Triage alarms, research notes | The AI's priority. *Investigate* means look at it now. *Review* means look when you can. *Info* means explained and benign. |
 | **high / medium / low** | Baseline and host findings, IDS | How serious the rule considers it. |
 | **malicious / suspicious / needs-review / benign / expected** | Research notes, comparisons | The AI's verdict after looking into it. |
 
@@ -194,7 +194,7 @@ The **Related** column shows how many links an event has. Click it to see them, 
 
 ### Research notes on events
 
-On every research run (twice a day) Claude researches the important events. The work list includes:
+On every research run the AI researches the important events, in batches of 8 (at most the *research batches* limit per run). The work list includes:
 
 - every host finding;
 - every Suricata severity 1 and 2 signature;
@@ -224,8 +224,8 @@ The one-page summary of the selected snapshot.
 
 ![Overview page](img/overview.png)
 
-- **Tiles:** devices seen, traffic, IDS alerts, high findings, alarms Claude wants investigated, unhealthy endpoints, threat-intel hits, capture loss, recurring issues and the highest-risk host.
-- **Triage summary and alarms:** Claude's short write-up of the window, and the alarms to look at.
+- **Tiles:** devices seen, traffic, IDS alerts, high findings, alarms the AI wants investigated, unhealthy endpoints, threat-intel hits, capture loss, recurring issues and the highest-risk host.
+- **Triage summary and alarms:** the AI's short write-up of the window, and the alarms to look at.
 - **Charts:** traffic per hour, top talkers, findings by severity and kind, devices by zone.
 - **Health:** the endpoint fleet and the gateway's health.
 
@@ -242,7 +242,7 @@ The main working page.
 
 | Box | What it is |
 |---|---|
-| Triage summary / Triage alarms | Claude's assessment of the window, with Investigate / Review / Info alarms. Each alarm says who, what was seen, why it matters, what to do next, and gives sources. |
+| Triage summary / Triage alarms | The AI's assessment of the window, with Investigate / Review / Info alarms. Each alarm says who, what was seen, why it matters, what to do next, and gives sources. |
 | Research notes | Background research from the triage run, with numbered sources. |
 | Baseline findings | Things a device did differently from its own normal: new ports or services, traffic spikes, new countries or ASNs, new DNS habits, new TLS fingerprints. Needs 3 days of history. |
 | Cleared segmentation | Flows you marked as expected. |
@@ -337,9 +337,9 @@ Computers running the Elastic Agent: agent health, telemetry and auth/sudo/Defen
 
 The daily PDF reports (see [section 8](#8-reports)).
 
-### More → Ask Hermes
+### More → Ask AI
 
-The AI assistant (see [Ask Hermes](#ask-hermes)).
+The AI assistant (see [Ask AI](#ask-ai)).
 
 ### More → AI review
 
@@ -360,7 +360,7 @@ Accounts and their roles (see [section 10](#10-admin-tasks)). Network defenders 
 Admins only. A record of who did what in the dashboard and of every conversation between the dashboard and an AI model.
 
 - **User actions**: sign-ins (failed ones too), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, model comparisons, settings and user changes, report downloads and every refused request. Each entry has the user, role, time, source IP, browser and the result (HTTP status).
-- **AI conversations**: Ask Hermes chats, the background correlation reviewer, model comparisons and the research job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
+- **AI conversations**: Ask AI chats, the background correlation reviewer, model comparisons and the research job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
 - Passwords, keys and tokens are replaced by `[redacted]` before anything is stored.
 
 Filter by type, time range (a quick range, or **From** / **To** dates and times), user, action, outcome or model, or search the text (this searches prompts and answers too). Click an entry to see all its details. Filters are kept in the address, so you can bookmark a view.
@@ -385,22 +385,22 @@ Full details (every recorded action, fields, Kibana queries, retention, troubles
 
 netmon uses two kinds of AI:
 
-- **Claude** (Anthropic, a cloud service): triage, web research and the PDF report.
-- **A local model** (LM Studio, running on the monitoring computer): the correlation reviewer. It runs all the time and costs nothing per request.
+- **A cloud AI provider** of your choice (any OpenAI-compatible service or Anthropic, added by an admin on **AI review → AI providers**): the research job's triage, web research and news briefing, and the Ask AI chat.
+- **A local model** (LM Studio, running on the monitoring computer): the correlation reviewer. It runs all the time and costs nothing per request. It can also be chosen for the research job or the chat.
 
 Anything an AI wrote is labelled ✨ with the model name.
 
-### Ask Hermes
+### Ask AI
 
-A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data and reports, and search the web. It is **read-only**: it cannot change anything.
+A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data, notes and reports, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI review → Models**; until one is chosen, the chat is off.
 
-- **Starting a chat:** open **More → Ask Hermes** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
-- **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What Hermes will be given* shows exactly what is sent.
-- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the assistant's usual model), any Anthropic model, any OpenAI model (once a key is saved on AI review > Models), or any local LM Studio model. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
+- **Starting a chat:** open **More → Ask AI** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
+- **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What the AI will be given* shows exactly what is sent.
+- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the chat model set on AI review > Models), any model of the providers added on AI review > AI providers, or any local LM Studio model. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
 
-Answers can be wrong. Check important findings on the dashboard pages.
+Limits: 40 messages per person per hour, 4,000 characters per message. Answers can be wrong. Check important findings on the dashboard pages.
 
-![Ask Hermes chat page](img/ask-hermes.png)
+![Ask AI chat page](img/ask-ai.png)
 
 ![Ask about this dialog with suggested questions and the Model menu](img/ask-dialog.png)
 *The 💬 dialog: suggested questions, your own question, and the Model menu (admins).*
@@ -419,7 +419,7 @@ The purple **⇄** button asks several models for their opinion on one item, sid
 **How to use it:**
 
 1. Click **⇄**.
-2. Tick up to 4 models. The loaded local model, Claude Sonnet and Claude Opus are ticked by default.
+2. Tick up to 4 models. The loaded local model is ticked by default.
 3. Click **Run comparison**.
 
 ![Compare dialog: picking models](img/compare-pick.png)
@@ -444,26 +444,26 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 
 | Box | What it shows |
 |---|---|
-| **Models** | The model for the **correlation reviewer** and for the **research job** (local, Anthropic or OpenAI). Admins change them here (see the cost notes below). Picking a different **research job** model (before pressing Save) adds a dashed "Cost with <model>" line to the **Time and tokens per research run** chart and a line under its title with the estimated cost per run and per month: the recorded runs' tokens re-priced at that model's list price (a rough guide, since another model would use a different number of tokens). Admins can also paste an **OpenAI API key** here: it is checked with OpenAI, saved in Hermes (never shown again, only its last 4 characters), and OpenAI models then appear in every model menu. **Remove** deletes it. The research job runs inside Hermes, so its menu only offers LM Studio and Hermes' Anthropic / OpenAI models; the correlation reviewer can also use any provider from **AI providers**. |
-| **AI providers** (admins) | AI services the dashboard calls itself, with an API key (no Hermes needed). **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek or a self-hosted vLLM; **Anthropic** is Claude with an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer (**Fetch from provider** lists the models the key can use; tick the ones you want). **Calls per hour** caps each provider (the reviewer and comparisons stop with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering (OpenAI gpt-5 / o-series) room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use as the correlation reviewer can't be deleted. Its models appear in the reviewer menu and in every Compare dialog. |
-| **Cost limits** | Admins set a dollar cap **per run** (one research-job firing, or one message to Hermes, subagents included) and **per session** (a whole conversation, all its runs added up). Hermes stops the work right after the model call that passes a cap (it can overshoot by one call). 0 = no limit. The box shows what recent research runs cost, warns when a cap would have stopped them, and lists recent stops. It sets the Hermes `cost_limit` plugin; the correlation reviewer, comparisons and Ask Hermes are not covered. |
+| **Models** | The model for the **correlation reviewer**, the **research job** and the **chat (Ask AI)**: a local LM Studio model or any model of the providers in **AI providers**. The research job and the chat are off until a model is chosen. Admins change them here (see the cost notes below). Picking a different **research job** model (before pressing Save) adds a dashed "Cost with <model>" line to the **Time and tokens per research run** chart and a line under its title with the estimated cost per run and per month: the recorded runs' tokens re-priced at that model's price as entered on its provider (a rough guide, since another model would use a different number of tokens). |
+| **AI providers** (admins) | The AI services netmon calls, each with its own API key. **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint or a self-hosted vLLM; **Anthropic** takes an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer, one per line (**Fetch from provider** lists the models the key can use). After a model id you can add its prices in $ per million tokens, `model input output [cached-input]`; they drive the cost estimates and the $ limits. **Calls per hour** caps each provider's single calls (the reviewer and comparisons stop with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, they are removed from error messages, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use by the reviewer, the research job or the chat can't be deleted. Its models appear in every model menu and Compare dialog. |
+| **Research job limits** (admins) | Caps for the research job: **$ per run** (default 5), **$ per day** (UTC, default 20), **tokens per run** (input + output, works without prices) and **research batches** per run (8 events each, default 10). A run stops when it passes a cap, and no new run starts once the day's cap is reached. 0 = no limit. The $ caps need prices on the model's provider. The reviewer, comparisons and Ask AI have their own limits (calls per hour, chat limits). |
 | **Research lookback window** | Admins set how many hours of logs (1-24, default 24) each research run collects and reviews. A window a little longer than the run interval (the box suggests interval + 1 h) cuts the cost of each run without leaving gaps; a window shorter than the interval leaves hours unreviewed, and the box warns about it. The daily 05:00 UTC PDF run always covers 24 h, and only full-day snapshots go into the device baseline. Between PDF runs the newest snapshot on the dashboard covers only the window, and a short run can open a Fix-list item but never mark one fixed. |
-| **Claude triage & enrichment** | Whether a research run is going on now, the schedule and next run, recent runs and how long they took, each enrichment pass (events researched, links reviewed), how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
-| **Time and tokens per research run** | Run time plus the tokens of each research run, split into new input, cache writes and output. Cache re-reads (the conversation re-sent on every API call; ~95% of the raw input count but billed at ~10% of the input price) are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost at API list prices. Runs Hermes couldn't split show as one grey input bar. |
+| **AI triage & enrichment** | Whether a research run is going on now, the schedule and next run, **Run now** and **Pause** buttons (admins), recent runs and how long they took, each enrichment pass (events researched, links reviewed), how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
+| **Time and tokens per research run** | Run time plus the tokens of each research run, split into new input, cache writes and output. Cache re-reads (the conversation re-sent on every API call; ~95% of the raw input count but billed at ~10% of the input price) are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost from the prices entered on the provider. |
 | **Reviewer** | The correlation reviewer's model, its queue and its throughput. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
 | **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), ask for a new review (↻), or **⇄ compare** models on it. Manual decisions always win and are never overwritten. |
 
-![Claude triage and enrichment card with the time and tokens chart](img/aireview-claude.png)
+![AI triage and enrichment card with the time and tokens chart](img/aireview-research.png)
 
 ![Correlation decisions with compare, confirm, reject and re-review buttons](img/aireview-decisions.png)
 
 ### Things to know about model choices
 
-- **Anthropic and OpenAI models** are faster and better at research, but cost money per request:
-  - **Research job:** a run uses several million tokens.
+- **Cloud models** are faster and better at research, but cost money per request:
+  - **Research job:** a run uses several million tokens, and shorter intervals mean more runs. The **Research job limits** box caps it.
   - **Correlation reviewer:** if it uses a cloud model, it decides every new link around the clock.
-  - **Cap:** a safety limit of 120 cloud-model requests an hour (Anthropic and OpenAI together) applies to comparisons and the reviewer.
+  - **Cap:** each provider's **calls per hour** (default 120) applies to comparisons and the reviewer.
 - **Local models** are free, but slower and weaker at research and tool use. A model that isn't loaded in LM Studio has to load first, which takes time and may unload the model the reviewer is using.
 
 ---
@@ -509,8 +509,8 @@ The other runs of the day update the dashboard but don't make a PDF.
 
 Every account has a role (full table in [ACCESS_CONTROL.md](ACCESS_CONTROL.md)):
 
-- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Security Triage settings, change the correlation and research models, run model comparisons and use "Use this", and choose the model in Ask Hermes.
-- **Network defender:** sees every page, can check things off, write notes, confirm or reject AI links and use Ask Hermes (default model), but can't change settings. Configuration and Users are read-only.
+- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Security Triage settings, change the correlation and research models, run model comparisons and use "Use this", manage AI providers and research-job limits, and choose the model per message in Ask AI.
+- **Network defender:** sees every page, can check things off, write notes, confirm or reject AI links and use Ask AI (the configured chat model), but can't change settings. Configuration and Users are read-only.
 - **User:** sees only the alerts and security events of the devices assigned to them (**My devices** and **Alerts**), and gets push notifications only for those.
 
 **More → Users** (admins) lets you:
@@ -548,8 +548,8 @@ Baselines need 3 days of history before deviation rules switch on. Until then th
 **The research note says "written for an earlier run".**
 The note was written for the same finding in an earlier snapshot, so the numbers in it may be out of date. It is refreshed when the evidence changes enough.
 
-**Ask Hermes says it is unavailable.**
-The assistant service may be restarting. Try again in a minute. If it keeps failing, tell the admin.
+**Ask AI says it is unavailable or not configured.**
+No chat model is chosen yet, or the AI provider didn't answer. Try again in a minute. If it keeps failing, tell the admin (AI review → AI providers → **Test**).
 
 **AI review shows "Last run failed".**
 The latest research run failed. The error is shown in the box. The next scheduled run usually recovers; otherwise tell the admin.
@@ -563,9 +563,9 @@ That model didn't return a usable answer, or wasn't reachable (for example LM St
 
 | Term | Meaning |
 |---|---|
-| **Snapshot** | One collection run covering the previous 24 hours. A new one is made on every research run (twice a day). |
+| **Snapshot** | One collection run covering the previous 24 hours. A new one is made on every research run. |
 | **Baseline** | What is normal for each device, learned from about one snapshot a day over the last 30 days. |
-| **Triage** | Claude's review of a snapshot: a summary plus Investigate / Review / Info alarms. |
+| **Triage** | The AI's review of a snapshot: a summary plus Investigate / Review / Info alarms. |
 | **Finding** | Something a rule flagged: a *baseline* finding (network behaviour) or a *host* finding (on the computer itself). |
 | **IDS / Suricata** | Intrusion detection: rules that match known attack or suspicious traffic patterns. Severity 1 is highest. |
 | **Zeek** | Network sensor that logs every connection, DNS query, TLS handshake and file. |
@@ -578,5 +578,5 @@ That model didn't return a usable answer, or wasn't reachable (for example LM St
 | **JA3 / JA4** | Fingerprints of the software that opened a TLS (HTTPS) connection. |
 | **ATT&CK** | MITRE's catalogue of attacker techniques. |
 | **Correlation** | Linking events that are about the same activity. |
-| **Research note** | Claude's per-event research: verdict, summary, evidence and sources. |
+| **Research note** | The AI's per-event research: verdict, summary, evidence and sources. |
 | **Capture loss** | Traffic the sensor couldn't record. High loss means parts of the network are invisible. |

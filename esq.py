@@ -4,7 +4,7 @@ import json, os, ssl, sys, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
-import integrations as INTEG  # noqa: E402  dashboard settings, else site.json es_url / ~/.hermes/.env key
+import integrations as INTEG  # noqa: E402  dashboard settings, else site.json es_url / host secrets file key
 KEY = INTEG.es_key()
 
 

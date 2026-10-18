@@ -32,7 +32,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/costlimit", "/api/llm/openai-key", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/research", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -70,40 +70,21 @@ def my_events(user):
         print(f"my notes unavailable: {e}", file=sys.stderr)
         un = {}
     return {"snapshot": sid, "devices": assigned_devices(user), "events": out, "unotes": un}
-LLM_PROVIDERS = ("lmstudio", "anthropic", "openai-api")  # built-ins; admin-added API-key providers are "api:<id>" (llm_providers.py)
-PROV_LIST = {"anthropic": "anthropic", "openai-api": "openai", "lmstudio": "local"}  # provider -> /models list
-HERMES_PROVIDERS = LLM_PROVIDERS  # what the research job and Ask Hermes (both run in Hermes) can use
-
-
 def llm_models():
-    """Models the AI review page may choose: from the host broker (Anthropic + OpenAI + LM Studio), else LM Studio only,
-    plus the admin-added API-key providers ("custom", called directly by the dashboard)."""
+    """Models the AI review page may choose: the local LM Studio server ("local") and the admin-added API-key
+    providers ("custom", llm_providers.py)."""
     try:
         cu = llm_providers.model_groups()
-    except Exception as e:  # noqa: BLE001 - a broken providers file must not hide the built-in models
+    except Exception as e:  # noqa: BLE001 - a broken providers file must not hide the local models
         print(f"llm providers unreadable: {e}", file=sys.stderr)
         cu = []
-    return {**_broker_models(), "custom": cu}
-
-
-def _broker_models():
-    try:
-        return corr_llm.broker("/models", timeout=15)
-    except Exception as e:  # noqa: BLE001 - broker down: local models still work
-        try:
-            d = corr_llm._get(corr_llm.URL.replace("/v1", "/api/v0") + "/models", timeout=5)
-            loc = [{"id": m["id"], "loaded": m.get("state") == "loaded"} for m in d.get("data", []) if m.get("type") in ("llm", "vlm")]
-        except Exception:  # noqa: BLE001
-            loc = []
-        return {"anthropic": [], "openai": [], "local": loc, "error": f"LLM broker unavailable: {str(e)[:160]}"}
+    return {"local": llm_providers.local_models(), "custom": cu}
 
 
 def llm_allowed(provider, model, M=None):
-    if llm_providers.is_custom(provider):
-        return llm_providers.allowed(provider, model)
-    M = M or llm_models()
-    lst = PROV_LIST.get(provider)
-    return bool(lst) and model in {m["id"] for m in M.get(lst, [])}
+    return llm_providers.known(provider) and llm_providers.allowed(provider, model)
+
+
 DATA = os.path.join(ROOT, "data")
 BASE = os.path.join(ROOT, "baseline")
 STATE = os.environ.get("STATE_DIR", "/state")
@@ -113,6 +94,7 @@ if ROOT not in sys.path:
     sys.path.append(ROOT)
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
 import lookback  # noqa: E402  /netmon/lookback.py: research job lookback window (AI review page)
+import research_cfg  # noqa: E402  /netmon/research_cfg.py: research job model, schedule, cost caps (store meta table)
 import pushsvc  # noqa: E402  web push for urgent alerts
 import site_cfg as SITE  # noqa: E402  network-specific values (/netmon/site.json, git-ignored)
 os.environ.setdefault("NETMON_INTEGRATIONS", os.path.join(STATE, "integrations.json"))  # writable /state, 0600
@@ -405,19 +387,22 @@ def autoclose_inputs():
     return res["raw"], res["analysis"], open_iss, other
 
 
-_review_cache = {}
-
-
 def review_job():
-    """The review (research) cron job's schedule, from the host broker; cached 60 s."""
-    if _review_cache.get("t", 0) > time.time() - 60:
-        return _review_cache["v"]
+    """The research job's settings + run state (research_cfg.py / research_job.json) for the AI review and
+    Configuration pages."""
     try:
-        v = corr_llm.broker("/research", timeout=10)
-    except Exception as e:  # noqa: BLE001 - broker down: page still works, schedule just isn't shown
-        v = {"error": f"LLM broker unavailable: {str(e)[:160]}"}
-    _review_cache.update(t=time.time(), v=v)
-    return v
+        cfg, st = research_cfg.get(), research_cfg.status()
+    except Exception as e:  # noqa: BLE001 - page still works, schedule just isn't shown
+        return {"error": f"research job settings unavailable: {str(e)[:160]}"}
+    runs = st.get("runs") or []
+    last = next((r for r in runs if r.get("status") != "running"), {})
+    return {"job": "research", "name": "Research job", "model": cfg["model"], "provider": cfg["provider"],
+            "provider_name": llm_providers.name(cfg["provider"]) if cfg["provider"] else "",
+            "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": research_cfg.next_run(),
+            "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
+            "requested": research_cfg.pending_request(),
+            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches")},
+            "spent_today_usd": round(research_cfg.spent_today(), 2), "limit_ranges": cfg["limits"]}
 
 
 def acks_load_all():
@@ -571,7 +556,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
 
     def _chat_send(self, user, body):
-        """Relay one Hermes turn to the browser as server-sent events (text/event-stream)."""
+        """Run one chat turn (chat.py) and send its events to the browser as server-sent events (text/event-stream)."""
         cid, text = str(body.get("id", "")), str(body.get("text", "")).strip()
         if not text:
             return self._json({"error": "empty message"}, 400)
@@ -596,7 +581,7 @@ class H(BaseHTTPRequestHandler):
         chat_model, m = None, body.get("model")
         if isinstance(m, dict) and m.get("model") and auth.role_of(user) == "admin":
             m = {"provider": str(m.get("provider", ""))[:40], "model": str(m.get("model", ""))[:120]}
-            if m["provider"] in LLM_PROVIDERS and llm_allowed(m["provider"], m["model"]):
+            if llm_allowed(m["provider"], m["model"]):
                 chat_model = m
         print(f"chat: {user} -> {cid} ({len(text)} chars){' model ' + chat_model['model'] if chat_model else ''}", file=sys.stderr)
         rec, t0 = {}, time.time()
@@ -606,7 +591,7 @@ class H(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             print(f"chat: {user} disconnected mid-answer", file=sys.stderr)
             rec.update(status="disconnected", error="browser disconnected mid-answer")
-        except Exception as e:  # Hermes down / timeout: tell the browser, keep the server alive
+        except Exception as e:  # provider down / timeout: tell the browser, keep the server alive
             print(f"chat error for {user}: {e.__class__.__name__}: {e}", file=sys.stderr)
             rec.update(status="failed", error=f"{e.__class__.__name__}: {e}")
             try:
@@ -615,10 +600,10 @@ class H(BaseHTTPRequestHandler):
                 pass
         finally:
             try:
-                audit.llm("chat", rec.get("provider") or "hermes (netmonchat profile)", rec.get("model") or "", user=user, prompt=rec.get("input") or text,
+                audit.llm("chat", rec.get("provider") or "", rec.get("model") or "", user=user, prompt=rec.get("input") or text,
                           response=rec.get("answer"), seconds=round(time.time() - t0, 2), error=rec.get("error") or None, session=cid,
                           tools=rec.get("tools"), status=rec.get("status"), usage=rec.get("usage"),
-                          message=f"Ask Hermes: {user} - {re.sub(chr(92) + 's+', ' ', text)[:100]} ({rec.get('status')})")
+                          message=f"Ask AI: {user} - {re.sub(chr(92) + 's+', ' ', text)[:100]} ({rec.get('status')})")
             except Exception as e:  # noqa: BLE001
                 print(f"audit (chat) failed: {e}", file=sys.stderr)
 
@@ -783,11 +768,11 @@ class H(BaseHTTPRequestHandler):
             if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/review-schedule"):
                 if u.path == "/api/config/review-schedule":
                     try:
-                        r = corr_llm.broker("/research/schedule", {"hours": body.get("hours"), "minutes": body.get("minutes")}, timeout=90)
-                    except Exception as e:  # noqa: BLE001
-                        return self._json({"error": f"could not change the review job schedule: {str(e)[:200]}"}, 502)
-                    print(f"review schedule: {user} -> {body.get('hours')}h {body.get('minutes')}m ({r.get('schedule')})", file=sys.stderr)
-                    _review_cache.clear()
+                        mins = int(body.get("hours") or 0) * 60 + int(body.get("minutes") or 0)
+                        research_cfg.put({"interval_minutes": mins}, user)
+                    except (TypeError, ValueError) as e:
+                        return self._json({"error": f"could not change the research job schedule: {str(e)[:200]}"}, 400)
+                    print(f"research schedule: {user} -> every {mins} min", file=sys.stderr)
                 inp = autoclose_inputs()
                 if u.path == "/api/config/triage":
                     autoclose.set_settings(body.get("expected"), body.get("benign"), user)
@@ -799,20 +784,19 @@ class H(BaseHTTPRequestHandler):
                     autoclose.run(*inp, trigger=f"run now ({user})")
                 r = autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}
                 return self._json({**r, "review": review_job(), "admin": True})
-            if u.path == "/api/llm/config":  # choose the correlation reviewer or the research job's model
+            if u.path == "/api/llm/config":  # choose the model of the correlation reviewer, the research job or the chat
                 sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
-                if sec not in ("correlation", "research") or not (prov in LLM_PROVIDERS or llm_providers.is_custom(prov)) or not llm_allowed(prov, model):
+                if sec not in ("correlation", "research", "chat") or not llm_allowed(prov, model):
                     return self._json({"error": "unknown section, provider or model"}, 400)
-                if sec == "research" and prov not in HERMES_PROVIDERS:
-                    return self._json({"error": "the research job runs in Hermes, so it can only use LM Studio or Hermes' Anthropic / OpenAI models"}, 400)
                 if sec == "correlation":
                     corr_llm.set_correlation(prov, model, user)
                     res = corr_llm.config()["correlation"]
+                elif sec == "chat":
+                    corr_llm.set_chat(prov, model, user)
+                    res = corr_llm.config()["chat"]
                 else:
-                    try:
-                        res = corr_llm.broker("/research", {"provider": prov, "model": model}, timeout=90)
-                    except Exception as e:  # noqa: BLE001
-                        return self._json({"error": str(e)[:300]}, 502)
+                    research_cfg.put({"provider": prov, "model": model}, user)
+                    res = review_job()
                 print(f"llm config: {user} set {sec} -> {prov}/{model}", file=sys.stderr)
                 return self._json({"ok": True, sec: res})
             if u.path == "/api/llm/esqueries":  # may the correlation reviewer search Elasticsearch, and how often per event
@@ -822,22 +806,18 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:200]}, 400)
                 print(f"llm esqueries: {user} set enabled={res['enabled']} max={res['max']}", file=sys.stderr)
                 return self._json({"ok": True, "es_queries": res})
-            if u.path == "/api/llm/costlimit":  # Hermes cost_limit plugin: $ cap per run / per session (host broker writes config.yaml)
-                lim = {k: body[k] for k in ("max_run_usd", "max_session_usd") if k in body}
+            if u.path == "/api/llm/research":  # research job: cost caps, on/off, run now (admin)
+                if body.get("action") == "run":
+                    research_cfg.request(user)
+                    print(f"research job: {user} requested a run", file=sys.stderr)
+                    return self._json({"ok": True, "research": review_job()})
+                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "enabled") if k in body}
                 try:
-                    res = corr_llm.broker("/costlimit", lim, timeout=90)
-                except Exception as e:  # noqa: BLE001
-                    return self._json({"error": str(e)[:300]}, 502)
-                print(f"llm costlimit: {user} set {lim}", file=sys.stderr)
-                return self._json({"ok": True, "costlimit": res})
-            if u.path == "/api/llm/openai-key":  # OpenAI API key for Hermes (write-only; the host broker stores it in Hermes' .env)
-                req = {"remove": True} if body.get("remove") else {"key": str(body.get("key") or "").strip()[:400]}
-                try:
-                    res = corr_llm.broker("/openai-key", req, timeout=90)
-                except Exception as e:  # noqa: BLE001
+                    research_cfg.put(fields, user)
+                except ValueError as e:
                     return self._json({"error": str(e)[:300]}, 400)
-                print(f"llm openai key: {user} {'removed' if req.get('remove') else 'set'} the OpenAI API key", file=sys.stderr)
-                return self._json({"ok": True, "openai_key": res})
+                print(f"research job: {user} set {fields}", file=sys.stderr)
+                return self._json({"ok": True, "research": review_job()})
             if u.path == "/api/llm/providers":  # admin-added AI providers (any OpenAI-compatible or Anthropic API with a key)
                 act = str(body.get("action") or "")
                 try:
@@ -848,9 +828,11 @@ class H(BaseHTTPRequestHandler):
                         return self._json({"ok": True, "provider": res, "providers": llm_providers.public()})
                     if act == "delete":
                         pid = str(body.get("id") or "")
-                        cor = corr_llm.config()["correlation"]
-                        if cor["provider"] == llm_providers.PREFIX + pid:
-                            return self._json({"error": "this provider is the correlation reviewer - pick another reviewer model first"}, 400)
+                        cfg, rj = corr_llm.config(), research_cfg.get()
+                        use = [n for n, p in (("correlation reviewer", cfg["correlation"]["provider"]), ("chat", cfg["chat"]["provider"]),
+                                              ("research job", rj["provider"])) if p == llm_providers.PREFIX + pid]
+                        if use:
+                            return self._json({"error": f"this provider is used by the {' and the '.join(use)} - pick another model there first"}, 400)
                         llm_providers.delete(pid)
                         print(f"llm providers: {user} deleted provider {pid}", file=sys.stderr)
                         return self._json({"ok": True, "providers": llm_providers.public()})
@@ -1103,19 +1085,13 @@ class H(BaseHTTPRequestHandler):
                 base = correlation(sid) or {}
                 ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin,
                       "provider_names": {p["provider"]: p["name"] for p in llm_providers.public()}}
-                try:
-                    ov["research"] = corr_llm.broker("/research", timeout=10)
-                except Exception as e:  # noqa: BLE001
-                    ov["research"] = {"error": str(e)[:200]}
+                ov["research"] = review_job()
+                ov["chat"] = corr_llm.config()["chat"]
                 ov["lookback"] = lookback.get()
                 try:
-                    ov["costlimit"] = corr_llm.broker("/costlimit", timeout=10)
-                except Exception as e:  # noqa: BLE001
-                    ov["costlimit"] = {"error": str(e)[:200]}
-                try:
-                    ov["claude"] = enrich.status((base.get("events") or {}).keys())
-                except Exception as e:  # noqa: BLE001 - the local-LLM view must not depend on the Claude status
-                    ov["claude"] = {"error": str(e)[:200]}
+                    ov["research_status"] = enrich.status((base.get("events") or {}).keys())
+                except Exception as e:  # noqa: BLE001 - the reviewer view must not depend on the research job status
+                    ov["research_status"] = {"error": str(e)[:200]}
                 return self._json(ov)
             if path == "/api/correlate":
                 sid = (q.get("id") or ["latest"])[0]

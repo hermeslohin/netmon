@@ -11,7 +11,7 @@ latest snapshot lacks a source (e.g. UniFi API failed) the issue stays open as
 """
 import re
 import os as _os, sys as _sys
-for _p in (_os.environ.get("NETMON_DIR", "/netmon"), _os.path.expanduser("~/.hermes/netmon")):
+for _p in (_os.environ.get("NETMON_DIR", "/netmon"), _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))):
     if _os.path.isdir(_p) and _p not in _sys.path:
         _sys.path.append(_p)
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)

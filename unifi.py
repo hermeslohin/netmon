@@ -3,7 +3,7 @@
 
 The local console (site.json unifi_console_ip) drops TCP from this host, so everything goes through
 https://api.ui.com/v1/connector/consoles/<id>/proxy/network with the X-API-KEY in
-~/.hermes/secrets/unifi_api_key.
+UNIFI_API_KEY in the host secrets file (integrations.py).
 
 collect(hours) -> dict with: settings (IPS/IDS config), threats (IDS/IPS detections),
 threats_30d, wan/device/vpn events, admin logins + config changes (flagged when from an
@@ -14,20 +14,19 @@ import json, os, sys, time, urllib.request, urllib.error
 from collections import Counter, defaultdict
 import datetime as dt
 
-KEY_FILE = os.environ.get("UNIFI_API_KEY_FILE") or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), "secrets", "unifi_api_key")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 import integrations as INTEG  # noqa: E402  URL/key from the dashboard (More > Configuration), else defaults below
 API = INTEG.unifi_url()  # default https://api.ui.com
 HOME_WAN = SITE.get("home_wan")      # admin access from here / the LAN / the VPN is expected
-SKILL_INV = os.environ.get("NETMON_DEVICE_TABLE") or os.path.expanduser("~/.hermes/skills/network/home-network-devices/SKILL.md")  # optional
+SKILL_INV = os.environ.get("NETMON_DEVICE_TABLE") or os.path.expanduser("~/.config/netmon/devices.md")  # optional markdown table | MAC | ... | name |
 _KEY = None
 _BASE = None
 
 
 def _req(url, body=None, timeout=40):
     global _KEY
-    _KEY = _KEY or INTEG.unifi_key() or open(KEY_FILE).read().strip()
+    _KEY = _KEY or INTEG.unifi_key()
     req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"X-API-KEY": _KEY, "Accept": "application/json",
                                           "Content-Type": "application/json"},
@@ -98,7 +97,7 @@ def render(e):
 
 
 def inventory_macs():
-    """MAC -> name from the home-network-devices skill table."""
+    """MAC -> name from the optional markdown device table (NETMON_DEVICE_TABLE)."""
     import re
     try:
         return {m.lower(): n.strip() for m, n in re.findall(r"^\| ([0-9a-fA-F:]{17}) \| [^|]*\| ([^|]*)\|", open(SKILL_INV).read(), re.M)}
@@ -112,7 +111,7 @@ def expected_admin_ip(ip):
 
 def collect(hours=24):
     if not INTEG.unifi_key():  # UniFi is optional
-        return {"skipped": f"no UniFi API key (dashboard Configuration > Integrations or {KEY_FILE})"}
+        return {"skipped": f"no UniFi API key (dashboard Configuration > Integrations, or UNIFI_API_KEY in {INTEG.SECRETS})"}
     import window  # now, or the end of a dashboard time range
     t1 = window.end_ms()
     t0 = t1 - int(hours * 3600_000)

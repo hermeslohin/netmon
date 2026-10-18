@@ -3,7 +3,7 @@
 Two kinds of entries (ECS field names, so they also read well in Kibana / Security Onion Hunt):
   event.dataset = netmon.audit   every user action: sign-in / sign-out, every POST (check-offs, notes, chat,
                                  settings, users, AI verdicts...), page views, report downloads, denied requests
-  event.dataset = netmon.llm     every conversation between the app and an LLM: Ask Hermes chat turns, the
+  event.dataset = netmon.llm     every conversation between the app and an LLM: Ask AI chat turns, the
                                  correlation reviewer, model comparisons, item comparisons and the research job's
                                  results coming back in (enrich.py put). Prompt, system prompt, answer, model,
                                  tokens, seconds, outcome.

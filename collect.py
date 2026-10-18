@@ -8,7 +8,6 @@ Usage: collect.py [hours=24]                                    last N hours -> 
 """
 import csv, glob, json, os, ssl, sys, urllib.request, datetime as dt
 
-HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
 NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 
 
@@ -50,7 +49,7 @@ NET = SITE.get("internal_cidr")
 
 
 def env_key():
-    k = INTEG.es_key()  # dashboard setting, else ~/.hermes/.env MCP_SO_ELASTICSEARCH_API_KEY
+    k = INTEG.es_key()  # dashboard setting, else ES_API_KEY in the host secrets file
     if not k:
         raise SystemExit("API key missing")
     return k

@@ -30,3 +30,4 @@ known_benign.json
 sec_accepted.json
 *.pdf
 *.jsonl
+logs/

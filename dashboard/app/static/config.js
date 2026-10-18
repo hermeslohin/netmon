@@ -22,17 +22,17 @@
     const s = D.settings || {};
     const R = D.review || {}, iv = R.interval_minutes, L = D.last_run || null;
     const ivTxt = (m) => m ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h" : ""}${m % 60 ? " " + (m % 60) + " min" : ""}`.trim() : "";
-    const sched = R.error ? `<div class="muted small">Review job schedule unavailable: ${esc(R.error)}</div>`
+    const sched = R.error ? `<div class="muted small">Research job schedule unavailable: ${esc(R.error)}</div>`
       : `<div class="cfg-sched" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px">
-          <b class="small">Review job runs every</b>
+          <b class="small">Research job runs every</b>
           <input id="rv-h" type="number" min="0" max="24" step="1" value="${iv ? Math.floor(iv / 60) : ""}" style="width:4.5em" ${D.admin ? "" : "disabled"}> <span class="small">hours</span>
           <input id="rv-m" type="number" min="0" max="59" step="5" value="${iv ? iv % 60 : ""}" style="width:4.5em" ${D.admin ? "" : "disabled"}> <span class="small">minutes</span>
           ${D.admin ? `<button id="rv-save" disabled>Save schedule</button>` : ""}
-          <span class="muted small">${iv ? "" : `current schedule <span class="mono">${esc(R.schedule || "?")}</span> · `}next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
+          <span class="muted small">next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
           <span id="rv-msg" class="small"></span></div>
-        <div class="muted small">30 min to 24 h. Intervals that divide the day run on a fixed UTC grid that keeps 05:00 UTC (the daily PDF report, 1 AM EDT); other intervals run every N minutes from the change, so 05:00 may be skipped and with it the PDF that day.
-          Each review run is a full Claude research pass, so shorter intervals cost proportionally more tokens.</div>`;
-    const c = card("Security Triage", `<div class="sub" style="margin:0 0 6px">The Hermes review job (Claude triage + event research${iv ? `, every ${ivTxt(iv)}` : ""}) writes a note with a verdict for each event
+        <div class="muted small">30 min to 24 h. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day also writes the daily PDF report.
+          Each run is a full AI research pass, so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
+    const c = card("Security Triage", `<div class="sub" style="margin:0 0 6px">The research job (AI triage + event research${iv ? `, every ${ivTxt(iv)}` : ""}) writes a note with a verdict for each event
       (malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event). These options check off the events whose verdict is
       “expected” or “benign”, moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span>.
       Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after each review job finishes</b> (when the new verdicts are in), and when you press “Run now”.
@@ -64,7 +64,7 @@
       rh.oninput = rm.oninput = chk;
       rs.onclick = async () => {
         const t = tot();
-        if (!confirm(`Run the review job every ${ivTxt(t)}${t < iv ? " (more often = more Claude tokens)" : ""}?`)) return;
+        if (!confirm(`Run the research job every ${ivTxt(t)}${t < iv ? " (more often = more AI tokens)" : ""}?`)) return;
         rmsg.className = "small"; rmsg.textContent = "Saving…";
         try { const N = await apiPost("/api/config/review-schedule", { hours: Math.floor(t / 60), minutes: t % 60 }); paint(el, N); }
         catch (e) { rmsg.className = "small sev-high"; rmsg.textContent = String(e); }
@@ -99,6 +99,7 @@
     const v = (id) => c.querySelector("#" + id)?.value.trim() || "";
     const b = { url: v(sec + "-url"), api_key: v(sec + "-key"), clear_key: !!c.querySelector(".cfg-clr")?.checked };
     if (sec === "elasticsearch") b.indices = Object.fromEntries(Object.keys(I.index_defaults).map((k) => [k, v("es-ix-" + k)]));
+    if (sec === "web") b.provider = c.querySelector("#web-provider")?.value || "duckduckgo";
     return b;
   }
   function wire(c, sec, I, rerender) {
@@ -115,13 +116,14 @@
         msg.innerHTML = R.ok ? '<span class="badge sev-good">Connected</span>' : '<span class="badge sev-high">Failed</span>';
         if (sec === "elasticsearch" && R.indices) res.innerHTML = Object.entries(R.indices).map(([k, x]) =>
           `<div>${x.ok ? "✅" : "❌"} <span class="mono">${esc(x.index)}</span> — ${x.ok ? `${Number(x.docs_24h).toLocaleString()} docs in the last 24h` : esc(x.error)}</div>`).join("");
+        else if (sec === "web") res.innerHTML = R.ok ? `Search works: ${R.results} result(s) for a test query.` : esc(R.error || "");
         else res.innerHTML = R.ok ? `Reached <span class="mono">${esc(R.url)}</span>: ${R.consoles} console(s), ${R.hosts} host(s) on this account.` : esc(R.error || "");
       } catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
     };
   }
   function paintInt(wrap, D, flash) {
     wrap.innerHTML = `<h2 style="margin:18px 0 4px">Integrations</h2><div class="sub">Where netmon reads its data. Blank fields use the defaults shown, so
-      saving an empty form changes nothing. The host collectors (snapshots twice a day, the watcher every 15 min) use these on their next run.</div>`;
+      saving an empty form changes nothing. The host jobs (research runs, the watcher every 15 min) use these on their next run.</div>`;
     if (!D.admin) { wrap.insertAdjacentHTML("beforeend", `<div class="card"><div class="empty">Only an admin can view or change integrations.</div></div>`); return; }
     const E = D.elasticsearch, U = D.unifi;
     const ixRows = Object.keys(E.index_defaults).map((k) => fld("es-ix-" + k, E.index_labels[k], E.indices[k], E.index_defaults[k], `Default <span class="mono">${esc(E.index_defaults[k])}</span>. Comma-separated patterns and <span class="mono">*</span> are allowed.`)).join("");
@@ -132,9 +134,14 @@
     const cu = intCard("unifi", "UniFi API", "Site Manager API key from <span class=\"mono\">unifi.ui.com › API</span>. netmon reads clients, devices and events through the console connector (read-only).",
       fld("unifi-url", "URL", U.url, U.url_fallback, `Default <span class="mono">${esc(U.url_fallback)}</span> (Ubiquiti cloud). Use your console's address only if you run a local API proxy that speaks the same paths.`)
       + fld("unifi-key", "API key", "", U.key_set ? U.key_hint : "UniFi Site Manager API key", keyHelp(U), "password"), U);
-    wrap.append(ce, cu);
+    const Wb = D.web || { provider: "duckduckgo", providers: { duckduckgo: "DuckDuckGo (no key)" } };
+    const cw = intCard("web", "Web search (AI research and chat)", "Used by the research job and the Ask AI chat to look things up and read web pages. DuckDuckGo needs no key; Firecrawl, Brave Search and Tavily need an API key from their sites (Firecrawl is also used to read pages).",
+      `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Provider</b></span><br><select id="web-provider">${Object.entries(Wb.providers).map(([k, l]) =>
+        `<option value="${esc(k)}"${k === Wb.provider ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`
+      + fld("web-key", "API key", "", Wb.key_set ? Wb.key_hint : "API key (not needed for DuckDuckGo)", keyHelp(Wb), "password"), Wb);
+    wrap.append(ce, cu, cw);
     const rerender = (R, sec, m) => { paintInt(wrap, R, { sec, m }); };
-    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender);
+    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender);
     if (flash) { const m = wrap.querySelector(`[data-sec="${flash.sec}"] .cfg-msg`); if (m) m.innerHTML = `<span class="badge sev-good">${esc(flash.m)}</span>`; }
   }
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=netmon host broker (dashboard time ranges + reviewer Elasticsearch look-ups)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/netmon/host_broker.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

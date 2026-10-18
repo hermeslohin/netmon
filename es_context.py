@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Read-only Elasticsearch look-ups for the correlation reviewer (llm_broker.py POST /esquery).
+"""Read-only Elasticsearch look-ups for the correlation reviewer (host_broker.py POST /esquery).
 
 The reviewer model may ask for extra context before it decides a link (AI review > Models > "Elasticsearch
 queries"). It never sends Elasticsearch DSL: it sends a small structured request, this module validates it and

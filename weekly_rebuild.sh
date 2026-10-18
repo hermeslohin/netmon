@@ -1,9 +1,9 @@
 #!/bin/bash
 # Weekly: rebuild the dashboard container with every library updated, save it as a new version, deploy it with
 # automatic rollback, run the security scan, and raise any issues as in-app notifications + Software vulnerabilities.
-# Run by cron (no LLM). Prints a short summary (cron output is kept locally); alerts go out via the dashboard's push.
+# Run by the netmon scheduler (no LLM). Prints a short summary (logs/weekly.log); alerts go out via the dashboard's push.
 set -u
-NM=$HOME/.hermes/netmon; D=$NM/dashboard; LOG=$NM/baseline/rebuild.log
+NM=$(cd "$(dirname "$0")" && pwd); D=$NM/dashboard; LOG=$NM/baseline/rebuild.log
 site() { /usr/bin/python3 -c "import sys; sys.path.insert(0, '$NM'); import site_cfg; print(site_cfg.get('$1') or '')"; }
 REPO=$(site image_repo); GH_USER=$(site github_user)
 VER=$(date -u +%Y.%m.%d)
@@ -13,8 +13,8 @@ PREV_ID=$(docker image inspect -f '{{.Id}}' "$PREV" 2>/dev/null)
 mkdir -p "$(dirname "$LOG")"
 say() { echo "$@"; echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 alert() {  # severity text
-  /usr/bin/python3 - "$1" "$2" <<'EOF'
-import os, sys; sys.path.insert(0, os.path.expanduser("~/.hermes/netmon")); import store, site_cfg as S
+  NM="$NM" /usr/bin/python3 - "$1" "$2" <<'EOF'
+import os, sys; sys.path.insert(0, os.environ["NM"]); import store, site_cfg as S
 store.alerts_add([("rebuild|" + sys.argv[2][:80], sys.argv[2], sys.argv[1], ["ip:" + S.get("self_ip"), "host:" + S.get("self_host")])], source="rebuild")
 EOF
 }

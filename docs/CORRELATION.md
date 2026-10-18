@@ -94,14 +94,15 @@ in the dashboard container:
 | `NETMON_LLM` | `on` | `off` disables the review (links show the script's evidence only) |
 | `NETMON_LLM_URL` | `http://127.0.0.1:1234/v1` | any OpenAI-compatible endpoint, http(s) only |
 
-Besides LM Studio and the broker's (Hermes') Anthropic / OpenAI models, the reviewer can use any provider an admin adds on
-AI review > **AI providers** (`dashboard/app/llm_providers.py`, stored in `/state/llm_providers.json`, mode 600). These are
-OpenAI-compatible (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs
-called directly from the dashboard container; the model id is `api:<id>` plus the model name. Like the broker's models they get
-the answer format in the prompt (no structured-output mode), and each provider has its own calls-per-hour cap.
 | `NETMON_LLM_MODEL` | the model loaded in LM Studio | pin a model id |
 | `NETMON_LLM_REASONING` | `none` | reasoning models (Gemma, Qwen) spend the token budget on hidden reasoning otherwise |
 | `NETMON_LLM_WORKERS` | `2` | parallel requests (match LM Studio's parallel slots) |
+
+Besides LM Studio, the reviewer can use any provider an admin adds on AI review > **AI providers** (`llm_providers.py`,
+stored in `/state/llm_providers.json`, mode 600). These are OpenAI-compatible (`POST {base}/chat/completions`, Bearer
+key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called directly from the dashboard container; the model
+choice is `api:<id>` plus the model name. They get the answer format in the prompt (no structured-output mode), and
+each provider has its own calls-per-hour cap.
 
 ### Elasticsearch look-ups (optional)
 
@@ -126,8 +127,8 @@ How a review works with searches on:
    `detections`, `endpoint`, `auth`), up to 6 exact `match` fields, an optional free-text `text`, `start`/`end`
    (default: the anchor's time ±2 h, at most 7 days), an optional `group_by` field (top 10 values with counts), `size`
    (1–10 documents) and `why`.
-3. The dashboard container has no Elasticsearch key, so it sends each search to the host LLM broker
-   (`POST /esquery`). `es_context.py` validates it, builds a read-only `_search` itself (field names are checked,
+3. The dashboard container has no Elasticsearch key, so it sends each search to the host broker
+   (`host_broker.py`, `POST /esquery`). `es_context.py` validates it, builds a read-only `_search` itself (field names are checked,
    no leading wildcards, no scripts), runs it on the configured index and returns the hit count plus trimmed
    documents (selected fields, 400 characters each) or the top values. The broker allows at most 600 searches an hour.
 4. The results go back to the model inside `<es_result>` tags, which the system prompt marks as log data, never
@@ -182,10 +183,10 @@ the model), **↻** deletes the verdict so the model reviews that link again.
 
 Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
 triage summary, triage alarms and each alarm's *Next* recommendation, research notes, device notes, the security
-news briefing, Ask Hermes answers, and correlation-review reasons (Related popover, AI review page). The nightly
-agent records `generated_by: {model, via}` in `triage.json` / `briefing.json`; if it doesn't, `report.py` stamps
-the nightly cron job's model (or the Hermes default model). Chat answers use the Hermes session's model; correlation
-verdicts store the LM Studio model id. The PDF report labels the triage summary the same way. Fix-list "How to fix"
+news briefing, Ask AI answers, and correlation-review reasons (Related popover, AI review page). The research job
+(`review.py`) records `generated_by: {model, via: "netmon research"}` in `triage.json` / `briefing.json`; if a file
+has none, `report.py` stamps the research job's configured model. Chat answers record the model that answered;
+correlation verdicts store the reviewer's model id. The PDF report labels the triage summary the same way. Fix-list "How to fix"
 text and risk scores are rule-based (no flare).
 
 ## Clearing segmentation findings

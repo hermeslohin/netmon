@@ -5,10 +5,10 @@
 #   3. new HIGH findings abort unless --force (after review: fix them, or accept in sec_accepted.json with a reason)
 #   4. git commit + push to the GitHub repo in site.json (github_repo); optional dashboard redeploy
 set -u
-NM=$HOME/.hermes/netmon; cd "$NM"
+NM=$(cd "$(dirname "$0")" && pwd); cd "$NM"
 MSG=${1:?usage: ship.sh "commit message" [--deploy] [--force]}; shift
 DEPLOY=0; FORCE=0; for a in "$@"; do [ "$a" = --deploy ] && DEPLOY=1; [ "$a" = --force ] && FORCE=1; done
-SCAN=$HOME/.hermes/cache/scratch/sec
+SCAN=${NETMON_SCAN_DIR:-$HOME/.cache/netmon/sec}
 
 echo "== 1. security scan"
 "$NM/sec_scan.sh" "$SCAN" > "$NM/baseline/secscan-last.txt" 2>&1

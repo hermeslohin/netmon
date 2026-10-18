@@ -276,7 +276,7 @@ def net_events(minutes, cap=10000):
                       "source.ip", "source.port", "destination.ip", "destination.port", "network.transport",
                       "network.direction", "dns.question.name", "dns.resolved_ip", "network.community_id",
                       "process.entity_id"]})
-    # Interpreters running our own trusted scripts (e.g. /usr/bin/python3 collect.py in ~/.hermes/netmon) are
+    # Interpreters running our own trusted scripts (e.g. /usr/bin/python3 collect.py in the netmon folder) are
     # attributed via the process start event (cwd/args), since network events carry no args.
     tdirs = POLICY.get("trusted_script_dirs", [])
     self_ents = set()

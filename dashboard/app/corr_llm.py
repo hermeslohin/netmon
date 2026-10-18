@@ -14,10 +14,10 @@ may answer a review with structured search requests instead of decisions; the ho
 validates and runs them read-only, the results go back to the model as <es_result> data and it asks again, up to
 `max` searches per event review. Every search is kept in corr_llm.db `es_queries` and shown on the AI review page.
 
-Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}). provider
-"lmstudio" talks to LM Studio directly; "anthropic" and "openai-api" go through the host LLM broker (llm_broker.py, which owns
-Hermes' credentials); "api:<id>" is an admin-added API-key provider (llm_providers.py, called directly). compare() asks several models about ONE decision for the side-by-side view (not stored as a
-verdict unless a person adopts one).
+Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}; "chat" holds the dashboard
+chat's model). provider "lmstudio" talks to LM Studio directly with a JSON schema; "api:<id>" is an admin-added API-key
+provider (llm_providers.py, OpenAI-compatible or Anthropic, answer format asked for in the prompt). compare() asks several
+models about ONE decision for the side-by-side view (not stored as a verdict unless a person adopts one).
 
 Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (default: the model loaded in LM Studio),
      NETMON_LLM_REASONING (default "none" - fast, clean JSON), NETMON_LLM_WORKERS (default 2), NETMON_LLM=off to disable.
@@ -48,21 +48,14 @@ if BROKER and not BROKER.startswith(("http://127.0.0.1", "http://localhost")):
     raise ValueError("NETMON_BROKER_URL must be a loopback http URL")
 
 
-CLOUD = ("anthropic", "openai-api")  # providers reached through the host broker (Hermes credentials)
-
-
 def text_provider(provider):
-    """Providers answered as plain text (format asked for in the prompt): the broker's and the admin-added API-key ones."""
-    return provider in CLOUD or llm_providers.is_custom(provider)
+    """Providers answered as plain text (format asked for in the prompt): the admin-added API-key ones."""
+    return llm_providers.is_custom(provider)
 
 
 def cloud_complete(target, system, user, max_tokens):
-    """One text completion from a broker provider or an admin-added API-key provider -> (text, usage, seconds)."""
-    t = time.time()
-    if llm_providers.is_custom(target["provider"]):
-        return llm_providers.complete(target["provider"], target["model"], system, user, max_tokens)
-    r = broker("/complete", {"provider": target["provider"], "model": target["model"], "max_tokens": max_tokens, "system": system, "user": user})
-    return r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
+    """One text completion from an admin-added API-key provider -> (text, usage, seconds)."""
+    return llm_providers.complete(target["provider"], target["model"], system, user, max_tokens)
 
 
 ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review: default and the most an admin can set
@@ -89,13 +82,21 @@ def config():
         mx = max(1, min(int(es.get("max") or ES_MAX_DEFAULT), ES_MAX_LIMIT))
     except (TypeError, ValueError):
         mx = ES_MAX_DEFAULT
+    ch = c.get("chat") or {}
     return {"correlation": {"provider": cor.get("provider") or "lmstudio", "model": cor.get("model") or MODEL},
+            "chat": {"provider": ch.get("provider") or "", "model": ch.get("model") or "", "by": ch.get("by"), "at": ch.get("at")},
             "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")}}
 
 
 def set_correlation(provider, model, user):
     c = _raw_config()
     c["correlation"] = {"provider": provider, "model": model, "by": user, "at": time.time()}
+    _save_config(c)
+
+
+def set_chat(provider, model, user):
+    c = _raw_config()
+    c["chat"] = {"provider": provider, "model": model, "by": user, "at": time.time()}
     _save_config(c)
 
 
@@ -112,7 +113,7 @@ def set_es_queries(enabled, mx, user):
 
 def broker(path, body=None, timeout=330):
     if not (BROKER and BROKER_KEY):
-        raise RuntimeError("LLM broker not configured (NETMON_BROKER_URL / NETMON_BROKER_KEY)")
+        raise RuntimeError("host broker not configured (NETMON_BROKER_URL / NETMON_BROKER_KEY)")
     req = urllib.request.Request(BROKER + path, data=json.dumps(body).encode() if body is not None else None,  # noqa: S310 - loopback http checked at import
                                  headers={"Content-Type": "application/json", "Authorization": f"Bearer {BROKER_KEY}"})
     try:
@@ -300,8 +301,8 @@ def _target(model=None):
         if not llm_providers.allowed(c["provider"], c["model"]):
             raise RuntimeError(f"reviewer model {c['model']} on {llm_providers.name(c['provider'])} is no longer available - pick another on AI review > Models")
         return {"provider": c["provider"], "model": c["model"]}
-    if c["provider"] in CLOUD:
-        return {"provider": c["provider"], "model": c["model"] or ("claude-sonnet-5-5" if c["provider"] == "anthropic" else "gpt-5-mini")}
+    if c["provider"] != "lmstudio":
+        raise RuntimeError(f"reviewer provider {c['provider']} is no longer available - pick another model on AI review > Models")
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
 
 

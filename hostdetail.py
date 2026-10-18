@@ -8,7 +8,7 @@ import collections, json, os, re, ssl, sys, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 
-import integrations as INTEG  # noqa: E402  ES_URL/ES_API_KEY env, else dashboard settings, else site.json / ~/.hermes/.env
+import integrations as INTEG  # noqa: E402  ES_URL/ES_API_KEY env, else dashboard settings, else site.json / host secrets file
 ES = INTEG.es_url()
 KEY = INTEG.es_key()
 AUTH = "logs-system.auth-default"

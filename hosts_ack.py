@@ -4,7 +4,7 @@
   hosts_ack.py list [hours]            open + investigated findings (default last 24h)
   hosts_ack.py ack <key> [note...]     mark investigated (muted in watcher, shown as checked in report/widget)
   hosts_ack.py unack <key>             reopen
-  hosts_ack.py widget [hours] [out]    write the desktop checklist widget HTML (default ~/.hermes/netmon/host_findings.html)
+  hosts_ack.py widget [hours] [out]    write the desktop checklist widget HTML (default <netmon>/host_findings.html)
 
 Acks live in the SQLite store (store.py, acks table, type "host") - shared with the dashboard.
 An ack expires after ACK_DAYS (host_policy.json "ack_days", default 14) so a recurring condition re-surfaces.
@@ -67,7 +67,7 @@ def widget(hours=24, out=WIDGET):
         cmd = (f"Reopen host finding: {f['key']}" if checked else f"Ack host finding: {f['key']}")
         meta = (f"investigated {html.escape(f.get('at', ''))}" + (f" — {html.escape(f['note'])}" if f.get("note") else "")
                 + ("" if f["key"] in keys else " · not seen in current window")) if checked else ""
-        return (f'<label class="r{" done" if checked else ""}" data-hermes-send="{html.escape(cmd, quote=True)}" title="{k}">'
+        return (f'<label class="r{" done" if checked else ""}" data-send="{html.escape(cmd, quote=True)}" title="{k}">'
                 f'<input type="checkbox" {"checked" if checked else ""} onclick="return false">'
                 f'<span class="p" style="color:{col.get(f.get("priority"), "inherit")}">{html.escape(f.get("priority") or "")}</span>'
                 f'<span class="t">{html.escape(f.get("text") or f["key"])}'

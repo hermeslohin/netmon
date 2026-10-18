@@ -1,12 +1,12 @@
 #!/bin/bash
 # netmon security scan (read-only): Ruff/Bandit, pip-audit, Semgrep, ESLint no-unsanitized, Trivy, Hadolint, Gitleaks, ZAP baseline.
-# Usage: netmon/sec_scan.sh [outdir]   - results as JSON in outdir (default ~/.hermes/cache/scratch/sec), summary on stdout.
+# Usage: netmon/sec_scan.sh [outdir]   - results as JSON in outdir (default ~/.cache/netmon/sec), summary on stdout.
 # Do NOT add brute-force/login tests here: every request arrives via the Cloudflare tunnel as 127.0.0.1, so 8 failed
 # logins lock the dashboard for everyone for 5 minutes.
 set -u
-NM=$HOME/.hermes/netmon; H=$HOME/.hermes
-OUT=${1:-$H/cache/scratch/sec}; mkdir -p "$OUT/zap" "$OUT/es"; chmod 777 "$OUT/zap"; cd "$OUT"
-export PATH=$H/tools/node-26.7.0-linux-arm64/bin:$PATH
+NM=$(cd "$(dirname "$0")" && pwd)
+OUT=${1:-${NETMON_SCAN_DIR:-$HOME/.cache/netmon/sec}}; mkdir -p "$OUT/zap" "$OUT/es"; chmod 777 "$OUT/zap"; cd "$OUT"
+[ -n "${NODE_BIN:-}" ] && export PATH=$NODE_BIN:$PATH  # folder with node/npx for ESLint, if not on PATH
 EX="data,intel,baseline,__pycache__,state"
 
 echo "== python (ruff S/B/F, bandit, pip-audit of the dashboard image deps)"
@@ -40,9 +40,9 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$OUT":/out -v t
 docker run --rm -v "$NM"/dashboard:/src:ro -v "$OUT":/out -v trivycache:/root/.cache aquasec/trivy:latest config -q --format json -o /out/trivy-config.json /src
 docker run --rm -i hadolint/hadolint:latest-debian hadolint -f json - < "$NM"/dashboard/Dockerfile > hadolint.json ; true
 
-echo "== gitleaks (netmon, skills, memories, scripts, cron, config)"
-for d in netmon skills memories scripts cron/jobs.json config.yaml; do [ -e "$H/$d" ] || continue
-  docker run --rm -v "$H/$d":/scan/$d:ro -v "$OUT":/out zricethezav/gitleaks:latest dir /scan/$d --no-banner -f json \
+echo "== gitleaks (netmon + any extra folders in NETMON_SCAN_EXTRA, space-separated)"
+for p in "$NM" ${NETMON_SCAN_EXTRA:-}; do [ -e "$p" ] || continue; d=$(basename "$p")
+  docker run --rm -v "$p":/scan/$d:ro -v "$OUT":/out zricethezav/gitleaks:latest dir /scan/$d --no-banner -f json \
     -r /out/gl_$(echo $d | tr / _).json --redact >/dev/null 2>&1; done
 
 echo "== ZAP baseline (passive, unauthenticated) against the live dashboard"

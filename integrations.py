@@ -1,14 +1,17 @@
 #!/usr/bin/python3
-"""Integration settings (dashboard: More -> Configuration -> Integrations): Elasticsearch and UniFi API.
+"""Integration settings (dashboard: More -> Configuration -> Integrations): Elasticsearch, UniFi API, web search.
 
 Saved by the dashboard to dashboard/state/integrations.json (git-ignored, mode 0600; the container's writable /state).
 The pipeline (collect/watch/extras/mitre/esq/hostdetail/unifi) reads it first and falls back to the original places, so
 an empty dashboard setting changes nothing:
   Elasticsearch URL      -> site.json es_url
-  Elasticsearch API key  -> ~/.hermes/.env MCP_SO_ELASTICSEARCH_API_KEY
+  Elasticsearch API key  -> host secrets file ES_API_KEY (see below)
   indices                -> the Security Onion defaults below
   UniFi API URL          -> https://api.ui.com
-  UniFi API key          -> ~/.hermes/secrets/unifi_api_key
+  UniFi API key          -> host secrets file UNIFI_API_KEY
+  web search             -> DuckDuckGo (no key); Firecrawl, Brave or Tavily with a key (AI research + chat, webtools.py)
+Host secrets file: $NETMON_SECRETS (default ~/.config/netmon/secrets.env, mode 0600, KEY=value lines). It lives outside the
+repo, so the dashboard container (which mounts the repo read-only) can't read it.
 API keys are never sent back to the browser (public() returns a masked hint only).
 
 CLI: integrations.py show            effective settings (keys masked) and where each value comes from
@@ -19,15 +22,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import site_cfg as SITE  # noqa: E402
 
-HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+SECRETS = os.environ.get("NETMON_SECRETS") or os.path.expanduser("~/.config/netmon/secrets.env")
 # the Security Onion index each collector queries; the dashboard can point each one somewhere else
 INDEX_DEFAULTS = {"zeek": "logs-zeek-so", "suricata": "logs-suricata.alerts-so", "detections": "logs-detections.alerts-so"}
 INDEX_LABELS = {"zeek": "Network logs (Zeek: conn, dns, ssl, dhcp, notice…)", "suricata": "IDS alerts (Suricata)",
                 "detections": "Detection rule hits (Security Onion detections)"}
 UNIFI_DEFAULT = "https://api.ui.com"
 AUDIT_INDEX = "logs-netmon"  # dashboard audit log (dashboard/app/audit.py); its own key: create_doc + read on this index only
-UNIFI_KEY_FILE = os.environ.get("UNIFI_API_KEY_FILE") or os.path.join(HOME, "secrets", "unifi_api_key")
-ENV_KEY = "MCP_SO_ELASTICSEARCH_API_KEY"
+WEB_PROVIDERS = {"duckduckgo": "DuckDuckGo (no key)", "firecrawl": "Firecrawl", "brave": "Brave Search", "tavily": "Tavily"}
 
 
 def path():
@@ -52,21 +54,23 @@ def load():
         return {}
 
 
-def _env_es_key():
+def host_secret(name):
+    """One KEY=value from the host secrets file (empty if missing or unreadable, e.g. inside the dashboard container)."""
     try:
-        for line in open(os.path.join(HOME, ".env")):
-            if line.startswith(ENV_KEY + "="):
+        for line in open(SECRETS):
+            if line.startswith(name + "="):
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
     except OSError:
         pass
     return ""
 
 
+def _env_es_key():
+    return host_secret("ES_API_KEY")
+
+
 def _file_unifi_key():
-    try:
-        return open(UNIFI_KEY_FILE).read().strip()
-    except OSError:
-        return ""
+    return host_secret("UNIFI_API_KEY")
 
 
 # ------------------------------------------------------------------ effective values (pipeline)
@@ -104,6 +108,14 @@ def unifi_key():
     return (load().get("unifi") or {}).get("api_key") or _file_unifi_key()
 
 
+def web():
+    """Web search backend for the AI research job and chat: {provider, api_key}."""
+    w = load().get("web") or {}
+    p = w.get("provider") if w.get("provider") in WEB_PROVIDERS else "duckduckgo"
+    k = w.get("api_key") or host_secret({"firecrawl": "FIRECRAWL_API_KEY", "brave": "BRAVE_API_KEY", "tavily": "TAVILY_API_KEY"}.get(p, "-"))
+    return {"provider": p if (p == "duckduckgo" or k) else "duckduckgo", "api_key": k if p != "duckduckgo" else ""}
+
+
 # ------------------------------------------------------------------ dashboard
 def _mask(k):
     return f"••••{k[-4:]}" if k and len(k) > 8 else ("••••" if k else "")
@@ -112,26 +124,31 @@ def _mask(k):
 def public():
     """What the Configuration page shows: values + source of each, keys masked."""
     d = load()
-    e, u, a = d.get("elasticsearch") or {}, d.get("unifi") or {}, d.get("audit") or {}
+    e, u, a, w = d.get("elasticsearch") or {}, d.get("unifi") or {}, d.get("audit") or {}, d.get("web") or {}
     in_container = bool(os.environ.get("NETMON_IN_DASHBOARD"))
     host_es, host_un = (None, None) if in_container else (bool(_env_es_key()), bool(_file_unifi_key()))
     return {
         "elasticsearch": {
             "url": e.get("url") or "", "url_fallback": SITE.get("es_url") or "",
-            "key_set": bool(e.get("api_key")), "key_hint": _mask(e.get("api_key") or ""), "key_fallback": f"~/.hermes/.env {ENV_KEY}",
+            "key_set": bool(e.get("api_key")), "key_hint": _mask(e.get("api_key") or ""), "key_fallback": "host secrets file ES_API_KEY",
             "key_fallback_present": host_es,
             "indices": {k: (e.get("indices") or {}).get(k) or "" for k in INDEX_DEFAULTS},
             "index_defaults": INDEX_DEFAULTS, "index_labels": INDEX_LABELS,
             "updated_by": e.get("updated_by"), "updated_at": e.get("updated_at")},
         "unifi": {
             "url": u.get("url") or "", "url_fallback": UNIFI_DEFAULT,
-            "key_set": bool(u.get("api_key")), "key_hint": _mask(u.get("api_key") or ""), "key_fallback": "~/.hermes/secrets/unifi_api_key",
+            "key_set": bool(u.get("api_key")), "key_hint": _mask(u.get("api_key") or ""), "key_fallback": "host secrets file UNIFI_API_KEY",
             "key_fallback_present": host_un,
             "updated_by": u.get("updated_by"), "updated_at": u.get("updated_at")},
         "audit": {
             "index": a.get("index") or "", "index_default": AUDIT_INDEX, "key_set": bool(a.get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY")),
             "key_hint": _mask(a.get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY") or ""),
             "updated_by": a.get("updated_by"), "updated_at": a.get("updated_at")},
+        "web": {
+            "provider": w.get("provider") or "duckduckgo", "providers": WEB_PROVIDERS,
+            "key_set": bool(w.get("api_key")), "key_hint": _mask(w.get("api_key") or ""),
+            "key_fallback": "the host secrets file (FIRECRAWL_API_KEY / BRAVE_API_KEY / TAVILY_API_KEY)",
+            "updated_by": w.get("updated_by"), "updated_at": w.get("updated_at")},
     }
 
 
@@ -159,7 +176,13 @@ def _clean_key(v):
 def candidate(section, body):
     """Merged section dict from a form post, without saving. Empty api_key keeps the current one unless clear_key."""
     cur = dict(load().get(section) or {})
-    new = {} if section == "audit" else {"url": _clean_url(body.get("url"))}
+    new = {} if section in ("audit", "web") else {"url": _clean_url(body.get("url"))}
+    if section == "web":
+        if body.get("provider") not in WEB_PROVIDERS:
+            raise ValueError("unknown web search provider")
+        new["provider"] = body["provider"]
+        if new["provider"] != cur.get("provider") and not body.get("api_key"):
+            cur["api_key"] = ""  # a key belongs to one provider: never send it to another
     k = _clean_key(body.get("api_key"))
     new["api_key"] = "" if body.get("clear_key") else (k or cur.get("api_key") or "")
     if section == "elasticsearch":
@@ -174,7 +197,7 @@ def candidate(section, body):
 
 
 def save(section, body, user):
-    if section not in ("elasticsearch", "unifi", "audit"):
+    if section not in ("elasticsearch", "unifi", "audit", "web"):
         raise ValueError("unknown integration")
     d = load()
     d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -216,7 +239,7 @@ def test(section, body):
     if section == "elasticsearch":
         url, key = c.get("url") or SITE.get("es_url") or "", c.get("api_key") or _env_es_key()
         if not key:
-            return {"ok": False, "error": "no API key here - the host key in ~/.hermes/.env can't be read from the dashboard; enter one to test"}
+            return {"ok": False, "error": "no API key here - the host secrets file can't be read from the dashboard; enter one to test"}
         out = {"ok": True, "url": url, "indices": {}}
         for n in INDEX_DEFAULTS:
             ix = (c.get("indices") or {}).get(n) or INDEX_DEFAULTS[n]
@@ -247,6 +270,16 @@ def test(section, body):
             return {"ok": True, "url": url, "consoles": sum(1 for h in hosts if h.get("type") == "console"), "hosts": len(hosts)}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "url": url, "error": _err(e)}
+    if section == "web":
+        import webtools
+        prov = c.get("provider") or "duckduckgo"
+        if prov != "duckduckgo" and not c.get("api_key"):
+            return {"ok": False, "error": "enter the API key to test it"}
+        try:
+            res = webtools.search("Security Onion documentation", 3, cfg={"provider": prov, "api_key": c.get("api_key") or ""})
+            return {"ok": bool(res), "provider": prov, "results": len(res), "error": "" if res else "no results"}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "provider": prov, "error": str(e)[:300]}
     raise ValueError("unknown integration")
 
 

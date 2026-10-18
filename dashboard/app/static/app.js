@@ -124,7 +124,7 @@ function aiFlare(g, fallbackVia = "") {
   const short = !m || m === "unknown" ? "AI" : m.replace(/^.*\//, "").replace(/-(qat|gguf|instruct)$/i, "");
   return `<span class="ai-flare" title="${esc(`AI-generated${m && m !== "unknown" ? " by " + m : " (model not recorded)"}${via ? " · " + via : ""}${at}. Verify before acting.`)}">✨ ${esc(short)}</span>`;
 }
-const trFlare = () => (S.snap?.triage ? aiFlare(S.snap.triage.generated_by || {}, "Hermes nightly triage") : "");
+const trFlare = () => (S.snap?.triage ? aiFlare(S.snap.triage.generated_by || {}, "AI triage") : "");
 
 /* ---------- correlation (related.js fills the cells once /api/correlate is loaded) ---------- */
 const relCol = (idFn) => ({ k: "_rel", t: "Related", sort: (x) => (S.corr?.related?.[idFn(x)] || []).length,
@@ -305,7 +305,7 @@ function ackSplit(type, rows, sec) {
 const ackCol = (type, labelFn) => ({ k: "_ack", t: "✓", fmt: (v, x) => ackBox(type, x, labelFn(x)), sort: (x) => (acked(type, x) ? 1 : 0) });
 const ackRowCls = (type) => (x) => (acked(type, x) ? "acked" : "");
 
-/* ----- "Ask Hermes" about one specific vulnerability / attack / finding ----- */
+/* ----- "Ask AI" about one specific vulnerability / attack / finding ----- */
 const ASK = new Map(); let askSeq = 0;
 const ASK_Q = {
   vuln: ["What is this and how serious is it for my network?", "How do I fix this, step by step?", "Is this being exploited in the wild right now?"],
@@ -323,7 +323,7 @@ function askClean(o, depth = 0) {  // compact copy of the item for the prompt: d
 function askBtn(kind, title, item) {
   const id = "a" + ++askSeq; ASK.set(id, { kind, title: String(title || "").slice(0, 300), item });
   if (ASK.size > 4000) ASK.delete(ASK.keys().next().value);
-  return `<button type="button" class="askh" data-ask="${id}" title="Ask Hermes about this" aria-label="Ask Hermes about this">💬</button>`;
+  return `<button type="button" class="askh" data-ask="${id}" title="Ask AI about this" aria-label="Ask AI about this">💬</button>`;
 }
 // "compare models" button (compare.js): same registry idea as askBtn
 const CMP = new Map(); let cmpSeq = 0;
@@ -337,7 +337,7 @@ const pivBtn = (kind, x) => (typeof pivotBtn === "function" ? pivotBtn(kind, x) 
 const askCmpPivCol = (kind, titleFn, piv) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) + pivBtn(piv, x) });
 const askPivCol = (kind, titleFn, piv) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + pivBtn(piv, x) });
 const askCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(typeof kind === "function" ? kind(x) : kind, titleFn(x), x) });
-// model picker for Ask Hermes (chat page + "Ask about this" dialog); choice kept per browser in localStorage
+// model picker for Ask AI (chat page + "Ask about this" dialog); choice kept per browser in localStorage
 const CHAT_MODEL_KEY = "netmonChatModel";
 let _llmModels = null;
 const chatModel = () => { try { return JSON.parse(localStorage.getItem(CHAT_MODEL_KEY) || "null"); } catch (_) { return null; } };
@@ -345,10 +345,9 @@ async function chatModelPicker() {
   const wrap = document.createElement("span"); wrap.className = "chatm";
   try { _llmModels = _llmModels || await api("/api/llm/models"); } catch (_) { return wrap; }
   const M = _llmModels; if (!M.admin) return wrap;
-  const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask Hermes");
-  const def = M.chat_default || {};
-  sel.add(new Option(`Default (${def.model || "profile model"})`, ""));
-  for (const [label, prov, list] of [["Anthropic", "anthropic", M.anthropic || []], ["OpenAI", "openai-api", M.openai || []], ["Local (LM Studio)", "lmstudio", M.local || []]]) {
+  const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask AI");
+  sel.add(new Option("Default (set on AI review > Models)", ""));
+  for (const [label, prov, list] of [...(M.custom || []).map((g) => [g.name, g.provider, g.models]), ["Local (LM Studio)", "lmstudio", M.local || []]]) {
     if (!list.length) continue;
     const g = document.createElement("optgroup"); g.label = label;
     list.forEach((m) => g.appendChild(new Option(m.id + (m.loaded ? " (loaded)" : prov === "lmstudio" ? " (not loaded)" : ""), `${prov}|${m.id}`)));
@@ -367,11 +366,11 @@ function askOpen(a) {
   const qs = ASK_Q[ASK_KIND[a.kind] || "attack"];
   const d = document.createElement("div"); d.id = "askDlg"; d.className = "askdlg-scrim";
   d.innerHTML = `<div class="askdlg card" role="dialog" aria-modal="true" aria-labelledby="askT">
-    <div class="askdlg-h"><span class="avatar">⚕︎</span><div><b id="askT">Ask Hermes about this ${esc(a.kind)}</b><div class="muted small askdlg-item">${esc(a.title)}</div></div><button type="button" class="askdlg-x" aria-label="Close">✕</button></div>
-    <details class="small"><summary class="muted">What Hermes will be given</summary><pre class="mono">${esc(details)}</pre></details>
+    <div class="askdlg-h"><span class="avatar">⚕︎</span><div><b id="askT">Ask AI about this ${esc(a.kind)}</b><div class="muted small askdlg-item">${esc(a.title)}</div></div><button type="button" class="askdlg-x" aria-label="Close">✕</button></div>
+    <details class="small"><summary class="muted">What the AI will be given</summary><pre class="mono">${esc(details)}</pre></details>
     <div class="askdlg-q">${qs.map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
     <form><textarea rows="3" maxlength="2000" placeholder="Or type your own question about this ${esc(a.kind)}…"></textarea>
-    <div class="askdlg-f"><span class="muted small">Opens in Ask Hermes as a new chat.</span><button type="submit">Ask Hermes ➤</button></div></form></div>`;
+    <div class="askdlg-f"><span class="muted small">Opens in Ask AI as a new chat.</span><button type="submit">Ask AI ➤</button></div></form></div>`;
   document.body.appendChild(d);
   chatModelPicker().then((p) => d.querySelector(".askdlg-f").prepend(p));
   const ta = d.querySelector("textarea");
@@ -443,7 +442,7 @@ V.overview = (el) => {
     const c = card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(lst.slice(0, S.showAcked["ov-alarms"] ? 50 : 6)) || `<div class="empty">All alarms checked off.</div>`); if (A.show.length > 6) c.insertAdjacentHTML("beforeend", `<a href="#/security">All alarms →</a>`); el.appendChild(c); }
   el.appendChild(grid("g2", card("Endpoint fleet", fleetTable()), card("Gateway health", unifiHealthHtml())));
   const brief = S.snap.briefing?.items || [];
-  if (brief.length) el.appendChild(card(`Security news briefing ${aiFlare(S.snap.briefing.generated_by || {}, "Hermes nightly research")}`, brief.map((i) => `<div class="alarm info"><div class="t"><span class="chip">${esc(i.category)}</span> <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></div><p>${esc(i.summary)}</p></div>`).join("")));
+  if (brief.length) el.appendChild(card(`Security news briefing ${aiFlare(S.snap.briefing.generated_by || {}, "AI news research")}`, brief.map((i) => `<div class="alarm info"><div class="t"><span class="chip">${esc(i.category)}</span> <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></div><p>${esc(i.summary)}</p></div>`).join("")));
 };
 
 function topTalkersChart(n) {

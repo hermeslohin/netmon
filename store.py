@@ -11,7 +11,7 @@ Replaces the JSON files:
 Raw events stay in Security Onion Elasticsearch; nightly snapshots stay in data/*.json (for now).
 
 DB location: $NETMON_DB, else $STATE_DIR/netmon.db (dashboard container: /state), else
-~/.hermes/netmon/dashboard/state/netmon.db. It lives on the dashboard's writable state volume so the container can
+<netmon>/dashboard/state/netmon.db. It lives on the dashboard's writable state volume so the container can
 keep /netmon mounted read-only (SQLite WAL needs a writable directory even for readers).
 
 CLI: store.py migrate | stats | backup | export <dir> | check

@@ -1,4 +1,5 @@
-// AI review (#/aireview): status of the local LLM that confirms or rejects correlation links (corr_llm.py).
+// AI review (#/aireview): the correlation reviewer that confirms or rejects correlation links (corr_llm.py), the
+// research job (review.py) and the AI providers / models / cost caps they use.
 // Worker health, queue + ETA, throughput, and every verdict with the model's reason; people can override a verdict
 // (confirm / reject) or send it back to the model for another look.
 (() => {
@@ -15,49 +16,61 @@
 
   const aiColors = (cfg) => { const C = { Confirmed: "#3fb950", Rejected: "#f85149", "Set by a person": "#58a6ff" };
     cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => C[l] || "#8b949e"); return cfg; };
-  // Claude (Hermes cron) triage + enrichment: job state exported by claude_status.py, run log + coverage from enrich.py
+  // research job (review.py) triage + enrichment: settings + run state from research_cfg / research_job.json, run log + coverage from enrich.py
   const until = (ts) => { if (!ts) return "—"; const s = ts - Date.now() / 1000; return s < 0 ? "due now" : s < 5400 ? `in ${Math.round(s / 60)} min` : `in ${(s / 3600).toFixed(1)} h`; };
   const dur = (s) => (s == null ? "" : s < 90 ? `${s} s` : `${Math.round(s / 60)} min`);
   const clock = (ts) => (ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
-  // "every 12 h" from the job's cron grid (llm_broker.schedule_expr writes "0 H-23/N * * *") or interval minutes
-  const every = (expr, mins) => { const m = /^\d+ \d+-23\/(\d+) /.exec(expr || ""); const n = m ? 60 * m[1] : mins;
+  // "every 4 h" from the job's interval in minutes
+  const every = (_, mins) => { const n = mins;
     return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
-  function claudeCard(C) {  // returns [status box, time/token box (only when usage exists)]
-    if (C.error) return [card("Claude triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
+  function researchCard(C, D) {  // returns [status box, time/token box (only when usage exists)]
+    if (C.error) return [card("AI triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
-    const health = !J ? ["No job found", "sev-unknown"] : !J.enabled ? ["Paused", "sev-unknown"] : J.running ? ["Running now", "sev-good"]
+    const health = !J ? ["No job found", "sev-unknown"] : !J.model ? ["No model chosen", "sev-unknown"] : !J.enabled ? ["Paused", "sev-unknown"] : J.running ? ["Running now", "sev-good"]
+      : J.requested ? ["Starting (requested)", "sev-medium"]
       : lastRun && lastRun.status === "failed" ? ["Last run failed", "sev-high"] : J.failure_streak ? ["Failing", "sev-high"] : ["Idle · scheduled", "sev-good"];
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
-    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.model, via: "Hermes triage + enrichment", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
+    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "research job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
-    const c = card(`Claude triage &amp; enrichment (${every(J && J.schedule)})`, `
+    const c = card(`AI triage &amp; enrichment (${every(null, J && J.interval_minutes)})`, `
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
-        ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "default model")}</span></span>
-        <span class="k">Schedule</span><span><span class="mono">${esc(J.schedule || "")}</span> UTC · PDF only on the 05:00 UTC run · next run ${esc(until(J.next_run))} (${esc(clock(J.next_run))})</span>
+        ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no model chosen - pick one in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)}</span>` : ""}</span>
+        <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · PDF on the first run after 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
+          ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested || !J.model ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
         <span class="k">Last run</span><span>${lastRun ? `${esc(ago(lastRun.finished || lastRun.started))} · ${esc(lastRun.status)}${lastRun.duration_s ? ` in ${esc(dur(lastRun.duration_s))}` : ""}` : "never"}${J.failure_streak ? ` · <span class="bad">${fn(J.failure_streak)} failure(s) in a row</span>` : ""}</span>
-        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>No Hermes cron job with the home-network-report skill was found.</span>`}
+        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>Research job status unavailable.</span>`}
         <span class="k">Research notes</span><span>${fn(N.total || 0)} stored · ${fn(N.last_24h || 0)} in the last 24 h${Object.keys(N.by_verdict || {}).length ? " · " + Object.entries(N.by_verdict).map(([k, v]) => `${esc(k)} ${fn(v)}`).join(" · ") : ""}</span>
-        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by Claude (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
-        ${stale ? `<span class="k">Note</span><span class="warn">Job status last refreshed ${esc(ago(C.exported))} (the 15-minute watcher refreshes it).</span>` : ""}
+        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by the research job (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
+        ${stale && J && J.running ? `<span class="k">Note</span><span class="warn">No progress reported for ${esc(ago(C.exported))} - check logs/research.log on the host.</span>` : ""}
       </div>
-      <div style="margin-top:12px"><div class="small muted">Current snapshot: ${cov}% of events have a Claude note (${fn(N.current_with_note || 0)} of ${fn(N.current_events || 0)})</div>
+      <div style="margin-top:12px"><div class="small muted">Current snapshot: ${cov}% of events have a research note (${fn(N.current_with_note || 0)} of ${fn(N.current_events || 0)})</div>
         <div class="bar" style="height:10px;margin-top:4px"><span style="width:${cov}%"></span></div></div>
       ${sum}
       <div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">
         <div class="cl-runs"><div class="small"><b>Recent runs</b></div></div>
         <div class="cl-enr"><div class="small"><b>Enrichment passes</b></div></div>
       </div>`);
-    c.id = "ai-claude";
+    c.id = "ai-research";
+    if (D.admin && J) {
+      const m = c.querySelector(".rj-msg");
+      c.querySelector(".rj-run")?.addEventListener("click", async (ev) => { ev.target.disabled = true; m.textContent = "requesting…";
+        try { await apiPost("/api/llm/research", { action: "run" }); m.textContent = "requested - the scheduler starts it within 20 s"; }
+        catch (e) { m.textContent = "error: " + e.message; ev.target.disabled = false; } });
+      c.querySelector(".rj-toggle")?.addEventListener("click", async (ev) => { ev.target.disabled = true;
+        try { const r = await apiPost("/api/llm/research", { enabled: !J.enabled }); J.enabled = r.research.enabled; ev.target.textContent = J.enabled ? "Pause" : "Resume";
+          m.textContent = J.enabled ? "resumed" : "paused - no scheduled runs until resumed"; }
+        catch (e) { m.textContent = "error: " + e.message; } ev.target.disabled = false; });
+    }
     const U = (J && J.usage) || [];
     let uc = null;
     USAGE = null;
     if (U.length) {  // time + token use of each research run
       const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
-      // usage_audit's prompt count sums the whole re-sent conversation over every API call of the run; ~95% of it
-      // is prompt-cache reads (~10% of the input price). claude_status.py adds the split from Hermes's session DB.
+      // the prompt count sums the whole re-sent conversation over every API call of the run; most of it can be
+      // prompt-cache reads (a fraction of the input price) when the provider caches. review.py records the split.
       const M = (v) => +((v || 0) / 1e6).toFixed(3), sum = (f) => U.reduce((a, u) => a + (f(u) || 0), 0);
       const split = (u) => u.cache_read != null;
       const mins = sum((u) => u.duration_s) / 60, cost = sum((u) => u.cost_usd), nCost = U.filter((u) => u.cost_usd != null).length;
@@ -71,7 +84,7 @@
       hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
           (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
           (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
-          (nCost ? ` · est. $${cost.toFixed(2)} at API list prices ($${(cost / nCost).toFixed(2)} per run)` : "") }));
+          (nCost ? ` · est. $${cost.toFixed(2)} at the prices entered for the model ($${(cost / nCost).toFixed(2)} per run)` : "") }));
       const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
       chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
       const cfg = { type: "bar", data: { labels: lbl, datasets: [
@@ -119,7 +132,7 @@
   }
 
   // ---- research cost preview: re-price the recorded runs' tokens with the model picked in the Models box
-  let USAGE = null;  // {U, canvas, pv, preview} set by claudeCard when the usage chart exists
+  let USAGE = null;  // {U, canvas, pv, preview} set by researchCard when the usage chart exists
   // $ for one run's tokens at a price {in, out, cache_read, cache_write} per 1 M. A missing cache price falls back to the
   // input price (OpenAI bills cache writes as plain input). Runs without a cache split use the average split of the
   // runs that have one (pricing all their input as new input would overstate them ~10x).
@@ -136,11 +149,11 @@
     // The recorded runs may have used another model than the one now configured, so the configured model gets an
     // estimate too; only "no model" hides the preview.
     const same = !model, chosen = !!current && provider === current.provider && model === current.model;
-    const list = { anthropic: M.anthropic, "openai-api": M.openai }[provider];
-    const price = provider === "lmstudio" ? { in: 0, out: 0 } : ((list || []).find((m) => m.id === model) || {}).price;
+    const grp = (M.custom || []).find((g) => g.provider === provider);
+    const price = provider === "lmstudio" ? { in: 0, out: 0 } : ((grp ? grp.models : []).find((m) => m.id === model) || {}).price;
     USAGE.preview = same ? null : { provider, model, price };
     if (same) { USAGE.pv.textContent = ""; }
-    else if (!price) { USAGE.pv.innerHTML = `<span class="warn">Hermes has no price for ${esc(model)}, so its cost can't be estimated.</span>`; }
+    else if (!price) { USAGE.pv.innerHTML = `<span class="warn">No price entered for ${esc(model)} (AI providers > edit > Models), so its cost can't be estimated.</span>`; }
     else {
       const perDay = current && current.interval_minutes ? 1440 / current.interval_minutes : 2;
       const v = USAGE.U.map((u) => runCost(u, price)), avg = v.reduce((a, x) => a + x, 0) / (v.length || 1);
@@ -148,7 +161,7 @@
       USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the research job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
         (recAvg != null ? ` (the recorded runs averaged $${recAvg.toFixed(2)})` : "") +
         ` · ~$${(avg * 30 * perDay).toFixed(0)} a month at ${+perDay.toFixed(1)} run${perDay === 1 ? "" : "s"} a day. <span class="muted">Same token counts as the recorded runs re-priced at ` +
-        `${esc(model)}'s list price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
+        `${esc(model)}'s price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
         `a different model would use a different number of tokens, so treat this as a rough guide.${chosen ? "" : " Press Save to switch."}</span>`;
     }
     const data = same || !price ? USAGE.U.map(() => null) : USAGE.U.map((u) => runCost(u, price));
@@ -159,14 +172,13 @@
   // ---- model choice (correlation reviewer + research job) and per-decision model comparison
   let MODELS = null;
   const loadModels = async () => { MODELS = MODELS || await api("/api/llm/models"); for (const g of MODELS.custom || []) PROV[g.provider] = g.name; return MODELS; };
-  // built-in providers; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
-  const PROV = { lmstudio: "Local (LM Studio)", anthropic: "Anthropic (via Hermes)", "openai-api": "OpenAI (via Hermes)" };
+  // the local server; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
+  const PROV = { lmstudio: "Local (LM Studio)" };
   const optKey = (p, m) => `${p}|${m}`;
-  // hermesOnly: the research job runs in Hermes, so it can't use the dashboard's own API-key providers
-  function modelSelect(M, cur, hermesOnly) {
+  function modelSelect(M, cur, placeholder) {
     const sel = document.createElement("select"); sel.className = "llm-sel";
-    const groups = [["lmstudio", (M.local || []).map((m) => [m.id, m.id + (m.loaded ? " (loaded)" : "")])], ["anthropic", (M.anthropic || []).map((m) => [m.id, m.id])],
-      ["openai-api", (M.openai || []).map((m) => [m.id, m.id])], ...(hermesOnly ? [] : (M.custom || []).map((g) => [g.provider, g.models.map((m) => [m.id, m.id])]))];
+    if (placeholder) sel.add(new Option(placeholder, ""));
+    const groups = [["lmstudio", (M.local || []).map((m) => [m.id, m.id + (m.loaded ? " (loaded)" : "")])], ...(M.custom || []).map((g) => [g.provider, g.models.map((m) => [m.id, m.id])])];
     for (const [prov, items] of groups) {
       if (!items.length) continue;
       const g = document.createElement("optgroup"); g.label = PROV[prov];
@@ -182,19 +194,21 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). It can use any provider in the AI providers box. Research job: the scheduled triage and event research; it runs in Hermes, so it can only use LM Studio or Hermes' Anthropic / OpenAI models (local models are much slower and weaker at web research)."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage, event research and daily report (local models are much slower and weaker at web research). Chat: the Ask AI assistant. Add cloud models in the AI providers box."
       : "Only an admin can change models.";
-    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(D.research?.schedule, D.research?.interval_minutes)})`, D.research && !D.research.error ? D.research : {}]];
+    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(null, D.research?.interval_minutes)})`, D.research && !D.research.error ? D.research : {}],
+      ["chat", "Chat (Ask AI)", D.chat || {}]];
     loadModels().then((M) => {
-      if (M.error) note.textContent = M.error + " - only local models can be chosen. " + note.textContent;
+      if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start LM Studio. " + note.textContent;
       for (const [sec, label, cur] of rows) {
         const r = body.appendChild(document.createElement("div")); r.className = "llm-row";
         r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: label }));
-        const sel = r.appendChild(modelSelect(M, cur, sec === "research")); sel.disabled = !D.admin;
+        const sel = r.appendChild(modelSelect(M, cur, sec === "correlation" ? null : "— choose a model —")); sel.disabled = !D.admin;
         const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
         const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
-        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : (sec === "research" && D.research?.error ? D.research.error : "now: auto (model loaded in LM Studio)");
-        sel.onchange = () => { btn.disabled = !D.admin || sel.value === optKey(cur.provider, cur.model);
+        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the research job does not run until a model is chosen")
+          : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (model loaded in LM Studio)";
+        sel.onchange = () => { btn.disabled = !D.admin || !sel.value || sel.value === optKey(cur.provider, cur.model);
           if (sec === "research") { const [p, ...m] = sel.value.split("|"); previewResearchCost(p, m.join("|"), M, cur); } };
         if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
         btn.onclick = async () => {
@@ -207,7 +221,6 @@
         };
       }
       body.appendChild(esQueriesRow(D));
-      if (D.admin) body.appendChild(openaiKeyRow(M));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
@@ -258,35 +271,12 @@
     ], E.recent, { sort: "ts", limit: 20 }));
     return c;
   }
-  // OpenAI API key (write-only): the broker checks it with OpenAI, then stores it in Hermes' .env (main + Ask Hermes profiles)
-  function openaiKeyRow(M) {
-    const st = M.openai_key || {};
-    const r = document.createElement("div"); r.className = "llm-row";
-    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "OpenAI API key" }));
-    const inp = r.appendChild(Object.assign(document.createElement("input"), { type: "password", autocomplete: "off", spellcheck: false,
-      placeholder: st.set ? `saved (${st.hint || "set"}) - paste a new key to replace` : "sk-...", className: "llm-sel" }));
-    inp.setAttribute("aria-label", "OpenAI API key");
-    const save = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save key" }));
-    const del = Object.assign(document.createElement("button"), { type: "button", textContent: "Remove" });
-    if (st.set) r.appendChild(del);
-    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
-    msg.textContent = st.set ? `OpenAI models available: ${(M.openai || []).length}` : "No key saved: OpenAI models are hidden until you add one.";
-    const send = async (body, what) => {
-      save.disabled = del.disabled = true; msg.textContent = what;
-      try { await apiPost("/api/llm/openai-key", body); MODELS = null; inp.value = ""; msg.textContent = body.remove ? "removed - reloading…" : "saved - reloading…"; setTimeout(() => location.reload(), 600); }
-      catch (e) { msg.textContent = "error: " + e.message; save.disabled = del.disabled = false; }
-    };
-    save.onclick = () => { const k = inp.value.trim(); if (!k) { msg.textContent = "paste a key first"; return; } send({ key: k }, "checking the key with OpenAI…"); };
-    del.onclick = () => { if (confirm("Remove the OpenAI API key from Hermes? OpenAI models stop working until a new key is saved.")) send({ remove: true }, "removing…"); };
-    return r;
-  }
-
   // ---- AI providers (admin): any OpenAI-compatible or Anthropic API with a key, called by the dashboard itself
   function providersCard() {
     const c = card("AI providers", `<div class="small muted">Add any number of AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
       OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
-      <b>Anthropic</b> is Claude with an Anthropic API key. The dashboard calls them directly (no Hermes). Their models appear in the correlation
-      reviewer menu and in every Compare dialog. Keys are stored on the dashboard's state volume, readable only by the dashboard, and never shown again.</div>
+      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, the research job and the chat,
+      and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
       <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
       <div style="margin-top:8px"><button type="button" class="prov-add">Add provider</button> <span class="small muted prov-msg"></span></div>`);
     c.id = "ai-providers";
@@ -313,17 +303,19 @@
         <div class="llm-row"><span class="k">Type</span><select name="type" class="llm-sel">${Object.entries(TYPES).map(([k, t]) => `<option value="${esc(k)}">${esc(t.label)}</option>`).join("")}</select></div>
         <div class="llm-row"><span class="k">Base URL</span><input name="base_url" class="llm-sel mono" spellcheck="false"><span class="small muted">empty = the official API</span></div>
         <div class="llm-row"><span class="k">API key</span><input name="api_key" type="password" autocomplete="off" spellcheck="false" class="llm-sel"></div>
-        <div class="llm-row"><span class="k">Models</span><textarea name="models" rows="4" class="llm-sel mono" spellcheck="false" placeholder="one model id per line"></textarea>
-          <button type="button" class="pf-fetch">Fetch from provider</button></div>
+        <div class="llm-row"><span class="k">Models</span><textarea name="models" rows="4" class="llm-sel mono" spellcheck="false" placeholder="one model per line, optionally with its price in $ per million tokens:&#10;model-id  input  output  [cached input]"></textarea>
+          <button type="button" class="pf-fetch">Fetch from provider</button>
+          <span class="small muted">Prices are optional; with them the dashboard estimates costs and enforces the research job's $ caps (token caps work without).</span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
-          <span class="small muted">cap on this provider's calls (reviewer + comparisons) - limits cost if something loops</span></div>
+          <span class="small muted">cap on this provider's single calls (correlation reviewer + comparisons) - limits cost if something loops</span></div>
         <div class="llm-row"><span class="k">Extra reasoning tokens</span><input name="reasoning_tokens" type="number" min="0" max="32000" step="500" style="width:7em">
           <span class="small muted">added to each answer's token limit for models that think first (OpenAI gpt-5 / o-series: ~3000; others 0)</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
         <div class="llm-row"><span class="k"></span><button type="button" class="pf-save">Save</button><button type="button" class="pf-test">Test key</button><button type="button" class="pf-cancel">Cancel</button>
           <span class="small muted pf-msg"></span></div></div>`;
       const f = (n) => formBox.querySelector(`[name="${n}"]`), fm = formBox.querySelector(".pf-msg");
-      f("name").value = p.name || ""; f("type").value = p.type; f("base_url").value = p.base_url || ""; f("models").value = (p.models || []).join("\n");
+      f("name").value = p.name || ""; f("type").value = p.type; f("base_url").value = p.base_url || "";
+      f("models").value = (p.models || []).map((m) => (p.prices || {})[m] ? `${m}  ${p.prices[m].join("  ")}` : m).join("\n");
       f("rate_per_hour").value = p.rate_per_hour; f("reasoning_tokens").value = p.reasoning_tokens; f("enabled").checked = p.enabled !== false;
       const ph = () => { f("base_url").placeholder = (TYPES[f("type").value] || {}).base_url || "";
         f("api_key").placeholder = p.key_set ? `saved (${p.key_hint}) - leave empty to keep it` : f("type").value === "anthropic" ? "sk-ant-..." : "sk-..."; };
@@ -335,12 +327,13 @@
       formBox.querySelector(".pf-cancel").onclick = () => { formBox.innerHTML = ""; };
       formBox.querySelector(".pf-test").onclick = (ev) => run(ev.target, { ...val(), action: "test" }, "checking the key…", (r) => { fm.textContent = "✓ " + r.message; });
       formBox.querySelector(".pf-fetch").onclick = (ev) => run(ev.target, { ...val(), action: "models" }, "asking the provider for its models…", (r) => {
-        const have = new Set(f("models").value.split(/\s+/).filter(Boolean));
+        const have = new Set(f("models").value.split("\n").map((l) => l.trim().split(/\s+/)[0]).filter(Boolean));
         fm.innerHTML = ""; const box = document.createElement("div"); box.className = "prov-pick small";
         box.append(`${r.models.length} chat models (of ${r.all}). Tick the ones to offer: `);
         for (const m of r.models) { const l = box.appendChild(document.createElement("label")); l.className = "cmp-opt";
           const cb = l.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: have.has(m) })); l.append(" " + m);
-          cb.onchange = () => { const s = new Set(f("models").value.split(/\s+/).filter(Boolean)); cb.checked ? s.add(m) : s.delete(m); f("models").value = [...s].join("\n"); }; }
+          cb.onchange = () => { const lines = f("models").value.split("\n").filter((l) => l.trim() && l.trim().split(/\s+/)[0] !== m);
+            if (cb.checked) lines.push(m); f("models").value = lines.join("\n"); }; }
         fm.appendChild(box); });
       formBox.querySelector(".pf-save").onclick = (ev) => run(ev.target, { ...val(), action: "save" }, "saving…", (r) => {
         P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = `saved ${r.provider.name}`; reloadModels(); });
@@ -362,67 +355,55 @@
     return c;
   }
 
-  // ---- cost limits: the Hermes cost_limit plugin's $ caps (plugins.entries.cost_limit.settings, via the host broker)
+  // ---- research job cost caps (research_cfg.py): $ per run / per day, tokens per run, research batches per run
   function costCard(D) {
-    const L = D.costlimit || {}, T = "Cost limits (estimated token cost)";
-    if (L.error) { const e = card(T, `<div class="bad">Cost limits unavailable: ${esc(L.error)}</div>`); e.id = "ai-cost"; return e; }
-    const U = ((D.claude?.jobs || [])[0]?.usage || []).filter((u) => u.cost_usd != null).map((u) => u.cost_usd);
+    const R = D.research || {}, L = R.limits || {}, T = "Research job limits";
+    if (R.error) { const e = card(T, `<div class="bad">Limits unavailable: ${esc(R.error)}</div>`); e.id = "ai-cost"; return e; }
+    const U = (((D.research_status || {}).jobs || [])[0]?.usage || []).filter((u) => u.cost_usd != null).map((u) => u.cost_usd);
     const avg = U.length ? U.reduce((a, v) => a + v, 0) / U.length : null, max = U.length ? Math.max(...U) : null;
     const usd = (v) => `$${(+v).toFixed(2)}`;
     const c = card(T, `
-      <div class="small muted">Hermes estimates what every model call costs (tokens × the provider's API list price) and adds it up.
-        When a limit below is passed, Hermes stops the work right after that call and blocks any tool calls still waiting.
-        The check runs after each call, so the final total can go over the limit by the cost of one call. <b>0 = no limit.</b></div>
-      ${!L.installed ? `<div class="bad" style="margin-top:6px">The cost_limit plugin is not installed in Hermes, so these limits have no effect.</div>`
-        : !L.enabled ? `<div class="warn" style="margin-top:6px">The cost_limit plugin is installed but not enabled (<span class="mono">hermes plugins enable cost_limit</span>), so these limits have no effect.</div>` : ""}
+      <div class="small muted">The research job adds up the tokens of every model call and, when the model has a price (AI providers > Models), the
+        estimated cost. A run stops at the next model call once a limit below is passed; what it found until then is kept. <b>0 = no limit.</b></div>
       <div class="llm-grid" style="margin-top:10px">
-        <div class="llm-row"><span class="k">Per run</span><span>$ <input type="number" name="max_run_usd" min="0" max="1000" step="0.5" style="width:7em"></span>
-          <span class="small muted" style="flex:1 1 380px">A <b>run</b> is one piece of work from start to final answer: one firing of the research job, or one message
-            sent to Hermes in a chat, including any subagents it starts. Use this to stop a single run that goes wrong (loops, huge web research).
-            ${avg != null ? `Recent research runs cost about <b>${usd(avg)}</b> each (highest ${usd(max)}, last ${U.length} runs).` : ""}
-            <span class="cost-warn bad"></span></span></div>
-        <div class="llm-row"><span class="k">Per session</span><span>$ <input type="number" name="max_session_usd" min="0" max="1000" step="1" style="width:7em"></span>
-          <span class="small muted" style="flex:1 1 380px">A <b>session</b> is a whole conversation: every run in it added together. Each research-job firing starts a new
-            session with a single run, so for the research job the lower of the two limits is the one that counts. The session limit mainly caps
-            long chats with Hermes (desktop, CLI, Discord), where many cheap runs add up.</span></div>
+        <div class="llm-row"><span class="k">$ per run</span><span>$ <input type="number" name="max_run_usd" min="0" max="1000" step="0.5" style="width:7em"></span>
+          <span class="small muted" style="flex:1 1 380px">Stops one run that goes wrong (loops, huge web research).
+            ${avg != null ? `Recent runs cost about <b>${usd(avg)}</b> each (highest ${usd(max)}, last ${U.length} runs).` : ""} <span class="cost-warn bad"></span></span></div>
+        <div class="llm-row"><span class="k">$ per day</span><span>$ <input type="number" name="max_day_usd" min="0" max="5000" step="1" style="width:7em"></span>
+          <span class="small muted" style="flex:1 1 380px">No new run starts once today's runs (UTC) cost this much. Spent today: <b>${usd(R.spent_today_usd || 0)}</b>.</span></div>
+        <div class="llm-row"><span class="k">Tokens per run</span><span><input type="number" name="max_run_tokens" min="0" max="100000000" step="100000" style="width:9em"></span>
+          <span class="small muted" style="flex:1 1 380px">Input + output tokens of all calls in one run. Works for models without a price, too.</span></div>
+        <div class="llm-row"><span class="k">Research batches</span><span><input type="number" name="max_batches" min="0" max="40" step="1" style="width:5em"></span>
+          <span class="small muted" style="flex:1 1 380px">Event-research conversations per run (8 events each). Fewer batches = cheaper runs; events left over are picked up by the next run.</span></div>
       </div>
-      <div class="small muted" style="margin-top:8px">Covered: the research job and other Hermes (default profile) sessions. Not covered: the correlation reviewer and model
-        comparisons on this page (single calls through the broker, capped at 120 Anthropic requests per hour instead) and Ask Hermes (its own profile).
-        Local LM Studio models cost $0 and are never stopped; a provider Hermes has no price for also counts as $0.</div>
-      <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>
-      ${(L.stops || []).length ? `<details class="small" style="margin-top:8px"><summary>Recent stops (${L.stops.length})</summary>
-        ${L.stops.slice().reverse().map((s) => `<div><span class="mono">${esc(s.at)} UTC</span> · ${esc(s.reason)} <span class="muted mono">${esc(s.session)}</span></div>`).join("")}</details>`
-        : `<div class="small muted" style="margin-top:8px">No run has been stopped by a cost limit yet.</div>`}`);
+      <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
+        chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
+      <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>`);
     c.id = "ai-cost";
+    const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches"];
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
-    const warn = () => { const r = +inp("max_run_usd").value || 0, s = +inp("max_session_usd").value || 0;
-      const over = r ? U.filter((v) => v > r).length : 0;
-      c.querySelector(".cost-warn").textContent = (r && avg != null && r < avg ? ` Below the usual research run cost: the research job would be stopped before it finishes most runs.`
-        : over ? ` ${over} of the last ${U.length} research runs cost more than this and would have been stopped before finishing.` : "") +
-        (r && s && s < r ? " The session limit is lower than the run limit, so the session limit will stop runs first." : ""); };
-    const fill = (v) => { for (const k of ["max_run_usd", "max_session_usd"]) inp(k).value = v[k] ?? 0; warn(); };
+    const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
+      c.querySelector(".cost-warn").textContent = r && avg != null && r < avg ? " Below the usual run cost: most runs would stop before finishing."
+        : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
+    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; warn(); };
     fill(L);
-    for (const k of ["max_run_usd", "max_session_usd"]) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
+    for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
     btn.disabled = true;
-    if (!D.admin) msg.textContent = "Only an admin can change cost limits.";
+    if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
-      for (const k of ["max_run_usd", "max_session_usd"]) { const v = inp(k).value === "" ? 0 : +inp(k).value;
-        if (!(v >= 0 && v <= 1000)) { msg.textContent = "Enter an amount between 0 (no limit) and 1000 dollars."; return; } body[k] = v; }
+      for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
       btn.disabled = true; msg.textContent = "saving…";
-      try { const r = await apiPost("/api/llm/costlimit", body); fill(r.costlimit || body);
-        msg.textContent = `saved: ${body.max_run_usd ? usd(body.max_run_usd) : "no limit"} per run · ${body.max_session_usd ? usd(body.max_session_usd) : "no limit"} per session (applies from the next model call)`; }
+      try { const r = await apiPost("/api/llm/research", body); fill(r.research.limits || body); msg.textContent = "saved (applies from the next run)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     return c;
   }
 
   // research job lookback window (lookback.py, store meta "research_lookback"): hours of logs each run collects
-  const runEveryMin = (expr) => { const m = /^\d+ \d+-23\/(\d+) /.exec(expr || ""); if (m) return 60 * m[1];
-    const e = /every (\d+)\s*([mh])/.exec(expr || ""); return e ? +e[1] * (e[2] === "h" ? 60 : 1) : null; };
   function lookbackCard(D) {
-    const L = D.lookback || { hours: 24, min: 1, max: 24, pdf_hour: 5 }, J = (D.claude?.jobs || [])[0];
-    const iv = runEveryMin(J && J.schedule), ivH = iv ? iv / 60 : null;
+    const L = D.lookback || { hours: 24, min: 1, max: 24, pdf_hour: 5 };
+    const iv = D.research?.interval_minutes, ivH = iv ? iv / 60 : null;
     const rec = ivH ? Math.min(L.max, Math.ceil(ivH) + 1) : null;
     const T = "Research lookback window";
     const c = card(T, `
@@ -507,8 +488,8 @@
       pick.textContent = "";
       pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the correlation reviewer uses, for this one link." }));
       const cor = D.config?.correlation || {}, curLocal = cor.model || D.status.model || (M.local || []).find((m) => m.loaded)?.id || "";
-      const def = new Set([optKey(cor.provider, curLocal), "anthropic|claude-sonnet-5-5", "anthropic|claude-opus-5-5"]);
-      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(M.anthropic || []).map((m) => ["anthropic", m.id, ""]), ...(M.openai || []).map((m) => ["openai-api", m.id, ""]),
+      const def = new Set([optKey(cor.provider, curLocal), optKey(D.research?.provider, D.research?.model)]);
+      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]),
         ...(M.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))];
       for (const [prov, id, extra] of all) {
         const l = pick.appendChild(document.createElement("label")); l.className = "cmp-opt";
@@ -537,7 +518,7 @@
   }
 
   V.aireview = async (el) => {
-    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The local LLM decides whether each link is real, and on the research schedule (twice a day; Config page) Claude researches the important events and re-reviews their links (its verdicts replace the local model's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real, and on the research schedule the research job's model researches the important events and re-reviews their links (its verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});
@@ -555,7 +536,7 @@
     el.appendChild(costCard(D));
     el.appendChild(lookbackCard(D));
     el.appendChild(esCard(D));
-    el.append(...claudeCard(D.claude || {}));
+    el.append(...researchCard(D.research_status || {}, D));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
     const info = card("Reviewer", `<div class="idgrid">

@@ -26,24 +26,16 @@ tri = json.load(open(stem + ".triage.json")) if os.path.exists(stem + ".triage.j
 
 
 def _stamp_llm(path, doc, via):
-    """Record which LLM wrote a companion file (shown as the AI flare in the dashboard and PDF). The nightly agent
-    is asked to fill generated_by itself; otherwise use the model the Hermes cron job / default config runs with."""
+    """Record which LLM wrote a companion file (shown as the AI flare in the dashboard and PDF). review.py writes
+    generated_by itself; otherwise fall back to the research job's configured model."""
     if not doc or (doc.get("generated_by") or {}).get("model"):
         return doc
     model = os.environ.get("NETMON_LLM_MODEL_USED", "")
     try:
-        hh = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
-        jobs = json.load(open(os.path.join(hh, "cron", "jobs.json")))
-        jobs = jobs.get("jobs", jobs) if isinstance(jobs, dict) else jobs
-        for j in (jobs.values() if isinstance(jobs, dict) else jobs):
-            if "nightly" in str(j.get("name", "")).lower() and any(w in str(j.get("name", "")).lower() for w in ("netmon", "network")):
-                model = model or j.get("model") or ""
-        if not model:
-            import re as _r
-            m = _r.search(r"^model:\s*\n(?:\s+#.*\n)*\s+(?:default|model):\s*\"?([^\"\n]+)", open(os.path.join(hh, "config.yaml")).read(), _r.M)
-            model = m.group(1).strip() if m else ""
-    except (OSError, ValueError):
-        pass
+        import research_cfg
+        model = model or research_cfg.get().get("model") or ""
+    except Exception as e:  # noqa: BLE001 - no store: the flare just says "unknown"
+        print(f"(research job model not read: {e})", file=sys.stderr)
     doc["generated_by"] = {"model": model or "unknown", "via": via, "at": snap.get("generated"), "stamped": "report.py"}
     try:
         with open(path + ".tmp", "w") as f:
@@ -54,8 +46,8 @@ def _stamp_llm(path, doc, via):
     return doc
 
 
-tri = _stamp_llm(stem + ".triage.json", tri, "Hermes nightly triage")
-# citation ledger written by grounded-citations sources.py (HERMES_CITATION_LEDGER=<stem>.sources.json)
+tri = _stamp_llm(stem + ".triage.json", tri, "AI triage")
+# citation ledger written by review.py (cite tool): <stem>.sources.json
 SOURCES = {}
 if os.path.exists(stem + ".sources.json"):
     _l = json.load(open(stem + ".sources.json"))
@@ -64,7 +56,7 @@ if os.path.exists(stem + ".sources.json"):
 kb = json.load(open(f"{NM}/known_benign.json"))
 NAMES = kb.get("names", {})
 brief = json.load(open(stem + ".briefing.json")) if os.path.exists(stem + ".briefing.json") else {}
-brief = _stamp_llm(stem + ".briefing.json", brief, "Hermes nightly research")
+brief = _stamp_llm(stem + ".briefing.json", brief, "AI news research")
 
 ss = getSampleStyleSheet()
 H1, H2, B = ss["Title"], ss["Heading2"], ss["BodyText"]
@@ -480,8 +472,8 @@ else:
                             DONE if iv else SM)])
         story.append(table(rows, [0.35 * inch, 0.8 * inch, 6.15 * inch]))
         n_open = sum(1 for f in F_ if not f.get("investigated"))
-        story.append(HP(f"<b>{n_open} open</b>, {len(F_) - n_open} checked off as investigated. Check items off in the Hermes desktop "
-                        f"host-findings checklist (or: netmon/hosts_ack.py ack <key> [note]).", SM))
+        story.append(HP(f"<b>{n_open} open</b>, {len(F_) - n_open} checked off as investigated. Check items off on the dashboard's endpoint "
+                        f"pages (or: netmon/hosts_ack.py ack <key> [note]).", SM))
     else:
         story.append(HP("<b>Host findings:</b> none.", SM))
     # osquery posture (pack netmon-host-posture)
@@ -491,7 +483,7 @@ else:
     if isinstance(oq_, dict) and oq_.get("error"):
         story.append(HP(f"<b>Host posture (osquery):</b> query failed: {oq_['error'][:200]}", SM))
     elif not pos_:
-        story.append(HP("<b>Host posture (osquery):</b> no results yet - pack 'netmon-host-posture' (~/.hermes/netmon/osquery_pack.json) "
+        story.append(HP("<b>Host posture (osquery):</b> no results yet - pack 'netmon-host-posture' (netmon/osquery_pack.json) "
                         "is not deployed to the agent policies, or has not run in the last 26 h.", SM))
     else:
         cov = oq_.get("coverage") or {}

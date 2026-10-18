@@ -1,17 +1,19 @@
 #!/usr/bin/python3
-"""Read-only netmon data for the dashboard chat assistant: a minimal MCP server over stdio (stdlib only).
+"""Read-only netmon data tools for the dashboard chat (dashboard/app/chat.py imports TOOLS) - also usable as a
+minimal MCP server over stdio (stdlib only) by any MCP-capable AI client: `python3 netmon_mcp.py`.
 
-Exposes the latest nightly snapshot/analysis/triage, recent watcher alerts and the device registry as
-query tools. It opens SQLite with mode=ro and only ever reads files, so the assistant can look at netmon
-data but cannot change anything. Runs under the restricted Hermes profile `netmonchat`.
+Exposes the latest snapshot/analysis/triage, recent watcher alerts, notes and the device registry as query tools.
+It opens SQLite with mode=ro and only ever reads files, so the assistant can look at netmon data but cannot change
+anything.
 """
 import glob, json, os, re, sqlite3, sys
 
 NM = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(NM, "data")
-DB = os.environ.get("NETMON_DB") or os.path.join(NM, "dashboard", "state", "netmon.db")
+_STATE = os.environ.get("STATE_DIR") if os.path.isdir(os.environ.get("STATE_DIR") or "/nonexistent") else os.path.join(NM, "dashboard", "state")
+DB = os.environ.get("NETMON_DB") or os.path.join(_STATE, "netmon.db")
 KB = os.path.join(os.path.dirname(DB), "kb.db")  # notes knowledge base (dashboard/app/kb.py)
-REPORTS = os.path.expanduser("~/network_reports")
+REPORTS = os.environ.get("NETMON_REPORTS") or ("/reports" if os.path.isdir("/reports") else os.path.expanduser("~/network_reports"))
 MAX = 12000  # characters per tool result
 
 

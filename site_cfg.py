@@ -2,7 +2,7 @@
 """Site configuration loader (module name site_cfg: `site` would shadow the Python stdlib module). All network-specific values (IPs, host names, domains, accounts) live in site.json,
 which is git-ignored; site.example.json is the committed template. Code must read them from here, never hard-code.
 
-Lookup: $NETMON_SITE, else site.json next to this file (host: ~/.hermes/netmon, dashboard container: /netmon).
+Lookup: $NETMON_SITE, else site.json next to this file (host: the netmon folder, dashboard container: /netmon).
 """
 import json, os
 

@@ -159,7 +159,7 @@ def delete_host_note(note_id):
 def put(doc):
     """AI write path: {"model", "via", "host_notes": [{ip|mac|host|subject, category, text, id?}], "host_notes_delete": [ids]}."""
     model = str(doc.get("model") or "unknown")[:80]
-    via = str(doc.get("via") or "Hermes event enrichment")[:80]
+    via = str(doc.get("via") or "netmon research")[:80]
     reg, added, updated, bad = _registry(), 0, 0, []
     for n in doc.get("host_notes") or []:
         try:
@@ -317,7 +317,7 @@ def main(argv):
         out = put(doc)
         try:  # AI-written host notes coming back from the research job's LLM (audit log, see audit.py)
             import audit
-            audit.llm("research-hostnotes", "hermes (research job)", str(doc.get("model") or ""), user="netmon (research job)",
+            audit.llm("research-hostnotes", "research job", str(doc.get("model") or ""), user="netmon (research job)",
                       response=json.dumps(doc, default=str), message=f"research job: host notes from the LLM -> {json.dumps(out, default=str)[:200]}")
             audit.flush(drain=False)
         except Exception as e:  # noqa: BLE001 - never fail the job over the audit log

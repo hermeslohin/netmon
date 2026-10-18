@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import store  # noqa: E402
 
-SCAN = os.path.expanduser("~/.hermes/cache/scratch/sec")
+SCAN = os.environ.get("NETMON_SCAN_DIR") or os.path.expanduser("~/.cache/netmon/sec")
 ACCEPTED = os.path.join(HERE, "sec_accepted.json")
 import site_cfg as SITE  # noqa: E402
 NM_IP = SITE.get("self_ip")  # the host running netmon + the dashboard: alerts route to users watching it

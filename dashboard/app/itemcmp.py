@@ -1,8 +1,8 @@
 """Compare how several models judge ONE dashboard item (triage alarm, research note, baseline finding, host finding,
 event research note). Each model gets the same prompt and only the item's data (no tools, no web), answers
 {verdict, priority, summary, reasoning}; results are shown side by side and logged in corr_llm.db
-`item_comparisons`. Models: local LM Studio directly, Anthropic/OpenAI through the host LLM broker (corr_llm.broker), admin-added
-API-key providers directly (llm_providers.py).
+`item_comparisons`. Models: local LM Studio directly (JSON schema), admin-added
+API-key providers through llm_providers.py.
 """
 import hashlib, json, re, time
 from concurrent.futures import ThreadPoolExecutor
@@ -70,7 +70,7 @@ def _ask(target, kind, title, item, actor="?"):
 
 def _ask_raw(target, user, t, log):
     if corr_llm.text_provider(target["provider"]):
-        # no structured-output mode for broker / API-key providers: tagged fields survive quotes in the text, JSON often does not
+        # no structured-output mode for API-key providers: tagged fields survive quotes in the text, JSON often does not
         log["system"] = SYSTEM + "\nAnswer with exactly these four tags and nothing else:\n<verdict>...</verdict>\n<priority>...</priority>\n<summary>...</summary>\n<reasoning>...</reasoning>"
         txt, usage, secs = corr_llm.cloud_complete(target, log["system"], user, 900)
         log["txt"] = txt

@@ -29,9 +29,9 @@ Two kinds of entries, told apart by `event.dataset`:
 | `acks.check` / `acks.uncheck` | Checking an event off / restoring it. |
 | `kb.event`, `kb.host` (`.add`, `.delete`, `.approve`, `.reject`) | 📝 event notes and host notes, and approving User notes. |
 | `aireview.*`, `compare.item`, `compare.adopt`, `aireview.compare` | Confirming/rejecting AI correlation verdicts, running model comparisons, adopting a model's answer. |
-| `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask Hermes: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
+| `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask AI: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
 | `users.*` | Adding and deleting users, password resets, role changes, device assignment. Console changes (`docker exec ... server.py add-user / set-role / set-password`) are logged as user `console`. |
-| `config.*`, `llm.config`, `llm.costlimit` | Integrations (Elasticsearch, UniFi, audit key), Security Triage settings, review schedule and "Run now", model choice, AI cost limits. |
+| `config.*`, `llm.config`, `llm.research`, `llm.providers.*`, `llm.esqueries` | Integrations (Elasticsearch, UniFi, web search, audit key), Security Triage settings, research-job schedule, model choice (reviewer, research job, chat), research-job limits, "Run now" and Pause, adding / editing / testing / deleting AI providers, the reviewer's Elasticsearch look-up setting. |
 | `push.*`, `alerts.read`, `account.password` | Notification subscriptions and preferences, marking alerts read, changing your own password. |
 | `report.download` / `report.view` | Downloading or opening a nightly PDF report. |
 | `ti.lookup`, `compare.item.history`, `aireview.compare.history` | Threat-intel lookups and opening comparison history. |
@@ -50,19 +50,21 @@ note id, ...) and the request parameters with secrets redacted.
 
 | Action | Who talks to the model | What is stored |
 |---|---|---|
-| `llm.chat` | Ask Hermes, for the signed-in user | The exact text sent to Hermes (including the context block of the page the 💬 was opened from), the full answer, the Hermes session id, the tools Hermes used, model, tokens when reported, duration, status (`completed`, `failed`, `cancelled`, `disconnected`). |
+| `llm.chat` | Ask AI chat, for the signed-in user | The exact text sent to the model (including the context block of the page the 💬 was opened from), the full answer, the chat session id, the tools the model used, provider and model, tokens when reported, duration, status (`completed`, `failed`, `cancelled`, `disconnected`). |
 | `llm.correlation-review` | The background correlation reviewer, user `netmon (background reviewer)` | System prompt, prompt (the anchor event and candidate links), the model's JSON answer, model, tokens, seconds. |
 | `llm.correlation-compare` | AI review → compare models, for the user who ran it | Same as above, one entry per model. |
 | `llm.item-compare` | "Compare models" on a single finding, for the user who ran it | System prompt, the item as sent, the model's answer, verdict in the message, tokens, seconds. One entry per model. |
-| `llm.research-input` | The scheduled research job (Hermes cron), user `netmon (research job)` | The work list netmon handed to the job's model (`enrich.sh events`). |
+| `llm.research-input` | The research job (`review.py` on the host), user `netmon (research job)` | The work list netmon handed to the job's model (`enrich.sh events`). |
 | `llm.research-result` | The research job | Everything the model sent back: research notes, verdicts, correlation links (`enrich.sh put`). |
 | `llm.research-hostnotes` | The research job | AI-written host notes it added, changed or deleted (`enrich.sh kbput`). |
 
 Failed model calls are logged too, with `outcome: failure` and the error. Prompts and answers longer than 32,000
 characters are cut (marked `… [truncated, N chars]`); system prompts at 12,000.
 
-The research job runs inside Hermes, not inside the dashboard, so netmon sees what goes in and what comes back, not the
-job's internal tool calls. Those are in the Hermes cron session logs on the host.
+The research job runs on the host (`review.py`, started by `scheduler.py`), not inside the dashboard, so the audit log
+sees what goes in and what comes back (provider `research job`), not the job's internal tool calls. The full
+conversations, tool calls included, are saved on the host under `logs/research/` (the newest 60), and each run's
+tokens and estimated cost are on the AI review page.
 
 ## What is not recorded
 
@@ -94,9 +96,9 @@ refusal is itself logged).
 ```
  browser ──► dashboard (server.py) ──► audit.action() ─┐
                 │                                       │   in-memory queue
-                ├── Ask Hermes ── chat.stream ──► audit.llm() ──┤   (never blocks a request)
+                ├── Ask AI ────── chat.stream ──► audit.llm() ──┤   (never blocks a request)
                 ├── corr_llm / itemcmp ─────────► audit.llm() ──┤
- Hermes cron ──► enrich.py / kb.py (docker exec) ► audit.llm() ─┤
+ review.py ────► enrich.py / kb.py (docker exec) ► audit.llm() ─┤
                                                                 ▼
                                    writer thread, a bulk request every ~2 s
                                    ├─ OK ──────────► Elasticsearch  logs-netmon
@@ -170,13 +172,13 @@ index for that name.
 | `message` | One-line summary (shown in the list). |
 | `netmon.target` | What the action was about (`username=…`, `id=…`, `eid=…`, `route=…`). |
 | `netmon.params` | Request parameters, secrets redacted (`flattened` type). |
-| `gen_ai.system` | Provider: `lmstudio`, `anthropic`, `hermes (netmonchat profile)`, `hermes (research job)`. |
+| `gen_ai.system` | Provider: `lmstudio`, the id of an AI provider added on AI review (`api:<id>`), or `research job`. |
 | `gen_ai.request.model` | Model name. |
 | `gen_ai.prompt`, `gen_ai.completion` | What netmon sent and what the model answered (full text, searchable). |
 | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Tokens when the provider reports them. |
 | `netmon.llm.purpose` | `chat`, `correlation-review`, `correlation-compare`, `item-compare`, `research-input`, `research-result`, `research-hostnotes`. |
 | `netmon.llm.system_prompt` | The instructions given to the model. |
-| `netmon.llm.session_id`, `netmon.llm.tools`, `netmon.llm.status`, `netmon.llm.error` | Hermes session, tools used, how the turn ended, error text. |
+| `netmon.llm.session_id`, `netmon.llm.tools`, `netmon.llm.status`, `netmon.llm.error` | Chat session, tools used, how the turn ended, error text. |
 
 ## Searching in Kibana
 
@@ -228,7 +230,7 @@ On startup the container log says `audit log -> <url>/logs-netmon (key set)` or 
 | File | Role |
 |---|---|
 | `dashboard/app/audit.py` | `action()` and `llm()` build entries; `clean()` redacts secrets; the writer thread, spool, `search()`, `doc()`, `status()`. |
-| `dashboard/app/server.py` | `do_POST` / `do_GET` wrappers write one entry per request (`audit_action_name`, `AUDIT_GET`); the Ask Hermes handler writes the `llm.chat` entry; `/api/audit*` endpoints (admin only); console commands. |
+| `dashboard/app/server.py` | `do_POST` / `do_GET` wrappers write one entry per request (`audit_action_name`, `AUDIT_GET`); the Ask AI handler writes the `llm.chat` entry; `/api/audit*` endpoints (admin only); console commands. |
 | `dashboard/app/chat.py` | `stream()` fills the record of a chat turn (input, answer, tools, status). |
 | `dashboard/app/corr_llm.py`, `itemcmp.py` | Wrap every model call (`_complete`, `_ask`) with an `llm.*` entry, also on errors. |
 | `dashboard/app/enrich.py`, `kb.py` | Research-job input and results. |

@@ -35,15 +35,20 @@ window.CARD_INFO = {
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
-"aireview|Claude triage & enrichment": {
-"source": "Hermes cron job running the home-network-report skill twice a day, 05 and 17 UTC (interval set on the Config page; PDF only on the 05:00 UTC run), exported by claude_status.py and refreshed by the 15-minute watcher; notes and run log from enrich.py.",
-"use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing or stale job means notes and verdicts are out of date. Expand the run summary to read the latest findings.",
-"what": "Status of the scheduled Claude job that triages each snapshot and writes research notes with verdicts for events: health, schedule, last run, note counts by verdict, coverage, recent runs and enrichment passes."
+"aireview|AI triage & enrichment": {
+"source": "The research job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
+"use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing job means notes and verdicts are out of date. Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
+"what": "Status of the scheduled AI job that triages each snapshot and writes research notes with verdicts for events: health, model, schedule, last run, note counts by verdict, coverage, recent runs and enrichment passes."
 },
 "aireview|Time and tokens per research run": {
-"source": "Per-run usage from Hermes (usage_audit, cache split from the Hermes session DB), exported by claude_status.py.",
-"use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost at API list prices.",
-"what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when Hermes could not split them) with run time as a line."
+"source": "Token counts reported by the AI provider for every call of each run, recorded by review.py; cost estimated from the prices entered for the model under AI providers.",
+"use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
+"what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines."
+},
+"aireview|Research job limits": {
+"source": "Research job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
+"use": "Set a $ cap per run a bit above the usual run cost and a daily cap as a backstop. The token cap works even when no price is entered. Fewer research batches make runs cheaper; left-over events are picked up by the next run.",
+"what": "Cost and size limits of the scheduled research job: $ per run, $ per day, tokens per run and event-research batches per run."
 },
 "aireview|Research lookback window": {
 "what": "How many hours of logs each run of the research job collects and reviews. The daily PDF run always covers 24 hours.",
@@ -51,38 +56,38 @@ window.CARD_INFO = {
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
 },
 "aireview|Decisions": {
-"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or Claude, plus manual overrides; stored in the netmon store.",
+"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or the research job, plus manual overrides; stored in the netmon store.",
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗, ↻ to ask the model again, or ⇄ to compare up to 4 models on one decision and adopt the best answer.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
-"source": "Dashboard LLM configuration; local models are listed from LM Studio, cloud models from Anthropic and OpenAI (OpenAI only once an API key is saved in this box). Only an admin can change them.",
-"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; Anthropic and OpenAI models are billed per batch. Paste an OpenAI API key and press Save key to enable OpenAI models. Use the ⇄ compare button on a decision below to test models before switching.",
-"what": "Which AI model is used for the two AI jobs: the correlation reviewer (decides every proposed link between events) and the twice-daily research job (Claude triage and event research)."
+"source": "Dashboard AI configuration: local models are listed from LM Studio, cloud models from the AI providers box. Only an admin can change them.",
+"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
+"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled research job (triage, event research, daily report) and the Ask AI chat."
 },
 "aireview|AI providers": {
-"source": "Admin-entered providers in the dashboard's state volume (/state/llm_providers.json, readable only by the dashboard). The dashboard calls these APIs itself, without Hermes.",
-"use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps each provider's cost if something loops.",
-"what": "AI services reached with an API key, any number of them. Their models can be picked as the correlation reviewer and in every Compare dialog. The research job and Ask Hermes still run in Hermes and use Hermes' models."
+"source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
+"use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use; add prices after a model id for cost estimates). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps single calls if something loops.",
+"what": "AI services reached with an API key, any number of them. Their models can be picked for the correlation reviewer, the research job, the chat and in every Compare dialog."
 },
 "aireview|Reviewer": {
-"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, normally with a local LLM via LM Studio (configurable). Claude's twice-daily verdicts override it.",
+"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). The research job's verdicts override it.",
 "use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check LM Studio is running or switch model in the Models card.",
 "what": "Status of the correlation reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
 },
 "aireview|Verdicts per hour": {
-"source": "Stored correlation verdicts from the corr_llm.py reviewer (and Claude re-reviews) in the netmon store.",
+"source": "Stored correlation verdicts from the corr_llm.py reviewer (and research job re-reviews) in the netmon store.",
 "use": "Bursts after each snapshot (twice a day) are normal; long gaps while links are awaiting review suggest the model is down or stalled.",
 "what": "Bar chart of how many link decisions the reviewer made in each of the last 24 hours."
 },
 "alerts|Recent alerts": {
 "source": "The 15-minute urgent watcher (watch.py, fixed rules, no AI): Suricata severity-1 or malware/C2/exploit alerts, new devices, new internet-facing ports, threat-intel hits, DNS tunnelling, endpoint problems and failed admin logins. Repeats are muted for 12 h.",
-"use": "'investigate' needs a look now; 'urgent' is serious but often explainable. Use Related to see surrounding events and 💬 Ask Hermes for help. Mark all read clears the counter; 'only my devices' follows your device selection.",
+"use": "'investigate' needs a look now; 'urgent' is serious but often explainable. Use Related to see surrounding events and 💬 Ask AI for help. Mark all read clears the counter; 'only my devices' follows your device selection.",
 "what": "Urgent alerts from the last 30 days, newest first, with level and text. Unread ones are bold."
 },
 "attack|All mapped items": {
 "source": "mitre.py mapping of Suricata IDS, detections, baseline findings, endpoint findings, fix-list issues, UniFi data and triage alarms for the selected snapshot.",
-"use": "Sort by Type to see observed items first. Checked-off items are shown struck through. Use 💬 Ask Hermes on a row to get an explanation of the technique in your context.",
+"use": "Sort by Type to see observed items first. Checked-off items are shown struck through. Use 💬 Ask AI on a row to get an explanation of the technique in your context.",
 "what": "Every alert, finding, vulnerability or misconfiguration in this snapshot that was mapped to an ATT&CK technique, with its source, host and the reason for the mapping. When a technique is selected this card lists only its items."
 },
 "attack|Matrix": {
@@ -96,7 +101,7 @@ window.CARD_INFO = {
 "what": "Items in this snapshot that no ATT&CK mapping rule matched, so they do not appear in the matrix."
 },
 "checked|Checked items": {
-"source": "Check-offs stored in the netmon SQLite store, including auto-closes when Claude's research verdict is expected or benign (if enabled on the Configuration page).",
+"source": "Check-offs stored in the netmon SQLite store, including auto-closes when the AI research verdict is expected or benign (if enabled on the Configuration page).",
 "use": "Review 'still present' items now and then to make sure they really are fine, and check auto-closed ones. Uncheck an item to restore it to its original list.",
 "what": "Everything checked off elsewhere (triage alarms, baseline findings, fix-list items, endpoint findings), newest first, with whether each is still present, fixed or absent in the selected snapshot. Items closed automatically show an 'auto-closed' AI verdict badge."
 },
@@ -141,12 +146,12 @@ window.CARD_INFO = {
 "what": "Devices with traffic in this snapshot whose MAC address is not in the device inventory, with their byte total and number of external peers."
 },
 "device|Notes": {
-"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the twice-daily Hermes research run; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
+"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the scheduled AI research job; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
 "use": "Read what earlier AI runs learned about this device (its role, what is normal for it, decisions made). Add a note to tell the AI something it cannot see, e.g. 'media server, large uploads to B2 at night are expected'. Delete notes that are wrong; the AI also corrects stale ones.",
-"what": "Running notes about this host or device that every AI job reads before judging it: the twice-daily research, the correlation reviewer's work list and Ask Hermes."
+"what": "Running notes about this host or device that every AI job reads before judging it: the scheduled research job, the correlation reviewer's work list and Ask AI."
 },
 "notes|Host notes": {
-"source": "The notes knowledge base (kb.py). Written by the twice-daily Hermes research run (✨) and by people on the host and endpoint pages (👤).",
+"source": "The notes knowledge base (kb.py). Written by the scheduled AI research job (✨) and by people on the host and endpoint pages (👤).",
 "use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
 "what": "Every note about every host and device, newest first."
 },
@@ -241,9 +246,9 @@ window.CARD_INFO = {
 "what": "Potentially risky files (executables, scripts, installers, archives) this device sent or received over the network, with type, size, source host and malware-hash result."
 },
 "device|Findings": {
-"source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks, and the Claude triage run twice a day. Refreshed with each collection run.",
-"use": "Start with high / Investigate items. Use 💬 Ask Hermes to have one explained, ⇄ compare with earlier snapshots, Related for linked events, and check an item off when handled (the toggle shows checked ones).",
-"what": "Anomalies tied to this host. On the network page: baseline findings (deviations from its learned normal, threat intel, beacons) plus Claude triage alarms. On the endpoint page: host findings from Elastic Agent, osquery and syslog."
+"source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks, and the scheduled AI triage. Refreshed with each collection run.",
+"use": "Start with high / Investigate items. Use 💬 Ask AI to have one explained, ⇄ compare with earlier snapshots, Related for linked events, and check an item off when handled (the toggle shows checked ones).",
+"what": "Anomalies tied to this host. On the network page: baseline findings (deviations from its learned normal, threat intel, beacons) plus AI triage alarms. On the endpoint page: host findings from Elastic Agent, osquery and syslog."
 },
 "device|IDS alerts": {
 "source": "Suricata alerts from Security Onion, last 24 h.",
@@ -452,7 +457,7 @@ window.CARD_INFO = {
 },
 "dns|Malicious JA matches": {
 "source": "JA3 hashes from Zeek ssl logs (Security Onion, last 24 h) checked against the SSLBL JA3 feed downloaded by the collector.",
-"use": "Old SSLBL entries (before 2022) often match ordinary libraries, so check the server names (SNI) and destinations first. A match to unknown or odd destinations is worth investigating; use the threat-intel lookup or 💬 Ask Hermes.",
+"use": "Old SSLBL entries (before 2022) often match ordinary libraries, so check the server names (SNI) and destinations first. A match to unknown or odd destinations is worth investigating; use the threat-intel lookup or 💬 Ask AI.",
 "what": "TLS client fingerprints (JA3) from your devices that match the abuse.ch SSLBL list of malware TLS fingerprints. The card only appears when there is a match."
 },
 "dns|NXDOMAIN by device": {
@@ -492,7 +497,7 @@ window.CARD_INFO = {
 },
 "dns|Top domains": {
 "source": "Zeek dns logs from Security Onion, last 24 h, port 53. Each device contributes its own top 30 registered domains, so the totals are approximate and very rare names are left out.",
-"use": "Expect big cloud, CDN, OS-update and streaming domains. Use the search box to check a domain you are unsure about. Anything unfamiliar near the top is worth a threat-intel lookup or 💬 Ask Hermes.",
+"use": "Expect big cloud, CDN, OS-update and streaming domains. Use the search box to check a domain you are unsure about. Anything unfamiliar near the top is worth a threat-intel lookup or 💬 Ask AI.",
 "what": "Table of the registered domains looked up most often, added up across all devices."
 },
 "endpoints|Fleet": {
@@ -542,7 +547,7 @@ window.CARD_INFO = {
 },
 "issues|Recurring: fix these": {
 "source": "issues.py deterministic checks over every snapshot (collection twice a day). Items whose device or data source was missing from the latest snapshot stay open and are marked not re-checked.",
-"use": "Follow How to fix and open evidence for detail. Tick the check box when handled or accepted (show N checked brings them back). Use 💬 Ask Hermes for help on a row. Fixed items move away on their own.",
+"use": "Follow How to fix and open evidence for detail. Tick the check box when handled or accepted (show N checked brings them back). Use 💬 Ask AI for help on a row. Fixed items move away on their own.",
 "what": "Open misconfigurations and security suggestions seen in 2 or more snapshots, with severity, where, how many times seen out of checks run, first/last seen and fix instructions."
 },
 "lateral|Admin sessions": {
@@ -621,14 +626,14 @@ window.CARD_INFO = {
 "what": "Total bytes seen on the network per hour across the 24-hour window, plus a second line for bytes the sensor missed (capture loss)."
 },
 "overview|Triage alarms": {
-"source": "Written by Claude during the triage run (twice a day) from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
-"use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask Hermes, ⇄ compare models or the Kibana button to dig into the evidence. 'All alarms' opens the full list on Posture.",
-"what": "The alarms Claude flagged in this snapshot, each with who, evidence, why it matters and what to do next. Overview shows the top six."
+"source": "Written by the AI research job during each triage run from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
+"use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask AI, ⇄ compare models or the Kibana button to dig into the evidence. 'All alarms' opens the full list on Posture.",
+"what": "The alarms the AI flagged in this snapshot, each with who, evidence, why it matters and what to do next. Overview shows the top six."
 },
 "overview|Triage summary": {
-"source": "Written by Claude during the triage run (twice a day), which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
+"source": "Written by the AI research job during each triage run, which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
 "use": "Read this first. It points to the alarms worth your time. Proposed policy.json allow rules are suggestions only and are never applied automatically. AI text can be wrong, so check the evidence before acting.",
-"what": "Claude's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
+"what": "The AI's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
 },
 "reports|All reports": {
 "source": "File listing of the nightly reports folder produced by report.py (one per day on the 05:00 UTC run).",
@@ -636,13 +641,13 @@ window.CARD_INFO = {
 "what": "Every stored PDF report, newest first, with size and a link to the matching snapshot data. The report for the currently selected snapshot is highlighted."
 },
 "reports|Latest report": {
-"source": "report.py builds the PDF from the snapshot, baseline analysis and Claude triage; it is generated once a day on the 05:00 UTC triage run and served from the read-only reports folder.",
+"source": "report.py builds the PDF from the snapshot, baseline analysis and AI triage; it is generated once a day on the first research run after 05:00 UTC and served from the read-only reports folder.",
 "use": "Click Download to save it or Open to read it in the browser. Use it as the daily summary to read or share; the live dashboard has more detail and newer data.",
 "what": "The most recent network behaviour report as a PDF, with its date, file name and size."
 },
 "risk|Hosts ranked by risk": {
 "source": "dashboard/app/risk.py for the selected snapshot, combining fix-list issues, alerts and findings, threat intel, lateral reach and EDR/visibility data.",
-"use": "40 or more is high, 20-40 medium. Read the drivers to see why, click the host to drill down, and use 💬 Ask Hermes for a fix plan. Hover the impact value for its reason.",
+"use": "40 or more is high, 20-40 medium. Read the drivers to see why, click the host to drill down, and use 💬 Ask AI for a fix plan. Hover the impact value for its reason.",
 "what": "All scored hosts sorted by risk (likelihood x impact / 5), with zone, class, open vulnerability count and the top drivers behind each score (first 30 shown)."
 },
 "risk|Likelihood × impact": {
@@ -667,17 +672,17 @@ window.CARD_INFO = {
 },
 "risk|Vulnerabilities ranked by risk": {
 "source": "dashboard/app/risk.py over the Fix list (issues.py), recomputed for the selected snapshot.",
-"use": "Work top-down. Tick the check box once handled or accepted (show N checked brings them back), open evidence for details, and use 💬 Ask Hermes for step-by-step help.",
+"use": "Work top-down. Tick the check box once handled or accepted (show N checked brings them back), open evidence for details, and use 💬 Ask AI for step-by-step help.",
 "what": "All open fix-list items ranked by risk score, with severity, category, how often seen, score drivers, how to fix and the evidence."
 },
 "security|Baseline findings": {
 "source": "analyze.py compares the 24-hour snapshot (Zeek and Suricata data from Security Onion) with a ~30-day per-device baseline; baseline comparisons start after 3 days of history.",
-"use": "Sort by severity and start with high. Tick the box when explained; it stays checked on later snapshots. Click a row for the device, or use 💬 Ask Hermes, ⇄ compare, Kibana and Related to investigate.",
+"use": "Sort by severity and start with high. Tick the box when explained; it stays checked on later snapshots. Click a row for the device, or use 💬 Ask AI, ⇄ compare, Kibana and Related to investigate.",
 "what": "Things each device did differently from its own normal in the last 24 h: new ports or services, traffic and DNS spikes, new countries or networks, new TLS fingerprints, plus rule hits for threat intel, beacons, segmentation, files and TLS."
 },
 "security|Beacon candidates": {
 "source": "Zeek conn logs from Security Onion, last 24 h. RITA-style scoring of up to 400 pairs with 36+ connections on timing and size regularity and hour coverage; listed when score is 0.75 or more and active 40% of the window. STUN traffic is excluded.",
-"use": "Most beacons are updates, telemetry or push services. Worry about raw IPs with no name, unusual ports, new domains or threat-listed destinations. Use 💬 Ask Hermes or Kibana to check.",
+"use": "Most beacons are updates, telemetry or push services. Worry about raw IPs with no name, unusual ports, new domains or threat-listed destinations. Use 💬 Ask AI or Kibana to check.",
 "what": "Connections from an internal device to the same destination and port that repeat on a regular timer, with interval, jitter, hours active and score."
 },
 "security|Cleared segmentation": {
@@ -687,7 +692,7 @@ window.CARD_INFO = {
 },
 "security|DNS-tunnel scoring": {
 "source": "Zeek DNS logs from Security Onion, last 24 h: top 60 domains by distinct subdomains (15 or more), scored on subdomain count and length, randomness, uniqueness, odd record types and few sources. Score 5+ with 150+ subdomains is suspect; 3+ is watch.",
-"use": "CDNs, anti-virus and telemetry services often score a little. A high score from one device to an unfamiliar domain is worth checking with 💬 Ask Hermes.",
+"use": "CDNs, anti-virus and telemetry services often score a little. A high score from one device to an unfamiliar domain is worth checking with 💬 Ask AI.",
 "what": "Domains queried with many distinct subdomains, scored for traits typical of DNS tunnelling (hiding data inside DNS lookups), with queries, unique subdomains, entropy, NXDOMAIN count and sources."
 },
 "security|Files": {
@@ -717,7 +722,7 @@ window.CARD_INFO = {
 },
 "security|Host findings": {
 "source": "hosts.py reading Elastic Agent data in Security Onion: Elastic Defend alerts and events, osquery, auth and system logs, Fleet status, compared with a per-host baseline. The 15-minute watcher uses the same rules.",
-"use": "Investigate items first. Tick the box once explained; it carries over to later snapshots. Use 💬 Ask Hermes, ⇄ compare, Kibana, Related and the research-note verdict to judge each one.",
+"use": "Investigate items first. Tick the box once explained; it carries over to later snapshots. Use 💬 Ask AI, ⇄ compare, Kibana, Related and the research-note verdict to judge each one.",
 "what": "Problems seen on the computers themselves: Defend alerts, unusual logins or repeated failures, account changes, suspicious sudo or processes, new executables, sensitive file changes, agent and Defend policy problems, syslog going silent."
 },
 "security|Host findings checked off": {
@@ -737,7 +742,7 @@ window.CARD_INFO = {
 },
 "security|Inbound hits from listed IPs": {
 "source": "Zeek conn logs from Security Onion, last 24 h, inbound connections checked against the loaded threat-intel feeds.",
-"use": "Probing of an internet-exposed service by scanner-list IPs (CINS, ET) is common and low risk. Hits on internal devices, on serious feeds, or that moved data deserve a look. Use 💬 Ask Hermes.",
+"use": "Probing of an internet-exposed service by scanner-list IPs (CINS, ET) is common and low risk. Hits on internal devices, on serious feeds, or that moved data deserve a look. Use 💬 Ask AI.",
 "what": "Internet addresses on a threat or scanner list that connected in to your devices, with feeds, connection count, targets and ports."
 },
 "security|Malicious JA / internal scans / detections": {
@@ -751,13 +756,13 @@ window.CARD_INFO = {
 "what": "Your devices contacting threat-listed IPs or domains, plus domains registered in the last 90 days, with domain age, query count and the devices involved."
 },
 "security|Research notes": {
-"source": "Written by Claude during the triage run (twice a day), using web research and read-only queries against the snapshot data.",
+"source": "Written by the AI research job during each triage run, using web research and read-only queries against the snapshot data.",
 "use": "Use these as context for the alarms. ⇄ compares the note with other models' opinions. Notes can be wrong or outdated; check the sources for anything important.",
-"what": "Background notes from the triage run: what Claude looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
+"what": "Background notes from the triage run: what the AI looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
 },
 "security|Segmentation violations": {
 "source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal flows checked against policy.json zones, device classes, sensitive ports and allow rules. High: DMZ initiating inward, or IoT/camera reaching servers or using admin ports; medium: admin ports between hosts; low: cross-zone access.",
-"use": "If a flow is expected, tick the green Clear box (it moves to Cleared segmentation). Answered connections matter more than refused attempts. Use 💬 Ask Hermes if unsure.",
+"use": "If a flow is expected, tick the green Clear box (it moves to Cleared segmentation). Answered connections matter more than refused attempts. Use 💬 Ask AI if unsure.",
 "what": "Internal connections between zones or devices that the zone policy does not allow, with severity, ports, connection counts, answered count and reason."
 },
 "security|Software inventory from traffic": {
@@ -771,14 +776,14 @@ window.CARD_INFO = {
 "what": "Download status of each threat-intelligence feed and how many indicators are loaded (domains, IPs, network ranges, JA3 hashes)."
 },
 "security|Triage alarms": {
-"source": "Written by Claude during the triage run (twice a day) from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
-"use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask Hermes, ⇄ compare models or the Kibana button to dig into the evidence.",
-"what": "Every alarm Claude flagged in this snapshot, sorted by priority, each with who, evidence, why it matters and next steps."
+"source": "Written by the AI research job during each triage run from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
+"use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask AI, ⇄ compare models or the Kibana button to dig into the evidence.",
+"what": "Every alarm the AI flagged in this snapshot, sorted by priority, each with who, evidence, why it matters and next steps."
 },
 "security|Triage summary": {
-"source": "Written by Claude during the triage run (twice a day), which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
+"source": "Written by the AI research job during each triage run, which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
 "use": "Read this first. It points to the alarms worth your time. Proposed policy.json allow rules are suggestions only and are never applied automatically. AI text can be wrong, so check the evidence before acting.",
-"what": "Claude's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
+"what": "The AI's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
 },
 "security|Zeek notices": {
 "source": "Zeek notice log from Security Onion, last 24 h, grouped by notice type.",
@@ -812,7 +817,7 @@ window.CARD_INFO = {
 },
 "threatintel|Inbound from listed IPs": {
 "source": "Zeek conn logs from Security Onion, last 24 h: internet-originated sessions that got a reply (S0, REJ and similar failed states excluded), matched against the IP feeds.",
-"use": "Mostly scanners hitting services you expose on purpose. Worry if the target or port is unexpected, or bytes are large. Use lookup to see the feeds, 💬 Ask Hermes on a row, or filter by port from the chart.",
+"use": "Mostly scanners hitting services you expose on purpose. Worry if the target or port is unexpected, or bytes are large. Use lookup to see the feeds, 💬 Ask AI on a row, or filter by port from the chart.",
 "what": "Blocklisted internet IPs whose inbound connections to your network were answered, with feeds, bytes, the internal targets and ports."
 },
 "threatintel|Indicator lookup": {
@@ -822,12 +827,12 @@ window.CARD_INFO = {
 },
 "threatintel|Listed domains / server names": {
 "source": "Zeek dns and ssl logs from Security Onion, last 24 h, for internal clients, matched (including parent domains) against the URLhaus and ThreatFox host lists.",
-"use": "Empty is normal. Any row shows which hosts looked the name up; check that host for infection and use 💬 Ask Hermes. A single lookup can come from a blocked ad or link, repeated lookups are more worrying.",
+"use": "Empty is normal. Any row shows which hosts looked the name up; check that host for infection and use 💬 Ask AI. A single lookup can come from a blocked ad or link, repeated lookups are more worrying.",
 "what": "DNS names and TLS server names (SNI) used by internal hosts that appear on a malware or phishing domain feed."
 },
 "threatintel|Malicious JA": {
 "source": "Zeek ssl logs from Security Onion, last 24 h, JA3 hashes matched against the SSLBL JA3 fingerprint list.",
-"use": "JA3 matches can be false positives because common libraries share fingerprints. Check whether the client and server names look legitimate; repeated hits to odd servers are worth 💬 Ask Hermes. Click a hash to look it up.",
+"use": "JA3 matches can be false positives because common libraries share fingerprints. Check whether the client and server names look legitimate; repeated hits to odd servers are worth 💬 Ask AI. Click a hash to look it up.",
 "what": "TLS client fingerprints (JA3) seen on your network that abuse.ch SSLBL lists as belonging to malware, with the malware name, client hosts and server names."
 },
 "threatintel|Malware / exploit-class IDS signatures": {
@@ -842,7 +847,7 @@ window.CARD_INFO = {
 },
 "threatintel|Outbound to listed IPs": {
 "source": "Zeek conn logs from Security Onion, last 24 h, outbound connections only, matched against the IP and CIDR feeds; hits on malware/C2 feeds (URLhaus, ThreatFox, Feodo, SSLBL, Spamhaus) are sorted first.",
-"use": "Empty is the normal state. A hit on a malware/C2 feed with established connections is serious: open the source host, use 💬 Ask Hermes on the row, and check Related events. Scanner-list hits alone are lower priority.",
+"use": "Empty is the normal state. A hit on a malware/C2 feed with established connections is serious: open the source host, use 💬 Ask AI on the row, and check Related events. Scanner-list hits alone are lower priority.",
 "what": "Internet IPs on a threat feed that internal hosts connected out to, with feeds, connection counts, bytes and which hosts made them."
 },
 "threatintel|Region blocks": {
@@ -862,7 +867,7 @@ window.CARD_INFO = {
 },
 "traffic|All ASNs": {
 "source": "Zeek conn logs from Security Onion with ASN enrichment, last 24 h. It is the same sum of each device's top 8 ASNs as the Top ASNs chart, with nothing cut off.",
-"use": "Use the search box to look up a provider, or sort by bytes. Small unfamiliar hosting providers are the ones to check with the threat-intel lookup or 💬 Ask Hermes.",
+"use": "Use the search box to look up a provider, or sort by bytes. Small unfamiliar hosting providers are the ones to check with the threat-intel lookup or 💬 Ask AI.",
 "what": "Full table of every autonomous system (network operator) in the snapshot, with bytes."
 },
 "traffic|All countries": {

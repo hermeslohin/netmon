@@ -1,4 +1,4 @@
-// Ask Hermes (#/chat): per-user conversations with the read-only netmon assistant, streamed from the server.
+// Ask AI (#/chat): per-user conversations with the read-only netmon assistant, streamed from the server.
 (() => {
   const C = { chats: [], cur: null, busy: false, max: 4000 };
   const SUGGEST = ["What needs my attention today?", "Explain the latest alarms in plain English", "Did any new devices join the network?",
@@ -49,7 +49,7 @@
 
   const msgHTML = (m) => m.role === "user"
     ? `<div class="chat-msg me"><div class="bubble">${m.about ? `<div class="chat-about">About: ${esc(m.about)}</div>` : ""}${esc(m.text).replace(/\n/g, "<br>")}</div></div>`
-    : `<div class="chat-msg bot"><div class="avatar">⚕︎</div><div class="bubble">${m.tools?.length ? `<div class="chat-tools">${[...new Set(m.tools)].map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}${md(m.text)}<div class="chat-by">${aiFlare({ model: m.model, via: "Ask Hermes (netmonchat profile)" })}</div></div></div>`;
+    : `<div class="chat-msg bot"><div class="avatar">⚕︎</div><div class="bubble">${m.tools?.length ? `<div class="chat-tools">${[...new Set(m.tools)].map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}${md(m.text)}<div class="chat-by">${aiFlare({ model: m.model, via: "Ask AI" })}</div></div></div>`;
 
   function renderList() {
     const el = document.getElementById("chatList"); if (!el) return;
@@ -59,7 +59,7 @@
   }
 
   function renderEmpty(log) {
-    log.innerHTML = `<div class="chat-empty"><div class="avatar big">⚕︎</div><h2>Ask Hermes about your network</h2>
+    log.innerHTML = `<div class="chat-empty"><div class="avatar big">⚕︎</div><h2>Ask AI about your network</h2>
       <div class="muted small">I can read netmon's findings, alarms, devices and alerts, and search the web for context. I can't change anything: no commands, settings or firewall changes.</div>
       <div class="chat-sugg">${SUGGEST.map((s) => `<button data-sugg="${esc(s)}">${esc(s)}</button>`).join("")}</div></div>`;
   }
@@ -105,7 +105,7 @@
           const ev = (chunk.match(/^event: (.+)$/m) || [])[1], data = JSON.parse((chunk.match(/^data: (.+)$/m) || [, "{}"])[1]);
           if (ev === "delta") { acc += data.t; if (!pending) pending = requestAnimationFrame(paint); }
           else if (ev === "tool") { if (![...tools.children].some((s) => s.textContent === data.name)) tools.insertAdjacentHTML("beforeend", `<span class="run">${esc(data.name)}</span>`); }
-          else if (ev === "model") live.querySelector(".bubble").insertAdjacentHTML("beforeend", `<div class="chat-by">${aiFlare({ model: data.model, via: "Ask Hermes (netmonchat profile)" })}</div>`);
+          else if (ev === "model") live.querySelector(".bubble").insertAdjacentHTML("beforeend", `<div class="chat-by">${aiFlare({ model: data.model, via: "Ask AI" })}</div>`);
           else if (ev === "tool_error") tools.insertAdjacentHTML("beforeend", `<span class="bad">${esc(data.name)} failed</span>`);
           else if (ev === "end") {
             ended = true; paint(); tools.querySelectorAll(".run").forEach((s) => s.classList.remove("run"));
@@ -134,7 +134,7 @@
     el.innerHTML = `<div class="chat-wrap">
       <aside class="chat-side card"><div class="chat-side-h"><b>Chats</b></div><div id="chatList"><div class="loading">Loading…</div></div></aside>
       <section class="chat-main card">
-        <div class="chat-head"><button class="chat-listbtn" aria-label="Show chats">☰ Chats</button><b>Ask Hermes</b><span class="muted small">read-only netmon assistant</span><span class="chatm-slot"></span></div>
+        <div class="chat-head"><button class="chat-listbtn" aria-label="Show chats">☰ Chats</button><b>Ask AI</b><span class="muted small">read-only netmon assistant</span><span class="chatm-slot"></span></div>
         <div id="chatLog" class="chat-log"></div>
         <form class="chat-form" autocomplete="off"><textarea id="chatInput" rows="1" placeholder="Ask about your network…" maxlength="4000" aria-label="Message"></textarea><button id="chatSend" type="submit" aria-label="Send">➤</button></form>
         <div class="chat-foot muted small">Answers can be wrong. Check important findings on the dashboard pages.</div>
@@ -159,7 +159,7 @@
     } catch (e) { el.querySelector("#chatList").innerHTML = ""; el.querySelector("#chatLog").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
     let pend = null; try { pend = JSON.parse(sessionStorage.getItem("askPending") || "null"); } catch (_) { /* ignore */ }
     sessionStorage.removeItem("askPending");
-    if (pend?.q) { C.cur = null; await open(null); send(pend.q, pend.ctx); return; }  // "Ask Hermes" from a finding: always a fresh chat
+    if (pend?.q) { C.cur = null; await open(null); send(pend.q, pend.ctx); return; }  // "Ask AI" from a finding: always a fresh chat
     open(C.cur && C.chats.some((c) => c.id === C.cur) ? C.cur : null);
   };
 })();

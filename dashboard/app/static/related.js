@@ -20,7 +20,7 @@
       const t = n ? String(n) : "–";
       if (b.textContent !== t) b.textContent = t;
       b.classList.toggle("has", n > 0); b.disabled = !n;
-      // Claude research note for this event: a "✨ notes" button right after the Related count
+      // AI research note for this event: a "✨ notes" button right after the Related count
       const note = S.corr.notes?.[b.dataset.rel]; let nb = b.nextElementSibling?.classList.contains("note-btn") ? b.nextElementSibling : null;
       if (note && !nb) { nb = document.createElement("button"); nb.type = "button"; nb.className = "note-btn"; nb.dataset.note = b.dataset.rel; b.after(nb); }
       if (!note && nb) nb.remove();
@@ -39,7 +39,7 @@
   }
   const llmLine = () => { const L = S.corr?.llm;
     if (!L || !L.enabled) return "Linked by shared hosts, IPs, domains or accounts, time, ATT&CK technique and vulnerabilities on the hosts involved. (Local LLM review is off.)";
-    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the local LLM (${L.model || "?"}) decides, and Claude re-reviews important events twice a day (its verdicts replace the local model's). `
+    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the correlation reviewer (${L.model || "?"}) decides, and the research job re-reviews important events on its schedule (its verdicts replace the reviewer's). `
       + `${L.confirmed} confirmed, ${L.rejected} rejected, ${L.pending} awaiting review${L.busy ? " (reviewing now)" : ""}${L.error ? ` · last error: ${L.error}` : ""}.`; };
   // while reviews are pending, refresh the verdicts every 2 minutes so counts and badges catch up
   setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
@@ -81,7 +81,7 @@
         ${n.summary ? `<p><b>${esc(n.summary)}</b></p>` : ""}
         ${n.research ? `<div class="note-research">${esc(n.research)}</div>` : ""}
         ${links.length ? `<div class="small"><b>Sources</b><ol class="note-links">${links.map((l) => `<li><a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a></li>`).join("")}</ol></div>` : ""}
-        <div class="small muted">AI research from the twice-daily Hermes run. Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
+        <div class="small muted">AI research from the scheduled research job. Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
       </div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(560, innerWidth - 16);

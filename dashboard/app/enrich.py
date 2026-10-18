@@ -1,11 +1,12 @@
-"""Claude research notes on dashboard events, plus Claude correlation verdicts.
+"""AI research notes on dashboard events, plus the research job's correlation verdicts.
 
-On each run (twice a day by default) the Hermes report job (Claude) triages the newest snapshot. Besides the triage alarms it writes:
+On each run the research job (review.py on the host, model chosen on the AI review page) triages the newest snapshot.
+Besides the triage alarms it writes:
   - a research note per event (verdict, summary, research text, links it actually read), shown by related.js
     as a "✨ notes" button next to the event's Related column;
-  - correlation verdicts for candidate links (corr_llm.db, same table the local-LLM reviewer uses). Claude
-    verdicts replace the local model's; manual verdicts (model "manual:<user>") are never overwritten, and
-    the local worker only asks about undecided pairs, so it never overwrites Claude.
+  - correlation verdicts for candidate links (corr_llm.db, same table the correlation reviewer uses). Research job
+    verdicts replace the reviewer's; manual verdicts (model "manual:<user>") are never overwritten, and
+    the reviewer only asks about undecided pairs, so it never overwrites the research job.
 
 Notes are keyed by a stable event key so they carry over to later snapshots: finding ids embed the detail text
 (numbers change every run), so the key masks the numbers in the detail; watcher alerts are stored per alert
@@ -116,7 +117,7 @@ def _clean_links(links):
 def put(doc, events=None):
     """Store notes + correlation verdicts. events = current {eid: event} (labels; unknown ids are rejected)."""
     model = str(doc.get("model") or "unknown")[:80]
-    via = str(doc.get("via") or "Hermes event enrichment")[:80]
+    via = str(doc.get("via") or "netmon research")[:80]
     sid = str(doc.get("snapshot") or "")[:40]
     now, rows, bad, ak = time.time(), [], [], _alert_keys()
     for n in doc.get("notes") or []:
@@ -157,25 +158,40 @@ def put(doc, events=None):
     return out
 
 
+def job():
+    """The research job as one record for the AI review page: settings (research_cfg) + run state (research_job.json)."""
+    import research_cfg as RC
+    cfg, st = RC.get(), RC.status()
+    runs = st.get("runs") or []
+    last = next((r for r in runs if r.get("status") != "running"), {})
+    return {"id": "research", "name": "Research job: triage + event research (PDF on the first run after 05 UTC)",
+            "model": cfg.get("model"), "provider": cfg.get("provider"), "enabled": cfg.get("enabled"),
+            "interval_minutes": cfg.get("interval_minutes"), "next_run": RC.next_run(),
+            "requested": RC.pending_request(), "last_run": st.get("last_run"), "last_status": st.get("last_status"),
+            "last_error": st.get("last_error"), "failure_streak": st.get("failure_streak") or 0,
+            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "summary": st.get("summary"),
+            "last": last, "exported": st.get("exported")}
+
+
 def status(event_ids=()):
-    """Claude enrichment status for the AI-review page: host-exported cron job state (claude_jobs.json),
-    the enrichment run log, note coverage of the current snapshot and Claude's correlation verdicts."""
+    """Research job status for the AI review page: job state, the enrichment run log, note coverage of the current
+    snapshot and the research job's correlation verdicts."""
     import corr_llm
-    st = os.path.join(os.path.dirname(DB), "claude_jobs.json")
     try:
-        jobs = json.load(open(st))
-    except (OSError, ValueError):
-        jobs = {"jobs": [], "exported": None}
+        j = job()
+        jobs = {"jobs": [j], "exported": j.get("exported")}
+    except Exception as e:  # noqa: BLE001
+        jobs = {"jobs": [], "exported": None, "error": str(e)[:200]}
     now = time.time()
     with _db() as c:
         runs = [dict(zip(("snapshot", "started", "listed", "todo", "note_keys", "stored", "notes", "links", "rejected", "model"), r))
                 for r in c.execute("SELECT snapshot, started, listed, todo, note_keys, stored, notes, links, rejected, model FROM runs ORDER BY id DESC LIMIT 20")]
         n_total, n_24 = c.execute("SELECT count(*), sum(ts > ?) FROM notes", (now - 86400,)).fetchone()
         verd = dict(c.execute("SELECT verdict, count(*) FROM notes GROUP BY verdict").fetchall())
-        models = sorted({m for (m,) in c.execute("SELECT DISTINCT model FROM runs WHERE model IS NOT NULL")} | {"claude"})
+        models = sorted({m for (m,) in c.execute("SELECT DISTINCT model FROM runs WHERE model IS NOT NULL")} | {"-"})
     with corr_llm._db() as c:  # verdicts written by the enrichment runs' model(s)
         cv = c.execute(f"SELECT count(*), sum(related), sum(ts > ?), max(ts), group_concat(DISTINCT model) FROM verdicts "
-                       f"WHERE model IN ({','.join('?' * len(models))}) OR model LIKE '%claude%'", (now - 86400, *models)).fetchone()
+                       f"WHERE model IN ({','.join('?' * len(models))})", (now - 86400, *models)).fetchone()
     ids = list(event_ids)
     covered = len(load(ids)) if ids else 0
     return {"jobs": jobs.get("jobs") or [], "exported": jobs.get("exported"), "runs": runs,
@@ -274,10 +290,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
 
 
 def _audit(purpose, model, message, prompt=None, response=None, error=None):
-    """The research job (Hermes cron on the host) talks to its LLM through these files: log what goes in and comes back."""
+    """The research job (review.py on the host) reads work items and stores results here: log what goes in and comes back."""
     try:
         import audit
-        audit.llm(purpose, "hermes (research job)", model, user="netmon (research job)", prompt=prompt, response=response, error=error, message=message)
+        audit.llm(purpose, "research job", model, user="netmon (research job)", prompt=prompt, response=response, error=error, message=message)
         audit.flush(drain=False)
     except Exception as e:  # noqa: BLE001 - the job must not fail because the audit log is down (entries spool)
         print(f"audit: {e}", file=sys.stderr)

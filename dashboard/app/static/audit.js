@@ -3,7 +3,7 @@
 (() => {
   const KIND = { action: "User action", llm: "AI conversation" };
   const RANGES = [["1h", "Last hour"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["all", "All time"]];
-  const PURPOSE = { "llm.chat": "Ask Hermes chat", "llm.correlation-review": "Correlation review (background)", "llm.correlation-compare": "Correlation compare",
+  const PURPOSE = { "llm.chat": "Ask AI chat", "llm.correlation-review": "Correlation review (background)", "llm.correlation-compare": "Correlation compare",
     "llm.item-compare": "Item compare", "llm.research-input": "Research job: work list", "llm.research-result": "Research job: results",
     "llm.research-hostnotes": "Research job: host notes" };
   const outBadge = (o) => `<span class="badge ${o === "failure" ? "sev-high" : "sev-low"}">${esc(o || "—")}</span>`;
@@ -24,7 +24,7 @@
     const facts = [["Time", new Date(D["@timestamp"]).toLocaleString()], ["Type", KIND[ev.dataset === "netmon.llm" ? "llm" : "action"]],
       ["Action", PURPOSE[ev.action] || ev.action], ["Outcome", ev.outcome], ["User", (D.user || {}).name], ["Role", ((D.user || {}).roles || []).join(", ")],
       ["Source IP", (D.source || {}).ip], ["Request", D.http ? `${D.http.request?.method || ""} ${(D.url || {}).path || ""} → ${D.http.response?.status_code ?? ""}` : ""],
-      ["Target", (D.netmon || {}).target], ["Provider", g.system], ["Model", g.request?.model], ["Hermes session", L.session_id],
+      ["Target", (D.netmon || {}).target], ["Provider", g.system], ["Model", g.request?.model], ["Chat session", L.session_id],
       ["Tokens in / out", g.usage ? `${fn(g.usage.input_tokens)} / ${fn(g.usage.output_tokens)}` : ""],
       ["Duration", ev.duration ? (ev.duration / 1e9).toFixed(2) + " s" : ""], ["Tools used", (L.tools || []).join(", ")], ["Status", L.status],
       ["Error", L.error], ["Browser", (D.user_agent || {}).original], ["Message", D.message]].filter(([, v]) => v !== undefined && v !== null && v !== "");

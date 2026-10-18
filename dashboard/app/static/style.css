@@ -153,7 +153,7 @@ tr.unread td{background:#f8514910}
 #lmFocusSel{max-width:100%;min-width:0;text-overflow:ellipsis}
 @media (max-width:900px){ .tbltools #lmFilter,.tbltools #lmFocusSel{flex:1 1 100%;width:100%} }
 
-/* ---- Ask Hermes chat ---- */
+/* ---- Ask AI chat ---- */
 .chat-wrap{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;height:calc(100vh - 170px);min-height:380px}
 .chat-side{overflow:auto;padding:10px}
 .chat-side-h{padding:2px 4px 8px}
@@ -211,7 +211,7 @@ tr.unread td{background:#f8514910}
 body:has(.chat-wrap) #foot{display:none}
 body:has(.chat-wrap) main{padding-bottom:0}
 
-/* Ask Hermes about one item */
+/* Ask AI about one item */
 .askh{padding:2px 6px;font-size:13px;line-height:1.2;border-radius:6px;background:rgba(137,87,229,.14);border:1px solid rgba(137,87,229,.4);cursor:pointer;vertical-align:middle}
 .askh:hover,.askh:focus-visible{background:rgba(137,87,229,.32)}
 td.askcell{width:1%;padding-right:2px}
@@ -332,7 +332,7 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .chat-by{margin-top:6px;text-align:right}
 @media (max-width:900px){.card[data-cc]{max-height:var(--cc-cap,calc(100svh - 120px))}.card.cc-chart{max-height:none}.cc-more{margin-bottom:10px}}
 
-/* Claude research notes on events (related.js) */
+/* AI research notes on events (related.js) */
 .note-btn{margin-left:4px;padding:1px 7px;font-size:11px;border-radius:10px;background:var(--panel2);border:1px solid var(--violet);color:var(--violet);cursor:pointer;white-space:nowrap}
 .note-btn:hover{background:var(--violet);color:#0d1117}
 .note-btn.v-malicious,.note-btn.v-suspicious{border-color:var(--bad);color:var(--bad)}
@@ -406,7 +406,7 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 @media (max-width:900px){.pivh{padding:4px 8px}}
 @media (max-width:900px){.cmph{padding:4px 8px}}
 
-/* Ask Hermes model picker */
+/* Ask AI model picker */
 .chatm{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
 .chatm-sel{max-width:240px;font-size:12px;padding:2px 4px}
 .askdlg-f .chatm{margin-left:0;margin-right:auto}
