@@ -60,14 +60,14 @@
     const tot = () => (parseInt(rh.value, 10) || 0) * 60 + (parseInt(rm.value, 10) || 0);
     if (rs) {
       const chk = () => { const t = tot(); rs.disabled = t === iv || t < 30 || t > 1440;
-        rmsg.innerHTML = t && (t < 30 || t > 1440) ? '<span class="sev-high">between 30 min and 24 h</span>' : ""; };
+        rmsg.className = "sev-high"; rmsg.textContent = t && (t < 30 || t > 1440) ? "between 30 min and 24 h" : ""; };
       rh.oninput = rm.oninput = chk;
       rs.onclick = async () => {
         const t = tot();
         if (!confirm(`Run the review job every ${ivTxt(t)}${t < iv ? " (more often = more Claude tokens)" : ""}?`)) return;
-        rmsg.textContent = "Saving…";
+        rmsg.className = ""; rmsg.textContent = "Saving…";
         try { const N = await apiPost("/api/config/review-schedule", { hours: Math.floor(t / 60), minutes: t % 60 }); paint(el, N); }
-        catch (e) { rmsg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
+        catch (e) { rmsg.className = "sev-high"; rmsg.textContent = String(e); }
       };
     }
     const run = c.querySelector("#cfg-run");

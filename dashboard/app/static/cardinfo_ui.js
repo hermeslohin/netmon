@@ -54,7 +54,9 @@
       b.title = "About this box"; b.setAttribute("aria-label", "About this box"); b.setAttribute("aria-expanded", "false");
       const first = h.childNodes[0];
       // right after the title text, before counts / toggles / badges
-      if (first && first.nodeType === 3) { const m = first.textContent.match(/^(.*?)(\s*\(.*)?$/s); if (m && m[2]) { first.textContent = m[1]; h.insertBefore(document.createTextNode(m[2]), first.nextSibling); } h.insertBefore(b, first.nextSibling); }
+      if (first && first.nodeType === 3) { const tx = first.textContent, i = tx.indexOf("(");
+        if (i > 0) { first.textContent = tx.slice(0, i).trimEnd(); h.insertBefore(document.createTextNode(" " + tx.slice(i)), first.nextSibling); }
+        h.insertBefore(b, first.nextSibling); }
       else h.insertBefore(b, h.firstChild?.nextSibling || null);
     }
   }
