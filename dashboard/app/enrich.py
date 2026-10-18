@@ -247,7 +247,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     try:  # the owner's event notes (authoritative guidance) and what earlier runs learned about the hosts involved
         import kb
         reg = kb._registry()
-        un = kb.event_notes([x["id"] for x in pick])
+        un = kb.event_notes([x["id"] for x in pick], ai=True)  # approved notes only (User notes need defender approval)
         hn_cache = {}
         for x in pick:
             if un.get(x["id"]):

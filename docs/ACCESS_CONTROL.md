@@ -20,6 +20,8 @@ what a role can't use. Hiding a button is never the protection.
 | Every other page: Overview, Security, Network, Devices, Notes, Reports (PDF), AI review, Checked | ✓ | ✓ | ✗ |
 | Configuration and Users pages | view + change | view only | ✗ |
 | Check off events, write 📝 event notes and host notes, confirm/reject AI correlation verdicts | ✓ | ✓ | ✗ |
+| 📝 notes on events of own devices (pending until approved; sees only own notes) | ✓ | ✓ | ✓ (assigned devices only) |
+| Approve / reject User notes so the AI may read them | ✓ | ✓ | ✗ |
 | Ask Hermes (chat) | ✓ (and can pick the model) | ✓ (default model) | ✗ |
 | Choose own alert devices (Alerts → Notification settings) | ✓ | ✓ | ✗ (an admin assigns them) |
 | Mark alerts read | shared 🔔 for everyone | shared 🔔 for everyone | private marker, doesn't change anyone else's 🔔 |
@@ -45,6 +47,15 @@ off, writing notes, confirming or rejecting an AI link and asking Hermes, is not
   talked to. They don't get the other device's own events.
 - Push notifications follow the same scope: a User is only ever pushed alerts for their assigned devices.
 - A User's "Mark all read" sets a private marker, so it doesn't clear the 🔔 that admins and defenders share.
+- A User can add 📝 notes to the security events on **My devices** (only events that involve one of their assigned
+  devices; the server re-checks this) and delete their own notes. They see only their own notes, never the notes
+  admins or defenders wrote on the same event.
+- **AI gate:** a User's note is stored as *pending* and is never given to any AI (research run, correlation reviewer,
+  Ask Hermes / `netmon_notes`, `kb.py dump`) until an admin or network defender approves it. Pending notes show ⏳ on the
+  event's 📝 button and in **Notes → Event notes awaiting approval**, with Approve / Reject. Rejected notes are kept for
+  the record but never reach the AI. Notes written by admins and defenders are approved when written. Approval applies
+  to the note's exact text: a User who wants to change it deletes it and writes a new one, which is pending again.
+  A User can have at most 50 notes pending at once.
 
 ## Managing access (admins)
 

@@ -117,7 +117,7 @@ window.CARD_INFO = {
 },
 "notes|Event notes": {
 "source": "Notes people left with the 📝 button next to an event's Related count. Stored per stable event key, so a note also applies to later repeats of the same finding or alert family.",
-"use": "Use event notes to tell the AI what an event is or how to treat it ('expected - nightly backup', 'escalate if it happens again'). The research run and the correlation reviewer treat them as authoritative guidance.",
+"use": "Use event notes to tell the AI what an event is or how to treat it ('expected - nightly backup', 'escalate if it happens again'). The research run and the correlation reviewer treat approved notes as authoritative guidance. Notes from User accounts (⏳) are hidden from the AI until a defender or admin approves them in 'Event notes awaiting approval'.",
 "what": "All notes people wrote on events, newest first."
 },
 "device|Across snapshots": {

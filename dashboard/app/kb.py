@@ -9,6 +9,11 @@ same stable event key as the AI research notes (enrich.skey), so a note carries 
 finding / alert family. The AI treats them as analyst guidance: the twice-daily enrichment run, the local-LLM correlation
 reviewer and the chat assistant all read them.
 
+Approval gate: notes written by an admin or network defender are approved when written. Notes written by a User-role
+account (on events of their own assigned devices) start as `pending` and are NEVER given to any AI until an admin or
+defender approves them (`rejected` ones never are). Every AI read path goes through event_notes(..., ai=True) / dump(),
+or filters status='approved' itself (netmon_mcp.py).
+
 Subjects (host notes):
   mac:<mac>      a network device with a known MAC (preferred - survives DHCP changes)
   ip:<ip>        a network device without a MAC in the registry
@@ -36,6 +41,10 @@ def _db():
     c.execute("CREATE INDEX IF NOT EXISTS host_notes_subject ON host_notes(subject)")
     c.execute("""CREATE TABLE IF NOT EXISTS event_notes (id INTEGER PRIMARY KEY, skey TEXT, eid TEXT, label TEXT, author TEXT, text TEXT, ts REAL)""")
     c.execute("CREATE INDEX IF NOT EXISTS event_notes_skey ON event_notes(skey)")
+    have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
+    for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL")):
+        if col not in have:  # older kb.db: every existing note was written by an admin/defender, so it stays approved
+            c.execute(f"ALTER TABLE event_notes ADD COLUMN {col} {decl}")
     return c
 
 
@@ -169,7 +178,9 @@ def put(doc):
 
 
 # ---------------------------------------------------------------- event notes (people)
-_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts")
+_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at")
+STATUSES = ("pending", "approved", "rejected")
+MAX_PENDING_PER_USER = 50
 
 
 def _ekey(eid, ak):
@@ -195,46 +206,80 @@ def _skeys(eids):
     return keys
 
 
-def event_notes(eids):
-    """{eid: [note, ...]} for the given event ids (notes carry over via the stable event key)."""
+def event_notes(eids, ai=False, author=None):
+    """{eid: [note, ...]} for the given event ids (notes carry over via the stable event key).
+    ai=True: approved notes only - REQUIRED for anything that goes into an AI prompt. author: only that person's notes."""
     keys = _skeys(list(eids))
     out = {}
     if not keys:
         return out
     ks = list(keys)
+    extra, xargs = "", []
+    if ai:
+        extra += " AND status='approved'"
+    if author is not None:
+        extra, xargs = extra + " AND author=?", [str(author)]
     with _db() as c:
         for i in range(0, len(ks), 500):
             ch = ks[i:i + 500]
-            for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE skey IN ({','.join('?' * len(ch))}) ORDER BY ts", ch):
+            for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE skey IN ({','.join('?' * len(ch))}){extra} ORDER BY ts", ch + xargs):
                 n = dict(zip(_ECOLS, r))
                 for eid in keys[n["skey"]]:
                     out.setdefault(eid, []).append({**n, "same_event": n["eid"] == eid})
     return out
 
 
-def all_event_notes(limit=500):
+def all_event_notes(limit=500, ai=False):
     with _db() as c:
-        return [dict(zip(_ECOLS, r)) for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes ORDER BY ts DESC LIMIT ?", (limit,))]
+        w = "WHERE status='approved' " if ai else ""
+        rows = [dict(zip(_ECOLS, r)) for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes {w}ORDER BY ts DESC LIMIT ?", (limit,))]
+        if not ai:  # pending notes must never fall off the human review list
+            seen = {n["id"] for n in rows}
+            rows += [dict(zip(_ECOLS, r)) for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE status='pending' ORDER BY ts DESC")
+                     if r[0] not in seen]
+        return rows
 
 
-def add_event_note(eid, text, author, label=""):
+def get_event_note(note_id):
+    with _db() as c:
+        r = c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE id=?", (int(note_id),)).fetchone()
+    return dict(zip(_ECOLS, r)) if r else None
+
+
+def add_event_note(eid, text, author, label="", role="admin"):
+    """Notes by a User-role account start 'pending' (hidden from the AI until approved); others are approved at once."""
     eid, text = str(eid or "").strip()[:600], str(text or "").strip()[:MAX_TEXT]
     if not eid or not text:
         raise ValueError("event id and text required")
+    status = "pending" if role == "user" else "approved"
     k = next(iter(_skeys([eid])))
     with _db() as c:
-        cur = c.execute("INSERT INTO event_notes (skey, eid, label, author, text, ts) VALUES (?,?,?,?,?,?)",
-                        (k, eid, str(label or "")[:200], str(author)[:60], text, time.time()))
+        if status == "pending":
+            n = c.execute("SELECT count(*) FROM event_notes WHERE author=? AND status='pending'", (str(author)[:60],)).fetchone()[0]
+            if n >= MAX_PENDING_PER_USER:
+                raise ValueError(f"you already have {n} notes waiting for approval - wait for a defender to review them")
+        cur = c.execute("INSERT INTO event_notes (skey, eid, label, author, text, ts, status, role) VALUES (?,?,?,?,?,?,?,?)",
+                        (k, eid, str(label or "")[:200], str(author)[:60], text, time.time(), status, str(role or "")[:20]))
         return cur.lastrowid
 
 
-def delete_event_note(note_id):
+def review_event_note(note_id, approve, by):
+    """Admin / defender decision on a note: approved notes are given to the AI, rejected ones never are."""
     with _db() as c:
+        return c.execute("UPDATE event_notes SET status=?, reviewed_by=?, reviewed_at=? WHERE id=?",
+                         ("approved" if approve else "rejected", str(by)[:60], time.time(), int(note_id))).rowcount
+
+
+def delete_event_note(note_id, author=None):
+    """author: only delete if that person wrote it (User-role accounts may only delete their own notes)."""
+    with _db() as c:
+        if author is not None:
+            return c.execute("DELETE FROM event_notes WHERE id=? AND author=?", (int(note_id), str(author))).rowcount
         return c.execute("DELETE FROM event_notes WHERE id=?", (int(note_id),)).rowcount
 
 
 def apply(res):
-    """Attach people's event notes to a correlation result (new dict)."""
+    """Attach people's event notes (all statuses - for admins/defenders' screens, never for an AI prompt) to a correlation result."""
     if not res or res.get("error"):
         return res
     try:
@@ -246,14 +291,14 @@ def apply(res):
 
 def dump(q=""):
     hn = host_notes(q=q)
-    en = all_event_notes()
+    en = all_event_notes(ai=True)  # dump feeds the AI research run: approved event notes only
     if q:
         ql = q.lower()
         en = [n for n in en if ql in (n["eid"] + " " + (n["label"] or "") + " " + n["text"]).lower()]
     fmt = lambda t: time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(t)) if t else ""  # noqa: E731
     return {"host_notes": [{**n, "ts": fmt(n["ts"]), "updated": fmt(n["updated"])} for n in hn],
-            "event_notes": [{**n, "ts": fmt(n["ts"])} for n in en],
-            "how_to_use": "event_notes are written by the network owner: treat them as authoritative analyst guidance "
+            "event_notes": [{k: v for k, v in {**n, "ts": fmt(n["ts"]), "reviewed_at": fmt(n["reviewed_at"])}.items() if k not in ("status", "role")} for n in en],
+            "how_to_use": "event_notes are written (or approved) by the network owner / defenders: treat them as authoritative analyst guidance "
                           "(e.g. 'expected - my backup job', 'escalate if seen again'). host_notes are what earlier AI runs "
                           "(and the owner, author user:<name>) learned about each device; correct or delete stale ones."}
 

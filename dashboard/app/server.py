@@ -29,7 +29,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 #   user     - only the alerts / events of the devices an admin assigned to them (allow-list below)
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
-             "/api/alerts/read"}
+             "/api/alerts/read", "/api/kb/event"}  # /api/kb/event: own notes on own devices' events only (checked below)
 ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/costlimit", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
@@ -62,7 +62,12 @@ def my_events(user):
         out.append({"id": k, "type": e.get("type"), "label": e.get("label"), "sev": e.get("sev"), "t0": e.get("t0"),
                     "ips": sorted(ips & set(e.get("ips") or []))})
     out.sort(key=lambda e: -(e["t0"] or 0))
-    return {"snapshot": sid, "devices": assigned_devices(user), "events": out}
+    try:  # a User only ever sees their OWN notes (others' analyst notes on the same event family stay private)
+        un = kb.event_notes([e["id"] for e in out], author=user)
+    except Exception as e:  # noqa: BLE001 - the page works without notes
+        print(f"my notes unavailable: {e}", file=sys.stderr)
+        un = {}
+    return {"snapshot": sid, "devices": assigned_devices(user), "events": out, "unotes": un}
 LLM_PROVIDERS = ("lmstudio", "anthropic")
 
 
@@ -699,17 +704,31 @@ class H(BaseHTTPRequestHandler):
                     print(f"kb: {user} deleted host note {body.get('id')!r}", file=sys.stderr)
                     return self._json({"ok": bool(n)})
                 return self._json({"error": "action must be add or delete"}, 400)
-            if u.path == "/api/kb/event":  # people's notes on an event (📝); the AI reads them as guidance
-                act = body.get("action")
+            if u.path == "/api/kb/event":  # people's notes on an event (📝); the AI reads APPROVED ones as guidance
+                act, eid = body.get("action"), str(body.get("eid") or "")
+                mine = user if role == "user" else None  # a User sees / deletes only their own notes
+                notes_for = lambda: kb.event_notes([eid], author=mine).get(eid, [])  # noqa: E731
+                if role == "user" and act not in ("add", "delete"):
+                    return self._json({"error": "only a network defender or admin can approve notes"}, 403)
                 if act == "add":
-                    nid = kb.add_event_note(body.get("eid"), body.get("text"), user, body.get("label"))
-                    print(f"kb: {user} added event note {nid} on {str(body.get('eid'))[:80]!r}", file=sys.stderr)
-                    return self._json({"ok": True, "id": nid, "notes": kb.event_notes([str(body.get("eid"))]).get(str(body.get("eid")), [])})
+                    if role == "user" and eid not in {e["id"] for e in my_events(user)["events"]}:
+                        print(f"access denied: {user} (user) note on event outside their devices {eid[:80]!r}", file=sys.stderr)
+                        return self._json({"error": "you can only add notes to events of your assigned devices"}, 403)
+                    try:
+                        nid = kb.add_event_note(eid, body.get("text"), user, body.get("label"), role=role)
+                    except ValueError as e:
+                        return self._json({"error": str(e)}, 400)
+                    print(f"kb: {user} ({role}) added event note {nid} on {eid[:80]!r}{' - pending approval' if role == 'user' else ''}", file=sys.stderr)
+                    return self._json({"ok": True, "id": nid, "notes": notes_for()})
                 if act == "delete":
-                    n = kb.delete_event_note(body.get("id"))
-                    print(f"kb: {user} deleted event note {body.get('id')!r}", file=sys.stderr)
-                    return self._json({"ok": bool(n), "notes": kb.event_notes([str(body.get("eid") or "")]).get(str(body.get("eid") or ""), [])})
-                return self._json({"error": "action must be add or delete"}, 400)
+                    n = kb.delete_event_note(body.get("id"), author=mine)
+                    print(f"kb: {user} deleted event note {body.get('id')!r}" + ("" if n else " - refused/not found"), file=sys.stderr)
+                    return self._json({"ok": bool(n), "notes": notes_for()})
+                if act in ("approve", "reject"):  # defender / admin gate before a User's note may reach the AI
+                    n = kb.review_event_note(body.get("id"), act == "approve", user)
+                    print(f"kb: {user} ({role}) {act}d event note {body.get('id')!r}", file=sys.stderr)
+                    return self._json({"ok": bool(n), "notes": notes_for() if eid else []})
+                return self._json({"error": "action must be add, delete, approve or reject"}, 400)
             if u.path == "/api/alerts/read":
                 if role == "user":  # private read marker: a user must not clear the shared 🔔 for everyone else
                     ids = watch_ids(user, role)

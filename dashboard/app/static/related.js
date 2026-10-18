@@ -29,7 +29,7 @@
       // people's notes on this event (kbnotes.js opens them): a 📝 button after the AI note, on every event row
       const after = nb || b; let ub = after.nextElementSibling?.classList.contains("unote-btn") ? after.nextElementSibling : null;
       if (!ub) { ub = document.createElement("button"); ub.type = "button"; ub.className = "unote-btn"; ub.dataset.unote = b.dataset.rel; ub.title = "Your notes on this event (the AI reads them)"; after.after(ub); }
-      const un = (S.corr.unotes?.[b.dataset.rel] || []).length, ut = un ? `📝 ${un}` : "📝";
+      const uns = S.corr.unotes?.[b.dataset.rel] || [], un = uns.length, ut = un ? `📝 ${un}${uns.some((x) => x.status === "pending") ? " ⏳" : ""}` : "📝";
       if (ub.textContent !== ut) ub.textContent = ut;
       ub.classList.toggle("has", un > 0);
     });

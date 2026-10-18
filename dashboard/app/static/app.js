@@ -1171,8 +1171,13 @@ V.my = async (el) => {
   el.appendChild(card(`Security events (${M.events.length}) <span class="muted small">— snapshot ${esc(M.snapshot || "–")}</span>`, M.events.length ? table(null, [
     { k: "sev", t: "Severity", fmt: badge, sort: (x) => sevRank(x.sev) }, { k: "type", t: "Type", fmt: (v) => esc(TY[v] || v) },
     { k: "t0", t: "When", fmt: (v) => (v ? esc(new Date(v * 1000).toLocaleString()) : '<span class="muted">ongoing</span>'), sort: (x) => x.t0 || 0 },
-    { k: "label", t: "Event", fmt: (v) => esc(v) }, { k: "ips", t: "Device", cls: "mono small", fmt: (v) => esc((v || []).join(", ")) }], M.events, { sort: "t0" })
+    { k: "label", t: "Event", fmt: (v) => esc(v) }, { k: "ips", t: "Device", cls: "mono small", fmt: (v) => esc((v || []).join(", ")) },
+    { k: "id", t: "Notes", sort: false, fmt: (v) => { const ns = M.unotes?.[v] || [], p = ns.some((x) => x.status === "pending");
+      return `<button type="button" class="unote-btn${ns.length ? " has" : ""}" data-unote="${esc(v)}" title="Add a note for the network defenders">${ns.length ? `📝 ${ns.length}${p ? " ⏳" : ""}` : "📝"}</button>`; } }], M.events, { sort: "t0" })
     : `<div class="empty">No security events for your devices in the latest snapshot.</div>`));
+  // kbnotes.js's 📝 popover reads S.corr: give it just this user's events and their own notes (a User never loads correlations)
+  S.corr = { events: Object.fromEntries(M.events.map((e) => [e.id, e])), unotes: M.unotes || {} };
+  if (M.events.length) el.appendChild(card("Notes on your events", `<div class="small">Click 📝 on an event to tell the network defenders what it was (for example "that was me setting up a new TV"). A defender or admin reviews each note (⏳ until then); the AI only reads notes they approve. You see only your own notes.</div>`));
   el.appendChild(card("Urgent alerts", `<div class="small">Urgent alerts for your devices are on the <a href="#/alerts">Alerts</a> page, where you can also turn on push notifications.</div>`));
 };
 init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to load</h2><pre>${esc(e.stack || e)}</pre></div>`));

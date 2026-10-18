@@ -229,7 +229,7 @@ def _owner_notes(aid, ids):
     """Owner event notes for the anchor and candidates, keyed like the prompt tags."""
     try:
         import kb
-        un = kb.event_notes([aid, *ids])
+        un = kb.event_notes([aid, *ids], ai=True)  # approved notes only: unapproved User notes never reach the AI
     except Exception as e:  # noqa: BLE001 - reviews work without notes
         print(f"corr_llm: owner notes unavailable: {e}", file=sys.stderr)
         return {}

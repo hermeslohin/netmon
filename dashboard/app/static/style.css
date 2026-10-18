@@ -432,3 +432,6 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .kb-form textarea,.note-body textarea{flex:1 1 260px;min-width:0;font:inherit;font-size:13px;background:var(--panel2);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 7px;resize:vertical}
 .kb-user{font-size:11px;padding:0 6px;border-radius:9px;border:1px solid var(--border);color:var(--warn)}
 .note-body textarea{flex:none}
+.kb-rev{padding:1px 8px;font-size:11px;border-radius:10px;cursor:pointer;margin-left:4px}
+.kb-note.kb-st-pending{border-left-color:var(--warn)}
+.kb-note.kb-st-rejected{border-left-color:var(--bad,#c33);opacity:.75}

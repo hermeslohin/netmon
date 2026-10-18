@@ -131,7 +131,7 @@ def notes(args):
     q = (args.get("query") or "").strip().lower()
     hn = [{"subject": r[0], "device": r[1], "category": r[2], "text": r[3], "by": r[4] if r[4] != "ai" else f"AI ({r[5]})"}
           for r in _kb("select subject, label, category, text, author, model from host_notes order by subject, updated desc")]
-    en = [{"event": r[0], "label": r[1], "by": r[2], "text": r[3]} for r in _kb("select eid, label, author, text from event_notes order by ts desc limit 300")]
+    en = [{"event": r[0], "label": r[1], "by": r[2], "text": r[3]} for r in _kb("select eid, label, author, text from event_notes where status = 'approved' order by ts desc limit 300")]
     if q:
         hn = [n for n in hn if q in json.dumps(n).lower()]
         en = [n for n in en if q in json.dumps(n).lower()]
