@@ -71,6 +71,7 @@
           (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
           (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
           (nCost ? ` · est. $${cost.toFixed(2)} at API list prices ($${(cost / nCost).toFixed(2)} per run)` : "") }));
+      const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
       chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
       queueChart(chart.querySelector("canvas"), { type: "bar", data: { labels: lbl, datasets: [
         { label: "New input (M)", data: U.map((u) => M(split(u) ? u.fresh : null)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
@@ -79,13 +80,20 @@
         { label: "Output (M)", data: U.map((u) => M(u.completion)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
         { label: "Cache re-reads (M)", data: U.map((u) => M(u.cache_read)), backgroundColor: "#58a6ff33", stack: "t", yAxisID: "y", hidden: true },
         { label: "Run time (min)", type: "line", data: U.map((u) => +(u.duration_s / 60).toFixed(1)), borderColor: "#3fb950", backgroundColor: "#3fb950",
-          pointRadius: 3, tension: 0.2, yAxisID: "y1" }] },
+          pointRadius: 3, tension: 0.2, yAxisID: "y1" },
+        { label: "Est. cost ($)", type: "line", data: U.map((u) => u.cost_usd), borderColor: "#f85149", backgroundColor: "#f85149",
+          pointRadius: 3, tension: 0.2, yAxisID: "y2" },
+        { label: "Cost with selected model ($)", type: "line", data: U.map(() => null), borderColor: "#ff7b72", backgroundColor: "#ff7b72", borderDash: [6, 4],
+          pointRadius: 2, tension: 0.2, yAxisID: "y2", hidden: true }] },
         options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
           y: { stacked: true, beginAtZero: true, title: { display: true, text: "tokens (millions)" } },
-          y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "minutes" } } },
+          y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "minutes" } },
+          y2: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "US $" }, ticks: { callback: (v) => "$" + v } } },
           plugins: { tooltip: { callbacks: { footer: (it) => { const u = U[it[0].dataIndex];
+            const p = USAGE && USAGE.preview, pc = p ? runCost(u, p.price) : null;
             return `Input incl. cache re-reads: ${(u.prompt / 1e6).toFixed(2)} M` + (u.cost_usd != null ? ` · est. $${u.cost_usd.toFixed(2)}` : "") +
-              ` · ${u.model || ""}${u.error ? " · failed" : ""}`; } } } } } });
+              ` · ${u.model || ""}${u.error ? " · failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } });
+      USAGE = { U, canvas: chart.querySelector("canvas"), pv, preview: null };
     }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
@@ -103,6 +111,38 @@
       { k: "rejected", t: "Rejected ids", num: true, fmt: (v) => (v ? `<span class="bad">${fn(v)}</span>` : v === 0 ? "0" : "") },
     ], R, { sort: "started", limit: 10 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No enrichment passes logged yet (the log starts with the next run)." }));
     return uc ? [c, uc] : [c];
+  }
+
+  // ---- research cost preview: re-price the recorded runs' tokens with the model picked in the Models box
+  let USAGE = null;  // {U, canvas, pv, preview} set by claudeCard when the usage chart exists
+  // $ for one run's tokens at a price {in, out, cache_read, cache_write} per 1 M. A missing cache price falls back to the
+  // input price (OpenAI bills cache writes as plain input). Runs without a cache split price all input as new input.
+  function runCost(u, p) {
+    if (!p) return 0;
+    const ip = p.in || 0, cr = p.cache_read ?? ip, cw = p.cache_write ?? ip, op = p.out || 0;
+    const t = u.cache_read != null ? u.fresh * ip + u.cache_write * cw + u.cache_read * cr + u.completion * op : u.prompt * ip + u.completion * op;
+    return +(t / 1e6).toFixed(2);
+  }
+  function previewResearchCost(provider, model, M, current) {
+    if (!USAGE) return;
+    const ch = Chart.getChart(USAGE.canvas), ds = ch && ch.data.datasets.find((d) => d.label.startsWith("Cost with"));
+    const same = !current || (provider === current.provider && model === current.model);
+    const list = { anthropic: M.anthropic, "openai-api": M.openai }[provider];
+    const price = provider === "lmstudio" ? { in: 0, out: 0 } : ((list || []).find((m) => m.id === model) || {}).price;
+    USAGE.preview = same ? null : { provider, model, price };
+    if (same) { USAGE.pv.textContent = ""; }
+    else if (!price) { USAGE.pv.innerHTML = `<span class="warn">Hermes has no price for ${esc(model)}, so its cost can't be estimated.</span>`; }
+    else {
+      const perDay = current && current.interval_minutes ? 1440 / current.interval_minutes : 2;
+      const v = USAGE.U.map((u) => runCost(u, price)), avg = v.reduce((a, x) => a + x, 0) / (v.length || 1);
+      const rec = USAGE.U.filter((u) => u.cost_usd != null), recAvg = rec.length ? rec.reduce((a, u) => a + u.cost_usd, 0) / rec.length : null;
+      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>: about <b>$${avg.toFixed(2)} per run</b>` + (recAvg != null ? ` (now $${recAvg.toFixed(2)})` : "") +
+        ` · ~$${(avg * 30 * perDay).toFixed(0)} a month at ${+perDay.toFixed(1)} run${perDay === 1 ? "" : "s"} a day. <span class="muted">Same token counts as the recorded runs re-priced at ` +
+        `${esc(model)}'s list price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
+        `a different model would use a different number of tokens, so treat this as a rough guide. Press Save to switch.</span>`;
+    }
+    const data = same || !price ? USAGE.U.map(() => null) : USAGE.U.map((u) => runCost(u, price));
+    if (ds) { ds.data = data; ds.label = same || !price ? "Cost with selected model ($)" : `Cost with ${model} ($)`; ds.hidden = same || !price; ch.update(); }
   }
 
   // ---- model choice (correlation reviewer + research job) and per-decision model comparison
@@ -141,12 +181,14 @@
         const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
         const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
         msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : (sec === "research" && D.research?.error ? D.research.error : "now: auto (model loaded in LM Studio)");
-        sel.onchange = () => { btn.disabled = !D.admin || sel.value === optKey(cur.provider, cur.model); };
+        sel.onchange = () => { btn.disabled = !D.admin || sel.value === optKey(cur.provider, cur.model);
+          if (sec === "research") { const [p, ...m] = sel.value.split("|"); previewResearchCost(p, m.join("|"), M, cur); } };
         btn.onclick = async () => {
           const [provider, ...rest] = sel.value.split("|"), model = rest.join("|");
           btn.disabled = true; msg.textContent = "saving…";
           try { const r2 = await apiPost("/api/llm/config", { section: sec, provider, model }); const now = r2[sec] || {};
-            cur.provider = now.provider; cur.model = now.model; msg.textContent = `saved: ${PROV[now.provider] || now.provider} · ${now.model}`; }
+            cur.provider = now.provider; cur.model = now.model; msg.textContent = `saved: ${PROV[now.provider] || now.provider} · ${now.model}`;
+            if (sec === "research") previewResearchCost(now.provider, now.model, M, cur); }
           catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
         };
       }

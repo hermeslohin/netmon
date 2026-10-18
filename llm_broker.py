@@ -163,8 +163,29 @@ def chat_default():
     return out
 
 
+_price_cache = {}
+
+
+def price(provider, model):
+    """$ per 1 M tokens {in, out, cache_read, cache_write} from Hermes' own pricing table (the same one the
+    cost_limit plugin and the per-run cost estimates use); None when Hermes has no price. Cached per process."""
+    k = (provider, model)
+    if k not in _price_cache:
+        try:
+            from agent.usage_pricing import get_pricing_entry
+            e = get_pricing_entry(model, provider=provider)
+        except Exception:  # noqa: BLE001
+            e = None
+        f = lambda v: None if v is None else float(v)  # noqa: E731
+        _price_cache[k] = None if not e or e.input_cost_per_million is None else {
+            "in": f(e.input_cost_per_million), "out": f(e.output_cost_per_million),
+            "cache_read": f(e.cache_read_cost_per_million), "cache_write": f(e.cache_write_cost_per_million)}
+    return _price_cache[k]
+
+
 def models():
-    return {"anthropic": [{"id": m} for m in anthropic_models()], "openai": [{"id": m} for m in openai_models()],
+    return {"anthropic": [{"id": m, "price": price("anthropic", m)} for m in anthropic_models()],
+            "openai": [{"id": m, "price": price("openai-api", m)} for m in openai_models()],
             "local": local_models(), "chat_default": chat_default(), "openai_key": openai_key_get()}
 
 
