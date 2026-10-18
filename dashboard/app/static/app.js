@@ -880,7 +880,7 @@ V.checked = (el) => {
   const rows = [];
   for (const [type, m] of entries(S.acks)) for (const [key, a] of entries(m)) {
     const cur = lookup[type]?.[key];
-    rows.push({ type, key, at: a.at, label: a.label || key, cur, state: cur ? (cur._st === "fixed" ? "fixed" : "still present") : "not in this snapshot" });
+    rows.push({ type, key, at: a.at, label: a.label || key, note: a.note || "", cur, state: cur ? (cur._st === "fixed" ? "fixed" : "still present") : "not in this snapshot" });
   }
   rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   el.insertAdjacentHTML("beforeend", kpis(Object.keys(ACK_LABEL).map((t) => [ACK_LABEL[t] + "s", rows.filter((r) => r.type === t).length])));
@@ -888,7 +888,7 @@ V.checked = (el) => {
   rows.splice(0, rows.length, ...rows.filter((r) => r.type !== "seg"));
   el.appendChild(card(`Checked items (${rows.length})`, table(null, [
     { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="${r.type}" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to restore">` },
-    { k: "at", t: "Checked", fmt: ft }, { k: "type", t: "Type", fmt: (v) => esc(ACK_LABEL[v] || v) }, { k: "label", t: "Item", fmt: linkifyIps },
+    { k: "at", t: "Checked", fmt: ft }, { k: "type", t: "Type", fmt: (v) => esc(ACK_LABEL[v] || v) }, { k: "label", t: "Item", fmt: (v, r) => linkifyIps(v) + (r.note.startsWith("auto-closed:") ? ` <span class="badge sev-info" title="${esc(r.note)}">auto-closed · ${esc((r.note.match(/AI verdict (\w+)/) || [])[1] || "AI")}</span>` : "") },
     { k: "state", t: "Status in selected snapshot", fmt: (v) => `<span class="badge ${v === "still present" ? "sev-medium" : v === "fixed" ? "sev-good" : "sev-unknown"}">${esc(v)}</span>` },
   ], rows, { sort: "at" })));
 };

@@ -11,6 +11,7 @@ import lateral
 import correlate
 import corr_llm
 import enrich
+import autoclose
 import itemcmp
 import auth
 import tintel
@@ -239,6 +240,21 @@ def correlation(sid):
                         cleared=pol.get("_cleared_seg") or set())
     _CORR.update(k=ck, v=v)
     return v
+
+
+def autoclose_inputs():
+    """(raw, analysis, open fix-list issues, non-closable researched event ids) for the newest snapshot."""
+    snaps = snapshots()
+    res = snapshot(snaps[-1]["id"]) if snaps else None
+    if not res:
+        return None
+    it = issue_tracker()
+    open_iss = [i for i in it.get("open", []) if i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open")]
+    try:
+        other = [e for e in ((correlation(snaps[-1]["id"]) or {}).get("events") or {}) if e.split("|", 1)[0] not in ("f", "hf", "iss")]
+    except Exception:  # noqa: BLE001 - counts only
+        other = []
+    return res["raw"], res["analysis"], open_iss, other
 
 
 def acks_load_all():
@@ -506,6 +522,17 @@ class H(BaseHTTPRequestHandler):
             if u.path in ("/api/llm/config", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt") or (u.path == "/api/aireview" and body.get("action") == "adopt"):
                 if user not in ADMINS:
                     return self._json({"error": "only an admin can change models or run comparisons"}, 403)
+            if u.path in ("/api/config/triage", "/api/config/triage/reopen"):
+                if user not in ADMINS:
+                    return self._json({"error": "only an admin can change Security Triage settings"}, 403)
+                if u.path == "/api/config/triage":
+                    autoclose.set_settings(body.get("expected"), body.get("benign"), user)
+                    print(f"autoclose settings: {user} expected={bool(body.get('expected'))} benign={bool(body.get('benign'))}", file=sys.stderr)
+                else:
+                    k = body.get("kind")
+                    autoclose.reopen_all(user, k if k in autoclose.KINDS else None)
+                inp = autoclose_inputs()
+                return self._json({**(autoclose.run(*inp) if inp else {}), "admin": True})
             if u.path == "/api/llm/config":  # choose the correlation reviewer or the research job's model
                 sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
                 if sec not in ("correlation", "research") or prov not in LLM_PROVIDERS or not llm_allowed(prov, model):
@@ -629,6 +656,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(res) if res else self._json({"error": "not found"}, 404)
             if path == "/api/acks":
                 return self._json(read_acks())
+            if path == "/api/config/triage":
+                inp = autoclose_inputs()
+                return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "admin": user in ADMINS})
             if path == "/api/ti/feeds":
                 return self._json(tintel.feed_status())
             if path == "/api/ti/lookup":
@@ -751,6 +781,10 @@ def main():
         print(f"correlation review: local LLM at {corr_llm.URL} ({'on' if corr_llm.ENABLED else 'off'})", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"correlation review disabled: {e}", file=sys.stderr)
+    try:  # Security Triage auto-close (More -> Configuration); idle unless an option is on
+        autoclose.start(autoclose_inputs)
+    except Exception as e:  # noqa: BLE001
+        print(f"autoclose disabled: {e}", file=sys.stderr)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
