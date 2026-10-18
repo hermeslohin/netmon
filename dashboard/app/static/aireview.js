@@ -155,13 +155,12 @@
 
   // ---- cost limits: the Hermes cost_limit plugin's $ caps (plugins.entries.cost_limit.settings, via the host broker)
   function costCard(D) {
-    const L = D.costlimit || {}, c = card("Cost limits (estimated token cost)", "");
-    c.id = "ai-cost";
-    if (L.error) { c.insertAdjacentHTML("beforeend", `<div class="bad">Cost limits unavailable: ${esc(L.error)}</div>`); return c; }
+    const L = D.costlimit || {}, T = "Cost limits (estimated token cost)";
+    if (L.error) { const e = card(T, `<div class="bad">Cost limits unavailable: ${esc(L.error)}</div>`); e.id = "ai-cost"; return e; }
     const U = ((D.claude?.jobs || [])[0]?.usage || []).filter((u) => u.cost_usd != null).map((u) => u.cost_usd);
     const avg = U.length ? U.reduce((a, v) => a + v, 0) / U.length : null, max = U.length ? Math.max(...U) : null;
     const usd = (v) => `$${(+v).toFixed(2)}`;
-    c.insertAdjacentHTML("beforeend", `
+    const c = card(T, `
       <div class="small muted">Hermes estimates what every model call costs (tokens × the provider's API list price) and adds it up.
         When a limit below is passed, Hermes stops the work right after that call and blocks any tool calls still waiting.
         The check runs after each call, so the final total can go over the limit by the cost of one call. <b>0 = no limit.</b></div>
@@ -185,6 +184,7 @@
       ${(L.stops || []).length ? `<details class="small" style="margin-top:8px"><summary>Recent stops (${L.stops.length})</summary>
         ${L.stops.slice().reverse().map((s) => `<div><span class="mono">${esc(s.at)} UTC</span> · ${esc(s.reason)} <span class="muted mono">${esc(s.session)}</span></div>`).join("")}</details>`
         : `<div class="small muted" style="margin-top:8px">No run has been stopped by a cost limit yet.</div>`}`);
+    c.id = "ai-cost";
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
     const warn = () => { const r = +inp("max_run_usd").value || 0, s = +inp("max_session_usd").value || 0;
       const over = r ? U.filter((v) => v > r).length : 0;
