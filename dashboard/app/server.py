@@ -887,7 +887,8 @@ class H(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 except Exception as e:  # noqa: BLE001 - ES down / no key: the page says so
-                    return self._json({"error": f"audit log unavailable: {str(getattr(e, 'reason', e))[:200]}", "status": audit.status()}, 502)
+                    # 200, not 502: behind the Cloudflare tunnel a 502 body is replaced by Cloudflare's own HTML page
+                    return self._json({"error": f"audit log unavailable: {str(getattr(e, 'reason', e))[:200]}", "status": audit.status()})
             if path == "/api/snapshots":
                 return self._json(snapshots())
             if path == "/api/snapshot":

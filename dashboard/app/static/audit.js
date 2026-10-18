@@ -65,7 +65,10 @@
     const P = hq(), F = { kind: P.get("kind") || "all", range: P.get("range") || "24h", user: P.get("user") || "", action: P.get("action") || "",
       outcome: P.get("outcome") || "", model: P.get("model") || "", q: P.get("q") || "", page: +(P.get("page") || 0) };
     const qs = new URLSearchParams(Object.entries(F).filter(([, v]) => v !== "" && v !== 0)).toString();
-    const [R, I] = await Promise.all([fetch("/api/audit?" + qs, { cache: "no-store" }).then((r) => r.json()).catch((e) => ({ error: String(e) })),
+    const getJSON = async (u) => {  // tolerate non-JSON answers (proxy error pages) instead of a parse error
+      const r = await fetch(u, { cache: "no-store" }); if (r.status === 401) { toLogin(); throw new Error("login required"); }
+      const t = await r.text(); try { return JSON.parse(t); } catch { return { error: `the server answered HTTP ${r.status} without data${r.status >= 500 ? " (dashboard or proxy error)" : ""}` }; } };
+    const [R, I] = await Promise.all([getJSON("/api/audit?" + qs).catch((e) => ({ error: String(e.message || e) })),
       api("/api/config/integrations").then((x) => x.audit).catch(() => null)]);
     el.querySelector(".loading").remove();
     if (R.status) el.appendChild(storageCard(R.status, I));
