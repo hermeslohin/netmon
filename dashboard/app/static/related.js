@@ -26,6 +26,12 @@
       if (!note && nb) nb.remove();
       if (note && nb) { const t = "✨ " + (note.verdict || "notes"); if (nb.textContent !== t) nb.textContent = t;
         nb.className = "note-btn v-" + String(note.verdict || "").replace(/[^a-z-]/g, ""); nb.title = (note.summary || "Research notes").slice(0, 200); }
+      // people's notes on this event (kbnotes.js opens them): a 📝 button after the AI note, on every event row
+      const after = nb || b; let ub = after.nextElementSibling?.classList.contains("unote-btn") ? after.nextElementSibling : null;
+      if (!ub) { ub = document.createElement("button"); ub.type = "button"; ub.className = "unote-btn"; ub.dataset.unote = b.dataset.rel; ub.title = "Your notes on this event (the AI reads them)"; after.after(ub); }
+      const un = (S.corr.unotes?.[b.dataset.rel] || []).length, ut = un ? `📝 ${un}` : "📝";
+      if (ub.textContent !== ut) ub.textContent = ut;
+      ub.classList.toggle("has", un > 0);
     });
   }
   function relabelChips() {  // drill-down chip shows the event's label once correlations are loaded

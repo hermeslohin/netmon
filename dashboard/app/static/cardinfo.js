@@ -100,6 +100,21 @@ window.CARD_INFO = {
 "use": "Identify each entry and add it to the inventory so it stops showing here. A device that stays unknown and talks to many external peers is the one to investigate first; click it for detail.",
 "what": "Devices with traffic in this snapshot whose MAC address is not in the device inventory, with their byte total and number of external peers."
 },
+"device|Notes": {
+"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the 4-hourly Hermes research run; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
+"use": "Read what earlier AI runs learned about this device (its role, what is normal for it, decisions made). Add a note to tell the AI something it cannot see, e.g. 'media server, large uploads to B2 at night are expected'. Delete notes that are wrong; the AI also corrects stale ones.",
+"what": "Running notes about this host or device that every AI job reads before judging it: the 4-hourly research, the correlation reviewer's work list and Ask Hermes."
+},
+"notes|Host notes": {
+"source": "The notes knowledge base (kb.py). Written by the 4-hourly Hermes research run (✨) and by people on the host and endpoint pages (👤).",
+"use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
+"what": "Every note about every host and device, newest first."
+},
+"notes|Event notes": {
+"source": "Notes people left with the 📝 button next to an event's Related count. Stored per stable event key, so a note also applies to later repeats of the same finding or alert family.",
+"use": "Use event notes to tell the AI what an event is or how to treat it ('expected - nightly backup', 'escalate if it happens again'). The research run and the correlation reviewer treat them as authoritative guidance.",
+"what": "All notes people wrote on events, newest first."
+},
 "device|Across snapshots": {
 "source": "netmon history store (one record per collection run, every 4 hours, kept for about 30 days); the same history feeds the per-device baseline.",
 "use": "Look for a step change or a single spike versus its usual level. A jump in 'internet up' is the most important (possible exfiltration or a new backup/cloud sync). Empty means no history yet for this device.",

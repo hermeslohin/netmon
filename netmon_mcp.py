@@ -10,6 +10,7 @@ import glob, json, os, re, sqlite3, sys
 NM = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(NM, "data")
 DB = os.environ.get("NETMON_DB") or os.path.join(NM, "dashboard", "state", "netmon.db")
+KB = os.path.join(os.path.dirname(DB), "kb.db")  # notes knowledge base (dashboard/app/kb.py)
 REPORTS = os.path.expanduser("~/network_reports")
 MAX = 12000  # characters per tool result
 
@@ -101,8 +102,41 @@ def device(args):
             "triage_note": (t.get("device_notes") or {}).get(ip),
             "findings": [f for f in a.get("findings", []) if f.get("device") == ip][:25],
             "alarms": [x.get("title") for x in t.get("alarms", []) if ip in json.dumps(x)],
+            "host_notes": _host_notes(["ip:" + ip] + (["mac:" + str(d.get("mac")).lower()] if d.get("mac") else [])
+                                      + ["host:" + h.lower().split(".")[0] for h in reg.get(ip, ()) if h and ":" not in h]),
         })
     return {"snapshot": stamp, "matches": len(hits), "devices": res}
+
+
+def _kb(sql, args=()):
+    if not os.path.exists(KB):
+        return []
+    try:
+        with sqlite3.connect(f"file:{KB}?mode=ro", uri=True, timeout=5) as c:
+            return c.execute(sql, args).fetchall()
+    except sqlite3.Error:
+        return []
+
+
+def _host_notes(subjects):
+    subs = [s for s in dict.fromkeys(subjects) if s]
+    if not subs:
+        return []
+    rows = _kb(f"select subject, category, text, author, model, updated from host_notes where subject in ({','.join('?' * len(subs))}) order by updated desc", subs)
+    return [{"subject": r[0], "category": r[1], "text": r[2], "by": r[3] if r[3] != "ai" else f"AI ({r[4]})"} for r in rows]
+
+
+def notes(args):
+    """Host notes (what the AI and the owner know about devices) + the owner's notes on events."""
+    q = (args.get("query") or "").strip().lower()
+    hn = [{"subject": r[0], "device": r[1], "category": r[2], "text": r[3], "by": r[4] if r[4] != "ai" else f"AI ({r[5]})"}
+          for r in _kb("select subject, label, category, text, author, model from host_notes order by subject, updated desc")]
+    en = [{"event": r[0], "label": r[1], "by": r[2], "text": r[3]} for r in _kb("select eid, label, author, text from event_notes order by ts desc limit 300")]
+    if q:
+        hn = [n for n in hn if q in json.dumps(n).lower()]
+        en = [n for n in en if q in json.dumps(n).lower()]
+    return {"host_notes": hn[:150], "owner_event_notes": en[:100],
+            "note": "owner_event_notes are written by the network owner and are authoritative context for those events."}
 
 
 def _site():
@@ -196,6 +230,9 @@ TOOLS = {
                              {"limit": {"type": "integer", "description": "max rows (default 30)"}}),
     "netmon_ids_alerts": (ids_alerts, "Suricata IDS alert signatures from the last 24h snapshot with counts and sources.",
                           {"filter": {"type": "string", "description": "optional signature/IP substring"}}),
+    "netmon_notes": (notes, "Notes knowledge base: what the AI and the owner have recorded about each device/host (role, normal behaviour, decisions) "
+                     "and the owner's notes on events. Check it before judging a device or event.",
+                     {"query": {"type": "string", "description": "optional IP / MAC / host name / text filter"}}),
     "netmon_reports": (reports, "List the nightly PDF reports available for download.", {}),
 }
 

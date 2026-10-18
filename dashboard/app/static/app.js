@@ -517,6 +517,7 @@ V.device = (el, ip) => {
     <span class="k">Elastic agent</span><span>${r.hosts.length ? r.hosts.map(hostLink).join(", ") : "—"}</span></div>
     ${r.note ? `<div class="note">${trFlare()} ${linkifyIps(r.note)}</div>` : ""}`);
   el.appendChild(id);
+  el.appendChild(kbCard([r.mac && "mac:" + String(r.mac).toLowerCase(), "ip:" + ip, ...r.hosts.map((h) => "host:" + String(h).toLowerCase().split(".")[0])], r.mac ? "mac:" + String(r.mac).toLowerCase() : "ip:" + ip));
   el.insertAdjacentHTML("beforeend", kpis([["Total", fb(d.total_bytes)], ["Sent", fb(d.total_sent)], ["Received", fb(d.total_recv)], ["Out conns", fn(d.orig_conns)], ["In conns", fn(d.resp_conns)],
     ["Peers", fn(d.peers)], ["Internet peers", fn(d.ext_peers)], ["Internet up", fb(d.ext_out_bytes)], ["Internet down", fb(d.ext_in_bytes)], ["Rejected", fn(d.rejected_conns), d.rejected_conns > 1000 ? "warn" : ""],
     ["Inbound ext sources", fn(d.inbound_ext_sources), d.inbound_ext_sources ? "warn" : ""], ["DNS queries", fn(d.dns?.queries)], ["NXDOMAIN", fn(d.dns?.nxdomain)], ["Capture loss", fb(d.missed_bytes)]]));
@@ -650,6 +651,8 @@ V.endpoint = (el, h) => {
   el.innerHTML = `<div class="crumbs"><a href="#/endpoints">Endpoints</a> › ${esc(h)}</div><h1>${esc(h)}</h1>${ip ? `<div class="sub">Network device: ${ipLink(ip)}</div>` : ""}`;
   const rk = (S.risk?.hosts || []).find((x) => (ip && x.ip === ip) || (!x.ip && hostMatch(x.id, h)));
   if (rk) el.appendChild(riskCard(rk));
+  const emac = ip && S.idx.byIp[ip]?.mac ? "mac:" + String(S.idx.byIp[ip].mac).toLowerCase() : "";
+  el.appendChild(kbCard(["host:" + String(h).toLowerCase().split(".")[0], emac, ip && "ip:" + ip], "host:" + String(h).toLowerCase().split(".")[0]));
   endpointSections(el, h);
 };
 function endpointSections(el, h) {
