@@ -114,6 +114,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#0b0e13;border:1px soli
   .tbltools input{min-width:0}
   .idgrid{grid-template-columns:1fr;gap:0 0}.idgrid>*:nth-child(odd){margin-top:6px}
   .chart{height:220px}.chart.tall{height:280px}
+  .chart.phone4x{height:880px}  /* AI review token chart: 4x the phone chart height (user request) */
   select,input,button{font-size:16px}  /* stops iOS zoom-on-focus */
   .att-matrix{grid-template-columns:repeat(15,minmax(110px,1fr))}
 }
