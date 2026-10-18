@@ -96,7 +96,9 @@
               ` · ${u.model || ""}${u.error ? " · failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } };
       queueChart(chart.querySelector("canvas"), cfg);
       // the chart may not exist yet (queued until the page is laid out): the preview edits this dataset object directly
-      USAGE = { U, canvas: chart.querySelector("canvas"), pv, preview: null, ds: cfg.data.datasets[cfg.data.datasets.length - 1] };
+      const tot = S.reduce((a, u) => a + u.fresh + u.cache_write + u.cache_read, 0);
+      const mix = tot ? { fresh: S.reduce((a, u) => a + u.fresh, 0) / tot, cache_write: S.reduce((a, u) => a + u.cache_write, 0) / tot, cache_read: reads / tot } : null;
+      USAGE = { U, mix, canvas: chart.querySelector("canvas"), pv, preview: null, ds: cfg.data.datasets[cfg.data.datasets.length - 1] };
     }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
@@ -119,11 +121,13 @@
   // ---- research cost preview: re-price the recorded runs' tokens with the model picked in the Models box
   let USAGE = null;  // {U, canvas, pv, preview} set by claudeCard when the usage chart exists
   // $ for one run's tokens at a price {in, out, cache_read, cache_write} per 1 M. A missing cache price falls back to the
-  // input price (OpenAI bills cache writes as plain input). Runs without a cache split price all input as new input.
+  // input price (OpenAI bills cache writes as plain input). Runs without a cache split use the average split of the
+  // runs that have one (pricing all their input as new input would overstate them ~10x).
   function runCost(u, p) {
     if (!p) return 0;
-    const ip = p.in || 0, cr = p.cache_read ?? ip, cw = p.cache_write ?? ip, op = p.out || 0;
-    const t = u.cache_read != null ? u.fresh * ip + u.cache_write * cw + u.cache_read * cr + u.completion * op : u.prompt * ip + u.completion * op;
+    const ip = p.in || 0, cr = p.cache_read ?? ip, cw = p.cache_write ?? ip, op = p.out || 0, mx = USAGE && USAGE.mix;
+    const t = u.cache_read != null ? u.fresh * ip + u.cache_write * cw + u.cache_read * cr + u.completion * op
+      : mx ? u.prompt * (mx.fresh * ip + mx.cache_write * cw + mx.cache_read * cr) + u.completion * op : u.prompt * ip + u.completion * op;
     return +(t / 1e6).toFixed(2);
   }
   function previewResearchCost(provider, model, M, current) {
