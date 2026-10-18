@@ -330,7 +330,7 @@ body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;
   color:#d2a8ff;background:rgba(188,140,255,.12);border:1px solid rgba(188,140,255,.45);cursor:help;letter-spacing:.2px}
 h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4px}
 .chat-by{margin-top:6px;text-align:right}
-@media (max-width:900px){.card[data-cc]{max-height:var(--cc-cap,calc(100svh - 120px))}.cc-more{margin-bottom:10px}}
+@media (max-width:900px){.card[data-cc]{max-height:var(--cc-cap,calc(100svh - 120px))}.card.cc-chart{max-height:none}.cc-more{margin-bottom:10px}}
 
 /* Claude research notes on events (related.js) */
 .note-btn{margin-left:4px;padding:1px 7px;font-size:11px;border-radius:10px;background:var(--panel2);border:1px solid var(--violet);color:var(--violet);cursor:pointer;white-space:nowrap}

@@ -53,6 +53,7 @@
     c.id = "ai-claude";
     const U = (J && J.usage) || [];
     let uc = null;
+    USAGE = null;
     if (U.length) {  // time + token use of each research run
       const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
       // usage_audit's prompt count sums the whole re-sent conversation over every API call of the run; ~95% of it
@@ -73,7 +74,7 @@
           (nCost ? ` · est. $${cost.toFixed(2)} at API list prices ($${(cost / nCost).toFixed(2)} per run)` : "") }));
       const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
       chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
-      queueChart(chart.querySelector("canvas"), { type: "bar", data: { labels: lbl, datasets: [
+      const cfg = { type: "bar", data: { labels: lbl, datasets: [
         { label: "New input (M)", data: U.map((u) => M(split(u) ? u.fresh : null)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
         { label: "Cache writes (M)", data: U.map((u) => M(split(u) ? u.cache_write : null)), backgroundColor: "#d29922", stack: "t", yAxisID: "y" },
         { label: "Input, no cache split (M)", data: U.map((u) => M(split(u) ? null : u.prompt)), backgroundColor: "#8b949e", stack: "t", yAxisID: "y" },
@@ -92,8 +93,10 @@
           plugins: { tooltip: { callbacks: { footer: (it) => { const u = U[it[0].dataIndex];
             const p = USAGE && USAGE.preview, pc = p ? runCost(u, p.price) : null;
             return `Input incl. cache re-reads: ${(u.prompt / 1e6).toFixed(2)} M` + (u.cost_usd != null ? ` · est. $${u.cost_usd.toFixed(2)}` : "") +
-              ` · ${u.model || ""}${u.error ? " · failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } });
-      USAGE = { U, canvas: chart.querySelector("canvas"), pv, preview: null };
+              ` · ${u.model || ""}${u.error ? " · failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } };
+      queueChart(chart.querySelector("canvas"), cfg);
+      // the chart may not exist yet (queued until the page is laid out): the preview edits this dataset object directly
+      USAGE = { U, canvas: chart.querySelector("canvas"), pv, preview: null, ds: cfg.data.datasets[cfg.data.datasets.length - 1] };
     }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
@@ -125,8 +128,10 @@
   }
   function previewResearchCost(provider, model, M, current) {
     if (!USAGE) return;
-    const ch = Chart.getChart(USAGE.canvas), ds = ch && ch.data.datasets.find((d) => d.label.startsWith("Cost with"));
-    const same = !current || (provider === current.provider && model === current.model);
+    const ch = Chart.getChart(USAGE.canvas), ds = USAGE.ds;
+    // The recorded runs may have used another model than the one now configured, so the configured model gets an
+    // estimate too; only "no model" hides the preview.
+    const same = !model, chosen = !!current && provider === current.provider && model === current.model;
     const list = { anthropic: M.anthropic, "openai-api": M.openai }[provider];
     const price = provider === "lmstudio" ? { in: 0, out: 0 } : ((list || []).find((m) => m.id === model) || {}).price;
     USAGE.preview = same ? null : { provider, model, price };
@@ -136,13 +141,15 @@
       const perDay = current && current.interval_minutes ? 1440 / current.interval_minutes : 2;
       const v = USAGE.U.map((u) => runCost(u, price)), avg = v.reduce((a, x) => a + x, 0) / (v.length || 1);
       const rec = USAGE.U.filter((u) => u.cost_usd != null), recAvg = rec.length ? rec.reduce((a, u) => a + u.cost_usd, 0) / rec.length : null;
-      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>: about <b>$${avg.toFixed(2)} per run</b>` + (recAvg != null ? ` (now $${recAvg.toFixed(2)})` : "") +
+      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the research job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
+        (recAvg != null ? ` (the recorded runs averaged $${recAvg.toFixed(2)})` : "") +
         ` · ~$${(avg * 30 * perDay).toFixed(0)} a month at ${+perDay.toFixed(1)} run${perDay === 1 ? "" : "s"} a day. <span class="muted">Same token counts as the recorded runs re-priced at ` +
         `${esc(model)}'s list price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
-        `a different model would use a different number of tokens, so treat this as a rough guide. Press Save to switch.</span>`;
+        `a different model would use a different number of tokens, so treat this as a rough guide.${chosen ? "" : " Press Save to switch."}</span>`;
     }
     const data = same || !price ? USAGE.U.map(() => null) : USAGE.U.map((u) => runCost(u, price));
-    if (ds) { ds.data = data; ds.label = same || !price ? "Cost with selected model ($)" : `Cost with ${model} ($)`; ds.hidden = same || !price; ch.update(); }
+    ds.data = data; ds.label = same || !price ? "Cost with selected model ($)" : `Cost with ${model} ($)`; ds.hidden = same || !price;
+    if (ch) ch.update();
   }
 
   // ---- model choice (correlation reviewer + research job) and per-decision model comparison
@@ -183,6 +190,7 @@
         msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : (sec === "research" && D.research?.error ? D.research.error : "now: auto (model loaded in LM Studio)");
         sel.onchange = () => { btn.disabled = !D.admin || sel.value === optKey(cur.provider, cur.model);
           if (sec === "research") { const [p, ...m] = sel.value.split("|"); previewResearchCost(p, m.join("|"), M, cur); } };
+        if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
         btn.onclick = async () => {
           const [provider, ...rest] = sel.value.split("|"), model = rest.join("|");
           btn.disabled = true; msg.textContent = "saving…";
