@@ -143,7 +143,7 @@ The nightly job uses your default Hermes model. Pin a model with `--model`/`--pr
 
 The AI review page lets an admin choose the model for the **correlation reviewer** and for the **research job**. The choices are local LM Studio models or Anthropic models. On any current decision, the ⇄ button asks up to 4 models the same question side by side and can store one model's answer as the decision.
 
-The dashboard container has no provider credentials. A small loopback-only broker on the host, `llm_broker.py`, runs under Hermes' own runtime and uses Hermes' configured Anthropic credentials. It also applies research-model changes with `hermes cron edit`.
+The dashboard container has no provider credentials. A small loopback-only broker on the host, `llm_broker.py`, runs under Hermes' own runtime and uses Hermes' configured Anthropic credentials. It also applies research-model changes with `hermes cron edit`, and the AI review page's **Cost limits** box through `GET/POST /costlimit`, which reads and writes `plugins.entries.cost_limit.settings.max_run_usd` / `max_session_usd` with `hermes config set` (0-1000 USD, 0 = off). These are the settings of the Hermes `cost_limit` plugin (`~/.hermes/plugins/cost_limit`), which stops a run or session once Hermes' estimated cost passes the cap; it is read live, so a change applies from the next model call.
 
 ```bash
 # dashboard/.env

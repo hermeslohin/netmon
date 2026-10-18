@@ -153,6 +153,61 @@
     return c;
   }
 
+  // ---- cost limits: the Hermes cost_limit plugin's $ caps (plugins.entries.cost_limit.settings, via the host broker)
+  function costCard(D) {
+    const L = D.costlimit || {}, c = card("Cost limits (estimated token cost)", "");
+    c.id = "ai-cost";
+    if (L.error) { c.insertAdjacentHTML("beforeend", `<div class="bad">Cost limits unavailable: ${esc(L.error)}</div>`); return c; }
+    const U = ((D.claude?.jobs || [])[0]?.usage || []).filter((u) => u.cost_usd != null).map((u) => u.cost_usd);
+    const avg = U.length ? U.reduce((a, v) => a + v, 0) / U.length : null, max = U.length ? Math.max(...U) : null;
+    const usd = (v) => `$${(+v).toFixed(2)}`;
+    c.insertAdjacentHTML("beforeend", `
+      <div class="small muted">Hermes estimates what every model call costs (tokens × the provider's API list price) and adds it up.
+        When a limit below is passed, Hermes stops the work right after that call and blocks any tool calls still waiting.
+        The check runs after each call, so the final total can go over the limit by the cost of one call. <b>0 = no limit.</b></div>
+      ${!L.installed ? `<div class="bad" style="margin-top:6px">The cost_limit plugin is not installed in Hermes, so these limits have no effect.</div>`
+        : !L.enabled ? `<div class="warn" style="margin-top:6px">The cost_limit plugin is installed but not enabled (<span class="mono">hermes plugins enable cost_limit</span>), so these limits have no effect.</div>` : ""}
+      <div class="llm-grid" style="margin-top:10px">
+        <div class="llm-row"><span class="k">Per run</span><span>$ <input type="number" name="max_run_usd" min="0" max="1000" step="0.5" style="width:7em"></span>
+          <span class="small muted" style="flex:1 1 380px">A <b>run</b> is one piece of work from start to final answer: one firing of the research job, or one message
+            sent to Hermes in a chat, including any subagents it starts. Use this to stop a single run that goes wrong (loops, huge web research).
+            ${avg != null ? `Recent research runs cost about <b>${usd(avg)}</b> each (highest ${usd(max)}, last ${U.length} runs).` : ""}
+            <span class="cost-warn bad"></span></span></div>
+        <div class="llm-row"><span class="k">Per session</span><span>$ <input type="number" name="max_session_usd" min="0" max="1000" step="1" style="width:7em"></span>
+          <span class="small muted" style="flex:1 1 380px">A <b>session</b> is a whole conversation: every run in it added together. Each research-job firing starts a new
+            session with a single run, so for the research job the lower of the two limits is the one that counts. The session limit mainly caps
+            long chats with Hermes (desktop, CLI, Discord), where many cheap runs add up.</span></div>
+      </div>
+      <div class="small muted" style="margin-top:8px">Covered: the research job and other Hermes (default profile) sessions. Not covered: the correlation reviewer and model
+        comparisons on this page (single calls through the broker, capped at 120 Anthropic requests per hour instead) and Ask Hermes (its own profile).
+        Local LM Studio models cost $0 and are never stopped; a provider Hermes has no price for also counts as $0.</div>
+      <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>
+      ${(L.stops || []).length ? `<details class="small" style="margin-top:8px"><summary>Recent stops (${L.stops.length})</summary>
+        ${L.stops.slice().reverse().map((s) => `<div><span class="mono">${esc(s.at)} UTC</span> · ${esc(s.reason)} <span class="muted mono">${esc(s.session)}</span></div>`).join("")}</details>`
+        : `<div class="small muted" style="margin-top:8px">No run has been stopped by a cost limit yet.</div>`}`);
+    const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
+    const warn = () => { const r = +inp("max_run_usd").value || 0, s = +inp("max_session_usd").value || 0;
+      const over = r ? U.filter((v) => v > r).length : 0;
+      c.querySelector(".cost-warn").textContent = (r && avg != null && r < avg ? ` Below the usual research run cost: the research job would be stopped before it finishes most runs.`
+        : over ? ` ${over} of the last ${U.length} research runs cost more than this and would have been stopped before finishing.` : "") +
+        (r && s && s < r ? " The session limit is lower than the run limit, so the session limit will stop runs first." : ""); };
+    const fill = (v) => { for (const k of ["max_run_usd", "max_session_usd"]) inp(k).value = v[k] ?? 0; warn(); };
+    fill(L);
+    for (const k of ["max_run_usd", "max_session_usd"]) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
+    btn.disabled = true;
+    if (!D.admin) msg.textContent = "Only an admin can change cost limits.";
+    btn.onclick = async () => {
+      const body = {};
+      for (const k of ["max_run_usd", "max_session_usd"]) { const v = inp(k).value === "" ? 0 : +inp(k).value;
+        if (!(v >= 0 && v <= 1000)) { msg.textContent = "Enter an amount between 0 (no limit) and 1000 dollars."; return; } body[k] = v; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r = await apiPost("/api/llm/costlimit", body); fill(r.costlimit || body);
+        msg.textContent = `saved: ${body.max_run_usd ? usd(body.max_run_usd) : "no limit"} per run · ${body.max_session_usd ? usd(body.max_session_usd) : "no limit"} per session (applies from the next model call)`; }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    return c;
+  }
+
   // compare dialog: one decision, up to 4 models side by side; a person can adopt one answer
   let dlg = null;
   function verdictBadge(rel) { const b = document.createElement("span"); b.className = "badge " + (rel ? "sev-good" : "sev-high"); b.textContent = rel ? "Related" : "Not related"; return b; }
@@ -239,6 +294,7 @@
       ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     el.appendChild(modelsCard(D));
+    el.appendChild(costCard(D));
     el.append(...claudeCard(D.claude || {}));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;

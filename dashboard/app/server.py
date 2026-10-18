@@ -30,7 +30,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read"}
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/costlimit", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -631,6 +631,14 @@ class H(BaseHTTPRequestHandler):
                         return self._json({"error": str(e)[:300]}, 502)
                 print(f"llm config: {user} set {sec} -> {prov}/{model}", file=sys.stderr)
                 return self._json({"ok": True, sec: res})
+            if u.path == "/api/llm/costlimit":  # Hermes cost_limit plugin: $ cap per run / per session (host broker writes config.yaml)
+                lim = {k: body[k] for k in ("max_run_usd", "max_session_usd") if k in body}
+                try:
+                    res = corr_llm.broker("/costlimit", lim, timeout=90)
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": str(e)[:300]}, 502)
+                print(f"llm costlimit: {user} set {lim}", file=sys.stderr)
+                return self._json({"ok": True, "costlimit": res})
             if u.path == "/api/compare/item":  # one finding / alarm / note, several models, side by side
                 kind, title = str(body.get("kind", ""))[:60], str(body.get("title", ""))[:300]
                 item = body.get("item")
@@ -822,6 +830,10 @@ class H(BaseHTTPRequestHandler):
                     ov["research"] = corr_llm.broker("/research", timeout=10)
                 except Exception as e:  # noqa: BLE001
                     ov["research"] = {"error": str(e)[:200]}
+                try:
+                    ov["costlimit"] = corr_llm.broker("/costlimit", timeout=10)
+                except Exception as e:  # noqa: BLE001
+                    ov["costlimit"] = {"error": str(e)[:200]}
                 try:
                     ov["claude"] = enrich.status((base.get("events") or {}).keys())
                 except Exception as e:  # noqa: BLE001 - the local-LLM view must not depend on the Claude status

@@ -9,6 +9,8 @@ through agent.auxiliary_client.call_llm - no key is copied anywhere) and offers 
   GET  /research            the research cron job's current model/provider
   POST /research            {provider, model} -> `hermes cron edit <job> --model .. --provider ..`
   POST /research/schedule   {hours, minutes} -> `hermes cron edit <job> --schedule ..` (30 min - 24 h)
+  GET  /costlimit           Hermes cost_limit plugin: enabled?, max_run_usd, max_session_usd, recent stops
+  POST /costlimit           {max_run_usd, max_session_usd} -> `hermes config set plugins.entries.cost_limit...`
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env). Provider must be
 "anthropic" or "lmstudio" and the model must be in /models. Run: llm_broker.sh (systemd user unit
@@ -193,6 +195,60 @@ def research_set(b):
     return research_get()
 
 
+COST_KEYS = ("max_run_usd", "max_session_usd")
+COST_MAX = 1000.0
+
+
+def costlimit_get():
+    """Settings of the Hermes cost_limit plugin (~/.hermes/plugins/cost_limit) plus its last stops from agent.log."""
+    from hermes_cli.config import load_config_readonly
+    pl = (load_config_readonly() or {}).get("plugins") or {}
+    st = (((pl.get("entries") or {}).get("cost_limit") or {}).get("settings")) or {}
+    out = {"installed": os.path.isfile(os.path.join(HOME, "plugins", "cost_limit", "__init__.py")),
+           "enabled": "cost_limit" in (pl.get("enabled") or []) and "cost_limit" not in (pl.get("disabled") or [])}
+    for k in COST_KEYS:
+        try:
+            out[k] = float(st.get(k) or 0)
+        except (TypeError, ValueError):
+            out[k] = 0.0
+    stops = []
+    for name in ("agent.log.1", "agent.log"):  # rotated file first so the newest stop ends up last
+        try:
+            with open(os.path.join(HOME, "logs", name), errors="replace") as f:
+                for line in f:
+                    if "cost_limit: stopping run" in line:
+                        m = re.match(r"(\S+ \S+?)(?:,\d+)? .*?stopping run \(session ([^)]*)\): (.*)", line.strip())
+                        if m:
+                            stops.append({"at": m.group(1), "session": m.group(2)[:80], "reason": m.group(3)[:200]})
+        except OSError:
+            pass
+    out["stops"] = stops[-5:]
+    return out
+
+
+def costlimit_set(b):
+    vals = {}
+    for k in COST_KEYS:
+        if k not in b:
+            continue
+        try:
+            v = round(float(b[k]), 2)
+        except (TypeError, ValueError):
+            raise ValueError(f"{k} must be a number of US dollars") from None
+        if not 0 <= v <= COST_MAX:  # NaN fails this too
+            raise ValueError(f"{k} must be between 0 (off) and {COST_MAX:.0f} USD")
+        vals[k] = v
+    if not vals:
+        raise ValueError("nothing to change")
+    hermes = os.path.expanduser("~/.local/bin/hermes")
+    for k, v in vals.items():
+        p = subprocess.run([hermes, "config", "set", f"plugins.entries.cost_limit.settings.{k}", f"{v:g}"],  # noqa: S603 - fixed argv, validated float
+                           capture_output=True, text=True, timeout=60)
+        if p.returncode:
+            raise ValueError((p.stderr or p.stdout)[-300:])
+    return costlimit_get()
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         print("broker:", fmt % a, file=sys.stderr)
@@ -217,6 +273,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, models())
             if self.path == "/research":
                 return self._send(200, research_get())
+            if self.path == "/costlimit":
+                return self._send(200, costlimit_get())
             return self._send(404, {"error": "not found"})
         except Exception as e:  # noqa: BLE001
             return self._send(500, {"error": f"{type(e).__name__}: {str(e)[:300]}"})
@@ -235,6 +293,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, research_set(b))
             if self.path == "/research/schedule":
                 return self._send(200, schedule_set(b))
+            if self.path == "/costlimit":
+                return self._send(200, costlimit_set(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})
