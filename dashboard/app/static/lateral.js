@@ -270,18 +270,26 @@ function lmAdminSection(el, D) {
       const cfg = doughnutCfg(A.reduce((o, a) => ((o[LM_OUTCOME[a.outcome][0]] = (o[LM_OUTCOME[a.outcome][0]] || 0) + 1), o), {}),
         { onClick: (l) => drillHere({ aout: Object.entries(LM_OUTCOME).find(([, v]) => v[0] === l)[0], at: "admin-list" }) });
       cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => OC[l] || "#8b949e"); return cfg; })())));
-  const lst = card(`Admin sessions (${A.length})`, table(null, [
+  // check-off: ack type "admin", key src|dst|protocol (stable across snapshots); checked sessions move to their own card
+  const admLabel = (a) => `${a.protocol}: ${lmName(D, a.src)} → ${lmName(D, a.dst)}`;
+  const admCols = () => [ackCol("admin", admLabel),
     { k: "level", t: "Risk", fmt: lmLevel, sort: (a) => Object.keys(LM_LEVELS).indexOf(a.level) },
     { k: "outcome", t: "Outcome", fmt: lmOutcome, sort: (a) => ["failed", "mixed", "unknown", "success"].indexOf(a.outcome) },
     { k: "protocol", t: "Protocol" }, { k: "src", t: "From", fmt: (v) => lmNodeLink(D, v), sort: (a) => lmName(D, a.src) }, { k: "dst", t: "To", fmt: (v) => lmNodeLink(D, v), sort: (a) => lmName(D, a.dst) },
     { k: "users", t: "Accounts", fmt: lmUsers, sort: (a) => Object.keys(a.users).join(",") },
     { k: "auth_ok", t: "Logins ✓", num: true, fmt: fn }, { k: "auth_fail", t: "Logins ✗", num: true, fmt: (v) => (v ? `<b class="bad">${fn(v)}</b>` : "0") },
     { k: "connected", t: "Conns ✓", num: true, fmt: fn }, { k: "conn_failed", t: "Refused", num: true, fmt: (v) => (v ? `<b class="warn">${fn(v)}</b>` : "0") },
-    { k: "why", t: "Why", cls: "small" }, { k: "last", t: "Last seen", fmt: ft }], A,
-    { sort: "level", dir: 1, evId: (a) => `adm|${a.src}|${a.dst}|${a.protocol}`, onclick: (a) => { LM.sel = { edge: D.edges.find((e) => e.src === a.src && e.dst === a.dst) || { ...a, conns: a.attempts, answered: a.connected, ports: [], score: 0, admin: [a] } }; lmRenderPanel(D); document.getElementById("lmPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
+    { k: "why", t: "Why", cls: "small" }, { k: "last", t: "Last seen", fmt: ft }];
+  const admOpts = () => ({ sort: "level", dir: 1, evId: (a) => `adm|${a.src}|${a.dst}|${a.protocol}`, onclick: (a) => { LM.sel = { edge: D.edges.find((e) => e.src === a.src && e.dst === a.dst) || { ...a, conns: a.attempts, answered: a.connected, ports: [], score: 0, admin: [a] } }; lmRenderPanel(D); document.getElementById("lmPanel")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
       urlFilter: { aproto: ["Protocol", (a, v) => a.protocol === v], aout: ["Showing", (a, v) => (v === "failed logins" ? a.auth_fail > 0 : v === "refused connections" ? a.conn_failed > 0 : a.outcome === v)],
-        auser: ["Account", (a, v) => v in (a.users || {})], ahost: ["Host", (a, v) => a.src === v || a.dst === v] } }));
+        auser: ["Account", (a, v) => v in (a.users || {})], ahost: ["Host", (a, v) => a.src === v || a.dst === v] } });
+  const aOpen = A.filter((a) => !acked("admin", a)), aDone = A.filter((a) => acked("admin", a));
+  const lst = card(`Admin sessions (${aOpen.length} open${aDone.length ? ` · ${aDone.length} checked` : ""})`, aOpen.length ? table(null, admCols(), aOpen, admOpts())
+    : `<div class="empty">${A.length ? "All admin sessions checked off." : "No admin sessions in this snapshot."}</div>`);
   lst.id = "admin-list"; lst.dataset.open = "1"; el.appendChild(lst);
+  if (aDone.length) { const chk = card(`Checked admin sessions (${aDone.length})`, `<div class="sub small">Sessions you've reviewed and checked off. They stay checked on later snapshots (same source, target and protocol); uncheck one to move it back to the open list.</div>`
+    + table(null, [...admCols().slice(0, 1), { k: "_at", t: "Checked", fmt: (v, a) => ft(ackInfo("admin", a)?.at), sort: (a) => ackInfo("admin", a)?.at || "" }, ...admCols().slice(1)], aDone, { ...admOpts(), rowClass: ackRowCls("admin") }));
+    chk.id = "admin-checked"; el.appendChild(chk); }
   const tools = A.flatMap((a) => a.tools.map((t) => ({ ...t, src: a.src, dst: a.dst, protocol: a.protocol })));
   const at = hq().get("at"); if (at === "admin" || at === "admin-list") setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 50);
   { const sc = segClearedCard(); if (sc) el.appendChild(sc); }

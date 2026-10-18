@@ -492,8 +492,13 @@ window.CARD_INFO = {
 },
 "lateral|Admin sessions": {
 "source": "lateral.py from Zeek, endpoint login logs and endpoint commands, last 24 h. High = 10+ failed logins, 3+ invalid users, or 3+ failures then success; medium = any failure or 5+ refused; low = few refused or not allowed by policy.json.",
-"use": "Check high and medium rows first and confirm you recognise the accounts. Click a row to see the link in the graph panel. Add expected admin paths to policy.json allow.",
+"use": "Check high and medium rows first and confirm you recognise the accounts. Click a row to see the link in the graph panel. Tick the check box once reviewed — it moves to Checked admin sessions. Add expected admin paths to policy.json allow.",
 "what": "Every internal admin session (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC, Docker, Kubernetes, remote support) with risk, outcome, accounts, login and connection counts, and why it was rated."
+},
+"lateral|Checked admin sessions": {
+"source": "Your check-offs stored in the dashboard database (keyed by source, target and protocol), matched against this snapshot's admin sessions.",
+"use": "Reviewed sessions live here so the main list shows only what still needs a look. Uncheck a row to move it back. Checking off does not change risk scoring; use policy.json allow for that.",
+"what": "Admin sessions you have checked off, with when you checked them and the same risk, outcome and login details as the main list."
 },
 "lateral|Cleared segmentation": {
 "source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (policy.json).",

@@ -262,9 +262,10 @@ const ACK = {
   finding: (f) => fnv(`${f.device}|${f.kind}|${f.detail}`),
   issue: (i) => i.key,
   host: (f) => f.key,
+  admin: (s) => `${s.src}|${s.dst}|${s.protocol}`,  // lateral admin sessions
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
-const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", seg: "Cleared segmentation flow" };
+const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", seg: "Cleared segmentation flow" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
 const SEG_RE = /\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)\/(\w+)/;
@@ -876,6 +877,7 @@ V.checked = (el) => {
   const tr = S.snap.triage || {}, an = S.snap.analysis || {}, I = S.issues || { open: [], fixed: [] };
   const lookup = { alarm: Object.fromEntries((tr.alarms || []).map((a) => [ACK.alarm(a), a])), finding: Object.fromEntries((an.findings || []).map((f) => [ACK.finding(f), f])),
     host: Object.fromEntries((S.snap.raw.hosts?.findings || []).map((f) => [f.key, f])),
+    admin: S.lateral && S.lateral._snap === S.snap.id ? Object.fromEntries((S.lateral.admin || []).map((s) => [ACK.admin(s), s])) : {},
     issue: Object.fromEntries([...I.open.map((i) => [i.key, { ...i, _st: "open" }]), ...I.fixed.map((i) => [i.key, { ...i, _st: "fixed" }])]) };
   const rows = [];
   for (const [type, m] of entries(S.acks)) for (const [key, a] of entries(m)) {
