@@ -260,6 +260,21 @@ def autoclose_inputs():
     return res["raw"], res["analysis"], open_iss, other
 
 
+_review_cache = {}
+
+
+def review_job():
+    """The review (research) cron job's schedule, from the host broker; cached 60 s."""
+    if _review_cache.get("t", 0) > time.time() - 60:
+        return _review_cache["v"]
+    try:
+        v = corr_llm.broker("/research", timeout=10)
+    except Exception as e:  # noqa: BLE001 - broker down: page still works, schedule just isn't shown
+        v = {"error": f"LLM broker unavailable: {str(e)[:160]}"}
+    _review_cache.update(t=time.time(), v=v)
+    return v
+
+
 def acks_load_all():
     try:
         return store.acks_load()
@@ -539,17 +554,27 @@ class H(BaseHTTPRequestHandler):
                     return self._json({**r, "admin": True})
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
-            if u.path in ("/api/config/triage", "/api/config/triage/reopen"):
+            if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/review-schedule"):
                 if user not in ADMINS:
                     return self._json({"error": "only an admin can change Security Triage settings"}, 403)
+                if u.path == "/api/config/review-schedule":
+                    try:
+                        r = corr_llm.broker("/research/schedule", {"hours": body.get("hours"), "minutes": body.get("minutes")}, timeout=90)
+                    except Exception as e:  # noqa: BLE001
+                        return self._json({"error": f"could not change the review job schedule: {str(e)[:200]}"}, 502)
+                    print(f"review schedule: {user} -> {body.get('hours')}h {body.get('minutes')}m ({r.get('schedule')})", file=sys.stderr)
+                    _review_cache.clear()
+                inp = autoclose_inputs()
                 if u.path == "/api/config/triage":
                     autoclose.set_settings(body.get("expected"), body.get("benign"), user)
                     print(f"autoclose settings: {user} expected={bool(body.get('expected'))} benign={bool(body.get('benign'))}", file=sys.stderr)
-                else:
+                elif u.path == "/api/config/triage/reopen":
                     k = body.get("kind")
                     autoclose.reopen_all(user, k if k in autoclose.KINDS else None)
-                inp = autoclose_inputs()
-                return self._json({**(autoclose.run(*inp) if inp else {}), "admin": True})
+                elif u.path == "/api/config/triage/run" and inp:
+                    autoclose.run(*inp, trigger=f"run now ({user})")
+                r = autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}
+                return self._json({**r, "review": review_job(), "admin": True})
             if u.path == "/api/llm/config":  # choose the correlation reviewer or the research job's model
                 sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
                 if sec not in ("correlation", "research") or prov not in LLM_PROVIDERS or not llm_allowed(prov, model):
@@ -679,7 +704,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json({**integrations.public(), "admin": True})
             if path == "/api/config/triage":
                 inp = autoclose_inputs()
-                return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "admin": user in ADMINS})
+                return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "review": review_job(),
+                                   "admin": user in ADMINS})
             if path == "/api/ti/feeds":
                 return self._json(tintel.feed_status())
             if path == "/api/ti/lookup":
@@ -802,10 +828,6 @@ def main():
         print(f"correlation review: local LLM at {corr_llm.URL} ({'on' if corr_llm.ENABLED else 'off'})", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"correlation review disabled: {e}", file=sys.stderr)
-    try:  # Security Triage auto-close (More -> Configuration); idle unless an option is on
-        autoclose.start(autoclose_inputs)
-    except Exception as e:  # noqa: BLE001
-        print(f"autoclose disabled: {e}", file=sys.stderr)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2

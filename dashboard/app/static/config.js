@@ -12,7 +12,7 @@
         <span><b>Automatically move events deemed “${k}” to closed findings</b> ${on ? '<span class="badge sev-good">On</span>' : '<span class="badge sev-unknown">Off</span>'}
           <div class="muted small" style="margin-top:4px">${EXPLAIN[k]}</div></span></label>
       <div class="small" style="margin:8px 0 0 28px">In the newest snapshot: <b>${r.closable || 0}</b> closable “${k}” items ·
-        <b>${r.auto_closed || 0}</b> auto-closed · <b>${r.would_close || 0}</b> ${on ? "waiting for the next pass" : "would be closed if turned on"}
+        <b>${r.auto_closed || 0}</b> auto-closed · <b>${r.would_close || 0}</b> ${on ? "will close after the next review run (or Run now)" : "would be closed if turned on"}
         ${r.reopened_by_user ? ` · ${r.reopened_by_user} reopened by a person (left open)` : ""}
         ${r.no_checklist ? ` · <span class="muted">${r.no_checklist} more without a check-off list (IDS / alerts / gateway / threat intel — not closable)</span>` : ""}
         ${D.admin && r.auto_closed ? ` <button class="cfg-reopen" data-k="${k}" style="margin-left:6px">Reopen ${r.auto_closed} auto-closed</button>` : ""}</div></div>`;
@@ -20,17 +20,30 @@
   async function paint(el, D) {
     el.querySelector("#cfg-triage")?.remove();
     const s = D.settings || {};
-    const c = card("Security Triage", `<div class="sub" style="margin:0 0 6px">Every 4 hours the Hermes research job writes a note with a verdict for each event
+    const R = D.review || {}, iv = R.interval_minutes, L = D.last_run || null;
+    const ivTxt = (m) => m ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h" : ""}${m % 60 ? " " + (m % 60) + " min" : ""}`.trim() : "";
+    const sched = R.error ? `<div class="muted small">Review job schedule unavailable: ${esc(R.error)}</div>`
+      : `<div class="cfg-sched" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px">
+          <b class="small">Review job runs every</b>
+          <input id="rv-h" type="number" min="0" max="24" step="1" value="${iv ? Math.floor(iv / 60) : ""}" style="width:4.5em" ${D.admin ? "" : "disabled"}> <span class="small">hours</span>
+          <input id="rv-m" type="number" min="0" max="59" step="5" value="${iv ? iv % 60 : ""}" style="width:4.5em" ${D.admin ? "" : "disabled"}> <span class="small">minutes</span>
+          ${D.admin ? `<button id="rv-save" disabled>Save schedule</button>` : ""}
+          <span class="muted small">${iv ? "" : `current schedule <span class="mono">${esc(R.schedule || "?")}</span> · `}next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
+          <span id="rv-msg" class="small"></span></div>
+        <div class="muted small">30 min to 24 h. Intervals that divide the day run on a fixed UTC grid that keeps 05:00 UTC (the daily PDF report, 1 AM EDT); other intervals run every N minutes from the change, so 05:00 may be skipped and with it the PDF that day.
+          Each review run is a full Claude research pass, so shorter intervals cost proportionally more tokens.</div>`;
+    const c = card("Security Triage", `<div class="sub" style="margin:0 0 6px">The Hermes review job (Claude triage + event research${iv ? `, every ${ivTxt(iv)}` : ""}) writes a note with a verdict for each event
       (malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event). These options check off the events whose verdict is
       “expected” or “benign”, moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span>.
-      Applies to baseline findings, endpoint findings and fix-list issues; runs every 5 minutes and right after you save.
-      Items you have already checked off are untouched; if you uncheck an auto-closed item it stays open; if the AI later changes the verdict to something
-      else (e.g. suspicious) the item reopens by itself. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
+      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after each review job finishes</b> (when the new verdicts are in), and when you press “Run now”.
+      Items you have already checked off are untouched; if you uncheck an auto-closed item it stays open; if a later review changes the verdict to something
+      else (e.g. suspicious) the item reopens on that run. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
+      ${sched}
       ${row("expected", D)}${row("benign", D)}
       <div class="muted small" style="border-top:1px solid var(--line,#333);padding-top:8px">${D.admin ? "" : "Only an admin can change these settings. "}
         ${s.updated_by ? `Last changed by ${esc(s.updated_by)} ${esc(ft(s.updated_at))}.` : "Never changed (both off)."}
-        ${D.reopened_verdict_changed ? ` ${D.reopened_verdict_changed} item(s) reopened because the verdict changed.` : ""}
-        ${D.last_run ? ` Last pass ${esc(ft(D.last_run))}.` : ""}</div>`);
+        ${L ? ` Last auto-close pass ${esc(ft(L.at))} (${esc(L.trigger || "")}): closed ${Object.entries(L.closed || {}).map(([k, v]) => `${v} ${esc(k)}`).join(", ") || "nothing"}${L.reopened ? `, reopened ${L.reopened} (verdict changed)` : ""}.` : " No auto-close pass yet."}
+        ${D.admin && (s.expected || s.benign) ? ` <button id="cfg-run">Run now</button>` : ""}</div>`);
     c.id = "cfg-triage"; el.appendChild(c);
     const save = async (body, url = "/api/config/triage") => {
       c.style.opacity = 0.6;
@@ -40,9 +53,25 @@
     c.querySelectorAll(".cfg-ac").forEach((cb) => (cb.onchange = () => {
       const v = { expected: !!s.expected, benign: !!s.benign, [cb.dataset.k]: cb.checked };
       const n = D[cb.dataset.k]?.would_close || 0;
-      if (cb.checked && n && !confirm(`This closes ${n} “${cb.dataset.k}” item(s) now and keeps doing so for new ones. Continue?`)) { cb.checked = false; return; }
+      if (cb.checked && n && !confirm(`${n} “${cb.dataset.k}” item(s) will be closed after the next review run (or press Run now), and new ones after every run. Continue?`)) { cb.checked = false; return; }
       save(v);
     }));
+    const rh = c.querySelector("#rv-h"), rm = c.querySelector("#rv-m"), rs = c.querySelector("#rv-save"), rmsg = c.querySelector("#rv-msg");
+    const tot = () => (parseInt(rh.value, 10) || 0) * 60 + (parseInt(rm.value, 10) || 0);
+    if (rs) {
+      const chk = () => { const t = tot(); rs.disabled = t === iv || t < 30 || t > 1440;
+        rmsg.innerHTML = t && (t < 30 || t > 1440) ? '<span class="sev-high">between 30 min and 24 h</span>' : ""; };
+      rh.oninput = rm.oninput = chk;
+      rs.onclick = async () => {
+        const t = tot();
+        if (!confirm(`Run the review job every ${ivTxt(t)}${t < iv ? " (more often = more Claude tokens)" : ""}?`)) return;
+        rmsg.textContent = "Saving…";
+        try { const N = await apiPost("/api/config/review-schedule", { hours: Math.floor(t / 60), minutes: t % 60 }); paint(el, N); }
+        catch (e) { rmsg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
+      };
+    }
+    const run = c.querySelector("#cfg-run");
+    if (run) run.onclick = () => save({}, "/api/config/triage/run");
     c.querySelectorAll(".cfg-reopen").forEach((b) => (b.onclick = () => {
       if (confirm(`Reopen every auto-closed “${b.dataset.k}” item? They will not be auto-closed again (the option stays ${s[b.dataset.k] ? "on for new items" : "off"}).`)) save({ kind: b.dataset.k }, "/api/config/triage/reopen");
     }));

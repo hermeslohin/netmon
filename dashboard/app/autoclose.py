@@ -13,9 +13,17 @@ Rules:
   - when an auto-closed item's verdict changes to something not enabled (e.g. the AI later says "suspicious"),
     it is reopened automatically;
   - turning an option off stops new closures; "reopen" (reopen_all) restores everything auto-closed.
-Settings live in the store's meta table (key "autoclose"); the closure log in table autoclose_log.
+When: right after each review (research) job stores its notes (enrich.sh put -> `python /app/autoclose.py run`), so new
+verdicts are applied once per review run, plus "Run now" on the Configuration page. There is no timer of its own.
+Settings live in the store's meta table (key "autoclose"); the closure log in table autoclose_log; the last pass in
+meta "autoclose_last".
 """
-import json, sys, threading, time
+import json, os, sys, threading
+
+# store.py lives in the netmon root (/netmon in the container); add it before importing it, as server.py does.
+_ROOT = os.environ.get("NETMON_DIR", "/netmon")
+if os.path.isdir(_ROOT) and _ROOT not in sys.path:
+    sys.path.append(_ROOT)
 
 import enrich
 import store
@@ -24,7 +32,6 @@ from risk import seg_key_finding, seg_key_issue
 KINDS = ("expected", "benign")
 NOTE_PREFIX = "auto-closed: AI verdict "
 _lock = threading.Lock()
-_last = {"at": None, "result": None}
 
 
 def _c():
@@ -87,7 +94,13 @@ def _items(raw, analysis, open_issues):
     return out
 
 
-def run(raw, analysis, open_issues, other_eids=(), dry=False):
+def last_run(c=None):
+    c = c or _c()
+    r = c.execute("SELECT v FROM meta WHERE k='autoclose_last'").fetchone()
+    return json.loads(r[0]) if r else None
+
+
+def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual"):
     """Apply the enabled options to the snapshot. Returns counts (also the preview for the Configuration card)."""
     with _lock:
         c = _c()
@@ -149,11 +162,13 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False):
                 res[v]["no_checklist"] += 1
         res["settings"] = s
         if not dry:
-            _last.update(at=store.now_iso(), result=res)
-            closed = sum(res[k]["closed_now"] for k in KINDS)
-            if closed or res["reopened_verdict_changed"]:
-                print(f"autoclose: closed {closed}, reopened {res['reopened_verdict_changed']} (verdict changed)", file=sys.stderr)
-        res["last_run"] = _last["at"]
+            closed = {k: res[k]["closed_now"] for k in KINDS}
+            with store.tx(c):
+                c.execute("INSERT OR REPLACE INTO meta VALUES ('autoclose_last', ?)", (json.dumps(
+                    {"at": store.now_iso(), "trigger": trigger, "closed": closed, "reopened": res["reopened_verdict_changed"],
+                     "enabled": sorted(on)}),))
+            print(f"autoclose ({trigger}): closed {closed}, reopened {res['reopened_verdict_changed']} (verdict changed)", file=sys.stderr)
+        res["last_run"] = last_run(c)
         return res
 
 
@@ -177,18 +192,15 @@ def reopen_all(user, kind=None):
         return n
 
 
-def start(get_inputs, every=300):
-    """Background loop: get_inputs() -> (raw, analysis, open_issues, other_eids) for the newest snapshot."""
-    def loop():
-        time.sleep(20)
-        while True:
-            try:
-                s = settings()
-                if s["expected"] or s["benign"]:
-                    inp = get_inputs()
-                    if inp:
-                        run(*inp)
-            except Exception as e:  # noqa: BLE001 - never kill the server
-                print(f"autoclose error: {e}", file=sys.stderr)
-            time.sleep(every)
-    threading.Thread(target=loop, daemon=True, name="autoclose").start()
+if __name__ == "__main__":
+    # `python /app/autoclose.py run [trigger]` - called by enrich.sh put right after the review job stores its notes
+    if sys.argv[1:2] != ["run"]:
+        raise SystemExit("usage: autoclose.py run [trigger]")
+    s = settings()
+    if not (s["expected"] or s["benign"]):
+        print(json.dumps({"autoclose": "off"}))
+        raise SystemExit(0)
+    import server  # noqa: E402 - snapshot / issue / correlation helpers (does not start the HTTP server)
+    inp = server.autoclose_inputs()
+    r = run(*inp, trigger=sys.argv[2] if len(sys.argv) > 2 else "review job") if inp else {"error": "no snapshot"}
+    print(json.dumps({"autoclose": {k: r.get(k) for k in ("expected", "benign", "reopened_verdict_changed", "error") if k in r}}))

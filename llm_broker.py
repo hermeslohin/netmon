@@ -8,12 +8,13 @@ through agent.auxiliary_client.call_llm - no key is copied anywhere) and offers 
   POST /complete            one chat completion {provider, model, system, user, max_tokens, json_schema?}
   GET  /research            the research cron job's current model/provider
   POST /research            {provider, model} -> `hermes cron edit <job> --model .. --provider ..`
+  POST /research/schedule   {hours, minutes} -> `hermes cron edit <job> --schedule ..` (30 min - 24 h)
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env). Provider must be
 "anthropic" or "lmstudio" and the model must be in /models. Run: llm_broker.sh (systemd user unit
 netmon-llm-broker.service, see docs/SETUP.md).
 """
-import hmac, json, os, subprocess, sys, threading, time, urllib.request
+import hmac, json, os, re, subprocess, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NM = os.path.dirname(os.path.abspath(__file__))
@@ -118,7 +119,63 @@ def _job():
 
 def research_get():
     j = _job()
-    return {"job": j["id"], "name": j.get("name"), "model": j.get("model"), "provider": j.get("provider")}
+    return {"job": j["id"], "name": j.get("name"), "model": j.get("model"), "provider": j.get("provider"),
+            "schedule": (j.get("schedule") or {}).get("expr") or (j.get("schedule") or {}).get("display") or j.get("schedule_display"),
+            "schedule_kind": (j.get("schedule") or {}).get("kind"), "interval_minutes": interval_of(j.get("schedule") or {}),
+            "next_run_at": j.get("next_run_at"), "last_run_at": j.get("last_run_at"), "last_status": j.get("last_status"),
+            "enabled": j.get("enabled")}
+
+
+def interval_of(s):
+    """Minutes between runs for the schedules schedule_expr() writes (and the original 0 1,5,9,... cron)."""
+    if s.get("kind") == "interval":
+        return s.get("minutes")
+    e = str(s.get("expr") or "").split()
+    if len(e) != 5 or e[2:] != ["*", "*", "*"]:
+        return None
+    m, h = e[0], e[1]
+    if m.startswith("*/") and h == "*":
+        return int(m[2:])
+    if m.isdigit() and h == "*":
+        return 60
+    if m.isdigit() and "/" in h:
+        return 60 * int(h.split("/")[1])
+    if m.isdigit() and "," in h:
+        hs = [int(x) for x in h.split(",")]
+        gaps = {(b - a) % 24 for a, b in zip(hs, hs[1:] + hs[:1])}
+        return 60 * gaps.pop() if len(gaps) == 1 else None
+    return None
+
+
+def schedule_expr(minutes):
+    """Even cron grid when the interval divides the day, anchored so 05:00 UTC (the daily PDF run) is always on it
+    (4 h -> 1,5,9,13,17,21 like the original), else a plain interval."""
+    if minutes < 60 and 60 % minutes == 0:
+        return f"*/{minutes} * * * *"
+    if minutes % 60 == 0 and 24 % (minutes // 60) == 0:
+        h = minutes // 60
+        return "0 * * * *" if h == 1 else f"0 {5 % h}-23/{h} * * *"
+    return f"every {minutes}m"
+
+
+def schedule_set(b):
+    try:
+        minutes = int(b.get("hours") or 0) * 60 + int(b.get("minutes") or 0)
+    except (TypeError, ValueError):
+        raise ValueError("hours and minutes must be whole numbers") from None
+    if not 30 <= minutes <= 1440:
+        raise ValueError("the review job can run every 30 minutes at most often, and at least once a day (24 h)")
+    j = _job()
+    hermes = os.path.expanduser("~/.local/bin/hermes")
+    label = f"{minutes // 60}h" + (f"{minutes % 60:02d}m" if minutes % 60 else "") if minutes >= 60 else f"{minutes}m"
+    name = re.sub(r"\((?:\d+h(?:\d+m)?|\d+m);", f"({label};", j.get("name") or "", count=1)  # "(4h; PDF 05 UTC)" label
+    argv = [hermes, "cron", "edit", j["id"], "--schedule", schedule_expr(minutes)] + (["--name", name] if name and name != j.get("name") else [])
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=60)  # noqa: S603 - fixed argv, validated int
+    if p.returncode:
+        raise ValueError((p.stderr or p.stdout)[-300:])
+    subprocess.run(["/usr/bin/python3", os.path.join(NM, "claude_status.py")],  # noqa: S603
+                   capture_output=True, timeout=60)
+    return research_get()
 
 
 def research_set(b):
@@ -176,6 +233,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, complete(b))
             if self.path == "/research":
                 return self._send(200, research_set(b))
+            if self.path == "/research/schedule":
+                return self._send(200, schedule_set(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})
