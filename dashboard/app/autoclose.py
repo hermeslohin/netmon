@@ -196,11 +196,11 @@ if __name__ == "__main__":
     # `python /app/autoclose.py run [trigger]` - called by enrich.sh put right after the review job stores its notes
     if sys.argv[1:2] != ["run"]:
         raise SystemExit("usage: autoclose.py run [trigger]")
+    import server  # noqa: E402 - sets NETMON_DB to the writable /state DB like the dashboard (no HTTP server is started)
     s = settings()
     if not (s["expected"] or s["benign"]):
         print(json.dumps({"autoclose": "off"}))
         raise SystemExit(0)
-    import server  # noqa: E402 - snapshot / issue / correlation helpers (does not start the HTTP server)
     inp = server.autoclose_inputs()
     r = run(*inp, trigger=sys.argv[2] if len(sys.argv) > 2 else "review job") if inp else {"error": "no snapshot"}
     print(json.dumps({"autoclose": {k: r.get(k) for k in ("expected", "benign", "reopened_verdict_changed", "error") if k in r}}))
