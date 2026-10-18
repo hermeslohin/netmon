@@ -33,6 +33,7 @@ Features:
 - Maps vulnerabilities and attacks to Mitre Att&ck
 
 - Calculates a risk rating of each system ([how risk is scored](docs/RISK_SCORING.md))
+- Role-based access: Admin, Network defender (view-only for settings) and User (only their assigned devices); see [docs/ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md)
 
 - Shows lateral movement between zones and hosts, including every admin login (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...), successful and failed. Failed logins raise the risk and trigger the 15-minute watcher.
 

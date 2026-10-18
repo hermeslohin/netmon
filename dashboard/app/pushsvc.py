@@ -7,6 +7,7 @@ enabled notifications in the dashboard. VAPID key pair is generated once into /s
 import base64, json, os, sys, threading, time
 
 import store
+import auth  # roles: a User only gets pushes for assigned devices
 
 STATE = os.environ.get("STATE_DIR", "/state")
 KEYFILE = os.path.join(STATE, "vapid_private.pem")
@@ -82,6 +83,8 @@ def run_once():
         u = s.get("user") or ""
         if u not in wanted:
             wanted[u] = store.watch_ids(u, reg=reg)
+            if wanted[u] is None and auth.role_of(u) == "user":
+                wanted[u] = set()  # a User only ever gets alerts for the devices assigned to them
         mine = [r for r in rows if store.alert_for(r, wanted[u])]
         if not mine:
             continue  # nothing about this user's devices

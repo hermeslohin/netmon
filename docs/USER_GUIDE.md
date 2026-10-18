@@ -1,6 +1,6 @@
 # netmon user guide
 
-This guide covers everyday use of the netmon dashboard: what each page shows, how to work through alarms and findings, how notifications work, and how to use the AI features. For installation see [SETUP.md](SETUP.md). For how events are linked to each other, see [CORRELATION.md](CORRELATION.md).
+This guide covers everyday use of the netmon dashboard: what each page shows, how to work through alarms and findings, how notifications work, and how to use the AI features. For installation see [SETUP.md](SETUP.md). For how events are linked to each other, see [CORRELATION.md](CORRELATION.md). For who can see and change what, see [ACCESS_CONTROL.md](ACCESS_CONTROL.md).
 
 > Screenshots in this guide come from a real dashboard with every IP address, MAC address, host name and account name replaced by placeholders (`192.0.2.x`, `host-N`, `site-N.example.com`, `alex`). Your dashboard shows your real names.
 
@@ -47,6 +47,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 - Open the dashboard at the address you were given (HTTPS). Your browser may warn about the certificate the first time, because it is a private certificate for the home network.
 - **More → My account** shows who you are signed in as and lets you change your password. Changing it signs out your other browsers and phones; the one you are using stays signed in.
 - If you are locked out after too many wrong passwords, wait for the lockout to expire or ask an admin (see [Users](#10-admin-tasks)).
+- The badge next to your name shows your role: **Admin** (everything), **Network defender** (sees everything, can't change settings) or **User** (only the alerts and events of the devices assigned to you; you get a **My devices** page and **Alerts**). Details: [ACCESS_CONTROL.md](ACCESS_CONTROL.md).
 
 ---
 
@@ -328,7 +329,7 @@ Everything checked off or cleared, with who did it and when. Uncheck to restore.
 
 ### More → Users
 
-Accounts (see [section 10](#10-admin-tasks)).
+Accounts and their roles (see [section 10](#10-admin-tasks)). Network defenders see this page read-only; Users don't see it.
 
 ---
 
@@ -455,19 +456,18 @@ The other runs of the day update the dashboard but don't make a PDF.
 
 ## 10. Admin tasks
 
-Admins are the dashboard users listed in `NETMON_ADMINS` in `dashboard/.env`. Only admins can:
+Every account has a role (full table in [ACCESS_CONTROL.md](ACCESS_CONTROL.md)):
 
-- change the correlation and research models (AI review → Models);
-- run model comparisons and use "Use this";
-- choose the model in Ask Hermes.
+- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Security Triage settings, change the correlation and research models, run model comparisons and use "Use this", and choose the model in Ask Hermes.
+- **Network defender:** sees every page, can check things off, write notes, confirm or reject AI links and use Ask Hermes (default model), but can't change settings. Configuration and Users are read-only.
+- **User:** sees only the alerts and security events of the devices assigned to them (**My devices** and **Alerts**), and gets push notifications only for those.
 
-Everyone else can see everything and check things off, and Ask Hermes uses its default model for them.
+**More → Users** (admins) lets you:
 
-**More → Users** (any signed-in user) lets you:
-
-- **Add user:** pick a username and a password that meets the rules shown.
+- **Add user:** pick a username, a role (default User) and a password that meets the rules shown.
+- **Role:** change someone's role from the drop-down; it takes effect immediately. You can't demote yourself, and the last admin can't be demoted or deleted.
+- **Assign…:** for a User, the devices they may see (a User with no devices sees nothing). For admins and defenders, the devices that alert them.
 - **Change a password:** set a new one for a user. That user's other sessions are signed out.
-- **Choose which devices alert someone:** set their alert devices for them.
 - **Delete a user.**
 - **Locked out?:** explains how to unlock an account after too many failed sign-ins.
 

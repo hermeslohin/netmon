@@ -149,12 +149,13 @@ The dashboard container has no provider credentials. A small loopback-only broke
 # dashboard/.env
 NETMON_BROKER_URL=http://127.0.0.1:8650
 NETMON_BROKER_KEY=<long random string>      # python3 -c "import secrets;print(secrets.token_urlsafe(32))"
-NETMON_ADMINS=<dashboard user>[,<user>...]  # who may change models / run comparisons (default: DASH_USER)
 
 cp hermes/systemd/netmon-llm-broker.service ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now netmon-llm-broker
 cd dashboard && ./deploy.sh
 ```
+
+Only dashboard **Admins** can change models or run comparisons. Roles are set on the Users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)); the old `NETMON_ADMINS` variable is no longer used.
 
 The broker only accepts `anthropic` and `lmstudio` models from its own model list, and limits Anthropic calls to 120 per hour. If the broker is down, the page still offers local models. The correlation choice is stored in `dashboard/state/llm_config.json`; deleting that file returns to the model loaded in LM Studio.
 

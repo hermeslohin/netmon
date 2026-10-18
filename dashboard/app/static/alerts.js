@@ -48,7 +48,7 @@
         .sort((a, b) => (sel.has(b.id) ? 1 : 0) - (sel.has(a.id) ? 1 : 0));  // chosen devices first
       c.innerHTML = `${o.title ? `<h2>${esc(o.title)}</h2>` : ""}
         <div class="small muted" style="margin-bottom:8px">${o.intro}</div>
-        <label class="dp-opt"><input type="radio" name="${rn}" value="all" ${mode === "all" ? "checked" : ""}> <b>All devices</b> — every urgent alert</label>
+        ${o.noAll ? "" : `<label class="dp-opt"><input type="radio" name="${rn}" value="all" ${mode === "all" ? "checked" : ""}> <b>All devices</b> — every urgent alert</label>`}
         <label class="dp-opt"><input type="radio" name="${rn}" value="some" ${mode === "some" ? "checked" : ""}> <b>${esc(o.someLabel || "Only devices I choose")}</b> ${sel.size ? `<span class="muted">(${sel.size} selected)</span>` : ""}</label>
         <div class="dp-list" style="${mode === "some" ? "" : "display:none"}">
           <div class="tbltools"><input type="search" placeholder="Filter devices…" value="${esc(q)}"><button class="dp-none" type="button">Clear</button></div>
@@ -72,7 +72,11 @@
     return c;
   }
   window.devicePicker = devicePicker;
-  const myPicker = async () => { const { prefs, devices } = await api("/api/push/prefs"); A.myMode = prefs.mode; A.myN = prefs.devices.length;
+  const myPicker = async () => { const { prefs, devices, locked } = await api("/api/push/prefs"); A.myMode = "some"; A.myN = prefs.mode === "some" ? prefs.devices.length : 0;
+    if (locked) return card("Your devices", devices.length  // User role: assigned by an admin, read-only
+      ? `<div class="small muted" style="margin-bottom:6px">You get alerts and notifications for these devices, assigned by an admin.</div><ul style="margin:0;padding-left:18px">${devices.map((d) => `<li><b>${esc(d.name || d.ips[0] || d.mac || d.id)}</b> <span class="muted small mono">${esc([...d.ips.slice(0, 2), d.mac].filter(Boolean).join(" · "))}</span></li>`).join("")}</ul>`
+      : `<div class="empty">No devices are assigned to your account yet. Ask an admin.</div>`);
+    A.myMode = prefs.mode;
     return devicePicker({ prefs, devices, title: "Which devices alert me",
       intro: "Applies to your account on every browser/phone where you enabled notifications, and to the 🔔 count. Alerts that aren't tied to a specific device go only to people watching all devices. Admins can also assign devices to you on the Users page.",
       save: async (mode, devs) => { await apiPost("/api/push/prefs", { mode, devices: devs }); A.myMode = mode; A.myN = devs.length; paintBar(); await poll();
@@ -112,13 +116,13 @@
     inner.appendChild(await myPicker()); paintBar();
     const filt = A.mode === "some" && !A.showAll && !hq().has("ev");  // a drill-down to one alert must find it
     const rows = A.list.filter((a) => !filt || a.mine).map((a) => ({ ...a, _t: a.ts }));
-    const tog = A.mode === "some" ? `<a href="javascript:void 0" id="fTog" class="ack-toggle small">${filt ? `show all ${A.list.length}` : "only my devices"}</a>` : "";
+    const tog = A.mode === "some" && !isUserRole() ? `<a href="javascript:void 0" id="fTog" class="ack-toggle small">${filt ? `show all ${A.list.length}` : "only my devices"}</a>` : "";
     const ac = card(`${filt ? "Alerts for my devices" : "Recent alerts"} (${rows.length}${A.unread ? `, ${A.unread} new` : ""}) ${tog} ${A.unread ? `<button id="markRead" class="ack-toggle">Mark all read</button>` : ""}`,
       rows.length ? table(null, [
-        askCol("alert", (x) => x.text), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
+        ...(isUserRole() ? [] : [askCol("alert", (x) => x.text)]), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
         { k: "text", t: "Alert", fmt: (v, x) => `<span style="${x.read ? "" : "font-weight:600"}">${linkifyIps(v)}</span>` }],
-        rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), evId: (x) => `alert|${x.id}` }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
+        rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(isUserRole() ? {} : { evId: (x) => `alert|${x.id}` }) }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
     el.appendChild(ac);
     ac.querySelector("#fTog")?.addEventListener("click", () => { A.showAll = !A.showAll; V.alerts(el); });
     ac.querySelector("#markRead")?.addEventListener("click", async () => { await apiPost("/api/alerts/read", {}); A.unread = 0; A.list.forEach((a) => (a.read = 1)); paintCount(); V.alerts(el); });

@@ -23,7 +23,46 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 ROOT = os.environ.get("NETMON_DIR", "/netmon")
-ADMINS = {u.strip() for u in os.environ.get("NETMON_ADMINS", os.environ.get("DASH_USER", "")).split(",") if u.strip()}
+# Access control (docs/ACCESS_CONTROL.md). The role lives in users.json (auth.py); NETMON_ADMINS is no longer used.
+#   admin    - everything
+#   defender - reads everything and does analyst work (check-offs, notes, AI verdicts, chat); changes no settings
+#   user     - only the alerts / events of the devices an admin assigned to them (allow-list below)
+USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
+USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
+             "/api/alerts/read"}
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+
+
+def watch_ids(user, role, reg=None):
+    """Device identifiers a user's alerts are scoped to. None = all devices (never for the user role)."""
+    ids = store.watch_ids(user, reg=reg)
+    return set() if ids is None and role == "user" else ids
+
+
+def assigned_devices(user):
+    """The device-catalog entries assigned to a user (their alert / access scope)."""
+    p = store.prefs_get(user)
+    if p["mode"] != "some":
+        return []
+    want = set(p["devices"])
+    return [d for d in device_catalog() if d["id"] in want]
+
+
+def my_events(user):
+    """Correlated events (latest snapshot) that involve one of the user's assigned devices - for the user role."""
+    ids = watch_ids(user, "user")
+    ips = {i[3:] for i in ids if i.startswith("ip:")}
+    s = snapshots()
+    sid = s[-1]["id"] if s else ""
+    ev = ((correlation(sid) or {}).get("events") or {}) if sid and ips else {}
+    out = []
+    for k, e in ev.items():
+        if e.get("type") == "alert" or not ips & set(e.get("ips") or []):
+            continue  # alerts come from /api/alerts (they carry their own device targets)
+        out.append({"id": k, "type": e.get("type"), "label": e.get("label"), "sev": e.get("sev"), "t0": e.get("t0"),
+                    "ips": sorted(ips & set(e.get("ips") or []))})
+    out.sort(key=lambda e: -(e["t0"] or 0))
+    return {"snapshot": sid, "devices": assigned_devices(user), "events": out}
 LLM_PROVIDERS = ("lmstudio", "anthropic")
 
 
@@ -413,7 +452,7 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(f"event: {ev}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode())
             self.wfile.flush()
         chat_model, m = None, body.get("model")
-        if isinstance(m, dict) and m.get("model") and user in ADMINS:
+        if isinstance(m, dict) and m.get("model") and auth.role_of(user) == "admin":
             m = {"provider": str(m.get("provider", ""))[:40], "model": str(m.get("model", ""))[:120]}
             if m["provider"] in LLM_PROVIDERS and llm_allowed(m["provider"], m["model"]):
                 chat_model = m
@@ -472,6 +511,12 @@ class H(BaseHTTPRequestHandler):
             user = self._user()
             if not user:
                 return self._json({"error": "login required"}, 401)
+            role = auth.role_of(user)
+            if role == "user" and u.path not in USER_POST:
+                return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
+            if role != "admin" and (u.path.startswith(ADMIN_POST) or (u.path == "/api/aireview" and body.get("action") == "adopt")):
+                print(f"access denied: {user} ({role}) POST {u.path}", file=sys.stderr)
+                return self._json({"error": "only an admin can change settings, users or models"}, 403)
             if u.path == "/api/logout":
                 self._pending_cookies = [f"{self.COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"]
                 return self._json({"ok": True})
@@ -494,7 +539,9 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/users":
                 act, name = body.get("action"), str(body.get("username", "")).strip()
                 if act == "add":
-                    err = auth.add(name, str(body.get("password", "")))
+                    err = auth.add(name, str(body.get("password", "")), str(body.get("role") or "user"))
+                elif act == "role":
+                    err = auth.set_role(name, str(body.get("role", "")), user)
                 elif act == "delete":
                     err = auth.delete(name, user)
                 elif act == "password":
@@ -504,7 +551,8 @@ class H(BaseHTTPRequestHandler):
                     devs = [str(x)[:120] for x in (body.get("devices") or [])][:500]
                     err = (None if name in {x["username"] for x in auth.public_list()} else "no such user") \
                         or (None if mode in ("all", "some") else "mode must be all or some") \
-                        or ("pick at least one device, or choose All devices" if mode == "some" and not devs else None)
+                        or ("pick at least one device, or choose All devices" if mode == "some" and not devs else None) \
+                        or ("a User can only be given specific devices, not All devices" if mode == "all" and auth.role_of(name) == "user" else None)
                     if not err:
                         store.prefs_set(name, mode, devs)
                         print(f"user admin: {user} assigned {name} -> {mode} ({len(devs)} devices)", file=sys.stderr)
@@ -526,7 +574,7 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if u.path == "/api/push/test":
                 ep = str(body.get("endpoint", ""))
-                subs = [s for s in store.push_subs() if not ep or s["endpoint"] == ep]
+                subs = [s for s in store.push_subs() if (not ep or s["endpoint"] == ep) and (role == "admin" or s.get("user") == user)]
                 res = [pushsvc.send(s, {"title": "netmon: test notification", "body": f"Notifications are working on this device ({user}).",
                                         "tag": "netmon-test", "url": "/#/alerts", "severity": "urgent"}) for s in subs]
                 return self._json({"sent": sum(1 for ok, _ in res if ok), "errors": [e for ok, e in res if not ok], "targets": len(subs)})
@@ -538,12 +586,7 @@ class H(BaseHTTPRequestHandler):
                 p = store.prefs_set(user, mode, devs)
                 print(f"push prefs: {user} -> {mode} ({len(devs)} devices)", file=sys.stderr)
                 return self._json({"prefs": p})
-            if u.path in ("/api/llm/config", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt") or (u.path == "/api/aireview" and body.get("action") == "adopt"):
-                if user not in ADMINS:
-                    return self._json({"error": "only an admin can change models or run comparisons"}, 403)
             if u.path.startswith("/api/config/integrations/"):
-                if user not in ADMINS:
-                    return self._json({"error": "only an admin can view or change integrations"}, 403)
                 parts = u.path.split("/")  # /api/config/integrations/<section>[/test]
                 sec = parts[4] if len(parts) > 4 else ""
                 try:
@@ -556,8 +599,6 @@ class H(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
             if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/review-schedule"):
-                if user not in ADMINS:
-                    return self._json({"error": "only an admin can change Security Triage settings"}, 403)
                 if u.path == "/api/config/review-schedule":
                     try:
                         r = corr_llm.broker("/research/schedule", {"hours": body.get("hours"), "minutes": body.get("minutes")}, timeout=90)
@@ -662,6 +703,11 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"ok": bool(n), "notes": kb.event_notes([str(body.get("eid") or "")]).get(str(body.get("eid") or ""), [])})
                 return self._json({"error": "action must be add or delete"}, 400)
             if u.path == "/api/alerts/read":
+                if role == "user":  # private read marker: a user must not clear the shared 🔔 for everyone else
+                    ids = watch_ids(user, role)
+                    mine = [r["id"] for r in store.alerts_recent(2000) if store.alert_for(r, ids)]
+                    auth.set_read_upto(user, max(mine or [0]))
+                    return self._json({"ok": True})
                 store.alerts_read_all()
                 return self._json({"ok": True})
             if u.path == "/api/acks":
@@ -685,9 +731,15 @@ class H(BaseHTTPRequestHandler):
         user = None if path in self.PUBLIC else self._user()
         if path not in self.PUBLIC and not user:
             return self._deny(path)
+        role = auth.role_of(user) if user else None
+        if role == "user" and (path.startswith("/api/") or path.startswith("/reports/")) and path not in USER_GET:
+            return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
+        admin = role == "admin"
         try:
             if path == "/api/me":
-                return self._json({"user": user})
+                return self._json({"user": user, "role": role, "role_name": auth.ROLE_NAMES.get(role, role)})
+            if path == "/api/my":
+                return self._json(my_events(user))
             if path == "/api/reports":
                 return self._json({"reports": report_list()})
             if path.startswith("/reports/"):
@@ -704,7 +756,7 @@ class H(BaseHTTPRequestHandler):
                 print(f"report download: {user} {name} ({'view' if inline else 'download'})", file=sys.stderr)
                 return self._send(200, body, "application/pdf", "private, no-store")
             if path == "/api/site":
-                return self._json(SITE.public())
+                return self._json({"site_name": SITE.public().get("site_name")} if role == "user" else SITE.public())
             if path == "/api/account":
                 return self._json(auth.account_info(user))
             if path == "/api/users":
@@ -723,13 +775,13 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/acks":
                 return self._json(read_acks())
             if path == "/api/config/integrations":
-                if user not in ADMINS:
+                if not admin:
                     return self._json({"admin": False})
                 return self._json({**integrations.public(), "admin": True})
             if path == "/api/config/triage":
                 inp = autoclose_inputs()
                 return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "review": review_job(),
-                                   "admin": user in ADMINS})
+                                   "admin": admin})
             if path == "/api/ti/feeds":
                 return self._json(tintel.feed_status())
             if path == "/api/ti/lookup":
@@ -756,7 +808,7 @@ class H(BaseHTTPRequestHandler):
                     return self._json(rr)
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kbn))
             if path == "/api/llm/models":
-                return self._json({**llm_models(), "admin": user in ADMINS})
+                return self._json({**llm_models(), "admin": admin})
             if path == "/api/compare/item":
                 return self._json({"history": itemcmp.history(str((q.get("key") or [""])[0])[:64])})
             if path == "/api/aireview/compare":
@@ -765,7 +817,7 @@ class H(BaseHTTPRequestHandler):
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
                 base = correlation(sid) or {}
-                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": user in ADMINS}
+                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin}
                 try:
                     ov["research"] = corr_llm.broker("/research", timeout=10)
                 except Exception as e:  # noqa: BLE001
@@ -810,14 +862,22 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/push/key":
                 return self._json({"key": pushsvc.public_key(), "status": pushsvc.status()})
             if path == "/api/alerts":
-                rows = store.alerts_recent(int((q.get("limit") or ["100"])[0]))
-                ids = store.watch_ids(user)
+                lim = max(1, min(int((q.get("limit") or ["100"])[0]), 2000))
+                ids = watch_ids(user, role)
+                if role == "user":  # only their devices' alerts ever leave the server; private read marker
+                    upto = auth.read_upto(user)
+                    rows = [dict(r, mine=True, read=1 if r["id"] <= upto else 0) for r in store.alerts_recent(2000) if store.alert_for(r, ids)][:lim]
+                    n = sum(1 for r in rows if not r["read"])
+                    return self._json({"alerts": rows, "unread": n, "unread_mine": n, "mode": "some"})
+                rows = store.alerts_recent(lim)
                 for r in rows:
                     r["mine"] = store.alert_for(r, ids)
                 return self._json({"alerts": rows, "unread": sum(1 for r in rows if not r["read"]),
                                    "unread_mine": sum(1 for r in rows if not r["read"] and r["mine"]),
                                    "mode": "all" if ids is None else "some"})
             if path == "/api/push/prefs":
+                if role == "user":
+                    return self._json({"prefs": store.prefs_get(user), "devices": assigned_devices(user), "locked": True})
                 return self._json({"prefs": store.prefs_get(user), "devices": device_catalog()})
             if path in ("/", "/index.html"):
                 path = "/index.html"
@@ -844,15 +904,25 @@ class H(BaseHTTPRequestHandler):
 
 
 def main():
+    if len(sys.argv) >= 4 and sys.argv[1] == "set-role":
+        # recovery: docker exec -it netmon-dashboard python /app/server.py set-role <user> admin|defender|user
+        err = auth.set_role(sys.argv[2], sys.argv[3], actor=None)
+        print(err or "ok")
+        sys.exit(1 if err else 0)
     if len(sys.argv) >= 3 and sys.argv[1] in ("set-password", "add-user"):
         # recovery: docker exec -it netmon-dashboard python /app/server.py set-password <user>
+        #           docker exec -it netmon-dashboard python /app/server.py add-user <user> [admin|defender|user]  (default admin)
         import getpass
         name, pw = sys.argv[2], getpass.getpass(f"new password for {sys.argv[2]}: ")
-        err = auth.add(name, pw) if sys.argv[1] == "add-user" or name not in auth.load() else auth.set_password(name, pw)
+        role = sys.argv[3] if len(sys.argv) >= 4 else "admin"
+        err = auth.add(name, pw, role) if sys.argv[1] == "add-user" or name not in auth.load() else auth.set_password(name, pw)
         print(err or "ok")
         sys.exit(1 if err else 0)
     if auth.bootstrap(USER, PASS):
         print(f"seeded users.json with {USER!r} from DASH_USER/DASH_PASS", flush=True)
+    mig = auth.migrate_roles()
+    if mig:
+        print(f"access control: existing accounts made admins: {', '.join(sorted(mig))}", flush=True)
     try:
         pushsvc.start()
         print(f"web push enabled ({len(store.push_subs())} subscribers)", flush=True)

@@ -6,7 +6,10 @@ const HOST_IP_HINTS = {};
 const SITE = { site_name: "", internal_prefixes: [], display_names: {}, honeypot_ips: [] };
 const isInternal = (ip) => SITE.internal_prefixes.some((p) => String(ip).startsWith(p));
 
-const S = { snaps: [], snap: null, hist: [], reg: {}, charts: [], idx: null, acks: {}, showAcked: {} };
+const S = { snaps: [], snap: null, hist: [], reg: {}, charts: [], idx: null, acks: {}, showAcked: {}, me: { role: "user" } };
+// roles (docs/ACCESS_CONTROL.md): the server enforces them; the UI only hides what a role can't use
+const isAdmin = () => S.me.role === "admin", isUserRole = () => S.me.role === "user";
+const USER_VIEWS = new Set(["alerts", "my", "account"]);
 const $ = (s, r = document) => r.querySelector(s);
 const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf", "#ff9bce", "#e3b341",
   "#7ee787", "#a5d6ff", "#ffa657", "#d2a8ff", "#56d4dd", "#ff7b72", "#8b949e"];
@@ -790,7 +793,7 @@ V.issues = (el) => {
 
 /* ----- Users ----- */
 V.users = async (el) => {
-  el.innerHTML = `<h1>Users</h1><div class="sub">Everyone listed here can sign in and see and check off everything. Changing AI models, running model comparisons and choosing the Ask Hermes model are limited to the admins in NETMON_ADMINS (dashboard/.env). Passwords are stored as salted scrypt hashes in <span class="mono">dashboard/state/users.json</span>. Changing a password signs that user out everywhere.</div><div class="loading">Loading…</div>`;
+  el.innerHTML = `<h1>Users</h1><div class="sub">Every account has a role. <b>Admin</b>: everything, including users, settings and AI models. <b>Network defender</b>: sees everything and can check off, annotate and ask about events, but can't change settings, users or models. <b>User</b>: sees only the alerts and events of the devices assigned to them. ${isAdmin() ? "" : "<b>Only admins can change accounts — this page is read-only for you.</b> "}Passwords are stored as salted scrypt hashes in <span class="mono">dashboard/state/users.json</span>; changing a password signs that user out everywhere. See <span class="mono">docs/ACCESS_CONTROL.md</span>.</div><div class="loading">Loading…</div>`;
   let U; try { U = await api("/api/users"); } catch (e) { el.querySelector(".loading").textContent = String(e); return; }
   el.querySelector(".loading").remove();
   const min = U.min_password || 10;
@@ -800,21 +803,34 @@ V.users = async (el) => {
   const devSummary = (n) => { const p = P[n]; if (!p || p.mode !== "some") return '<span class="muted">All devices</span>';
     const names = p.devices.map((id) => byId[id]?.name || byId[id]?.ips?.[0] || id);
     return `<span title="${esc(names.join("\n"))}"><b>${names.length}</b> device${names.length === 1 ? "" : "s"}${names.length ? `: ${esc(names.slice(0, 3).join(", "))}${names.length > 3 ? "…" : ""}` : ""}</span>`; };
+  const ROLE_OPTS = [["admin", "Admin"], ["defender", "Network defender"], ["user", "User"]], roleOf = Object.fromEntries(U.users.map((x) => [x.username, x.role]));
+  const roleSel = (u) => isAdmin() && u.username !== U.me
+    ? `<select data-role="${esc(u.username)}">${ROLE_OPTS.map(([v, t]) => `<option value="${v}" ${u.role === v ? "selected" : ""}>${t}</option>`).join("")}</select>`
+    : `<b>${esc((ROLE_OPTS.find(([v]) => v === u.role) || [, u.role])[1])}</b>`;
   const list = card(`Accounts (${U.users.length})`, table(null, [
     { k: "username", t: "Username", fmt: (v) => `<b>${esc(v)}</b>${v === U.me ? ' <span class="badge sev-info">you</span>' : ""}` },
+    { k: "role", t: "Role", fmt: (v, u) => roleSel(u) + (u.role === "user" && devCount(u.username) < 1 ? ' <span class="badge sev-medium" title="A User sees nothing until devices are assigned">no devices</span>' : "") },
     { k: "created", t: "Created", fmt: ft }, { k: "last_login", t: "Last sign-in", fmt: (v) => ft(v) || '<span class="muted">never</span>' }, { k: "pw_changed", t: "Password changed", fmt: ft },
-    { k: "_d", t: "Assigned devices", sort: (u) => devCount(u.username), fmt: (v, u) => `${devSummary(u.username)} <button data-dev="${esc(u.username)}" class="small">Assign…</button>` },
-    { k: "_a", t: "", fmt: (v, u) => `<button data-pw="${esc(u.username)}">${u.username === U.me ? "Change my password" : "Reset password"}</button> ${u.username === U.me ? "" : `<button data-del="${esc(u.username)}" style="border-color:#f8514955;color:var(--bad)">Delete</button>`}` },
+    { k: "_d", t: "Assigned devices", sort: (u) => devCount(u.username), fmt: (v, u) => `${u.role === "user" && devCount(u.username) < 0 ? '<span class="muted">None</span>' : devSummary(u.username)}${isAdmin() ? ` <button data-dev="${esc(u.username)}" class="small">Assign…</button>` : ""}` },
+    { k: "_a", t: "", fmt: (v, u) => !isAdmin() ? "" : `<button data-pw="${esc(u.username)}">${u.username === U.me ? "Change my password" : "Reset password"}</button> ${u.username === U.me ? "" : `<button data-del="${esc(u.username)}" style="border-color:#f8514955;color:var(--bad)">Delete</button>`}` },
   ], U.users, { search: false, sort: "username", dir: 1 }));
   const pwBox = document.createElement("div"); list.appendChild(pwBox);
   el.appendChild(list);
+  list.addEventListener("change", async (e) => {
+    const rs = e.target.closest("[data-role]"); if (!rs) return;
+    const name = rs.dataset.role, role = rs.value;
+    if (!confirm(`Change ${name}'s role to ${rs.selectedOptions[0].text}? It takes effect immediately.`)) { rs.value = roleOf[name]; return; }
+    try { await apiPost("/api/users", { action: "role", username: name, role }); rerender(); } catch (x) { rs.value = roleOf[name]; msg(pwBox, x.message); }
+  });
   list.addEventListener("click", async (e) => {
     const del = e.target.closest("[data-del]"), pw = e.target.closest("[data-pw]"), dv = e.target.closest("[data-dev]");
     if (dv) {
       const name = dv.dataset.dev, wrap = document.createElement("div"); wrap.style.marginTop = "12px";
       const close = () => (pwBox.innerHTML = "");
-      wrap.appendChild(devicePicker({ prefs: P[name] || { mode: "all", devices: [] }, devices: CAT, title: `Assign devices to ${name}`, someLabel: "Only the devices assigned below", cancel: close,
-        intro: `The devices <b>${esc(name)}</b> is responsible for. They get push notifications and the 🔔 count only for these (applies on every browser/phone they enabled). Alerts not tied to a device go only to users on All devices. ${name === U.me ? "This is you; the same setting is on the Alerts page." : `${esc(name)} can still change it on their Alerts page.`}`,
+      const lim = roleOf[name] === "user";
+      wrap.appendChild(devicePicker({ prefs: lim ? { mode: "some", devices: P[name]?.mode === "some" ? P[name].devices : [] } : (P[name] || { mode: "all", devices: [] }), devices: CAT, title: `Assign devices to ${name}`, someLabel: "Only the devices assigned below", cancel: close, noAll: lim,
+        intro: lim ? `<b>${esc(name)}</b> is a <b>User</b>: these are the only devices whose alerts and events they can see, and the only ones they get push notifications for. They can't change this themselves.`
+          : `The devices <b>${esc(name)}</b> is responsible for. They get push notifications and the 🔔 count only for these (applies on every browser/phone they enabled). Alerts not tied to a device go only to users on All devices. ${name === U.me ? "This is you; the same setting is on the Alerts page." : `${esc(name)} can still change it on their Alerts page.`} (They can still see everything — that's their role.)`,
         save: async (mode, devs) => { await apiPost("/api/users", { action: "devices", username: name, mode, devices: devs }); P[name] = { mode, devices: devs }; setTimeout(rerender, 900);
           return mode === "all" ? `Saved — ${name} gets every urgent alert.` : `Saved — ${devs.length} device${devs.length === 1 ? "" : "s"} assigned to ${name}.`; } }));
       pwBox.replaceChildren(wrap); wrap.scrollIntoView({ block: "nearest" }); return;
@@ -842,8 +858,10 @@ V.users = async (el) => {
       };
     }
   });
-  const add = card("Add user", `<form style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;max-width:820px;align-items:center">
+  if (!isAdmin()) return;
+  const add = card("Add user", `<form style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;max-width:1000px;align-items:center">
     <input name="u" placeholder="Username" autocomplete="off" required pattern="[A-Za-z0-9._@\-]{2,40}" title="2-40 chars: letters, digits . _ @ -">
+    <select name="role" title="Role">${ROLE_OPTS.map(([v, t]) => `<option value="${v}" ${v === "user" ? "selected" : ""}>${t}</option>`).join("")}</select>
     <input name="p1" type="password" placeholder="Password (min ${min} chars)" autocomplete="new-password" minlength="${min}" required>
     <input name="p2" type="password" placeholder="Repeat password" autocomplete="new-password" required>
     <button type="submit">Add user</button></form><div class="out"></div>`);
@@ -852,7 +870,8 @@ V.users = async (el) => {
   af.onsubmit = async (ev) => {
     ev.preventDefault(); const out = add.querySelector(".out");
     if (af.p1.value !== af.p2.value) return msg(out, "Passwords don't match");
-    try { await apiPost("/api/users", { action: "add", username: af.u.value.trim(), password: af.p1.value }); msg(out, `User ${af.u.value.trim()} added.`, true); setTimeout(rerender, 1000); } catch (x) { msg(out, x.message); }
+    try { await apiPost("/api/users", { action: "add", username: af.u.value.trim(), password: af.p1.value, role: af.role.value });
+      msg(out, `User ${af.u.value.trim()} added${af.role.value === "user" ? " — now assign their devices (Assign… in the list), they see nothing until you do" : ""}.`, true); setTimeout(rerender, af.role.value === "user" ? 2500 : 1000); } catch (x) { msg(out, x.message); }
   };
   el.appendChild(card("Locked out?", `<div class="small">On the dashboard host run <span class="mono">docker exec -it netmon-dashboard python /app/server.py set-password &lt;username&gt;</span> to set a password (or create the user) from the command line.</div>`));
 };
@@ -1093,7 +1112,8 @@ V.history = () => location.replace("#/traffic?at=trend");  // old bookmarks
 function go(r) { location.hash = "#/" + r; }
 async function route(keep) {
   S.charts.forEach((c) => c.destroy()); S.charts = []; S._scrolled = false; S._noScroll = !!keep;
-  const [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || "overview").split("/");
+  let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
+  if (isUserRole() && !USER_VIEWS.has(view)) { view = "my"; rest = []; }
   const arg = decodeURIComponent(rest.join("/"));
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (a.dataset.r + "s" === view + "s" && false) || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
@@ -1119,8 +1139,16 @@ async function init() {
     Object.assign(SITE, await api("/api/site")); Object.assign(HOST_IP_HINTS, SITE.host_ips || {});
     if (SITE.site_name) { document.querySelectorAll(".brand small").forEach((e) => (e.textContent = SITE.site_name)); document.title = "netmon · " + SITE.site_name; }
   } catch (_) { /* not signed in yet */ }
-  api("/api/me").then((m) => { const b = document.getElementById("userBox"); if (b && m.user) { b.innerHTML = `<a href="#/account" title="My account / change password">👤 ${esc(m.user)}</a> <button id="logout">Sign out</button>`;
-    document.getElementById("logout").onclick = async () => { await apiPost("/api/logout", {}).catch(() => {}); location.href = "/login"; }; } }).catch(() => {});
+  S.me = await api("/api/me"); document.body.dataset.role = S.me.role;
+  { const b = document.getElementById("userBox"); if (b && S.me.user) { b.innerHTML = `<a href="#/account" title="My account / change password">👤 ${esc(S.me.user)}</a> <span class="badge sev-info" title="Your access level">${esc(S.me.role_name || S.me.role)}</span> <button id="logout">Sign out</button>`;
+    document.getElementById("logout").onclick = async () => { await apiPost("/api/logout", {}).catch(() => {}); location.href = "/login"; }; } }
+  if (isUserRole()) {  // assigned-devices view only: no snapshot data is loaded (the server would refuse it anyway)
+    $("#nav").innerHTML = `<a href="#/my" data-r="my">My devices</a><a href="#/alerts" data-r="alerts">Alerts <span class="alert-count badge sev-high" style="display:none"></span></a>`;
+    document.querySelectorAll("header .snap").forEach((e) => e.id !== "userBox" && (e.style.display = "none"));
+    $("#foot").textContent = "";
+    return route();
+  }
+  if (!isAdmin()) document.querySelectorAll('#nav a[data-r="config"]').forEach((a) => (a.textContent = "Configuration (view)"));
   S.snaps = await api("/api/snapshots");
   const sel = $("#snapSel");
   sel.innerHTML = [...S.snaps].reverse().map((s) => `<option value="${esc(s.id)}">${esc(s.id)}${s.has.includes("triage") ? " ✓" : ""}</option>`).join("");
@@ -1129,5 +1157,22 @@ async function init() {
   if (!S.snaps.length) { $("#main").innerHTML = `<div class="loading">No snapshots found in netmon/data.</div>`; return; }
   await loadSnap(S.snaps[S.snaps.length - 1].id);
 }
-window.addEventListener("hashchange", () => (S.snap || location.hash.startsWith("#/users")) && route());
+window.addEventListener("hashchange", () => (S.snap || isUserRole() || location.hash.startsWith("#/users")) && route());
+
+/* ----- My devices (User role): the events of the devices an admin assigned to this account ----- */
+V.my = async (el) => {
+  el.innerHTML = `<h1>My devices</h1><div class="sub">You can see the alerts and security events for the devices assigned to your account. Ask an admin if a device is missing.</div><div class="loading">Loading…</div>`;
+  let M; try { M = await api("/api/my"); } catch (e) { el.querySelector(".loading").textContent = String(e.message || e); return; }
+  el.querySelector(".loading").remove();
+  if (!M.devices.length) { el.appendChild(card("No devices assigned", `<div class="empty">No devices are assigned to your account yet, so there is nothing to show. Ask an admin to assign your devices on the Users page.</div>`)); return; }
+  el.appendChild(card(`Assigned devices (${M.devices.length})`, table(null, [{ k: "name", t: "Device", fmt: (v, d) => `<b>${esc(v || d.ips[0] || d.mac || d.id)}</b>${d.endpoint ? ' <span class="badge sev-info">endpoint</span>' : ""}` },
+    { k: "ips", t: "IP", cls: "mono", fmt: (v) => esc((v || []).join(", ")) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "last_seen", t: "Last seen", fmt: ft }], M.devices, { sort: "name", dir: 1, search: false })));
+  const TY = { finding: "Finding", ids: "IDS", admin: "Admin login", host: "Endpoint", ti: "Threat intel", vuln: "Vulnerability", gw: "Gateway" };
+  el.appendChild(card(`Security events (${M.events.length}) <span class="muted small">— snapshot ${esc(M.snapshot || "–")}</span>`, M.events.length ? table(null, [
+    { k: "sev", t: "Severity", fmt: badge, sort: (x) => sevRank(x.sev) }, { k: "type", t: "Type", fmt: (v) => esc(TY[v] || v) },
+    { k: "t0", t: "When", fmt: (v) => (v ? esc(new Date(v * 1000).toLocaleString()) : '<span class="muted">ongoing</span>'), sort: (x) => x.t0 || 0 },
+    { k: "label", t: "Event", fmt: (v) => esc(v) }, { k: "ips", t: "Device", cls: "mono small", fmt: (v) => esc((v || []).join(", ")) }], M.events, { sort: "t0" })
+    : `<div class="empty">No security events for your devices in the latest snapshot.</div>`));
+  el.appendChild(card("Urgent alerts", `<div class="small">Urgent alerts for your devices are on the <a href="#/alerts">Alerts</a> page, where you can also turn on push notifications.</div>`));
+};
 init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to load</h2><pre>${esc(e.stack || e)}</pre></div>`));

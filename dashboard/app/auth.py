@@ -1,6 +1,10 @@
 """User store + signed session cookies for the netmon dashboard (stdlib only).
 
-users.json : {username: {"hash": "scrypt$n$r$p$salt$dk", "gen": int, "created": iso, "last_login": iso, "pw_changed": iso}}
+users.json : {username: {"hash": "scrypt$n$r$p$salt$dk", "gen": int, "role": "admin"|"defender"|"user",
+                          "created": iso, "last_login": iso, "pw_changed": iso}}
+Roles (docs/ACCESS_CONTROL.md): admin = everything; defender = sees everything, changes no settings;
+user = sees only alerts/events for the devices an admin assigned to them. Records without a role (accounts
+created before roles existed) are migrated to "admin" once at startup by migrate_roles().
 secret.key : random HMAC key for session cookies
 Session cookie value = base64(user) . expiry . gen . hmac   (stateless; survives restarts)
 `gen` is bumped on password change / delete, which invalidates that user's existing sessions.
@@ -13,6 +17,8 @@ SECRET = os.path.join(STATE, "secret.key")
 SESSION_TTL = int(os.environ.get("SESSION_HOURS", "12")) * 3600
 MIN_PW = 10
 NAME_RE = re.compile(r"^[A-Za-z0-9._@-]{2,40}$")
+ROLES = ("admin", "defender", "user")
+ROLE_NAMES = {"admin": "Admin", "defender": "Network defender", "user": "User"}
 _lock = threading.Lock()
 _fail = {}  # client ip -> [timestamps]
 _ufail = {}  # username -> [(timestamp, client ip)]
@@ -74,12 +80,61 @@ def bootstrap(env_user, env_pass):
     with _lock:
         if load() or not env_user or not env_pass:
             return False
-        _save({env_user: {"hash": _hash(env_pass), "gen": 1, "created": _now(), "pw_changed": _now(), "last_login": None}})
+        _save({env_user: {"hash": _hash(env_pass), "gen": 1, "role": "admin", "created": _now(), "pw_changed": _now(), "last_login": None}})
         return True
 
 
+def migrate_roles():
+    """One-time upgrade: accounts that predate roles keep the full access they had, i.e. become admins.
+    Returns the names migrated."""
+    with _lock:
+        u = load()
+        todo = [k for k, v in u.items() if v.get("role") not in ROLES]
+        for k in todo:
+            u[k]["role"] = "admin"
+        if todo:
+            _save(u)
+        return todo
+
+
+def role_of(username):
+    """The user's role; unknown users / damaged records get the least privilege."""
+    r = (load().get(username) or {}).get("role")
+    return r if r in ROLES else "user"
+
+
+def set_role(username, role, actor):
+    if role not in ROLES:
+        return "role must be admin, defender or user"
+    with _lock:
+        u = load()
+        if username not in u:
+            return "no such user"
+        if u[username].get("role") == "admin" and role != "admin" and \
+                sum(1 for v in u.values() if v.get("role") == "admin") <= 1:
+            return "can't remove the last admin"
+        if username == actor and role != "admin":
+            return "you can't take admin away from yourself - ask another admin"
+        u[username]["role"] = role  # read on every request, so it takes effect immediately (no sign-out needed)
+        _save(u)
+
+
+def read_upto(username):
+    """User-role accounts keep a private "read up to alert id" marker instead of the shared read flag."""
+    return int((load().get(username) or {}).get("read_upto") or 0)
+
+
+def set_read_upto(username, alert_id):
+    with _lock:
+        u = load()
+        if username in u and int(alert_id) > int(u[username].get("read_upto") or 0):
+            u[username]["read_upto"] = int(alert_id)
+            _save(u)
+
+
 def public_list():
-    return [{"username": k, "created": v.get("created"), "last_login": v.get("last_login"), "pw_changed": v.get("pw_changed")}
+    return [{"username": k, "role": v.get("role") if v.get("role") in ROLES else "user", "created": v.get("created"),
+             "last_login": v.get("last_login"), "pw_changed": v.get("pw_changed")}
             for k, v in sorted(load().items())]
 
 
@@ -89,7 +144,9 @@ def check_password_rules(pw):
     return None
 
 
-def add(username, pw):
+def add(username, pw, role="user"):
+    if role not in ROLES:
+        return "role must be admin, defender or user"
     if not NAME_RE.match(username or ""):
         return "username: 2-40 chars, letters/digits/._@-"
     err = check_password_rules(pw or "")
@@ -99,7 +156,7 @@ def add(username, pw):
         u = load()
         if username in u:
             return "user already exists"
-        u[username] = {"hash": _hash(pw), "gen": 1, "created": _now(), "pw_changed": _now(), "last_login": None}
+        u[username] = {"hash": _hash(pw), "gen": 1, "role": role, "created": _now(), "pw_changed": _now(), "last_login": None}
         _save(u)
 
 
@@ -112,6 +169,8 @@ def delete(username, actor):
             return "you can't delete the account you're logged in with"
         if len(u) <= 1:
             return "can't delete the last user"
+        if u[username].get("role") == "admin" and sum(1 for v in u.values() if v.get("role") == "admin") <= 1:
+            return "can't delete the last admin"
         del u[username]
         _save(u)
 
@@ -163,7 +222,7 @@ def change_own_password(username, current, new, ip):
 
 def account_info(username):
     v = load().get(username) or {}
-    return {"user": username, "created": v.get("created"), "last_login": v.get("last_login"), "pw_changed": v.get("pw_changed"),
+    return {"user": username, "role": role_of(username), "created": v.get("created"), "last_login": v.get("last_login"), "pw_changed": v.get("pw_changed"),
             "min_password": MIN_PW}
 
 
