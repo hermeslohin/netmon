@@ -13,10 +13,7 @@ family (first 3 parts of the alert key, e.g. host|hnet-interp|<host>), so one no
 
 CLI (runs inside the dashboard container; host wrapper: netmon/enrich.sh):
   enrich.py events [--sid ID] [--all] [--max N] [--hosts N] [--ids N] [--gw N]   work list: host findings, Suricata sev 1-2, gateway events, then other events
-  enrich.py put -                       read {"model", "notes": [...], "links": [...], "host_notes": [...], "host_notes_delete": [...]}
-                                        from stdin and store it (host_notes: see kb.py)
-Each work item carries the owner's event notes (`user_notes`, authoritative guidance) and the host notes of the
-internal hosts involved (`host_notes`, {ip: [...]}) so the run decides with what earlier runs and the owner know.
+  enrich.py put -                       read {"model", "notes": [...], "links": [...]} from stdin and store it
 """
 import json, os, re, sqlite3, sys, time
 
@@ -150,11 +147,7 @@ def put(doc, events=None):
         else:
             c.execute("INSERT INTO runs (snapshot, started, stored, notes, links, rejected, model) VALUES (?,?,?,?,?,?,?)",
                       (sid, now, now, len(rows), len(lrows), len(bad), model))
-    out = {"notes": len(rows), "links": len(lrows), "manual_kept": kept, "rejected_ids": bad[:50]}
-    if doc.get("host_notes") or doc.get("host_notes_delete"):  # what the run learned about devices (kb.py)
-        import kb
-        out.update(kb.put({**doc, "model": model, "via": via}))
-    return out
+    return {"notes": len(rows), "links": len(lrows), "manual_kept": kept, "rejected_ids": bad[:50]}
 
 
 def status(event_ids=()):
@@ -243,32 +236,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     pick = ((hostq[:hosts] if hosts else hostq) + (idsq[:idsq_max] if idsq_max else idsq) + (gwq[:gw_max] if gw_max else gwq)
             + (rest[:limit] if limit else rest))
     pick.sort(key=lambda x: (x["note"] is not None, not (x["type"] in ("host", "gw") or sev12(x))))
-    hn_count = 0
-    try:  # the owner's event notes (authoritative guidance) and what earlier runs learned about the hosts involved
-        import kb
-        reg = kb._registry()
-        un = kb.event_notes([x["id"] for x in pick])
-        hn_cache = {}
-        for x in pick:
-            if un.get(x["id"]):
-                x["user_notes"] = [{"by": n["author"], "at": time.strftime("%Y-%m-%d", time.gmtime(n["ts"])), "text": n["text"]} for n in un[x["id"]]]
-            hn = {}
-            for ip in (E.get(x["id"]) or {}).get("ips") or []:
-                if ip not in hn_cache:
-                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "text": n["text"]}
-                                    for n in kb.host_notes(kb.subjects_for_ip(ip, reg))]
-                if hn_cache[ip]:
-                    hn[ip] = hn_cache[ip]
-            if hn:
-                x["host_notes"] = hn
-        hn_count = sum(1 for v in hn_cache.values() if v)
-    except Exception as e:  # noqa: BLE001 - the work list must not depend on the notes store
-        print(f"kb notes unavailable: {e}", file=sys.stderr)
     return {"snapshot": sid, "total_events": len(E), "note_keys": len(out), "without_note": todo,
             "host_findings": len(hostq), "host_without_note": sum(1 for x in hostq if not x["note"]),
             "ids_sev12": len(idsq), "ids_sev12_without_note": sum(1 for x in idsq if not x["note"]),
             "gateway": len(gwq), "gateway_without_note": sum(1 for x in gwq if not x["note"]),
-            "events_with_user_notes": sum(1 for x in pick if x.get("user_notes")), "hosts_with_notes": hn_count,
             "listed": len(pick), "llm": {k: res.get("llm", {}).get(k) for k in ("model", "confirmed", "rejected", "pending")},
             "events": pick}
 

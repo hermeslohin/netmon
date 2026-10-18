@@ -143,7 +143,7 @@ def _tool_label(name):
     name = re.sub(r"^(mcp__)?(netmon__)?", "", name)
     return {"netmon_overview": "netmon status", "netmon_alarms": "alarms", "netmon_findings": "findings",
             "netmon_device": "device lookup", "netmon_devices": "device list", "netmon_endpoints": "endpoint findings",
-            "netmon_recent_alerts": "recent alerts", "netmon_ids_alerts": "IDS alerts", "netmon_reports": "reports", "netmon_notes": "notes",
+            "netmon_recent_alerts": "recent alerts", "netmon_ids_alerts": "IDS alerts", "netmon_reports": "reports",
             "web_search": "web search", "web_extract": "reading a web page"}.get(name, name.replace("_", " "))
 
 

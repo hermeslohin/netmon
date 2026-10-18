@@ -16,7 +16,6 @@ import itemcmp
 import auth
 import tintel
 import chat
-import kb
 from http.cookies import SimpleCookie
 import base64, glob, gzip, hmac, json, os, re, ssl, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -638,29 +637,6 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)}, 400)
                 print(f"ai review: {user} {act} {pr[:120]!r}", file=sys.stderr)
                 return self._json({"ok": True})
-            if u.path == "/api/kb/host":  # host/device notes (AI-written knowledge; people may add or delete)
-                act = body.get("action")
-                if act == "add":
-                    nid = kb.add_host_note({"subject": body.get("subject")}, body.get("text"), body.get("category"), author="user:" + user,
-                                           via="dashboard", note_id=body.get("id"))
-                    print(f"kb: {user} {'updated' if body.get('id') else 'added'} host note {nid} on {str(body.get('subject'))[:60]}", file=sys.stderr)
-                    return self._json({"ok": True, "id": nid})
-                if act == "delete":
-                    n = kb.delete_host_note(body.get("id"))
-                    print(f"kb: {user} deleted host note {body.get('id')!r}", file=sys.stderr)
-                    return self._json({"ok": bool(n)})
-                return self._json({"error": "action must be add or delete"}, 400)
-            if u.path == "/api/kb/event":  # people's notes on an event (📝); the AI reads them as guidance
-                act = body.get("action")
-                if act == "add":
-                    nid = kb.add_event_note(body.get("eid"), body.get("text"), user, body.get("label"))
-                    print(f"kb: {user} added event note {nid} on {str(body.get('eid'))[:80]!r}", file=sys.stderr)
-                    return self._json({"ok": True, "id": nid, "notes": kb.event_notes([str(body.get("eid"))]).get(str(body.get("eid")), [])})
-                if act == "delete":
-                    n = kb.delete_event_note(body.get("id"))
-                    print(f"kb: {user} deleted event note {body.get('id')!r}", file=sys.stderr)
-                    return self._json({"ok": bool(n), "notes": kb.event_notes([str(body.get("eid") or "")]).get(str(body.get("eid") or ""), [])})
-                return self._json({"error": "action must be add or delete"}, 400)
             if u.path == "/api/alerts/read":
                 store.alerts_read_all()
                 return self._json({"ok": True})
@@ -781,18 +757,7 @@ class H(BaseHTTPRequestHandler):
                     s_ = snapshots()
                     sid = s_[-1]["id"] if s_ else ""
                 corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
-                return self._json(kb.apply(enrich.apply(corr_llm.apply(correlation(sid)))) or {"error": "not found"}, 200)
-            if path == "/api/kb/host":  # notes for one device / endpoint: ?s=mac:..,ip:..,host:..
-                subs = [s.strip() for s in (q.get("s") or [""])[0].split(",") if s.strip()][:20]
-                return self._json({"notes": kb.host_notes(subs)})
-            if path == "/api/kb/resolve":  # canonical subject for ?ip= / ?mac= / ?host=
-                try:
-                    s_, label = kb.resolve(ip=(q.get("ip") or [None])[0], mac=(q.get("mac") or [None])[0], host=(q.get("host") or [None])[0])
-                except ValueError as e:
-                    return self._json({"error": str(e)}, 400)
-                return self._json({"subject": s_, "label": label})
-            if path == "/api/kb/all":  # the Notes page
-                return self._json({"host_notes": kb.host_notes(), "event_notes": kb.all_event_notes()})
+                return self._json(enrich.apply(corr_llm.apply(correlation(sid))) or {"error": "not found"}, 200)
             if path == "/api/mitre":
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":
