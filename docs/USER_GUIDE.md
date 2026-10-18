@@ -69,6 +69,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 
 Every page is made of boxes (cards).
 
+- **ⓘ About this box:** the small *i* next to each box title explains what the box shows, where its data comes from and how to use it. Click it again, press Esc or click elsewhere to close it.
 - **Collapse or expand:** click a box's title. The first three boxes on a page start open.
 - **Rearrange:** drag a box by its ⠿ grip.
 - **Resize:** drag a box's bottom-right corner (on phones, height only).

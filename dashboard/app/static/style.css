@@ -411,3 +411,11 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .chatm-sel{max-width:240px;font-size:12px;padding:2px 4px}
 .askdlg-f .chatm{margin-left:0;margin-right:auto}
 @media (max-width:900px){.chatm{flex:1 1 100%;margin-left:0}.chatm-sel{max-width:100%;flex:1}}
+
+/* ⓘ info button on box titles + popover (cardinfo_ui.js) */
+.ci-btn{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;margin:0 2px 0 6px;padding:0;border-radius:50%;border:1px solid var(--muted);background:transparent;color:var(--muted);font:italic 700 11px/1 Georgia,serif;cursor:pointer;vertical-align:2px;opacity:.75}
+.ci-btn:hover,.ci-btn[aria-expanded=true]{opacity:1;color:var(--accent);border-color:var(--accent)}
+.ci-pop{position:fixed;overflow:auto;z-index:60;background:var(--panel,#161b22);border:1px solid var(--border,#30363d);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.45);padding:10px 12px 12px;font-size:13px;line-height:1.45;color:var(--fg)}
+.ci-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.ci-head b{flex:1;font-size:14px}
+.ci-sec{margin-top:8px}.ci-l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:2px}
+@media (max-width:900px){.ci-btn{width:22px;height:22px;font-size:13px}}
