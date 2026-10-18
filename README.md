@@ -62,12 +62,13 @@ Want to run this on your own network with your own Hermes? Follow **[docs/SETUP.
 
 ## Architecture
 
-![netmon architecture: endpoints with Elastic Agent (Elastic Defend, osquery) and the Security Onion sensor feed Elasticsearch; the Hermes agent on the monitoring host runs a 15-minute watcher and a nightly pipeline that query Elasticsearch read-only and the UniFi Site Manager API, use Claude, Firecrawl for web research and a local LLM, and serve results through the netmon dashboard to family browsers and phones](docs/architecture.svg)
+![netmon architecture: endpoints with Elastic Agent (Elastic Defend, osquery) and the Security Onion sensor feed Elasticsearch; the Hermes agent on the monitoring host runs a 15-minute watcher and a nightly pipeline that query Elasticsearch read-only and the UniFi Site Manager API, use Claude, Firecrawl for web research and a local LLM, and serve results through the netmon dashboard to family browsers and phones; the dashboard writes its audit log of user actions and AI conversations to the Elasticsearch index logs-netmon](docs/architecture.svg)
 
 - **Data sources:** Elastic Agent on each endpoint (Elastic Defend + osquery, managed by Fleet) and the Security Onion sensor (Suricata, Zeek) write to Security Onion's Elasticsearch. The UniFi gateway is read through the UniFi Site Manager cloud API.
 - **Hermes agent** schedules every job. The 15-minute watcher is deterministic and calls no model. The nightly run uses **Claude** for triage and web research. A **local LLM** (LM Studio) on the same machine reviews the dashboard's event correlations: the script proposes links, the model decides (see [docs/CORRELATION.md](docs/CORRELATION.md)).
 - **Outputs:** SQLite state, nightly PDF reports and the HTTPS dashboard with Web Push. Nothing is posted to chat.
 - **Ask Hermes:** the dashboard's chat (and the 💬 button on every finding) talks to a separate, restricted Hermes profile (`netmonchat`) over its loopback-only API. That profile has no terminal, file or memory tools. It gets web search plus `netmon_mcp.py`, a read-only MCP server with nine query tools over the netmon data (snapshots, triage, findings, devices, endpoint findings, IDS and recent alerts, reports). The MCP server opens SQLite read-only.
+- **Audit log:** every user action (sign-ins, page views, check-offs, notes, settings, user changes, refused requests) and every conversation between netmon and an AI model (Ask Hermes, the correlation reviewer, model comparisons, the research job; prompt, answer, model, tokens) is written to Security Onion's Elasticsearch, index `logs-netmon`, with an append-and-read-only key. Admins read it on **More → Audit log**. Secrets are redacted. See [docs/AUDIT_LOG.md](docs/AUDIT_LOG.md).
 - Regenerate the diagram with `python3 docs/make_architecture.py`.
 
 ## Components

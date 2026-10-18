@@ -114,7 +114,7 @@ Every user action and every AI conversation is written to the Elasticsearch inde
    (create it as a user, not with another API key: Elasticsearch refuses keys with privileges derived from an API key).
 3. Paste the `encoded` value on **More → Audit log → Change the audit key or index**, **Test**, **Save** (stored in `dashboard/state/integrations.json`, 0600). `NETMON_AUDIT_ES_KEY` in `dashboard/.env` works too.
 
-Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 MB) and are sent automatically.
+Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 MB) and are sent automatically. Full reference: [AUDIT_LOG.md](AUDIT_LOG.md).
 
 ### Local LLM for correlation review (optional, recommended)
 

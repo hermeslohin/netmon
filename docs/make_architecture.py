@@ -3,7 +3,7 @@
 Generate docs/architecture.svg (netmon architecture) in the architecture-diagram skill's design system."""
 from html import escape as E
 
-W, H = 1300, 1026
+W, H = 1300, 1046
 C = {  # semantic palette: fill, stroke
     "front": ("rgba(8,51,68,0.4)", "#22d3ee"), "back": ("rgba(6,78,59,0.4)", "#34d399"),
     "db": ("rgba(76,29,149,0.4)", "#a78bfa"), "cloud": ("rgba(120,53,15,0.3)", "#fbbf24"),
@@ -76,7 +76,7 @@ region(980, 70, 300, 740, "CLOUD SERVICES", "#fbbf24")
 node("ep", 50, 100, 320, 84, "back", "Endpoints · Elastic Agent", ["Elastic Defend (process / network / file)", "osquery (osquerybeat) · system auth & syslog"], "HOSTS")
 node("fleet", 50, 206, 320, 52, "back", "Fleet Server", ["agent enrollment + policy"])
 node("sensor", 56, 312, 308, 70, "sec", "Network sensor", ["Suricata IDS · Zeek · PCAP", "mirrors all LAN traffic"], "NSM")
-node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/dns/tls/files", "endpoint events · osquery results", "detection-rule hits", "read-only API key for netmon"], "SIEM")
+node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/dns/tls/files", "endpoint events · osquery results", "detection-rule hits", "read-only API key for netmon", "audit log: logs-netmon (append + read)"], "SIEM")
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
 
 # ---------------- monitoring host
@@ -86,7 +86,7 @@ node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)",
 node("nightly", 698, 226, 222, 82, "back", "Nightly pipeline", ["collect → analyze → triage", "baseline · ATT&CK · report.py"], "05:00 UTC")
 node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "nightly snapshots + triage JSON"])
 node("pdf", 698, 348, 222, 76, "db", "PDF reports", ["one per night, kept locally", "served for download"])
-node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed) · chart drill-down", "Web Push urgent notifications · per-user device subscriptions"], "WEB APP")
+node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed) · chart drill-down", "Web Push urgent notifications · per-user device subscriptions", "audit log: every user action + AI conversation"], "WEB APP")
 node("mcp", 460, 608, 222, 76, "bus", "netmon MCP server", ["netmon_mcp.py · stdio", "9 read-only query tools"], "READ-ONLY")
 node("chatp", 698, 608, 222, 76, "ai", "Hermes chat profile", ["netmonchat · API on loopback", "tools: web + netmon only"], "ASK HERMES")
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
@@ -145,6 +145,10 @@ lab2(958, 330, "#fbbf24", "web", "extract")
 arrows.append('<path d="M920,624 L974,624 L974,414 L1000,414" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
 lab2(974, 572, "#fbbf24", "web", "extract")
 
+# audit log: dashboard -> Elasticsearch logs-netmon (own create_doc + read key; spools locally while ES is down)
+arrows.append('<path d="M460,552 L364,536" fill="none" stroke="#a78bfa" stroke-width="1.6" stroke-dasharray="2,2" marker-end="url(#ah-a78bfa)"/>')
+lab2(402, 562, "#a78bfa", "audit", "log")
+
 # ---------------- legend
 ly = 850
 legend = [("#34d399", "data pipeline"), ("#fb7185", "security sensor / gate"), ("#a78bfa", "storage / query"),
@@ -156,12 +160,13 @@ for i, (c, t) in enumerate(legend):
     out_leg.append(f'<rect x="{x}" y="{y - 9}" width="12" height="12" rx="2" fill="none" stroke="{c}" stroke-width="1.5"/><text x="{x + 20}" y="{y + 1}" fill="#94a3b8" font-size="10">{E(t)}</text>')
 out_leg.append(f'<line x1="720" y1="{ly + 18}" x2="760" y2="{ly + 18}" stroke="#94a3b8" stroke-width="1.5"/><text x="768" y="{ly + 22}" fill="#94a3b8" font-size="10">request / data flow</text>')
 out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6,3"/><text x="768" y="{ly + 42}" fill="#94a3b8" font-size="10">via internet / cloud</text>')
-notes = ["Elasticsearch is queried read-only; netmon never changes Security Onion, UniFi or the network.",
+notes = ["Elasticsearch is queried read-only; the one write is the dashboard's append-only audit log (index logs-netmon). netmon never changes UniFi or the network.",
          "Nightly: Claude triages findings with web research; report.py renders the PDF (downloadable in the dashboard).",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask Hermes: dashboard chat → isolated Hermes profile (no terminal/files/memory) → read-only netmon MCP server.",
          "Web research: the nightly job and Ask Hermes fetch and read source pages through Firecrawl (web_extract).",
-         "Correlation: the script proposes links between events and vulnerabilities; the local LLM confirms or rejects each one."]
+         "Correlation: the script proposes links between events and vulnerabilities; the local LLM confirms or rejects each one.",
+         "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
 

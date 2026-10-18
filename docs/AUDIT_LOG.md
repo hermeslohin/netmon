@@ -1,0 +1,236 @@
+# Audit log
+
+netmon records **who did what in the dashboard** and **every conversation between netmon and an AI model**. Entries go to
+Security Onion's Elasticsearch, in the index `logs-netmon`. Admins read them on **More → Audit log**; they are also
+searchable in Kibana and Security Onion Hunt (the fields use Elastic Common Schema names).
+
+- [What is recorded](#what-is-recorded)
+- [What is not recorded](#what-is-not-recorded)
+- [The Audit log page](#the-audit-log-page)
+- [How it works](#how-it-works)
+- [Setup](#setup)
+- [Fields](#fields)
+- [Searching in Kibana](#searching-in-kibana)
+- [Retention and volume](#retention-and-volume)
+- [Troubleshooting](#troubleshooting)
+- [Code map](#code-map)
+
+## What is recorded
+
+Two kinds of entries, told apart by `event.dataset`:
+
+### User actions: `netmon.audit`
+
+| Action (`event.action`) | When |
+|---|---|
+| `auth.login` | Every sign-in attempt. `outcome: failure` (HTTP 401/429) for wrong passwords and lockouts. `user.name` is the name that was typed. |
+| `auth.logout` | Sign-out. |
+| `page.view` | Each page the user opens (the browser reports the route, e.g. `#/devices?ev=...`). |
+| `acks.check` / `acks.uncheck` | Checking an event off / restoring it. |
+| `kb.event`, `kb.host` (`.add`, `.delete`, `.approve`, `.reject`) | 📝 event notes and host notes, and approving User notes. |
+| `aireview.*`, `compare.item`, `compare.adopt`, `aireview.compare` | Confirming/rejecting AI correlation verdicts, running model comparisons, adopting a model's answer. |
+| `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask Hermes: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
+| `users.*` | Adding and deleting users, password resets, role changes, device assignment. Console changes (`docker exec ... server.py add-user / set-role / set-password`) are logged as user `console`. |
+| `config.*`, `llm.config`, `llm.costlimit` | Integrations (Elasticsearch, UniFi, audit key), Security Triage settings, review schedule and "Run now", model choice, AI cost limits. |
+| `push.*`, `alerts.read`, `account.password` | Notification subscriptions and preferences, marking alerts read, changing your own password. |
+| `report.download` / `report.view` | Downloading or opening a nightly PDF report. |
+| `ti.lookup`, `compare.item.history`, `aireview.compare.history` | Threat-intel lookups and opening comparison history. |
+| `audit.search` / `audit.open` | Reading the audit log itself (so admins' reading is audited too). |
+| `access.denied` | Any request refused with HTTP 403 (for example a User opening an admin page). |
+
+The rule behind the table: **every POST request is an entry** (the action name is the API path plus the `action`
+field of the request, e.g. `/api/users` + `{"action": "add"}` → `users.add`), plus the listed GETs and every 403.
+Ordinary data loads (opening tables and charts) are covered by `page.view` and are not logged one by one.
+
+Each user-action entry has: time, user, role, source IP (the real client IP when the dashboard is reached through the
+Cloudflare tunnel), browser, HTTP method, path and status code, `success`/`failure`, the target (user name, event id,
+note id, ...) and the request parameters with secrets redacted.
+
+### AI conversations: `netmon.llm`
+
+| Action | Who talks to the model | What is stored |
+|---|---|---|
+| `llm.chat` | Ask Hermes, for the signed-in user | The exact text sent to Hermes (including the context block of the page the 💬 was opened from), the full answer, the Hermes session id, the tools Hermes used, model, tokens when reported, duration, status (`completed`, `failed`, `cancelled`, `disconnected`). |
+| `llm.correlation-review` | The background correlation reviewer, user `netmon (background reviewer)` | System prompt, prompt (the anchor event and candidate links), the model's JSON answer, model, tokens, seconds. |
+| `llm.correlation-compare` | AI review → compare models, for the user who ran it | Same as above, one entry per model. |
+| `llm.item-compare` | "Compare models" on a single finding, for the user who ran it | System prompt, the item as sent, the model's answer, verdict in the message, tokens, seconds. One entry per model. |
+| `llm.research-input` | The scheduled research job (Hermes cron), user `netmon (research job)` | The work list netmon handed to the job's model (`enrich.sh events`). |
+| `llm.research-result` | The research job | Everything the model sent back: research notes, verdicts, correlation links (`enrich.sh put`). |
+| `llm.research-hostnotes` | The research job | AI-written host notes it added, changed or deleted (`enrich.sh kbput`). |
+
+Failed model calls are logged too, with `outcome: failure` and the error. Prompts and answers longer than 32,000
+characters are cut (marked `… [truncated, N chars]`); system prompts at 12,000.
+
+The research job runs inside Hermes, not inside the dashboard, so netmon sees what goes in and what comes back, not the
+job's internal tool calls. Those are in the Hermes cron session logs on the host.
+
+## What is not recorded
+
+- **Secrets.** Any request parameter whose name looks like a password, key, token, cookie or credential (`password`,
+  `current`, `api_key`, `key`, `p256dh`, `auth`, ...) is replaced by `[redacted]` before the entry leaves the request.
+  This happens in `audit.clean()`, before anything is queued or written to disk.
+- Session cookies and push-subscription keys.
+- Background reads that no user started (the 15-minute watcher, the nightly collectors). They don't change anything and
+  don't talk to an AI model. The watcher calls no model.
+
+## The Audit log page
+
+**More → Audit log**, admins only. Network defenders and Users don't see the menu entry, and the API refuses them (that
+refusal is itself logged).
+
+- **Audit log storage**: whether the dashboard can write to Elasticsearch, how many entries are stored, how much is
+  waiting locally, and a form to change the audit key or index (**Test** checks the key without saving it).
+- **Filters**: type (everything / user actions / AI conversations), time range (1 hour to 90 days, or all), user,
+  action, outcome, model, and a text search that also searches prompts and answers. Filters are kept in the page
+  address (`#/audit?kind=llm&range=7d&user=alex`), so a filtered view can be bookmarked or shared.
+- **Counters**: entries, user actions, AI conversations, failed or denied, users, AI tokens in/out for the filter.
+- **Activity over time**: stacked bars of user actions and AI conversations.
+- **Entries**: newest first, 50 per page (Newer/Older). Click a row for **Entry details**: every field, the system prompt,
+  the prompt, the answer, the request parameters, and the raw Elasticsearch document.
+
+## How it works
+
+```
+ browser ──► dashboard (server.py) ──► audit.action() ─┐
+                │                                       │   in-memory queue
+                ├── Ask Hermes ── chat.stream ──► audit.llm() ──┤   (never blocks a request)
+                ├── corr_llm / itemcmp ─────────► audit.llm() ──┤
+ Hermes cron ──► enrich.py / kb.py (docker exec) ► audit.llm() ─┤
+                                                                ▼
+                                   writer thread, a bulk request every ~2 s
+                                   ├─ OK ──────────► Elasticsearch  logs-netmon
+                                   └─ ES down / no key ─► state/audit_spool.jsonl ─► sent when ES is back
+```
+
+- Writing never slows the dashboard down: entries go into a queue and a background thread sends them in batches with
+  the `_bulk` API (`create` operations only).
+- If Elasticsearch is unreachable or no key is set, batches are appended to `dashboard/state/audit_spool.jsonl` (0600,
+  max 50 MB). The writer retries with back-off (up to 2 minutes) and sends the spool, oldest first, as soon as
+  Elasticsearch accepts it. Batches sent before a failure are not re-sent.
+- Short-lived processes (the research job's `enrich.py` / `kb.py` and the console commands) send their own entries
+  before they exit, and leave the spool to the dashboard so nothing is sent twice.
+- Entries rejected by Elasticsearch (a mapping problem with a single document) are counted and shown in the storage
+  box, and don't block the rest.
+- The page reads through the same key: `/api/audit` (search and aggregations), `/api/audit/doc` (one entry),
+  `/api/audit/status`. The large text fields (prompts, answers) are left out of the list and loaded only when you open
+  an entry.
+
+## Setup
+
+One time, with an Elasticsearch account that can manage index templates and create API keys (Kibana → Dev Tools):
+
+1. **Index template**: fixed mapping, `dynamic: false`, so prompts and answers are full-text searchable and the field
+   count can't grow. The body is in [`audit_index_template.json`](audit_index_template.json).
+
+   ```
+   PUT _index_template/netmon-audit
+   { ...contents of docs/audit_index_template.json... }
+
+   PUT logs-netmon
+   ```
+
+2. **API key for the dashboard**: allowed only to add and read entries, never to change or delete them:
+
+   ```
+   POST /_security/api_key
+   {"name": "netmon-audit",
+    "role_descriptors": {"netmon_audit": {"indices": [{"names": ["logs-netmon"],
+      "privileges": ["create_doc", "read", "view_index_metadata"]}]}}}
+   ```
+
+   Create it as a user. Elasticsearch refuses to create a key with privileges from another API key. Without
+   `role_descriptors` the key gets all of your own rights; check it with
+   `GET _security/user/_has_privileges` (with the key) and `{"index": [{"names": ["logs-netmon"], "privileges": ["delete"]}]}`,
+   which should answer `false`.
+
+3. **Give the key to the dashboard**: paste the `encoded` value on **More → Audit log → Change the audit key or index**,
+   press **Test**, then **Save**. It is stored in `dashboard/state/integrations.json` (0600, git-ignored) under
+   `audit`. Alternatively set `NETMON_AUDIT_ES_KEY` in `dashboard/.env` and run `./deploy.sh`. The Elasticsearch URL
+   is the one used for everything else (Configuration → Integrations, or `es_url` in `site.json`).
+
+To use another index, enter it in the same form (one concrete name, no wildcards or commas) and create the template and
+index for that name.
+
+## Fields
+
+| Field | Meaning |
+|---|---|
+| `@timestamp` | When it happened (UTC). |
+| `event.dataset` | `netmon.audit` (user action) or `netmon.llm` (AI conversation). |
+| `event.module`, `event.kind` | Always `netmon`, `event`. |
+| `event.action` | What happened, see the tables above. |
+| `event.outcome` | `success` or `failure`. |
+| `event.category`, `event.type` | ECS categories: `authentication`, `web`, `iam`, `file`, `process`; `access`, `change`, `info`. |
+| `event.duration` | AI call duration in nanoseconds. |
+| `event.id` | Unique id of the entry. |
+| `user.name`, `user.roles` | Who; `admin`, `defender` or `user`. Background work is `netmon (background reviewer)` / `netmon (research job)`; console commands are `console`. |
+| `source.ip`, `user_agent.original` | Client address and browser. |
+| `http.request.method`, `http.response.status_code`, `url.path` | The request. |
+| `message` | One-line summary (shown in the list). |
+| `netmon.target` | What the action was about (`username=…`, `id=…`, `eid=…`, `route=…`). |
+| `netmon.params` | Request parameters, secrets redacted (`flattened` type). |
+| `gen_ai.system` | Provider: `lmstudio`, `anthropic`, `hermes (netmonchat profile)`, `hermes (research job)`. |
+| `gen_ai.request.model` | Model name. |
+| `gen_ai.prompt`, `gen_ai.completion` | What netmon sent and what the model answered (full text, searchable). |
+| `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Tokens when the provider reports them. |
+| `netmon.llm.purpose` | `chat`, `correlation-review`, `correlation-compare`, `item-compare`, `research-input`, `research-result`, `research-hostnotes`. |
+| `netmon.llm.system_prompt` | The instructions given to the model. |
+| `netmon.llm.session_id`, `netmon.llm.tools`, `netmon.llm.status`, `netmon.llm.error` | Hermes session, tools used, how the turn ended, error text. |
+
+## Searching in Kibana
+
+Create a data view for `logs-netmon` with time field `@timestamp`. Useful KQL queries:
+
+```
+event.action : "auth.login" and event.outcome : "failure"           # failed sign-ins
+event.outcome : "failure" and event.dataset : "netmon.audit"        # everything refused or failed
+user.name : "alex" and not event.action : "page.view"               # what one person changed
+event.action : users.*                                              # account and role changes
+event.dataset : "netmon.llm" and gen_ai.completion : "malicious"    # AI answers that said "malicious"
+event.action : "llm.chat" and gen_ai.prompt : *password*            # chat messages mentioning passwords
+```
+
+Security Onion's detection rules can alert on these too, for example on several failed `auth.login` entries from one
+`source.ip`.
+
+## Retention and volume
+
+There is no automatic deletion yet: the index grows until you add a policy. Most entries come from the background
+correlation reviewer (about one per 3–30 seconds while it is working through new events, several thousand a day on a busy
+day). User actions are a few hundred a day. An entry with a prompt and answer is typically 2–10 KB.
+
+To keep, for example, 90 days, delete old entries on a schedule with an account that can (the dashboard's key can't):
+
+```
+POST logs-netmon/_delete_by_query
+{"query": {"range": {"@timestamp": {"lt": "now-90d"}}}}
+```
+
+or move to a data stream with an ILM policy if you want rollover and automatic deletion.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| Storage box: *not reachable … audit API key not configured* | No key saved yet. See [Setup](#setup). Entries are waiting locally. |
+| *HTTP 401* | The key is wrong, expired or was deleted. Create a new one and save it. |
+| *HTTP 403 … unauthorized … create_doc* | The key lacks `create_doc` or `read` on the index (or the index name was changed). |
+| *N waiting* grows | Elasticsearch is down or refusing writes. Container log: `docker logs netmon-dashboard 2>&1 \| grep audit`. Entries are sent automatically once it works again. Over 50 MB, new entries are dropped (counted as *dropped*). |
+| *N rejected* | A field didn't fit the mapping. The storage box shows the Elasticsearch error; check the template. |
+| Page shows *the server answered HTTP … without data* | The dashboard or the Cloudflare tunnel answered with an error page instead of data. Check that the container is running. |
+| No research-job entries | They appear when the scheduled job runs (`enrich.sh events` / `put` / `kbput`). |
+
+On startup the container log says `audit log -> <url>/logs-netmon (key set)` or `(key NOT set - spooling)`.
+
+## Code map
+
+| File | Role |
+|---|---|
+| `dashboard/app/audit.py` | `action()` and `llm()` build entries; `clean()` redacts secrets; the writer thread, spool, `search()`, `doc()`, `status()`. |
+| `dashboard/app/server.py` | `do_POST` / `do_GET` wrappers write one entry per request (`audit_action_name`, `AUDIT_GET`); the Ask Hermes handler writes the `llm.chat` entry; `/api/audit*` endpoints (admin only); console commands. |
+| `dashboard/app/chat.py` | `stream()` fills the record of a chat turn (input, answer, tools, status). |
+| `dashboard/app/corr_llm.py`, `itemcmp.py` | Wrap every model call (`_complete`, `_ask`) with an `llm.*` entry, also on errors. |
+| `dashboard/app/enrich.py`, `kb.py` | Research-job input and results. |
+| `integrations.py` | `audit_key()`, `audit_index()`; the `audit` section of `integrations.json` and its **Test**. |
+| `dashboard/app/static/audit.js` | The More → Audit log page. `app.js` reports page views (`auditView`). |
+| `docs/audit_index_template.json` | Index template (mapping). |

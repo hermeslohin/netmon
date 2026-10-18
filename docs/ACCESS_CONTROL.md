@@ -99,7 +99,8 @@ adds and deletes are logged as `user admin: …`.
 Everything is also written to the **audit log** (`dashboard/app/audit.py`, Elasticsearch index `logs-netmon`, page More →
 Audit log): every sign-in attempt, every POST (with its parameters, secrets redacted), page views, report downloads,
 audit-log reads, every refused request (403), console user changes (`server.py add-user / set-role / set-password`),
-and every conversation between the dashboard and an AI model (prompt, answer, model, tokens, time).
+and every conversation between the dashboard and an AI model (prompt, answer, model, tokens, time). See
+[AUDIT_LOG.md](AUDIT_LOG.md).
 
 ## Upgrade from the single-tier setup
 
