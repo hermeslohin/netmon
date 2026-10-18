@@ -1,6 +1,6 @@
 // Notes knowledge base (kb.py): host/device notes (written mostly by the AI, people may add/delete) shown on the host
 // and endpoint pages and on the Notes page, plus people's event notes behind the 📝 button next to every event's
-// Related count (related.js adds the button). The AI reads both before deciding (4-hourly research, correlation
+// Related count (related.js adds the button). The AI reads both before deciding (twice-daily research, correlation
 // reviewer, chat assistant).
 (() => {
   const CATS = ["role", "baseline", "behavior", "decision", "risk", "config", "watch", "other"];
@@ -49,13 +49,13 @@
     return ip && S.snap?.raw?.devices?.[ip] ? `<a href="#/device/${encodeURIComponent(ip)}">${name}</a> <span class="muted small mono">${esc(ip)}</span>` : `${name} <span class="muted small mono">${esc(v)}</span>`;
   };
   V.notes = async (el) => {
-    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). The 4-hourly AI research, the correlation reviewer and Ask Hermes read these before deciding.</div>`;
+    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). The twice-daily AI research, the correlation reviewer and Ask Hermes read these before deciding.</div>`;
     const d = await api("/api/kb/all");
     const hn = d.host_notes || [], en = d.event_notes || [];
     el.insertAdjacentHTML("beforeend", kpis([["Host notes", hn.length], ["Devices with notes", new Set(hn.map((n) => n.subject)).size], ["By AI", hn.filter((n) => n.author === "ai").length], ["Event notes", en.length]]));
     el.appendChild(card(`Host notes (${hn.length})`, hn.length ? table(null, [{ k: "subject", t: "Device / host", fmt: (v, n) => subjLink(v, n.label) }, { k: "category", t: "Category", fmt: (v) => `<span class="badge">${esc(v)}</span>` },
       { k: "text", t: "Note", fmt: (v) => `<div class="kb-text-v">${esc(v)}</div>` }, { k: "author", t: "By", fmt: (v, n) => by(n) }, { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }],
-      hn, { sort: "updated" }) : `<div class="empty">No host notes yet. The AI writes them during its 4-hourly research; you can add notes on any host or endpoint page.</div>`));
+      hn, { sort: "updated" }) : `<div class="empty">No host notes yet. The AI writes them during its twice-daily research; you can add notes on any host or endpoint page.</div>`));
     el.appendChild(card(`Event notes (${en.length})`, en.length ? table(null, [{ k: "label", t: "Event", fmt: (v, n) => esc(v || n.eid) }, { k: "text", t: "Note", fmt: (v) => `<div class="kb-text-v">${esc(v)}</div>` },
       { k: "author", t: "By", fmt: (v) => `👤 ${esc(v)}` }, { k: "ts", t: "When", fmt: (v) => esc(when(v)) }],
       en, { sort: "ts" }) : `<div class="empty">No event notes yet. Click 📝 next to any event's Related count to add one.</div>`));
@@ -76,7 +76,7 @@
           <button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div></div>`).join("") || `<div class="muted small">No notes on this event yet.</div>`}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Expected: this is my nightly backup. / Escalate if seen again from this host."></textarea>
         <div><button type="button" class="kb-save">Save note</button></div>
-        <div class="small muted">The AI reads your notes on this event (and on later repeats of it) in its 4-hourly research and when deciding which events are related, and treats them as authoritative guidance.</div>
+        <div class="small muted">The AI reads your notes on this event (and on later repeats of it) in its twice-daily research and when deciding which events are related, and treats them as authoritative guidance.</div>
       </div>`;
     pop.querySelector(".rel-x").onclick = close;
     pop.querySelector(".kb-save").onclick = () => {

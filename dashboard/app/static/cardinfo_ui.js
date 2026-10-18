@@ -12,7 +12,7 @@
     const any = Object.keys(I).find((k) => k.split("|")[1] === t);  // same box shown on another page
     if (any) return I[any];
     const sub = main.querySelector("h1 + .sub, .sub")?.textContent.trim();
-    return { what: `${t}: part of the ${main.querySelector("h1")?.textContent.trim() || "current"} page.`, source: sub || "The selected snapshot (the last 24 hours, collected every 4 hours).", use: "Click the title to collapse or expand the box. Many rows and chart bars can be clicked to drill down." };
+    return { what: `${t}: part of the ${main.querySelector("h1")?.textContent.trim() || "current"} page.`, source: sub || "The selected snapshot (the last 24 hours, collected twice a day).", use: "Click the title to collapse or expand the box. Many rows and chart bars can be clicked to drill down." };
   }
   let pop = null, owner = null;
   const close = () => { pop?.remove(); pop = null; owner?.setAttribute("aria-expanded", "false"); owner = null; };

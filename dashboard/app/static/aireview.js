@@ -19,6 +19,9 @@
   const until = (ts) => { if (!ts) return "—"; const s = ts - Date.now() / 1000; return s < 0 ? "due now" : s < 5400 ? `in ${Math.round(s / 60)} min` : `in ${(s / 3600).toFixed(1)} h`; };
   const dur = (s) => (s == null ? "" : s < 90 ? `${s} s` : `${Math.round(s / 60)} min`);
   const clock = (ts) => (ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+  // "every 12 h" from the job's cron grid (llm_broker.schedule_expr writes "0 H-23/N * * *") or interval minutes
+  const every = (expr, mins) => { const m = /^\d+ \d+-23\/(\d+) /.exec(expr || ""); const n = m ? 60 * m[1] : mins;
+    return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
   function claudeCard(C) {
     if (C.error) return card("Claude triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`);
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
@@ -29,7 +32,7 @@
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
     const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.model, via: "Hermes triage + enrichment", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
-    const c = card("Claude triage &amp; enrichment (every 4 h)", `
+    const c = card(`Claude triage &amp; enrichment (${every(J && J.schedule)})`, `
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
         ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "default model")}</span></span>
@@ -123,9 +126,9 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (Anthropic models are billed per decision batch; local models are free but need LM Studio). Research job: the 4-hourly triage and event research (local models are much slower and weaker at web research)."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (Anthropic models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage and event research (local models are much slower and weaker at web research)."
       : "Only an admin can change models.";
-    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", "Research job (every 4 h)", D.research && !D.research.error ? D.research : {}]];
+    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(D.research?.schedule, D.research?.interval_minutes)})`, D.research && !D.research.error ? D.research : {}]];
     loadModels().then((M) => {
       if (M.error) note.textContent = M.error + " - only local models can be chosen. " + note.textContent;
       for (const [sec, label, cur] of rows) {
@@ -221,7 +224,7 @@
   }
 
   V.aireview = async (el) => {
-    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The local LLM decides whether each link is real, and every 4 hours Claude researches the important events and re-reviews their links (its verdicts replace the local model's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The local LLM decides whether each link is real, and on the research schedule (twice a day; Config page) Claude researches the important events and re-reviews their links (its verdicts replace the local model's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     const st = D.status, q = D.queue, T = D.totals;

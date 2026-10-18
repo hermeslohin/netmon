@@ -20,7 +20,7 @@ REGISTRY = os.path.join(NM, "baseline", "devices_seen.json")  # legacy, supersed
 BENIGN = os.path.join(NM, "known_benign.json")
 MIN_DAYS = 3
 KEEP = 30
-FOLD_MIN_HOURS = 23  # report runs every 4h; only a snapshot >= 23h after the last baseline record is folded in
+FOLD_MIN_HOURS = 23  # report runs several times a day (12h default); only a snapshot >= 23h after the last baseline record is folded in
 MB = 1e6
 
 

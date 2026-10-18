@@ -11,7 +11,7 @@ window.CARD_INFO = {
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
 "aireview|Claude triage & enrichment": {
-"source": "Hermes cron job running the home-network-report skill every 4 h (PDF only on the 05:00 UTC run), exported by claude_status.py and refreshed by the 15-minute watcher; notes and run log from enrich.py.",
+"source": "Hermes cron job running the home-network-report skill twice a day, 05 and 17 UTC (interval set on the Config page; PDF only on the 05:00 UTC run), exported by claude_status.py and refreshed by the 15-minute watcher; notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing or stale job means notes and verdicts are out of date. Expand the run summary to read the latest findings.",
 "what": "Status of the scheduled Claude job that triages each snapshot and writes research notes with verdicts for events: health, schedule, last run, note counts by verdict, coverage, recent runs and token/time use."
 },
@@ -23,16 +23,16 @@ window.CARD_INFO = {
 "aireview|Models": {
 "source": "Dashboard LLM configuration; local models are listed from LM Studio, cloud models from Anthropic. Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; Anthropic models are billed per batch. Use the ⇄ compare button on a decision below to test models before switching.",
-"what": "Which AI model is used for the two AI jobs: the correlation reviewer (decides every proposed link between events) and the 4-hourly research job (Claude triage and event research)."
+"what": "Which AI model is used for the two AI jobs: the correlation reviewer (decides every proposed link between events) and the twice-daily research job (Claude triage and event research)."
 },
 "aireview|Reviewer": {
-"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, normally with a local LLM via LM Studio (configurable). Claude's 4-hourly verdicts override it.",
+"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, normally with a local LLM via LM Studio (configurable). Claude's twice-daily verdicts override it.",
 "use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check LM Studio is running or switch model in the Models card.",
 "what": "Status of the correlation reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
 },
 "aireview|Verdicts per hour": {
 "source": "Stored correlation verdicts from the corr_llm.py reviewer (and Claude re-reviews) in the netmon store.",
-"use": "Bursts after each 4-hourly snapshot are normal; long gaps while links are awaiting review suggest the model is down or stalled.",
+"use": "Bursts after each snapshot (twice a day) are normal; long gaps while links are awaiting review suggest the model is down or stalled.",
 "what": "Bar chart of how many link decisions the reviewer made in each of the last 24 hours."
 },
 "alerts|Recent alerts": {
@@ -76,7 +76,7 @@ window.CARD_INFO = {
 "what": "Clients the gateway saw for the first time ever during the last 24-hour window, with MAC, IP, name and first-seen time."
 },
 "devices|Gateway clients not in inventory": {
-"source": "UniFi gateway API client list (unifi.py), compared against the MAC table in the home-network-devices inventory. Refreshed with each 4-hourly collection run.",
+"source": "UniFi gateway API client list (unifi.py), compared against the MAC table in the home-network-devices inventory. Refreshed with each collection run (twice a day).",
 "use": "Complements the Zeek-based unknown list: it also catches devices that are connected but quiet. Recognise and name each one in the inventory; an unidentified client on a trusted network is worth checking or blocking at the gateway.",
 "what": "Clients currently connected to the gateway (wired or Wi-Fi) whose MAC is not in the home device list, with name, MAC and network."
 },
@@ -101,12 +101,12 @@ window.CARD_INFO = {
 "what": "Devices with traffic in this snapshot whose MAC address is not in the device inventory, with their byte total and number of external peers."
 },
 "device|Notes": {
-"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the 4-hourly Hermes research run; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
+"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the twice-daily Hermes research run; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
 "use": "Read what earlier AI runs learned about this device (its role, what is normal for it, decisions made). Add a note to tell the AI something it cannot see, e.g. 'media server, large uploads to B2 at night are expected'. Delete notes that are wrong; the AI also corrects stale ones.",
-"what": "Running notes about this host or device that every AI job reads before judging it: the 4-hourly research, the correlation reviewer's work list and Ask Hermes."
+"what": "Running notes about this host or device that every AI job reads before judging it: the twice-daily research, the correlation reviewer's work list and Ask Hermes."
 },
 "notes|Host notes": {
-"source": "The notes knowledge base (kb.py). Written by the 4-hourly Hermes research run (✨) and by people on the host and endpoint pages (👤).",
+"source": "The notes knowledge base (kb.py). Written by the twice-daily Hermes research run (✨) and by people on the host and endpoint pages (👤).",
 "use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
 "what": "Every note about every host and device, newest first."
 },
@@ -116,7 +116,7 @@ window.CARD_INFO = {
 "what": "All notes people wrote on events, newest first."
 },
 "device|Across snapshots": {
-"source": "netmon history store (one record per collection run, every 4 hours, kept for about 30 days); the same history feeds the per-device baseline.",
+"source": "netmon history store (one record per collection run, twice a day, kept for about 30 days); the same history feeds the per-device baseline.",
 "use": "Look for a step change or a single spike versus its usual level. A jump in 'internet up' is the most important (possible exfiltration or a new backup/cloud sync). Empty means no history yet for this device.",
 "what": "Trend of this device's sent, received and internet-upload bytes across stored snapshots, each covering a 24 h window."
 },
@@ -201,7 +201,7 @@ window.CARD_INFO = {
 "what": "Potentially risky files (executables, scripts, installers, archives) this device sent or received over the network, with type, size, source host and malware-hash result."
 },
 "device|Findings": {
-"source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks, and the Claude triage run every 4 h. Refreshed with each collection run every 4 hours.",
+"source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks, and the Claude triage run twice a day. Refreshed with each collection run.",
 "use": "Start with high / Investigate items. Use 💬 Ask Hermes to have one explained, ⇄ compare with earlier snapshots, Related for linked events, and check an item off when handled (the toggle shows checked ones).",
 "what": "Anomalies tied to this host. On the network page: baseline findings (deviations from its learned normal, threat intel, beacons) plus Claude triage alarms. On the endpoint page: host findings from Elastic Agent, osquery and syslog."
 },
@@ -211,7 +211,7 @@ window.CARD_INFO = {
 "what": "Suricata IDS signatures that fired with this device as source or destination, with severity, role, hit count and last time."
 },
 "device|Identity": {
-"source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from policy.json and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the Claude triage run every 4 h.",
+"source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from policy.json and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the Claude triage run (twice a day).",
 "use": "Check that the vendor and hostname match what you expect for this device. 'unknown' means it is not in your inventory: identify and add it. Several other IPs, or a very recent first-seen date, deserve a second look. Click the agent link for endpoint detail.",
 "what": "Who this device is: IP, MAC, vendor (from the MAC prefix), DHCP hostname, network zone and device class, inventory name, first/last seen and days seen, other IPs it has used, and any linked Elastic Agent host."
 },
@@ -456,7 +456,7 @@ window.CARD_INFO = {
 "what": "Table of the registered domains looked up most often, added up across all devices."
 },
 "endpoints|Fleet": {
-"source": "The .fleet-agents index in Security Onion Elasticsearch (hosts.py), newest record per host, collected with each 4-hourly run.",
+"source": "The .fleet-agents index in Security Onion Elasticsearch (hosts.py), newest record per host, collected with each run (twice a day).",
 "use": "All rows should be online and checking in within a few minutes. An offline, degraded or long-silent agent means that host is not being monitored; check the agent service on it. Click a row for the host's endpoint page.",
 "what": "Health of every enrolled Elastic Agent: check-in status, minutes since last check-in, unhealthy reason or failing components, agent version and policy."
 },
@@ -501,7 +501,7 @@ window.CARD_INFO = {
 "what": "Doughnut of open recurring fix-list items (seen in 2 or more snapshots) by severity."
 },
 "issues|Recurring: fix these": {
-"source": "issues.py deterministic checks over every snapshot (collection every 4 h). Items whose device or data source was missing from the latest snapshot stay open and are marked not re-checked.",
+"source": "issues.py deterministic checks over every snapshot (collection twice a day). Items whose device or data source was missing from the latest snapshot stay open and are marked not re-checked.",
 "use": "Follow How to fix and open evidence for detail. Tick the check box when handled or accepted (show N checked brings them back). Use 💬 Ask Hermes for help on a row. Fixed items move away on their own.",
 "what": "Open misconfigurations and security suggestions seen in 2 or more snapshots, with severity, where, how many times seen out of checks run, first/last seen and fix instructions."
 },
@@ -581,12 +581,12 @@ window.CARD_INFO = {
 "what": "Total bytes seen on the network per hour across the 24-hour window, plus a second line for bytes the sensor missed (capture loss)."
 },
 "overview|Triage alarms": {
-"source": "Written by Claude during the triage run every 4 hours from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
+"source": "Written by Claude during the triage run (twice a day) from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
 "use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask Hermes, ⇄ compare models or the Kibana button to dig into the evidence. 'All alarms' opens the full list on Posture.",
 "what": "The alarms Claude flagged in this snapshot, each with who, evidence, why it matters and what to do next. Overview shows the top six."
 },
 "overview|Triage summary": {
-"source": "Written by Claude during the triage run every 4 hours, which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
+"source": "Written by Claude during the triage run (twice a day), which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
 "use": "Read this first. It points to the alarms worth your time. Proposed policy.json allow rules are suggestions only and are never applied automatically. AI text can be wrong, so check the evidence before acting.",
 "what": "Claude's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
 },
@@ -711,7 +711,7 @@ window.CARD_INFO = {
 "what": "Your devices contacting threat-listed IPs or domains, plus domains registered in the last 90 days, with domain age, query count and the devices involved."
 },
 "security|Research notes": {
-"source": "Written by Claude during the triage run every 4 hours, using web research and read-only queries against the snapshot data.",
+"source": "Written by Claude during the triage run (twice a day), using web research and read-only queries against the snapshot data.",
 "use": "Use these as context for the alarms. ⇄ compares the note with other models' opinions. Notes can be wrong or outdated; check the sources for anything important.",
 "what": "Background notes from the triage run: what Claude looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
 },
@@ -731,12 +731,12 @@ window.CARD_INFO = {
 "what": "Download status of each threat-intelligence feed and how many indicators are loaded (domains, IPs, network ranges, JA3 hashes)."
 },
 "security|Triage alarms": {
-"source": "Written by Claude during the triage run every 4 hours from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
+"source": "Written by Claude during the triage run (twice a day) from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
 "use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask Hermes, ⇄ compare models or the Kibana button to dig into the evidence.",
 "what": "Every alarm Claude flagged in this snapshot, sorted by priority, each with who, evidence, why it matters and next steps."
 },
 "security|Triage summary": {
-"source": "Written by Claude during the triage run every 4 hours, which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
+"source": "Written by Claude during the triage run (twice a day), which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
 "use": "Read this first. It points to the alarms worth your time. Proposed policy.json allow rules are suggestions only and are never applied automatically. AI text can be wrong, so check the evidence before acting.",
 "what": "Claude's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
 },
@@ -811,7 +811,7 @@ window.CARD_INFO = {
 "what": "Traffic the UniFi gateway blocked because of its Region Blocking (country) policy, grouped by client, remote IP, region and direction (top 25)."
 },
 "threatintel|Threat-intel signals per snapshot": {
-"source": "Each stored snapshot (one collection run every 4 hours covering the previous 24 h), combining Zeek matches against the feeds, the TLS profile and UniFi gateway security events.",
+"source": "Each stored snapshot (one collection run twice a day covering the previous 24 h), combining Zeek matches against the feeds, the TLS profile and UniFi gateway security events.",
 "use": "Look for a sudden jump or a series that is normally flat at zero becoming non-zero, especially outbound hits or malicious JA3. Steady inbound counts are usually internet scanning noise.",
 "what": "A trend line of the main threat-intel counters per snapshot: listed inbound IPs, outbound IP hits, domain hits, newly registered domains, malicious JA3 and UniFi IPS threats."
 },

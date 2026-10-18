@@ -1,6 +1,6 @@
 """Claude research notes on dashboard events, plus Claude correlation verdicts.
 
-Every 4 hours the Hermes report job (Claude) triages the newest snapshot. Besides the triage alarms it writes:
+On each run (twice a day by default) the Hermes report job (Claude) triages the newest snapshot. Besides the triage alarms it writes:
   - a research note per event (verdict, summary, research text, links it actually read), shown by related.js
     as a "✨ notes" button next to the event's Related column;
   - correlation verdicts for candidate links (corr_llm.db, same table the local-LLM reviewer uses). Claude

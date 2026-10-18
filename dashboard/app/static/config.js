@@ -121,7 +121,7 @@
   }
   function paintInt(wrap, D, flash) {
     wrap.innerHTML = `<h2 style="margin:18px 0 4px">Integrations</h2><div class="sub">Where netmon reads its data. Blank fields use the defaults shown, so
-      saving an empty form changes nothing. The host collectors (snapshots every 4h, the watcher every 15 min) use these on their next run.</div>`;
+      saving an empty form changes nothing. The host collectors (snapshots twice a day, the watcher every 15 min) use these on their next run.</div>`;
     if (!D.admin) { wrap.insertAdjacentHTML("beforeend", `<div class="card"><div class="empty">Only an admin can view or change integrations.</div></div>`); return; }
     const E = D.elasticsearch, U = D.unifi;
     const ixRows = Object.keys(E.index_defaults).map((k) => fld("es-ix-" + k, E.index_labels[k], E.indices[k], E.index_defaults[k], `Default <span class="mono">${esc(E.index_defaults[k])}</span>. Comma-separated patterns and <span class="mono">*</span> are allowed.`)).join("");

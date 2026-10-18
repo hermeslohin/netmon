@@ -6,7 +6,7 @@ knowledge carries over between runs instead of being re-researched. People can a
 
 Event notes are written by people on any event row (the 📝 button next to the Related count). They are keyed by the
 same stable event key as the AI research notes (enrich.skey), so a note carries over to later snapshots of the same
-finding / alert family. The AI treats them as analyst guidance: the 4-hourly enrichment run, the local-LLM correlation
+finding / alert family. The AI treats them as analyst guidance: the twice-daily enrichment run, the local-LLM correlation
 reviewer and the chat assistant all read them.
 
 Subjects (host notes):

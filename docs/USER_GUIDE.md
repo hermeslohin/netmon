@@ -28,7 +28,7 @@ netmon watches the home network and the computers on it and tells you what chang
 | When | What runs | What you get |
 |---|---|---|
 | Every 15 minutes | **Urgent watcher.** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
-| Every 4 hours (01, 05, 09, 13, 17, 21 UTC) | **Collection, analysis, Claude triage and research.** | A new *snapshot* (the last 24 hours), triage alarms, research notes on events, and correlation reviews. |
+| Twice a day (05 and 17 UTC; interval set on the Config page) | **Collection, analysis, Claude triage and research.** | A new *snapshot* (the last 24 hours), triage alarms, research notes on events, and correlation reviews. |
 | 05:00 UTC (1 AM Eastern in summer) | The same run, plus the **PDF report** and a news briefing. | A downloadable PDF on the Reports page. |
 | All the time | The **correlation reviewer**, a local AI model. | It decides which events are really related (see [AI review](#ai-review)). |
 
@@ -169,7 +169,7 @@ The **Related** column shows how many links an event has. Click it to see them, 
 
 ### Research notes on events
 
-Every 4 hours Claude researches the important events. The work list includes:
+On every research run (twice a day) Claude researches the important events. The work list includes:
 
 - every host finding;
 - every Suricata severity 1 and 2 signature;
@@ -512,7 +512,7 @@ That model didn't return a usable answer, or wasn't reachable (for example LM St
 
 | Term | Meaning |
 |---|---|
-| **Snapshot** | One collection run covering the previous 24 hours. A new one is made every 4 hours. |
+| **Snapshot** | One collection run covering the previous 24 hours. A new one is made on every research run (twice a day). |
 | **Baseline** | What is normal for each device, learned from about one snapshot a day over the last 30 days. |
 | **Triage** | Claude's review of a snapshot: a summary plus Investigate / Review / Info alarms. |
 | **Finding** | Something a rule flagged: a *baseline* finding (network behaviour) or a *host* finding (on the computer itself). |

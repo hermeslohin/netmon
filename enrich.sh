@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude event enrichment for the dashboard (runs dashboard/app/enrich.py inside the netmon-dashboard container,
-# which owns /state). Used by the 4-hourly Hermes report job.
+# which owns /state). Used by the twice-daily Hermes report job.
 #   enrich.sh events OUT.json [--all] [--max N] [--hosts N] [--ids N] [--gw N]   host findings (60), Suricata sev 1-2 (40), gateway events (30), other events
 #   enrich.sh put NOTES.json                      store notes + correlation verdicts, prints counts, then runs the
 #                                                 Security Triage auto-close (only when enabled on the Configuration page)
