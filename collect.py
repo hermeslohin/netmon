@@ -22,6 +22,7 @@ def _iso(s):
 
 
 RANGE_START, RANGE_END, OUT = _arg("--start"), _arg("--end"), _arg("--out")
+LOOKBACK = None  # set by `collect.py auto` (research job lookback window)
 if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries [start, end] (window.py)
     _s, _e = _iso(RANGE_START), _iso(RANGE_END)
     if _e <= _s:
@@ -31,7 +32,14 @@ if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries
     HOURS = round((_e - _s).total_seconds() / 3600, 3)
 else:
     RANGE_START = RANGE_END = None
-    HOURS = int(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else 24
+    if sys.argv[1:2] == ["auto"]:  # research job: the lookback window set on the dashboard's AI review page (lookback.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import lookback  # noqa: E402
+        HOURS, _why = lookback.for_run()
+        LOOKBACK = {"hours": HOURS, "source": _why}
+        print(f"lookback: {HOURS} h ({_why})", file=sys.stderr)
+    else:
+        HOURS = int(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else 24
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import window  # noqa: E402
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
@@ -449,7 +457,7 @@ def main():
                     if not any(m in inv for m in v["macs"])]
     nts, weird = notices()
     now = window.end_dt()
-    out = {"generated": now.isoformat(), "hours": HOURS, **({"range": {"start": _s.isoformat(), "end": _e.isoformat()}} if RANGE_END else {}), "inventory_file": inv_file, "self_ip": SELF_IP,
+    out = {"generated": now.isoformat(), "hours": HOURS, **({"lookback": LOOKBACK} if LOOKBACK else {}), **({"range": {"start": _s.isoformat(), "end": _e.isoformat()}} if RANGE_END else {}), "inventory_file": inv_file, "self_ip": SELF_IP,
            "totals": totals(), "devices": devs, "alerts": alerts(), "detections": detections(),
            "notices": nts, "weird": weird, "unknown_dhcp": unknown_dhcp, "zeek_retention_start": ret_start,
            "dns_tunnel": dns_tunnel_candidates(),

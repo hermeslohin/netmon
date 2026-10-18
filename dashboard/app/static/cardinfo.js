@@ -45,6 +45,11 @@ window.CARD_INFO = {
 "use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost at API list prices.",
 "what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when Hermes could not split them) with run time as a line."
 },
+"aireview|Research lookback window": {
+"what": "How many hours of logs each run of the research job collects and reviews. The daily PDF run always covers 24 hours.",
+"source": "Saved in the netmon store and read by the collector when the research job starts (collect.py auto).",
+"use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
+},
 "aireview|Decisions": {
 "source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or Claude, plus manual overrides; stored in the netmon store.",
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗, ↻ to ask the model again, or ⇄ to compare up to 4 models on one decision and adopt the best answer.",
@@ -54,6 +59,11 @@ window.CARD_INFO = {
 "source": "Dashboard LLM configuration; local models are listed from LM Studio, cloud models from Anthropic and OpenAI (OpenAI only once an API key is saved in this box). Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; Anthropic and OpenAI models are billed per batch. Paste an OpenAI API key and press Save key to enable OpenAI models. Use the ⇄ compare button on a decision below to test models before switching.",
 "what": "Which AI model is used for the two AI jobs: the correlation reviewer (decides every proposed link between events) and the twice-daily research job (Claude triage and event research)."
+},
+"aireview|AI providers": {
+"source": "Admin-entered providers in the dashboard's state volume (/state/llm_providers.json, readable only by the dashboard). The dashboard calls these APIs itself, without Hermes.",
+"use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps each provider's cost if something loops.",
+"what": "AI services reached with an API key, any number of them. Their models can be picked as the correlation reviewer and in every Compare dialog. The research job and Ask Hermes still run in Hermes and use Hermes' models."
 },
 "aireview|Reviewer": {
 "source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, normally with a local LLM via LM Studio (configurable). Claude's twice-daily verdicts override it.",

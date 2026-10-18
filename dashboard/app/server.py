@@ -112,6 +112,7 @@ os.environ.setdefault("NETMON_DB", os.path.join(STATE, "netmon.db"))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
+import lookback  # noqa: E402  /netmon/lookback.py: research job lookback window (AI review page)
 import pushsvc  # noqa: E402  web push for urgent alerts
 import site_cfg as SITE  # noqa: E402  network-specific values (/netmon/site.json, git-ignored)
 os.environ.setdefault("NETMON_INTEGRATIONS", os.path.join(STATE, "integrations.json"))  # writable /state, 0600
@@ -772,6 +773,13 @@ class H(BaseHTTPRequestHandler):
                     return self._json({**r, "admin": True})
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
+            if u.path == "/api/config/lookback":  # hours of logs each research run collects (admin; read by collect.py auto)
+                try:
+                    res = lookback.put(body.get("hours"), user)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                print(f"research lookback: {user} set {res['hours']} h", file=sys.stderr)
+                return self._json({"ok": True, "lookback": res})
             if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/review-schedule"):
                 if u.path == "/api/config/review-schedule":
                     try:
@@ -1099,6 +1107,7 @@ class H(BaseHTTPRequestHandler):
                     ov["research"] = corr_llm.broker("/research", timeout=10)
                 except Exception as e:  # noqa: BLE001
                     ov["research"] = {"error": str(e)[:200]}
+                ov["lookback"] = lookback.get()
                 try:
                     ov["costlimit"] = corr_llm.broker("/costlimit", timeout=10)
                 except Exception as e:  # noqa: BLE001

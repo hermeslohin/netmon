@@ -243,7 +243,7 @@ def track(snaps, min_occ=2):
         present[sid] = {_dkey(ip, d) for ip, d in (raw.get("devices") or {}).items()}
         cur = check_snapshot(raw, an)
         srcs = sources_of(raw, an)
-        per.append((sid, gen, srcs, cur))
+        per.append((sid, gen, srcs, cur, float(raw.get("hours") or 24) >= 23))
         for k, iss in cur.items():
             h = hist.setdefault(k, {**iss, "first_seen": gen, "first_snap": sid, "occurrences": 0, "seen_in": []})
             h.update({k2: v for k2, v in iss.items()})  # latest evidence/target wins
@@ -254,7 +254,9 @@ def track(snaps, min_occ=2):
     open_, fixed = [], []
     for k, h in hist.items():
         # snapshots after first_seen that could evaluate this check
-        able = [p for p in per if h["source"] in p[2] and p[0] >= h["first_snap"]]
+        # a short research-run snapshot (lookback < 23 h) can raise an issue but never clear it: a few quiet hours
+        # are not proof that something was fixed
+        able = [p for p in per if h["source"] in p[2] and p[0] >= h["first_snap"] and (p[4] or k in p[3])]
         h["checked"] = len(able)
         last_able = able[-1] if able else None
         if last_able and k not in last_able[3] and h.get("dev") and h["dev"] not in present[last_able[0]]:

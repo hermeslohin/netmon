@@ -300,7 +300,7 @@ def main():
     snap_path = args[0] if args else sorted(
         p for p in glob.glob(os.path.join(NM, "data", "*.json")) if os.path.basename(p).count(".") == 1)[-1]
     snap = json.load(open(snap_path))
-    if READONLY:
+    if READONLY or float(snap.get("hours") or 24) < 24:  # a time range, or a research run with a short lookback window
         SCALE = max(float(snap.get("hours") or 24) / 24, 1 / 24)
     benign = json.load(open(BENIGN)) if os.path.exists(BENIGN) else {"signatures": {}, "devices": {}}
     history = load_history()
@@ -526,8 +526,11 @@ def main():
     stamp = snap["generated"]
     last = max((h["generated"] for h in history), default=None)
     age_h = (dt.datetime.fromisoformat(stamp) - dt.datetime.fromisoformat(last)).total_seconds() / 3600 if last else None
-    fold = not store.history_has(stamp) and (age_h is None or age_h >= FOLD_MIN_HOURS)
-    print("baseline:", "folded this snapshot" if fold else f"not folded (last baseline record {age_h:.1f}h old, < {FOLD_MIN_HOURS}h)")
+    full_day = float(snap.get("hours") or 24) >= FOLD_MIN_HOURS  # short lookback windows never become baseline records
+    fold = full_day and not store.history_has(stamp) and (age_h is None or age_h >= FOLD_MIN_HOURS)
+    print("baseline:", "folded this snapshot" if fold else
+          f"not folded ({snap.get('hours')}h lookback window, only ~24h snapshots are folded)" if not full_day else
+          f"not folded (last baseline record {age_h:.1f}h old, < {FOLD_MIN_HOURS}h)")
     if fold:
         store.history_append({"generated": stamp, "hours": snap["hours"], "devices": today, "signatures": sig_today,
                               "dns_domains": {c["domain"]: c["unique_subdomains"] for c in snap.get("dns_tunnel", [])},

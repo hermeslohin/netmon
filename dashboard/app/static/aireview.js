@@ -417,6 +417,52 @@
     return c;
   }
 
+  // research job lookback window (lookback.py, store meta "research_lookback"): hours of logs each run collects
+  const runEveryMin = (expr) => { const m = /^\d+ \d+-23\/(\d+) /.exec(expr || ""); if (m) return 60 * m[1];
+    const e = /every (\d+)\s*([mh])/.exec(expr || ""); return e ? +e[1] * (e[2] === "h" ? 60 : 1) : null; };
+  function lookbackCard(D) {
+    const L = D.lookback || { hours: 24, min: 1, max: 24, pdf_hour: 5 }, J = (D.claude?.jobs || [])[0];
+    const iv = runEveryMin(J && J.schedule), ivH = iv ? iv / 60 : null;
+    const rec = ivH ? Math.min(L.max, Math.ceil(ivH) + 1) : null;
+    const T = "Research lookback window";
+    const c = card(T, `
+      <div class="small muted">How many hours of logs each research run collects and reviews. Shorter windows mean fewer events and fewer
+        tool calls per run, so each run costs less. Every run looks back from the moment it starts.</div>
+      <div class="llm-grid" style="margin-top:10px">
+        <div class="llm-row"><span class="k">Look back</span>
+          <span><input type="number" name="lb_hours" min="${L.min}" max="${L.max}" step="1" style="width:5em"> hours</span>
+          <span class="small muted" style="flex:1 1 380px">${ivH ? `The job runs every <b>${esc(String(+ivH.toFixed(2)))} h</b>. Suggested: <b>${rec} h</b> (the interval plus 1 h of overlap, so no event falls between two runs).`
+            : "The job schedule is not known, so no suggestion can be given."}
+            <span class="lb-warn"></span></span></div>
+      </div>
+      <ul class="small muted" style="margin:8px 0 0 18px;padding:0">
+        <li>The daily PDF run (${String(L.pdf_hour).padStart(2, "0")}:00 UTC) always covers 24 h, so the report and the device baseline stay daily. Only full-day snapshots are added to the baseline.</li>
+        <li>Shorter runs compare volumes with the 24 h baseline scaled down to the window, and skip the "device went silent" check.</li>
+        <li>The dashboard's newest snapshot covers only this window between PDF runs. A short run can open a Fix-list item but never mark it fixed.</li>
+      </ul>
+      <div style="margin-top:8px"><button type="button" class="lb-save">Save</button> <span class="small muted lb-msg"></span></div>
+      <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${L.default ?? 24} h.`} Applies from the next run.</div>`);
+    c.id = "ai-lookback";
+    const inp = c.querySelector('input[name="lb_hours"]'), btn = c.querySelector(".lb-save"), msg = c.querySelector(".lb-msg"), wr = c.querySelector(".lb-warn");
+    const warn = () => { const h = +inp.value;
+      wr.className = "lb-warn " + (ivH && h < ivH ? "bad" : "");
+      wr.textContent = ivH && h && h < ivH ? ` Shorter than the run interval: about ${+(ivH - h).toFixed(2)} h of logs between runs will never be reviewed (only the 24 h PDF run sees them).`
+        : ivH && h >= 2 * ivH && h > rec ? ` Each run re-reviews about ${+(h - ivH).toFixed(1)} h that the previous run already covered.` : ""; };
+    inp.value = L.hours; warn();
+    inp.disabled = !D.admin; btn.disabled = true;
+    inp.oninput = () => { btn.disabled = !D.admin; warn(); };
+    if (!D.admin) msg.textContent = "Only an admin can change the lookback window.";
+    btn.onclick = async () => {
+      const h = inp.value.trim();
+      if (!/^\d+$/.test(h) || +h < L.min || +h > L.max) { msg.textContent = `Enter a whole number of hours from ${L.min} to ${L.max}.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r = await apiPost("/api/config/lookback", { hours: +h }); inp.value = r.lookback.hours; warn();
+        msg.textContent = `saved: ${r.lookback.hours} h per run (from the next run; the PDF run stays 24 h)`; }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    return c;
+  }
+
   // compare dialog: one decision, up to 4 models side by side; a person can adopt one answer
   let dlg = null;
   function verdictBadge(rel) { const b = document.createElement("span"); b.className = "badge " + (rel ? "sev-good" : "sev-high"); b.textContent = rel ? "Related" : "Not related"; return b; }
@@ -507,6 +553,7 @@
     el.appendChild(modelsCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
+    el.appendChild(lookbackCard(D));
     el.appendChild(esCard(D));
     el.append(...claudeCard(D.claude || {}));
 
