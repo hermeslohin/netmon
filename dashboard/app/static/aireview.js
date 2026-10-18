@@ -22,8 +22,8 @@
   // "every 12 h" from the job's cron grid (llm_broker.schedule_expr writes "0 H-23/N * * *") or interval minutes
   const every = (expr, mins) => { const m = /^\d+ \d+-23\/(\d+) /.exec(expr || ""); const n = m ? 60 * m[1] : mins;
     return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
-  function claudeCard(C) {
-    if (C.error) return card("Claude triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`);
+  function claudeCard(C) {  // returns [status box, time/token box (only when usage exists)]
+    if (C.error) return [card("Claude triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
@@ -52,6 +52,7 @@
       </div>`);
     c.id = "ai-claude";
     const U = (J && J.usage) || [];
+    let uc = null;
     if (U.length) {  // time + token use of each research run
       const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
       // usage_audit's prompt count sums the whole re-sent conversation over every API call of the run; ~95% of it
@@ -61,15 +62,16 @@
       const mins = sum((u) => u.duration_s) / 60, cost = sum((u) => u.cost_usd), nCost = U.filter((u) => u.cost_usd != null).length;
       const S = U.filter(split), nRaw = U.length - S.length;
       const work = S.reduce((a, u) => a + u.fresh + u.cache_write + u.completion, 0), reads = S.reduce((a, u) => a + u.cache_read, 0);
-      const chart = document.createElement("div");
-      const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" })); hd.style.marginTop = "12px";
-      hd.append(Object.assign(document.createElement("b"), { textContent: "Time and tokens per research run" }), " ",
-        Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
+      // own box (user request): title is the card h2, the summary line sits under it
+      uc = card("Time and tokens per research run", "");
+      uc.id = "ai-usage";
+      const chart = uc.appendChild(document.createElement("div"));
+      const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" }));
+      hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
           (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
           (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
           (nCost ? ` · est. $${cost.toFixed(2)} at API list prices ($${(cost / nCost).toFixed(2)} per run)` : "") }));
       chart.appendChild(Object.assign(document.createElement("div"), { className: "chart" })).appendChild(document.createElement("canvas"));
-      c.appendChild(chart);
       queueChart(chart.querySelector("canvas"), { type: "bar", data: { labels: lbl, datasets: [
         { label: "New input (M)", data: U.map((u) => M(split(u) ? u.fresh : null)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
         { label: "Cache writes (M)", data: U.map((u) => M(split(u) ? u.cache_write : null)), backgroundColor: "#d29922", stack: "t", yAxisID: "y" },
@@ -100,7 +102,7 @@
       { k: "links", t: "Links reviewed", num: true, fmt: (v, r) => (r.stored ? fn(v) : "") },
       { k: "rejected", t: "Rejected ids", num: true, fmt: (v) => (v ? `<span class="bad">${fn(v)}</span>` : v === 0 ? "0" : "") },
     ], R, { sort: "started", limit: 10 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No enrichment passes logged yet (the log starts with the next run)." }));
-    return c;
+    return uc ? [c, uc] : [c];
   }
 
   // ---- model choice (correlation reviewer + research job) and per-decision model comparison
@@ -237,7 +239,7 @@
       ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     el.appendChild(modelsCard(D));
-    el.appendChild(claudeCard(D.claude || {}));
+    el.append(...claudeCard(D.claude || {}));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
     const info = card("Reviewer", `<div class="idgrid">

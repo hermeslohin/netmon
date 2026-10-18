@@ -13,7 +13,12 @@ window.CARD_INFO = {
 "aireview|Claude triage & enrichment": {
 "source": "Hermes cron job running the home-network-report skill twice a day, 05 and 17 UTC (interval set on the Config page; PDF only on the 05:00 UTC run), exported by claude_status.py and refreshed by the 15-minute watcher; notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing or stale job means notes and verdicts are out of date. Expand the run summary to read the latest findings.",
-"what": "Status of the scheduled Claude job that triages each snapshot and writes research notes with verdicts for events: health, schedule, last run, note counts by verdict, coverage, recent runs and token/time use."
+"what": "Status of the scheduled Claude job that triages each snapshot and writes research notes with verdicts for events: health, schedule, last run, note counts by verdict, coverage, recent runs and enrichment passes."
+},
+"aireview|Time and tokens per research run": {
+"source": "Per-run usage from Hermes (usage_audit, cache split from the Hermes session DB), exported by claude_status.py.",
+"use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost at API list prices.",
+"what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when Hermes could not split them) with run time as a line."
 },
 "aireview|Decisions": {
 "source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or Claude, plus manual overrides; stored in the netmon store.",

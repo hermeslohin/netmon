@@ -397,7 +397,7 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 | Box | What it shows |
 |---|---|
 | **Models** | The model for the **correlation reviewer** and for the **research job** (local or Anthropic). Admins change them here (see the cost notes below). |
-| **Claude triage & enrichment** | Whether a research run is going on now, the schedule and next run, recent runs and how long they took, each enrichment pass (events researched, links reviewed), how many events have notes, and the latest run's summary. |
+| **Claude triage & enrichment** | Whether a research run is going on now, the schedule and next run, recent runs and how long they took, each enrichment pass (events researched, links reviewed), how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
 | **Time and tokens per research run** | Run time plus the tokens of each research run, split into new input, cache writes and output. Cache re-reads (the conversation re-sent on every API call; ~95% of the raw input count but billed at ~10% of the input price) are hidden by default; click their legend entry to show them. The header and tooltip give an estimated cost at API list prices. Runs Hermes couldn't split show as one grey input bar. |
 | **Reviewer** | The correlation reviewer's model, its queue and its throughput. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
