@@ -56,12 +56,14 @@
       const M = (v) => +((v || 0) / 1e6).toFixed(3), sum = (f) => U.reduce((a, u) => a + (f(u) || 0), 0);
       const split = (u) => u.cache_read != null;
       const mins = sum((u) => u.duration_s) / 60, cost = sum((u) => u.cost_usd), nCost = U.filter((u) => u.cost_usd != null).length;
-      const work = sum((u) => split(u) ? u.fresh + u.cache_write + u.completion : u.total), reads = sum((u) => u.cache_read);
+      const S = U.filter(split), nRaw = U.length - S.length;
+      const work = S.reduce((a, u) => a + u.fresh + u.cache_write + u.completion, 0), reads = S.reduce((a, u) => a + u.cache_read, 0);
       const chart = document.createElement("div");
       const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" })); hd.style.marginTop = "12px";
       hd.append(Object.assign(document.createElement("b"), { textContent: "Time and tokens per research run" }), " ",
         Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
-          `${(work / 1e6).toFixed(1)} M tokens new input + cache writes + output, plus ${(reads / 1e6).toFixed(0)} M cache re-reads (~10% price; hidden, click the legend to show)` +
+          (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
+          (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
           (nCost ? ` · est. $${cost.toFixed(2)} at API list prices ($${(cost / nCost).toFixed(2)} per run)` : "") }));
       chart.appendChild(Object.assign(document.createElement("div"), { className: "chart" })).appendChild(document.createElement("canvas"));
       c.appendChild(chart);
