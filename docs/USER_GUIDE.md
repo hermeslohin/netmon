@@ -64,7 +64,31 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Devices ▾** | Hosts (everything on the network) and Endpoints (computers running the Elastic Agent). |
 | **More ▾** | Reports, Ask Hermes, AI review, Checked, Users. |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
-| **Snapshot** | Which 24-hour window you are looking at. The newest is selected by default; pick an older one to see how things looked then. ⟳ reloads the data. |
+| **🕒 Time range** | The start and end of the time you are looking at (your local time). The newest nightly report's 24 hours are shown by default. Click it to set a **Start** and **End** date and time, use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**), or pick a **Nightly report window**. See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (and moves to a newer report if you were on the newest). |
+
+### Choosing a time range
+
+Every page except the alarms shows the selected time range: Overview, Posture's findings, Threat intel, ATT&CK, Risk,
+Network map, **Lateral movement**, DNS & TLS, Traffic map, **Devices (including New devices)** and Endpoints.
+
+- **A nightly report window** (or a start/end within 10 minutes of one) loads instantly.
+- **Any other range** is collected for exactly that time from Security Onion and UniFi. It takes about 20 seconds to a
+  couple of minutes, depending on the length; the page shows the progress. Ranges are kept on the dashboard, so opening
+  the same range again is instant (the last 30 are kept).
+- **Limits:** at least 15 minutes, at most 31 days, starting at most 120 days ago, and the end can't be in the future.
+  Security Onion only keeps network logs for a limited time; older ranges come back mostly empty.
+- **New devices** in a range are devices whose *first ever* sighting falls inside it.
+- **Baseline comparisons** (traffic spikes, NXDOMAIN spikes, …): a range's volumes are scaled to 24 hours before they
+  are compared with the device's normal day, so a 3-day range isn't flagged just for being longer. "Went silent" is only
+  checked for ranges of 24 hours or more.
+- **Trend charts** show the daily baseline records inside the range (or all of them when fewer than two fall inside).
+- **Alarms stay per report.** The Alerts page, Posture's AI triage alarms and summary, research notes, correlation and
+  AI verdicts come from the nightly report that ends inside the range (named in the footer). They are written by the
+  scheduled AI review, not recomputed for arbitrary ranges.
+- A range never changes the baseline or the device registry.
+- The range stays selected while you move between pages and when you reload the browser tab.
+
+The **Audit log** has its own From / To fields (see [More → Audit log](#more--audit-log)).
 
 ### Boxes
 
@@ -289,7 +313,7 @@ Host-to-host connections inside the network, compared against the zone policy.
 
 ### Devices → Hosts
 
-Every internal address with traffic in the snapshot, plus devices that are new this window or not in the inventory. Click a host for its full page:
+Every internal address with traffic in the selected time range, plus devices first seen in the range or not in the inventory. Click a host for its full page:
 
 - **Identity and risk.**
 - **Traffic:** by country, ASN, service and port, and its internal flows.
@@ -339,7 +363,7 @@ Admins only. A record of who did what in the dashboard and of every conversation
 - **AI conversations**: Ask Hermes chats, the background correlation reviewer, model comparisons and the research job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
 - Passwords, keys and tokens are replaced by `[redacted]` before anything is stored.
 
-Filter by type, time range, user, action, outcome or model, or search the text (this searches prompts and answers too). Click an entry to see all its details. Filters are kept in the address, so you can bookmark a view.
+Filter by type, time range (a quick range, or **From** / **To** dates and times), user, action, outcome or model, or search the text (this searches prompts and answers too). Click an entry to see all its details. Filters are kept in the address, so you can bookmark a view.
 
 The entries are stored in Elasticsearch on Security Onion, in the index `logs-netmon` (also searchable in Kibana). The **Audit log storage** box shows whether the dashboard can write there. The dashboard needs its own API key with only `create_doc` and `read` on `logs-netmon`, so it can add and read entries but never change or delete them. If Elasticsearch is unreachable or no key is set yet, entries wait on the dashboard (`state/audit_spool.jsonl`, up to 50 MB) and are sent automatically later.
 

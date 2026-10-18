@@ -43,7 +43,8 @@ def _qid(src):
 def results(minutes=26 * 60):
     """Newest snapshot per (host, query). Rows of one run share a timestamp; keep rows within 5 min of the newest."""
     idx = "logs-osquery_manager.result-*"
-    body = {"size": 0, "query": {"range": {"@timestamp": {"gte": f"now-{int(minutes)}m"}}},
+    import window
+    body = {"size": 0, "query": window.since(minutes),
             "aggs": {"h": {"terms": {"field": "host.name", "size": 50}, "aggs": {
                 "a": {"terms": {"field": "action_id", "size": 100}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}}}}}
     r = q(idx, body)

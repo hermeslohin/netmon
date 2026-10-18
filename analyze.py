@@ -2,6 +2,8 @@
 """Compare a collect.py snapshot against the per-device baseline, then fold it into the baseline.
 
 Usage: analyze.py [snapshot.json]   (default: newest in data/)
+       analyze.py RANGE.json --readonly   a dashboard time range (collect.py --start/--end): same findings against
+                                          the baseline, volumes scaled to 24 h, nothing written to the store
 Writes data/<snapshot>.analysis.json and appends a compact day record to the history table (store.py / SQLite).
 
 Baseline model (per device, keyed by MAC when known, else IP), rolling 30 snapshots:
@@ -92,8 +94,15 @@ def tunnel_level(t):
     return None
 
 
-def spike(today, hist, floor):
-    """True when today is far above the device's own normal and above an absolute floor."""
+READONLY = "--readonly" in sys.argv
+SCALE = 1.0  # time range of N hours: compare (value / (N/24)) with the 24 h baseline records
+
+
+def spike(today, hist, floor, card=False):
+    """True when today is far above the device's own normal and above an absolute floor.
+    Time range: counts are scaled to 24 h; distinct counts (card=True) don't grow linearly, so they are only scaled
+    down for ranges over 24 h (a 6 h range is compared as is - conservative either way)."""
+    today = today / (max(SCALE, 1.0) if card else SCALE)
     if today < floor or len(hist) < MIN_DAYS:
         return False
     m, d = med(hist), mad(hist)
@@ -286,9 +295,13 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
 
 
 def main():
-    snap_path = sys.argv[1] if len(sys.argv) > 1 else sorted(
+    global SCALE
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    snap_path = args[0] if args else sorted(
         p for p in glob.glob(os.path.join(NM, "data", "*.json")) if os.path.basename(p).count(".") == 1)[-1]
     snap = json.load(open(snap_path))
+    if READONLY:
+        SCALE = max(float(snap.get("hours") or 24) / 24, 1 / 24)
     benign = json.load(open(BENIGN)) if os.path.exists(BENIGN) else {"signatures": {}, "devices": {}}
     history = load_history()
     days = len(history)
@@ -320,13 +333,13 @@ def main():
         if spike(t["sent"], [p["sent"] for p in past], 25 * MB):
             add("high", key, "upload-spike",
                 f"sent {t['sent']/MB:.0f} MB vs normal {med([p['sent'] for p in past])/MB:.0f} MB (possible exfil/backup)")
-        if spike(t["ext_peers"], [p["ext_peers"] for p in past], 50):
+        if spike(t["ext_peers"], [p["ext_peers"] for p in past], 50, card=True):
             add("medium", key, "fan-out", f"{t['ext_peers']} external peers vs normal {med([p['ext_peers'] for p in past]):.0f}")
         if spike(t["rejected"], [p["rejected"] for p in past], 500):
             add("medium", key, "failed-conns", f"{t['rejected']} rejected/unanswered conns vs normal {med([p['rejected'] for p in past]):.0f} (scanning?)")
         if spike(t["nx"], [p["nx"] for p in past], 200):
             add("medium", key, "nxdomain-spike", f"{t['nx']} NXDOMAIN vs normal {med([p['nx'] for p in past]):.0f} (DGA/misconfig?)")
-        if spike(t["inbound_ext_sources"], [p.get("inbound_ext_sources", 0) for p in past], 5):
+        if spike(t["inbound_ext_sources"], [p.get("inbound_ext_sources", 0) for p in past], 5, card=True):
             add("high", key, "inbound-exposure", f"{t['inbound_ext_sources']} external sources connected in vs normal {med([p.get('inbound_ext_sources',0) for p in past]):.0f}")
         if len(past) >= MIN_DAYS:
             seen_c = set().union(*[p["countries"] for p in past])
@@ -369,7 +382,7 @@ def main():
                 td = t["dns"]
                 if spike(t["dns_q"], [p["dns_q"] for p in past], 2000):
                     add("medium", key, "dns-volume", f"{t['dns_q']:,} DNS queries vs normal {med([p['dns_q'] for p in past]):,.0f}")
-                if spike(td["unique_names"], [x["unique_names"] for x in pd], 300):
+                if spike(td["unique_names"], [x["unique_names"] for x in pd], 300, card=True):
                     add("medium", key, "dns-unique-names",
                         f"{td['unique_names']:,} distinct names looked up vs normal {med([x['unique_names'] for x in pd]):,.0f} (DGA/scanning?)")
                 if spike(td["long_names"], [x["long_names"] for x in pd], 100):
@@ -407,8 +420,8 @@ def main():
             if odd and len(seen_h) <= 18:  # only meaningful for devices with a daily rhythm
                 add("low", key, "odd-hours", f"active at unusual UTC hours {odd}")
 
-    # --- devices that went silent ---
-    if days >= MIN_DAYS:
+    # --- devices that went silent (not for time ranges under 24 h: many devices are idle for hours) ---
+    if days >= MIN_DAYS and SCALE >= 1:
         for key in set().union(*[h["devices"].keys() for h in history]):
             seen = sum(1 for h in history if key in h["devices"])
             if key not in today and seen / days >= 0.8:
@@ -433,7 +446,22 @@ def main():
     import datetime as _dt
     win_start = (_dt.datetime.fromisoformat(snap["generated"]) - _dt.timedelta(hours=snap["hours"])).isoformat()
     new_devices = []
-    for key, t in today.items():
+    if READONLY:  # time range: the registry is only read; "new" = first ever seen inside the range
+        win_end = snap["generated"]
+        norm = lambda s: str(s or "").replace("Z", "+00:00")  # noqa: E731
+        for key, t in today.items():
+            d = snap["devices"][t["ip"]]
+            first = (reg.get(key) or {}).get("first_seen") or d.get("zeek_first_seen") or win_end
+            if norm(win_start) <= norm(first) <= norm(win_end):
+                new_devices.append({"key": key, "ip": t["ip"], "name": t["name"], "mac": d.get("mac"), "oui": d.get("oui", ""),
+                                    "hostname": d.get("hostname", ""), "known": t["known"], "first_seen": first,
+                                    "total": t["total"], "ext_peers": t["ext_peers"], "services": t["services"],
+                                    "dports": dict(list(t["dports"].items())[:8]), "served": t["served"]})
+                add("high" if not t["known"] else "medium", key, "new-device",
+                    f"first ever sighting of {t['ip']} ({d.get('oui') or 'unknown vendor'}) in this time range: {t['total']/MB:.1f} MB, "
+                    f"services {', '.join(list(t['services'])[:4])}")
+        reg = {}
+    for key, t in ([] if READONLY else today.items()):
         d = snap["devices"][t["ip"]]
         first = (d.get("zeek_first_seen") if seeding else None) or snap["generated"]
         if key not in reg:
@@ -456,7 +484,7 @@ def main():
                 add("high" if not t["known"] else "medium", key, "new-device",
                     f"first ever sighting of {t['ip']} ({d.get('oui') or 'unknown vendor'}): {t['total']/MB:.1f} MB, "
                     f"services {', '.join(list(t['services'])[:4])}")
-    if not any(h["generated"] == snap["generated"] for h in history):
+    if not READONLY and not any(h["generated"] == snap["generated"] for h in history):
         store.registry_save(reg)
 
     # --- DNS tunnelling (absolute heuristics, works from day 1) ---
@@ -466,7 +494,7 @@ def main():
     for c in snap.get("dns_tunnel", []):
         lvl = None if c["domain"] in dns_benign else tunnel_level(c)
         hist_u = [pdm.get(c["domain"], 0) for pdm in past_dom]
-        exploded = spike(c["unique_subdomains"], hist_u, 150)
+        exploded = spike(c["unique_subdomains"], hist_u, 150, card=True)
         c = {**c, "level": lvl or ("explosion" if exploded else None), "benign": c["domain"] in dns_benign}
         tunnel.append(c)
         srcs = ", ".join(snap["devices"].get(s, {}).get("name") or s for s in list(c["sources"])[:2])
@@ -485,9 +513,13 @@ def main():
     out = {"snapshot": snap_path, "baseline_days": days, "min_days": MIN_DAYS,
            "baseline_ready": days >= MIN_DAYS, "findings": findings, "unknown_devices": unknown,
            "new_devices": new_devices, "dns_tunnel": tunnel, "violations": snap.get("_violations", []), "registry_seeded_now": seeding, "window_start": win_start,
-           "zeek_retention_start": snap.get("zeek_retention_start")}
-    ap = snap_path.replace(".json", ".analysis.json")
-    json.dump(out, open(ap, "w"), indent=1)
+           "zeek_retention_start": snap.get("zeek_retention_start"), "scale_24h": round(SCALE, 3)}
+    ap = snap_path[:-5] + ".analysis.json"
+    json.dump(out, open(ap + ".tmp", "w"), indent=1)
+    os.replace(ap + ".tmp", ap)
+    if READONLY:  # time range: nothing folded into the baseline, no backup
+        print(ap, f"findings={len(findings)} (time range, read-only)")
+        return
 
     # --- fold into baseline: one 24h record per ~day, even though the report runs several times a day ---
     # (overlapping 24h windows would otherwise flood the 30-record baseline with near-duplicates)

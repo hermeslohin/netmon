@@ -173,7 +173,8 @@ def collect_ids(hours=24):
     """Technique IDs carried natively by the SOC data: Suricata rule metadata, SO detections, Defend alerts."""
     sys.path.insert(0, HERE)
     from esq import q
-    R = {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+    import window
+    R = window.since_h(hours)
     out = {"ids": [], "detections": [], "defend": []}
     r = q("logs-suricata.alerts-so", {"size": 0, "query": {"bool": {"filter": [R, {"exists": {"field": "rule.metadata.mitre_technique_id"}}]}},
           "aggs": {"t": {"terms": {"field": "rule.metadata.mitre_technique_id", "size": 100}, "aggs": {

@@ -285,7 +285,7 @@ function lmAdminSection(el, D) {
         auser: ["Account", (a, v) => v in (a.users || {})], ahost: ["Host", (a, v) => a.src === v || a.dst === v] } });
   const aOpen = A.filter((a) => !acked("admin", a)), aDone = A.filter((a) => acked("admin", a));
   const lst = card(`Admin sessions (${aOpen.length} open${aDone.length ? ` · ${aDone.length} checked` : ""})`, aOpen.length ? table(null, admCols(), aOpen, admOpts())
-    : `<div class="empty">${A.length ? "All admin sessions checked off." : "No admin sessions in this snapshot."}</div>`);
+    : `<div class="empty">${A.length ? "All admin sessions checked off." : "No admin sessions in this time range."}</div>`);
   lst.id = "admin-list"; lst.dataset.open = "1"; el.appendChild(lst);
   if (aDone.length) { const chk = card(`Checked admin sessions (${aDone.length})`, `<div class="sub small">Sessions you've reviewed and checked off. They stay checked on later snapshots (same source, target and protocol); uncheck one to move it back to the open list.</div>`
     + table(null, [...admCols().slice(0, 1), { k: "_at", t: "Checked", fmt: (v, a) => ft(ackInfo("admin", a)?.at), sort: (a) => ackInfo("admin", a)?.at || "" }, ...admCols().slice(1)], aDone, { ...admOpts(), rowClass: ackRowCls("admin") }));

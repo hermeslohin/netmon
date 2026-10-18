@@ -2,14 +2,38 @@
 """Collect 24h network behavior from Security Onion ES -> netmon/data/<date>.json.
 
 Per-device traffic/behavior profile + alerts/notices/detections. Read-only queries.
-Usage: collect.py [hours=24]
+Usage: collect.py [hours=24]                                    last N hours -> data/<stamp>.json (nightly)
+       collect.py --start ISO --end ISO --out FILE              a dashboard time range: same collectors over
+                                                                [start, end], written to FILE; changes no baseline
 """
 import csv, glob, json, os, ssl, sys, urllib.request, datetime as dt
 
 HOME = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
 NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
-HOURS = int(sys.argv[1]) if len(sys.argv) > 1 else 24
+
+
+def _arg(name):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else None
+
+
+def _iso(s):
+    t = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return (t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)).astimezone(dt.timezone.utc)
+
+
+RANGE_START, RANGE_END, OUT = _arg("--start"), _arg("--end"), _arg("--out")
+if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries [start, end] (window.py)
+    _s, _e = _iso(RANGE_START), _iso(RANGE_END)
+    if _e <= _s:
+        raise SystemExit("--end must be after --start")
+    RANGE_END = _e.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    os.environ["NETMON_WINDOW_END"] = RANGE_END
+    HOURS = round((_e - _s).total_seconds() / 3600, 3)
+else:
+    RANGE_START = RANGE_END = None
+    HOURS = int(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else 24
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import window  # noqa: E402
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
 import integrations as INTEG  # noqa: E402  ES/UniFi settings from the dashboard (More > Configuration), fallbacks below
 ES = INTEG.es_url()
@@ -34,7 +58,7 @@ def q(index, body):
     return json.load(urllib.request.urlopen(req, context=CTX, timeout=180))
 
 
-RANGE = {"range": {"@timestamp": {"gte": f"now-{HOURS}h"}}}
+RANGE = window.since_h(HOURS)
 INTERNAL = {"term": {"source.ip": NET}}
 
 
@@ -44,6 +68,15 @@ def ds(name):
 
 def buckets(agg):
     return agg.get("buckets", [])
+
+
+def by_hour(bs, val):
+    """Hourly histogram -> {"HH": sum}: hours of the day (UTC), summed over the days of the window."""
+    out = {}
+    for x in bs:
+        h = x["key_as_string"][11:13]
+        out[h] = out.get(h, 0) + val(x)
+    return out
 
 
 def inventory():
@@ -62,7 +95,7 @@ def inventory():
 def dhcp_map():
     """ip -> mac from Zeek DHCP over a wider window (dynamic leases)."""
     r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [
-        {"range": {"@timestamp": {"gte": f"now-{max(HOURS, 72)}h"}}}, ds("zeek.dhcp")]}},
+        window.since_h(max(HOURS, 72)), ds("zeek.dhcp")]}},
         "aggs": {"ip": {"terms": {"field": "dhcp.assigned_ip", "size": 500},
                         "aggs": {"mac": {"terms": {"field": "host.mac", "size": 3}},
                                  "host": {"terms": {"field": "host.hostname", "size": 1}}}}}})
@@ -154,8 +187,8 @@ def device_traffic():
                 "service": (buckets(x["svc"]) or [{"key": ""}])[0]["key"],
                 "bytes": x["c"]["value"] + x["s"]["value"]} for x in buckets(b["dport_out"])},
             "top_dst": {x["key"]: x["b"]["value"] for x in buckets(b["top_dst"])},
-            "hourly_bytes": {x["key_as_string"][11:13]: x["c"]["value"] + x["s"]["value"] for x in buckets(b["hourly"])},
-            "hourly_conns": {x["key_as_string"][11:13]: x["doc_count"] for x in buckets(b["hourly"])},
+            "hourly_bytes": by_hour(buckets(b["hourly"]), lambda x: x["c"]["value"] + x["s"]["value"]),
+            "hourly_conns": by_hour(buckets(b["hourly"]), lambda x: x["doc_count"]),
             "oui": (buckets(b["oui"]) or [{"key": ""}])[0]["key"],
         }
         devs[ip] = d
@@ -212,7 +245,7 @@ def dns_profile():
             "resolvers": res, "external_resolvers": {k: v for k, v in res.items() if not (SITE.is_internal(k) or k.startswith(("10.", "192.168.", "172.16.")))},
             "avg_len": round(b["len"]["avg"] or 0, 1), "max_len": b["len"]["max"] or 0, "long_names": b["long"]["doc_count"],
             "subdomain_heavy": {x["key"]: x["u"]["value"] for x in buckets(b["subheavy"])},
-            "hourly": {x["key_as_string"][11:13]: x["doc_count"] for x in buckets(b["hourly"])},
+            "hourly": by_hour(buckets(b["hourly"]), lambda x: x["doc_count"]),
         }
     m = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [RANGE, ds("zeek.dns"), INTERNAL,
                                                                       {"term": {"destination.port": 5353}}]}},
@@ -381,7 +414,7 @@ def collect_extras(devs):
     import unifi
     jobs["unifi"] = lambda: unifi.collect(HOURS)
     import hosts
-    jobs["hosts"] = lambda: hosts.collect(HOURS)
+    jobs["hosts"] = lambda: hosts.collect(HOURS, update=not RANGE_END)  # a time range never changes the host baseline
     import mitre
     jobs["mitre_ids"] = lambda: mitre.collect_ids(HOURS)
     for k, fn in jobs.items():
@@ -415,16 +448,22 @@ def main():
     unknown_dhcp = [{"ip": ip, "macs": v["macs"], "hostname": v["hostname"]} for ip, v in dmap.items()
                     if not any(m in inv for m in v["macs"])]
     nts, weird = notices()
-    now = dt.datetime.now(dt.timezone.utc)
-    out = {"generated": now.isoformat(), "hours": HOURS, "inventory_file": inv_file, "self_ip": SELF_IP,
+    now = window.end_dt()
+    out = {"generated": now.isoformat(), "hours": HOURS, **({"range": {"start": _s.isoformat(), "end": _e.isoformat()}} if RANGE_END else {}), "inventory_file": inv_file, "self_ip": SELF_IP,
            "totals": totals(), "devices": devs, "alerts": alerts(), "detections": detections(),
            "notices": nts, "weird": weird, "unknown_dhcp": unknown_dhcp, "zeek_retention_start": ret_start,
            "dns_tunnel": dns_tunnel_candidates(),
            **collect_extras(devs),
            "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
-    os.makedirs(os.path.join(NM, "data"), exist_ok=True)
-    path = os.path.join(NM, "data", now.strftime("%Y-%m-%dT%H%MZ") + ".json")
-    json.dump(out, open(path, "w"), indent=1, default=str)
+    if OUT:  # time range: written where the caller says (dashboard/state/ranges), never into data/
+        path = OUT
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    else:
+        os.makedirs(os.path.join(NM, "data"), exist_ok=True)
+        path = os.path.join(NM, "data", now.strftime("%Y-%m-%dT%H%MZ") + ".json")
+    tmp = path + ".tmp"
+    json.dump(out, open(tmp, "w"), indent=1, default=str)
+    os.replace(tmp, path)
     print(path)
 
 

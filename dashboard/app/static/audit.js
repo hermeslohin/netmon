@@ -9,6 +9,8 @@
   const outBadge = (o) => `<span class="badge ${o === "failure" ? "sev-high" : "sev-low"}">${esc(o || "—")}</span>`;
   const kindBadge = (k) => `<span class="badge ${k === "llm" ? "sev-medium" : "sev-info"}">${esc(KIND[k] || k)}</span>`;
   const when = (t) => { const d = new Date(t); return isNaN(d) ? esc(t) : esc(d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })); };
+  const pad = (n) => String(n).padStart(2, "0");
+  const locIn = (iso) => { const d = new Date(iso); return iso && !isNaN(d) ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}` : ""; };
   const opt = (v, label, cur) => `<option value="${esc(v)}"${String(cur) === String(v) ? " selected" : ""}>${esc(label)}</option>`;
 
   function pre(text) { const p = document.createElement("pre"); p.className = "audit-pre"; p.textContent = text; return p; }
@@ -62,7 +64,7 @@
   V.audit = async (el) => {
     el.innerHTML = `<h1>Audit log</h1><div class="sub">Who did what in the dashboard, and every conversation between the dashboard and an AI model. <b>User actions</b>: sign-ins (including failed ones), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, settings and user changes, report downloads and every refused request. <b>AI conversations</b>: Ask Hermes chats, the background correlation reviewer, model comparisons and the research job's input and results, each with its prompt, the model's answer, model, tokens and time. Passwords and keys are never logged. Stored in Elasticsearch <span class="mono">logs-netmon</span> (also searchable in Kibana). Only admins can see this page.</div><div class="loading">Loading…</div>`;
     if (!isAdmin()) { el.querySelector(".loading").replaceWith(card("Admins only", `<div class="empty">Only an admin can read the audit log.</div>`)); return; }
-    const P = hq(), F = { kind: P.get("kind") || "all", range: P.get("range") || "24h", user: P.get("user") || "", action: P.get("action") || "",
+    const P = hq(), F = { kind: P.get("kind") || "all", range: P.get("start") || P.get("end") ? "" : P.get("range") || "24h", start: P.get("start") || "", end: P.get("end") || "", user: P.get("user") || "", action: P.get("action") || "",
       outcome: P.get("outcome") || "", model: P.get("model") || "", q: P.get("q") || "", page: +(P.get("page") || 0) };
     const qs = new URLSearchParams(Object.entries(F).filter(([, v]) => v !== "" && v !== 0)).toString();
     const getJSON = async (u) => {  // tolerate non-JSON answers (proxy error pages) instead of a parse error
@@ -78,15 +80,22 @@
     const withCur = (list, cur) => (cur && !list.some((b) => b.key === cur) ? [{ key: cur, n: 0 }, ...list] : list);
     const fc = card("Filters", `<form id="au-f" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <select name="kind">${opt("all", "Everything", F.kind)}${opt("action", "User actions", F.kind)}${opt("llm", "AI conversations", F.kind)}</select>
-      <select name="range">${RANGES.map(([v, l]) => opt(v, l, F.range)).join("")}</select>
+      <select name="range" title="Quick range (or set a start and end)">${opt("", "Custom range", F.range)}${RANGES.map(([v, l]) => opt(v, l, F.range)).join("")}</select>
+      <label class="small muted">From <input type="datetime-local" name="startL" step="60" value="${esc(locIn(F.start))}"></label>
+      <label class="small muted">To <input type="datetime-local" name="endL" step="60" value="${esc(locIn(F.end))}"></label>
       <select name="user">${opt("", "All users", F.user)}${withCur(R.users, F.user).map((b) => opt(b.key, `${b.key} (${b.n})`, F.user)).join("")}</select>
       <select name="action">${opt("", "All actions", F.action)}${withCur(R.actions, F.action).map((b) => opt(b.key, `${PURPOSE[b.key] || b.key} (${b.n})`, F.action)).join("")}</select>
       <select name="outcome">${opt("", "Any outcome", F.outcome)}${opt("success", "Success", F.outcome)}${opt("failure", "Failure / denied", F.outcome)}</select>
       <select name="model">${opt("", "All models", F.model)}${withCur(R.models, F.model).filter((b) => b.key).map((b) => opt(b.key, `${b.key} (${b.n})`, F.model)).join("")}</select>
       <input name="q" type="search" placeholder="Search text, prompts, answers…" value="${esc(F.q)}" style="min-width:16em">
       <button type="submit">Apply</button> <a href="#/audit" class="small">reset</a></form>`);
-    fc.querySelector("form").onsubmit = (e) => { e.preventDefault(); setF(Object.fromEntries(new FormData(e.target))); };
+    fc.querySelector("form").onsubmit = (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
+      const s = d.startL ? new Date(d.startL) : null, en = d.endL ? new Date(d.endL) : null; delete d.startL; delete d.endL;
+      if (d.range) { d.start = ""; d.end = ""; } else { d.start = s && !isNaN(s) ? s.toISOString() : ""; d.end = en && !isNaN(en) ? en.toISOString() : ""; if (!d.start && !d.end) d.range = "24h"; }
+      setF(d); };
     fc.querySelectorAll("select").forEach((s) => (s.onchange = () => fc.querySelector("form").requestSubmit()));
+    // typing a date switches the quick range to "Custom range"
+    fc.querySelectorAll('input[type="datetime-local"]').forEach((i) => (i.onchange = () => { fc.querySelector('select[name="range"]').value = ""; }));
     el.appendChild(fc);
 
     const k = Object.fromEntries(R.kinds.map((b) => [b.key, b.n])), fail = (R.outcomes.find((b) => b.key === "failure") || {}).n || 0;

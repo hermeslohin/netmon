@@ -179,7 +179,52 @@ def snapshots():
     return out
 
 
+RANGE_RE = re.compile(r"^r\d{8}T\d{4}Z-\d{8}T\d{4}Z$")
+RANGES = os.path.join(STATE, "ranges")  # written by the host broker (collect.py --start/--end + analyze.py --readonly)
+
+
+def base_snapshot(end_iso):
+    """The newest nightly snapshot generated at or before `end_iso`: its AI triage, briefing and alarms go with a
+    time range (alarms stay per report run; everything else is collected for the range)."""
+    s = snapshots()
+    if not s:
+        return None
+    end = str(end_iso or "")[:16].replace("-", "").replace(":", "")  # 20261018T1700
+    best = None
+    for x in s:
+        if x["id"].replace("-", "")[:13] <= end:
+            best = x["id"]
+    return best or s[0]["id"]
+
+
+def range_status(rid):
+    return load_json(os.path.join(RANGES, rid + ".status.json"), None) if RANGE_RE.match(rid or "") else None
+
+
+def range_snapshot(rid):
+    raw = load_json(os.path.join(RANGES, rid + ".json"))
+    an = load_json(os.path.join(RANGES, rid + ".analysis.json"))
+    if raw is None or an is None:
+        return None
+    base = base_snapshot(raw.get("generated"))
+    b = snapshot(base) if base else None
+    res = {"id": rid, "raw": raw, "analysis": an, "range": raw.get("range"), "base": base}
+    for c in ("triage", "briefing", "sources"):
+        res[c] = (b or {}).get(c)
+    return res
+
+
+def resolve_sid(sid):
+    """A time-range id -> the nightly snapshot whose alarms / correlation belong to it."""
+    if RANGE_RE.match(sid or ""):
+        r = load_json(os.path.join(RANGES, sid + ".json")) or {}
+        return base_snapshot(r.get("generated") or "") or sid
+    return sid
+
+
 def snapshot(sid):
+    if RANGE_RE.match(sid or ""):
+        return range_snapshot(sid)
     if not SNAP_RE.match(sid or ""):
         return None
     raw = load_json(os.path.join(DATA, sid + ".json"))
@@ -263,8 +308,46 @@ _issues = {"sig": None, "val": None}
 _CORR = {}
 
 
+def snap_window(sid):
+    """(start, end) datetimes of a nightly snapshot's window (generated - hours, generated)."""
+    import datetime as dt
+    raw = load_json(os.path.join(DATA, sid + ".json")) or {}
+    try:
+        e = dt.datetime.fromisoformat(raw["generated"])
+        return e - dt.timedelta(hours=float(raw.get("hours") or 24)), e
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def range_request(body):
+    """{start, end} -> (response, code). A window that matches a nightly snapshot (±10 min) just uses it; anything
+    else is collected by the host broker into /state/ranges (the container has no Elasticsearch key)."""
+    import datetime as dt
+    try:
+        s = dt.datetime.fromisoformat(str(body.get("start") or "").replace("Z", "+00:00"))
+        e = dt.datetime.fromisoformat(str(body.get("end") or "").replace("Z", "+00:00"))
+        if not (s.tzinfo and e.tzinfo):
+            raise ValueError
+    except ValueError:
+        return {"error": "start and end must be ISO times with a UTC offset"}, 400
+    if e <= s:
+        return {"error": "the end must be after the start"}, 400
+    tol = dt.timedelta(minutes=10)
+    for x in reversed(snapshots()):
+        w = snap_window(x["id"])
+        if w and abs(w[0] - s) <= tol and abs(w[1] - e) <= tol:
+            return {"id": x["id"], "status": "done", "snapshot": True}, 200
+    try:
+        r = corr_llm.broker("/range", {"start": s.isoformat(), "end": e.isoformat()}, timeout=30)
+    except Exception as ex:  # noqa: BLE001 - broker down / validation error
+        return {"error": str(ex).replace("broker: ", "")[:300]}, 400
+    return r, 200
+
+
 def correlation(sid):
-    """Related-events map for a snapshot (correlate.py). Cached until the snapshot, its alerts or the issues change."""
+    """Related-events map for a snapshot (correlate.py). Cached until the snapshot, its alerts or the issues change.
+    A time range uses its nightly snapshot's map (correlation, AI verdicts and research notes are per report run)."""
+    sid = resolve_sid(sid)
     res = snapshot(sid)
     if not res:
         return None
@@ -593,6 +676,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if u.path == "/api/chat":
                 return self._chat(user, body)
+            if u.path == "/api/range":  # header time picker: a start/end that isn't a nightly snapshot window
+                return self._json(*range_request(body))
             if u.path == "/api/audit/view":  # the browser reports a page view; do_POST writes the audit entry
                 self._aud["body"] = {"route": str(body.get("route", ""))[:200]}
                 return self._json({"ok": True})
@@ -891,6 +976,9 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": f"audit log unavailable: {str(getattr(e, 'reason', e))[:200]}", "status": audit.status()})
             if path == "/api/snapshots":
                 return self._json(snapshots())
+            if path == "/api/range/status":
+                st = range_status((q.get("id") or [""])[0])
+                return self._json(st) if st else self._json({"error": "not found"}, 404)
             if path == "/api/snapshot":
                 sid = (q.get("id") or [""])[0]
                 if sid == "latest":

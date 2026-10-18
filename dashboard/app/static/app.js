@@ -419,7 +419,7 @@ V.overview = (el) => {
   const inv = alarms.filter((a) => /investigate/i.test(a.priority) && !acked("alarm", a)).length;
   const fleet = raw.hosts?.fleet || [];
   const unhealthy = fleet.filter((f) => !/online|healthy/i.test(f.status)).length;
-  el.innerHTML = `<h1>Network overview</h1><div class="sub">Window: last ${esc(raw.hours)}h ending ${ft(raw.generated)} · baseline ${esc(an.baseline_days ?? "?")} days${an.baseline_ready ? " (ready)" : " (warming up)"}</div>` +
+  el.innerHTML = `<h1>Network overview</h1><div class="sub">Window: ${ft(S.range.start)} – ${ft(S.range.end)} (${esc(+(+raw.hours).toFixed(1))} h${S.snap.range ? ", collected for this range; volumes compared with the 24 h baseline scaled to the range" : ""}) · baseline ${esc(an.baseline_days ?? "?")} days${an.baseline_ready ? " (ready)" : " (warming up)"}</div>` +
     kpis([["Devices seen", fn(Object.keys(raw.devices || {}).length)], ["Total traffic", fb(T.ip_bytes)], ["Internet traffic", fb(T.internet_ip_bytes)], ["Connections", fn(T.conns)],
       ["IDS alerts", fn(raw.alerts?.total), raw.alerts?.total ? "warn" : ""], ["High findings", fn(fsev.high || 0), fsev.high ? "bad" : "good"],
       ["Triage: investigate", fn(inv), inv ? "bad" : "good"], ["Endpoints unhealthy", `${unhealthy}/${fleet.length}`, unhealthy ? "warn" : "good"],
@@ -486,9 +486,9 @@ const DEV_FILTERS = {
 };
 V.devices = (el) => {
   const rows = S.idx.rows;
-  el.innerHTML = `<h1>Hosts</h1><div class="sub">${rows.length} internal addresses with traffic in this snapshot. Click a row for full detail.</div>` +
+  el.innerHTML = `<h1>Hosts</h1><div class="sub">${rows.length} internal addresses with traffic in this time range. Click a row for full detail.</div>` +
     kpis([["Known", `<a href="#/devices?known=true">${rows.filter((r) => r.known).length}</a>`, "good"], ["Unknown", `<a href="#/devices?known=false">${rows.filter((r) => !r.known).length}</a>`, rows.some((r) => !r.known) ? "warn" : ""],
-      ["New this window", (S.snap.analysis?.new_devices || []).length], ["With high findings", `<a href="#/devices?severity=high">${rows.filter((r) => r.worst === "high").length}</a>`, "bad"]]);
+      ["New in this range", (S.snap.analysis?.new_devices || []).length], ["With high findings", `<a href="#/devices?severity=high">${rows.filter((r) => r.worst === "high").length}</a>`, "bad"]]);
   el.appendChild(card(`All hosts (${rows.length})`, table("devs", [
     { k: "name", t: "Name", fmt: (v, r) => `<a href="#/device/${r.ip}">${esc(v || "(unnamed)")}</a>${r.known ? "" : ' <span class="badge sev-medium">unknown</span>'}${r.hosts.length ? ' <span class="badge sev-info">agent</span>' : ""}` },
     { k: "ip", t: "IP", cls: "mono", sort: (r) => ip2n(r.ip) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "oui", t: "Vendor", cls: "small" },
@@ -499,14 +499,14 @@ V.devices = (el) => {
   ], rows, { sort: "total", onclick: (r) => go("device/" + r.ip), urlFilter: DEV_FILTERS })));
   const nd = S.snap.analysis?.new_devices || [], ud = S.snap.analysis?.unknown_devices || [];
   el.appendChild(grid("g2",
-    card("New devices (first seen this window)", table(null, [{ k: "ip", t: "Device", fmt: (v) => ipLink(v) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "hostname", t: "Hostname" }, { k: "first_seen", t: "First seen", fmt: ft }, { k: "total", t: "Bytes", num: true, fmt: fb }], nd, { search: false })),
+    card("New devices (first ever seen in this time range)", table(null, [{ k: "ip", t: "Device", fmt: (v) => ipLink(v) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "hostname", t: "Hostname" }, { k: "first_seen", t: "First seen", fmt: ft }, { k: "total", t: "Bytes", num: true, fmt: fb }], nd, { search: false })),
     card("Unknown devices (not in inventory)", table(null, [{ k: "ip", t: "Device", fmt: (v) => ipLink(v) }, { k: "total", t: "Bytes", num: true, fmt: fb }, { k: "ext_peers", t: "Ext peers", num: true, fmt: fn }], ud, { search: false }))));
 };
 
 /* ----- Device detail ----- */
 V.device = (el, ip) => {
   const raw = S.snap.raw, d = raw.devices?.[ip];
-  if (!d) { el.innerHTML = `<h1>${esc(ip)}</h1><div class="empty">Not present in this snapshot.</div>`; return; }
+  if (!d) { el.innerHTML = `<h1>${esc(ip)}</h1><div class="empty">Not present in this time range.</div>`; return; }
   const r = S.idx.byIp[ip], an = S.snap.analysis || {}, tr = S.snap.triage || {}, seen = S.idx.seenByIp[ip] || {};
   const findings = (an.findings || []).filter((f) => f.device === ip);
   const alarms = (tr.alarms || []).filter((a) => [a.who, a.title, a.evidence].join(" ").includes(ip) || (r.name && [a.who, a.title].join(" ").includes(r.name)));
@@ -634,7 +634,7 @@ V.endpoints = (el, arg) => {
   const H = S.snap.raw.hosts || {};
   const hq = new URLSearchParams(location.hash.split("?")[1] || "").get("host"); if (hq !== null) EP.host = hq; else if (!arg) EP.host = "";
   const kpiLink = (kind, v) => `<a href="#/endpoints/${kind}?host=" title="Click for details">${v} <span style="font-size:13px">›</span></a>`;
-  el.innerHTML = `<h1>Endpoints</h1><div class="sub">Elastic Agent / Security Onion host telemetry (window ${esc(H.window_minutes ? H.window_minutes / 60 + "h" : "")}). Click a host for detail.</div>`;
+  el.innerHTML = `<h1>Endpoints</h1><div class="sub">Elastic Agent / Security Onion host telemetry (window ${ft(S.range.start)} – ${ft(S.range.end)}). Click a host for detail.</div>`;
   const hf = H.findings || [];
   const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
   el.insertAdjacentHTML("beforeend", kpis([["Agents", (H.fleet || []).length], ["Open host findings", `<a href="#/security?to=sec-hostfind" title="Listed on Posture">${hfo.length} <span style="font-size:13px">›</span></a>`, hfo.length ? "warn" : "good"], ["Investigate (open)", hfo.filter((f) => /investigate/i.test(f.priority)).length, "bad"], ["Checked off", `<a href="#/checked">${HF.done.length}</a>`],
@@ -686,7 +686,7 @@ function endpointSections(el, h) {
     entries(net).map(([proc, v]) => ({ proc, events: v.events, dsts: v.dst || [], ndst: (v.dst || []).length })), { sort: "events" }), "span"));
   const hs = S.reg.hosts_seen?.[h];
   if (hs) for (const [k, v] of entries(hs)) if (v && typeof v === "object") cards.push(card(`Baseline: ${esc(k)} (${Object.keys(v).length})`, table(null, [{ k: "x", t: k, cls: "mono small" }, { k: "d", t: "First seen" }], entries(v).map(([x, d]) => ({ x, d: typeof d === "object" ? JSON.stringify(d) : d })), { sort: "d", short: true })));
-  if (!cards.length) cards.push(card("", `<div class="empty">No endpoint telemetry for ${esc(h)} in this snapshot.</div>`));
+  if (!cards.length) cards.push(card("", `<div class="empty">No endpoint telemetry for ${esc(h)} in this time range.</div>`));
   el.appendChild(grid("g2", ...cards));
 }
 
@@ -884,7 +884,7 @@ function segClearedCard() {
   const viol = S.snap?.analysis?.violations || [];
   const rows = C.map(([k, a]) => { const [src, dst, port] = k.split("|"); const sip = src.includes(":") ? macIp[src] : src;
     const v = viol.find((x) => x.src === sip && x.dst === dst && String(x.port) === port);
-    return { key: k, at: a.at, label: a.label || k, src: sip || src, dst, port, by: a.note || "", seen: v ? `${fn(v.conns)} conns this snapshot` : "not seen this snapshot", reason: v?.reason || "" }; });
+    return { key: k, at: a.at, label: a.label || k, src: sip || src, dst, port, by: a.note || "", seen: v ? `${fn(v.conns)} conns in this time range` : "not seen in this time range", reason: v?.reason || "" }; });
   const c = card(`Cleared segmentation (${rows.length})`, `<div class="small muted" style="margin-bottom:6px">Flows you marked as expected. They are hidden from Posture, the Fix list and Risk, shown as allowed on Lateral movement, left out of correlation and the PDF report, and stay cleared on future snapshots. Uncheck to bring one back. To make it permanent for everyone (and the nightly analysis), add it to <span class="mono">policy.json</span> <span class="mono">allow</span>.</div>`);
   c.appendChild(table(null, [
     { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to bring it back">` },
@@ -904,7 +904,7 @@ V.checked = (el) => {
   const rows = [];
   for (const [type, m] of entries(S.acks)) for (const [key, a] of entries(m)) {
     const cur = lookup[type]?.[key];
-    rows.push({ type, key, at: a.at, label: a.label || key, note: a.note || "", cur, state: cur ? (cur._st === "fixed" ? "fixed" : "still present") : "not in this snapshot" });
+    rows.push({ type, key, at: a.at, label: a.label || key, note: a.note || "", cur, state: cur ? (cur._st === "fixed" ? "fixed" : "still present") : "not in this time range" });
   }
   rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   el.insertAdjacentHTML("beforeend", kpis(Object.keys(ACK_LABEL).map((t) => [ACK_LABEL[t] + "s", rows.filter((r) => r.type === t).length])));
@@ -913,7 +913,7 @@ V.checked = (el) => {
   el.appendChild(card(`Checked items (${rows.length})`, table(null, [
     { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="${r.type}" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to restore">` },
     { k: "at", t: "Checked", fmt: ft }, { k: "type", t: "Type", fmt: (v) => esc(ACK_LABEL[v] || v) }, { k: "label", t: "Item", fmt: (v, r) => linkifyIps(v) + (r.note.startsWith("auto-closed:") ? ` <span class="badge sev-info" title="${esc(r.note)}">auto-closed · ${esc((r.note.match(/AI verdict (\w+)/) || [])[1] || "AI")}</span>` : "") },
-    { k: "state", t: "Status in selected snapshot", fmt: (v) => `<span class="badge ${v === "still present" ? "sev-medium" : v === "fixed" ? "sev-good" : "sev-unknown"}">${esc(v)}</span>` },
+    { k: "state", t: "Status in selected time range", fmt: (v) => `<span class="badge ${v === "still present" ? "sev-medium" : v === "fixed" ? "sev-good" : "sev-unknown"}">${esc(v)}</span>` },
   ], rows, { sort: "at" })));
 };
 
@@ -1054,7 +1054,7 @@ V.unifi = () => location.replace("#/traffic?at=gateway");  // old bookmarks
 
 // ---------- MITRE ATT&CK matrix ----------
 V.attack = async (el, arg) => {
-  el.innerHTML = `<h1>MITRE ATT&amp;CK coverage</h1><div class="sub">Every alert, finding, vulnerability and misconfiguration in this snapshot mapped to ATT&amp;CK Enterprise.
+  el.innerHTML = `<h1>MITRE ATT&amp;CK coverage</h1><div class="sub">Every alert, finding, vulnerability and misconfiguration in this time range mapped to ATT&amp;CK Enterprise.
     <b>Observed</b> = behaviour seen (possible technique in use). <b>Exposure</b> = a weakness that enables the technique (nothing seen happening). Checked-off items are greyed.</div><div class="loading">Mapping…</div>`;
   let M;
   try { M = await api("/api/mitre?id=" + encodeURIComponent(S.snap.id)); } catch (e) { el.querySelector(".loading").textContent = "Mapping failed: " + e; return; }
@@ -1085,14 +1085,14 @@ V.attack = async (el, arg) => {
 
 function historyNetwork(el) {
   const H = S.hist; if (!H.length) return; const lab = H.map((h) => ft(h.generated));
-  el.appendChild(secHead("trend", "Trend across snapshots", `${H.length} banked baseline snapshots (each a 24h window).`));
+  el.appendChild(secHead("trend", "Trend across snapshots", `${H.length} banked baseline snapshots (each a 24h window)${S.histInRange ? " inside the selected time range" : " — fewer than two inside the selected range, so all are shown"}.`));
   el.appendChild(grid("g2",
     chartCard("Total bytes per snapshot", { type: "line", data: { labels: lab, datasets: [{ label: "total", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.total || 0), 0)), borderColor: PALETTE[0], tension: 0.3 }, { label: "internet up", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.ext_out || 0), 0)), borderColor: PALETTE[3], tension: 0.3 }] }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip } } }),
     chartCard("Hosts & connections per snapshot", { type: "bar", data: { labels: lab, datasets: [{ label: "hosts", data: H.map((h) => Object.keys(h.devices).length), backgroundColor: PALETTE[1], yAxisID: "y" }, { type: "line", label: "conns", data: H.map((h) => Object.values(h.devices).reduce((s, d) => s + (d.conns || 0), 0)), borderColor: PALETTE[2], yAxisID: "y1" }] }, options: { scales: { y1: { position: "right", grid: { display: false } } } } })));
 }
 function historyHosts(el) {
   const H = S.hist; if (!H.length) return; const lab = H.map((h) => ft(h.generated));
-  el.appendChild(secHead("trend", "Host trends across snapshots", `${H.length} banked 24h baseline snapshots.`));
+  el.appendChild(secHead("trend", "Host trends across snapshots", `${H.length} banked 24h baseline snapshots${S.histInRange ? " inside the selected time range" : " (all; fewer than two inside the selected range)"}.`));
   const keys = new Set(H.flatMap((h) => Object.keys(h.devices)));
   const series = [...keys].map((k) => { const pts = H.map((h) => h.devices[k]?.total || 0); const last = [...H].reverse().map((h) => h.devices[k]).find(Boolean) || {}; return { k, ip: last.ip, name: last.name || last.ip || k, pts, sum: pts.reduce((a, b) => a + b, 0), known: last.known }; }).sort((a, b) => b.sum - a.sum);
   const top = series.slice(0, 10);
@@ -1130,13 +1130,22 @@ async function route(keep) {
 }
 
 async function loadSnap(id) {
-  $("#main").innerHTML = `<div class="loading">Loading snapshot ${esc(id)}…</div>`;
+  $("#main").innerHTML = `<div class="loading">Loading ${id.startsWith("r") ? "time range" : "snapshot " + esc(id)}…</div>`;
   const [snap, hist, reg, iss, rsk, acks] = await Promise.all([api("/api/snapshot?id=" + encodeURIComponent(id)), api("/api/history"), api("/api/registry"), api("/api/issues").catch(() => null), api("/api/risk?id=" + encodeURIComponent(id)).catch(() => null), api("/api/acks").catch(() => ({}))]);
   S.acks = acks || {};
-  S.snap = snap; S.hist = hist; S.reg = reg; S.issues = iss; S.risk = rsk;
+  S.snap = snap; S.reg = reg; S.issues = iss; S.risk = rsk;
+  // the time range: a collected range carries its own; a nightly snapshot covers generated - hours .. generated
+  const gen = Date.parse(snap.raw.generated);
+  S.range = snap.range ? { start: snap.range.start, end: snap.range.end } : { start: new Date(gen - (+snap.raw.hours || 24) * 36e5).toISOString(), end: new Date(gen).toISOString() };
+  // trend charts: the baseline records inside the range when there are at least two, else all of them
+  const rs = Date.parse(S.range.start), re = Date.parse(S.range.end) + 6e5, inR = hist.filter((h) => { const t = Date.parse(h.generated); return t >= rs && t <= re; });
+  S.hist = inR.length >= 2 ? inR : hist; S.histInRange = inR.length >= 2;
+  window.rangeLabel?.();
   const ic = $("#issueCount"); const nrec = (iss?.open || []).filter((x) => x.recurring).length;
   if (ic) { ic.textContent = nrec; ic.style.display = nrec ? "" : "none"; } _hnbi = null; buildIndex();
-  $("#foot").textContent = `snapshot ${snap.id} · generated ${new Date(snap.raw.generated).toLocaleString()} · companions: ${["analysis", "triage", "briefing", "sources"].filter((c) => snap[c]).join(", ") || "none"}`;
+  $("#foot").textContent = snap.range
+    ? `time range ${new Date(snap.range.start).toLocaleString()} – ${new Date(snap.range.end).toLocaleString()} (collected for this range) · alarms and AI triage from nightly report ${snap.base || "—"}`
+    : `snapshot ${snap.id} · generated ${new Date(snap.raw.generated).toLocaleString()} · companions: ${["analysis", "triage", "briefing", "sources"].filter((c) => snap[c]).join(", ") || "none"}`;
   route();
 }
 async function init() {
@@ -1156,12 +1165,11 @@ async function init() {
   if (!isAdmin()) document.querySelectorAll('#nav a[data-r="config"]').forEach((a) => (a.textContent = "Configuration (view)"));
   if (!isAdmin()) document.querySelectorAll("#nav a.admin-only").forEach((a) => a.remove());
   S.snaps = await api("/api/snapshots");
-  const sel = $("#snapSel");
-  sel.innerHTML = [...S.snaps].reverse().map((s) => `<option value="${esc(s.id)}">${esc(s.id)}${s.has.includes("triage") ? " ✓" : ""}</option>`).join("");
-  sel.onchange = () => loadSnap(sel.value);
-  $("#reload").onclick = async () => { const cur = sel.value; S.snaps = await api("/api/snapshots"); const latest = S.snaps[S.snaps.length - 1]?.id; sel.innerHTML = [...S.snaps].reverse().map((s) => `<option value="${esc(s.id)}">${esc(s.id)}${s.has.includes("triage") ? " ✓" : ""}</option>`).join(""); sel.value = cur === S.snaps[S.snaps.length - 2]?.id ? latest : cur; loadSnap(sel.value); };
+  // ⟳: newer nightly report available and the newest one was shown -> show the new one; otherwise reload the same range
+  $("#reload").onclick = async () => { const wasLatest = S.snap?.id === S.snaps[S.snaps.length - 1]?.id; S.snaps = await api("/api/snapshots");
+    if (wasLatest) return window.rangeSelectSnapshot(S.snaps[S.snaps.length - 1].id); loadSnap(S.snap.id); };
   if (!S.snaps.length) { $("#main").innerHTML = `<div class="loading">No snapshots found in netmon/data.</div>`; return; }
-  await loadSnap(S.snaps[S.snaps.length - 1].id);
+  await window.initRange();
 }
 window.addEventListener("hashchange", () => (S.snap || isUserRole() || location.hash.startsWith("#/users")) && route());
 

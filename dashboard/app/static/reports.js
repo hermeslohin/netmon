@@ -24,7 +24,7 @@
       : `<div class="empty">No reports yet. They're produced nightly.</div>`));
     el.addEventListener("click", (e) => {  // jump the dashboard to that report's snapshot
       const a = e.target.closest("[data-snap]"); if (!a) return;
-      const sel = $("#snapSel"); sel.value = a.dataset.snap; sel.onchange();
+      window.rangeSelectSnapshot(a.dataset.snap);
     });
   };
 })();

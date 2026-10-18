@@ -110,7 +110,7 @@ const TI = { trend: null, feeds: null, q: "" };
 V.threatintel = async (el, arg) => {
   const raw = S.snap.raw, ti = raw.threat_intel || {}, T = raw.tls || {};
   const qs = new URLSearchParams((location.hash.split("?")[1]) || ""); if (qs.get("q")) TI.q = qs.get("q");
-  el.innerHTML = `<h1>Threat intelligence</h1><div class="sub">Feeds are downloaded by the nightly collector and matched against every DNS name, TLS server name, JA3 and internet IP seen in the window. Window: last ${esc(raw.hours)}h ending ${ft(raw.generated)}.</div><div class="loading">Loading feeds…</div>`;
+  el.innerHTML = `<h1>Threat intelligence</h1><div class="sub">Feeds are downloaded by the nightly collector and matched against every DNS name, TLS server name, JA3 and internet IP seen in the window. Window: ${ft(S.range.start)} – ${ft(S.range.end)}.</div><div class="loading">Loading feeds…</div>`;
   try { [TI.feeds, TI.trend] = await Promise.all([api("/api/ti/feeds"), api("/api/ti/trend")]); } catch (e) { el.querySelector(".loading").textContent = String(e); return; }
   el.querySelector(".loading").remove();
   const sigs = raw.alerts?.signatures || [];
@@ -189,7 +189,7 @@ function tiLookupHtml(q, r) {
   if (r.type === "ja3") { const j = (T.ja3 || []).find((x) => x.ja3 === q); if (j) for (const [ip, n] of entries(j.sources)) if (!sight.some((s) => s[0] === ip)) sight.push([ip, `TLS client fingerprint ×${n}`]); }
   if (r.type === "ip") (ti.ip_hits_in || []).filter((x) => x.ip === q).forEach((x) => entries(x.targets).forEach(([t, n]) => sight.push([t, `inbound from it ×${n} (ports ${x.ports.join(",")})`])));
   if (r.type === "domain") (T.certs || []).filter((c) => (c.san_dns || []).some((s) => s === q || s.endsWith("." + q) || (s.startsWith("*.") && q.endsWith(s.slice(1))))).forEach((c) => entries(c.clients).forEach(([ip, n]) => sight.push([ip, `TLS cert ${certCN(c.subject)} ×${n}`])));
-  h += sight.length ? `<p><span class="k">Seen in this snapshot:</span><br>${sight.slice(0, 15).map(([ip, w]) => `${ipLink(ip)} — ${esc(w)}`).join("<br>")}</p>` : `<p class="muted">Not seen in the selected snapshot's top destinations / DNS / TLS data.</p>`;
+  h += sight.length ? `<p><span class="k">Seen in this time range:</span><br>${sight.slice(0, 15).map(([ip, w]) => `${ipLink(ip)} — ${esc(w)}`).join("<br>")}</p>` : `<p class="muted">Not seen in the selected time ranot's top destinations / DNS / TLS data.</p>`;
   const ext = r.type === "ip" ? `<a href="https://www.abuseipdb.com/check/${esc(r.q)}" target="_blank" rel="noopener">AbuseIPDB</a> · <a href="https://www.virustotal.com/gui/ip-address/${esc(r.q)}" target="_blank" rel="noopener">VirusTotal</a> · <a href="https://www.shodan.io/host/${esc(r.q)}" target="_blank" rel="noopener">Shodan</a>`
     : r.type === "domain" ? `<a href="https://www.virustotal.com/gui/domain/${esc(r.q)}" target="_blank" rel="noopener">VirusTotal</a> · <a href="https://urlhaus.abuse.ch/browse.php?search=${esc(r.q)}" target="_blank" rel="noopener">URLhaus</a> · <a href="https://threatfox.abuse.ch/browse.php?search=ioc%3A${esc(r.q)}" target="_blank" rel="noopener">ThreatFox</a>`
     : r.type === "ja3" ? `<a href="https://sslbl.abuse.ch/ja3-fingerprints/${esc(r.q)}/" target="_blank" rel="noopener">SSLBL</a>` : "";

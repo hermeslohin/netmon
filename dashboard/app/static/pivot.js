@@ -114,7 +114,7 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
     let links = []; try { links = (B[P.kind] || B.alarm)(P.item) || []; } catch (e) { links = []; console.warn("pivot", e); }
     const seen = new Set(); links = links.filter(([, u]) => u && !seen.has(u) && seen.add(u));
     pop = document.createElement("div"); pop.className = "rel-pop piv-pop"; pop.setAttribute("role", "dialog");
-    pop.innerHTML = `<div class="rel-head"><b>Open in ${P.kind === "gateway" ? "Kibana / UniFi" : "Kibana"}</b> <span class="muted small">time range: this event or the snapshot window</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
+    pop.innerHTML = `<div class="rel-head"><b>Open in ${P.kind === "gateway" ? "Kibana / UniFi" : "Kibana"}</b> <span class="muted small">time range: this event or the selected range</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       ${links.length ? links.map(([t, u, src]) => `<a class="rel-item" href="${esc(u)}" target="_blank" rel="noopener noreferrer"><span class="badge ${src === "unifi" ? "sev-low" : "sev-medium"}">${src === "unifi" ? "UniFi" : "Kibana"}</span> <span class="rel-l">${esc(t)}</span></a>`).join("")
         : `<div class="empty" style="padding:10px">No IPs, hosts or signatures in this item to search for.</div>`}`;
     document.body.appendChild(pop);

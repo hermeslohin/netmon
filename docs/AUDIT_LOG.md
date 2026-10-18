@@ -80,9 +80,10 @@ refusal is itself logged).
 
 - **Audit log storage**: whether the dashboard can write to Elasticsearch, how many entries are stored, how much is
   waiting locally, and a form to change the audit key or index (**Test** checks the key without saving it).
-- **Filters**: type (everything / user actions / AI conversations), time range (1 hour to 90 days, or all), user,
+- **Filters**: type (everything / user actions / AI conversations), time range (a quick range from 1 hour to 90 days or
+  all, or **From** / **To** dates and times), user,
   action, outcome, model, and a text search that also searches prompts and answers. Filters are kept in the page
-  address (`#/audit?kind=llm&range=7d&user=alex`), so a filtered view can be bookmarked or shared.
+  address (`#/audit?kind=llm&range=7d&user=alex` or `#/audit?start=2026-10-18T13:00:00.000Z&end=2026-10-18T17:00:00.000Z`), so a filtered view can be bookmarked or shared.
 - **Counters**: entries, user actions, AI conversations, failed or denied, users, AI tokens in/out for the filter.
 - **Activity over time**: stacked bars of user actions and AI conversations.
 - **Entries**: newest first, 50 per page (Newer/Older). Click a row for **Entry details**: every field, the system prompt,

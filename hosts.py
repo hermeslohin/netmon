@@ -60,7 +60,8 @@ def susp_location(path):
 
 
 def rng(minutes):
-    return {"range": {"@timestamp": {"gte": f"now-{int(minutes)}m"}}}
+    import window  # now, or the end of a dashboard time range
+    return window.since(minutes)
 
 
 def B(agg):
@@ -655,8 +656,8 @@ def gather(minutes, nightly=True):
 
 def details(minutes):
     """Event-level auth-failure / sudo / Defend detail for the dashboard drill-down."""
-    import hostdetail
-    return hostdetail.collect(minutes)
+    import hostdetail, window
+    return hostdetail.collect(minutes, window.end())
 
 
 def osquery_results(minutes):

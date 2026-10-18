@@ -11,12 +11,15 @@ through agent.auxiliary_client.call_llm - no key is copied anywhere) and offers 
   POST /research/schedule   {hours, minutes} -> `hermes cron edit <job> --schedule ..` (30 min - 24 h)
   GET  /costlimit           Hermes cost_limit plugin: enabled?, max_run_usd, max_session_usd, recent stops
   POST /costlimit           {max_run_usd, max_session_usd} -> `hermes config set plugins.entries.cost_limit...`
+  POST /range               {start, end} (UTC ISO, whole minutes) -> background `collect.py --start --end --out` +
+                            `analyze.py --readonly` into dashboard/state/ranges/<id>.json (the dashboard's time
+                            range picker; the container has no Elasticsearch key). Progress: <id>.status.json.
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env). Provider must be
 "anthropic" or "lmstudio" and the model must be in /models. Run: llm_broker.sh (systemd user unit
 netmon-llm-broker.service, see docs/SETUP.md).
 """
-import hmac, json, os, re, subprocess, sys, threading, time, urllib.request
+import glob, hmac, json, os, re, subprocess, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NM = os.path.dirname(os.path.abspath(__file__))
@@ -249,6 +252,103 @@ def costlimit_set(b):
     return costlimit_get()
 
 
+# ------------------------------------------------------------------ dashboard time ranges
+RANGES = os.path.join(NM, "dashboard", "state", "ranges")
+RANGE_MAX_H, RANGE_MAX_AGE_D, RANGE_KEEP = 31 * 24, 120, 30
+_range_lock = threading.Lock()
+_range_running = {}
+
+
+def _utc(s):
+    import datetime as dt
+    t = dt.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    if not t.tzinfo:
+        raise ValueError("start/end need a UTC offset")
+    return t.astimezone(dt.timezone.utc).replace(second=0, microsecond=0)
+
+
+def range_id(s, e):
+    return "r" + s.strftime("%Y%m%dT%H%MZ") + "-" + e.strftime("%Y%m%dT%H%MZ")
+
+
+def _rstatus(rid, **kw):
+    p = os.path.join(RANGES, rid + ".status.json")
+    cur = {}
+    try:
+        cur = json.load(open(p))
+    except (OSError, ValueError):
+        pass
+    cur.update(kw, updated=time.time())
+    with open(p + ".tmp", "w") as f:
+        json.dump(cur, f)
+    os.replace(p + ".tmp", p)
+    return cur
+
+
+def _prune():
+    files = sorted(glob.glob(os.path.join(RANGES, "r*.json")), key=os.path.getmtime)
+    ids = []
+    for f in files:
+        b = os.path.basename(f).split(".")[0]
+        if b not in ids:
+            ids.append(b)
+    for b in ids[:-RANGE_KEEP]:
+        for f in glob.glob(os.path.join(RANGES, b + ".*")):
+            os.remove(f)
+
+
+def _range_job(rid, s, e):
+    out = os.path.join(RANGES, rid + ".json")
+    t = time.time()
+    try:
+        _rstatus(rid, status="collecting", started=t, start=s.isoformat(), end=e.isoformat(), step="Querying Security Onion and UniFi")
+        p = subprocess.run(["/usr/bin/python3", os.path.join(NM, "collect.py"), "--start", s.isoformat(), "--end", e.isoformat(), "--out", out],  # noqa: S603 - fixed argv, validated times
+                           capture_output=True, text=True, timeout=3600, cwd=NM)
+        if p.returncode or not os.path.exists(out):
+            raise RuntimeError((p.stderr or p.stdout or "collect failed")[-400:])
+        _rstatus(rid, status="analyzing", step="Comparing with the baseline")
+        p = subprocess.run(["/usr/bin/python3", os.path.join(NM, "analyze.py"), out, "--readonly"],  # noqa: S603 - fixed argv
+                           capture_output=True, text=True, timeout=900, cwd=NM)
+        if p.returncode:
+            raise RuntimeError((p.stderr or p.stdout or "analyze failed")[-400:])
+        _rstatus(rid, status="done", step="", seconds=round(time.time() - t, 1))
+        _prune()
+    except Exception as ex:  # noqa: BLE001 - reported to the dashboard through the status file
+        print(f"range {rid} failed: {ex}", file=sys.stderr)
+        _rstatus(rid, status="failed", error=str(ex)[-400:], seconds=round(time.time() - t, 1))
+    finally:
+        with _range_lock:
+            _range_running.pop(rid, None)
+
+
+def range_start(b):
+    import datetime as dt
+    s, e = _utc(b.get("start")), _utc(b.get("end"))
+    now = dt.datetime.now(dt.timezone.utc).replace(second=0, microsecond=0)
+    e = min(e, now)
+    if e <= s:
+        raise ValueError("the end must be after the start (and not in the future)")
+    if (e - s).total_seconds() < 15 * 60:
+        raise ValueError("the range must be at least 15 minutes")
+    if (e - s).total_seconds() > RANGE_MAX_H * 3600:
+        raise ValueError(f"the range can be at most {RANGE_MAX_H // 24} days")
+    if (now - s).days > RANGE_MAX_AGE_D:
+        raise ValueError(f"the start can be at most {RANGE_MAX_AGE_D} days ago")
+    os.makedirs(RANGES, exist_ok=True)
+    rid = range_id(s, e)
+    if os.path.exists(os.path.join(RANGES, rid + ".analysis.json")):
+        return {"id": rid, "status": "done"}
+    with _range_lock:
+        if rid in _range_running:
+            return {"id": rid, "status": "running"}
+        if _range_running:
+            raise ValueError("another time range is being collected - try again in a minute")
+        _range_running[rid] = time.time()
+    _rstatus(rid, status="queued", start=s.isoformat(), end=e.isoformat(), error="")
+    threading.Thread(target=_range_job, args=(rid, s, e), daemon=True).start()
+    return {"id": rid, "status": "running"}
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):
         print("broker:", fmt % a, file=sys.stderr)
@@ -295,6 +395,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, schedule_set(b))
             if self.path == "/costlimit":
                 return self._send(200, costlimit_set(b))
+            if self.path == "/range":
+                return self._send(200, range_start(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})

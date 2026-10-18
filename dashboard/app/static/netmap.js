@@ -164,7 +164,7 @@ function nmRender(box, zones) {
       if (h.issues) { const b = svgEl("g", { transform: `translate(${r - 1},${-r + 1})` }); b.appendChild(svgEl("circle", { r: 7, fill: "#f85149", stroke: "#0d1117", "stroke-width": 1.5 })); txt(b, h.issues, { "text-anchor": "middle", dy: 3, "font-size": 9, "font-weight": 700, fill: "#fff" }); n.appendChild(b); }
       const nm = String(h.name); txt(n, nm.length > 17 ? nm.slice(0, 16) + "…" : nm, { "text-anchor": "middle", y: r + 14, "font-size": 11, fill: h.active ? "#c9d1d9" : "#8b949e" });
       txt(n, h.ip, { "text-anchor": "middle", y: r + 26, "font-size": 9, fill: "#6e7681" });
-      const t = svgEl("title"); t.textContent = `${h.name}\n${h.ip}${h.mac ? " · " + h.mac : ""}\n${cl.l}${h.vendor ? " · " + h.vendor : ""}\n${h.active ? "active in this snapshot" : "not seen in this snapshot"}\nrisk ${h.risk}${h.issues ? ` · ${h.issues} open issues` : ""}`; n.appendChild(t);
+      const t = svgEl("title"); t.textContent = `${h.name}\n${h.ip}${h.mac ? " · " + h.mac : ""}\n${cl.l}${h.vendor ? " · " + h.vendor : ""}\n${h.active ? "active in this time range" : "not seen in this time range"}\nrisk ${h.risk}${h.issues ? ` · ${h.issues} open issues` : ""}`; n.appendChild(t);
       n.onclick = (e) => { e.stopPropagation(); NM.sel = { host: h }; nmPanel(zones); nmRender(box, zones); };
       n.ondblclick = () => S.snap.raw.devices?.[h.ip] && go("device/" + h.ip);
       gN.appendChild(n);
@@ -215,7 +215,7 @@ function nmPanel(zones) {
       <h3>Legend</h3><div class="small">
       <div class="chips" style="margin-bottom:6px">${Object.entries(NM_CLASS).map(([k, v]) => `<span class="chip"><b style="color:${v.c}">${v.g}</b> ${v.l}</span>`).join("")}</div>
       <div>Fill colour: ${NM.color === "risk" ? "host risk (green → red), bigger = riskier" : NM.color === "class" ? "device class" : "green = active, grey = not seen"}</div>
-      <div>Dashed hollow bubble = known but not seen in this snapshot</div><div>Dashed amber ring = not in DHCP inventory</div>
+      <div>Dashed hollow bubble = known but not seen in this time range</div><div>Dashed amber ring = not in DHCP inventory</div>
       <div><span style="color:#3fb950">●</span> top-left dot = Elastic agent installed</div><div><span style="color:#f85149">●</span> top-right number = open fix-list issues</div>
       <div>Zone badge = highest host risk in that zone</div></div>`;
     return;
@@ -231,7 +231,7 @@ function nmPanel(zones) {
   el.innerHTML = `<h2>${esc(h.name)}</h2><div class="idgrid">
     <span class="k">IP</span><span class="mono">${esc(h.ip)}</span><span class="k">MAC</span><span class="mono">${esc(h.mac || "—")}</span>
     <span class="k">Vendor</span><span>${esc(h.vendor || "—")}</span><span class="k">Hostname</span><span>${esc(h.hostname || "—")}</span>
-    <span class="k">Zone / class</span><span>${esc(h.zone)} / ${esc(cl.l)}</span><span class="k">Status</span><span>${h.active ? badge("active") : '<span class="badge sev-unknown">not seen this snapshot</span>'}</span>
+    <span class="k">Zone / class</span><span>${esc(h.zone)} / ${esc(cl.l)}</span><span class="k">Status</span><span>${h.active ? badge("active") : '<span class="badge sev-unknown">not seen in this time range</span>'}</span>
     <span class="k">In inventory</span><span>${h.known ? "yes" : '<span class="badge sev-medium">no</span>'}</span><span class="k">Elastic agent</span><span>${h.agent ? (S.idx.ipHosts[h.ip] || []).map(hostLink).join(", ") : "—"}</span>
     <span class="k">First / last seen</span><span>${ft(h.first_seen) || "—"} / ${ft(h.last_seen) || "—"}</span><span class="k">Sources</span><span>${esc([...new Set(h.sources)].join(", "))}</span>
     ${h.active ? `<span class="k">Traffic</span><span>${fb(h.total)} · ${fn(h.conns)} conns</span>` : ""}
@@ -243,11 +243,11 @@ function nmPanel(zones) {
 V.netmap = (el) => {
   const hosts = nmHosts(), zones = nmZones(hosts);
   el.innerHTML = `<h1>Network map</h1><div class="sub">Every internal host we know about (live traffic, DHCP inventory, baseline registry and UniFi), placed in its zone behind the UniFi gateway. Internet hosts are not mapped.</div>`;
-  el.insertAdjacentHTML("beforeend", kpis([["Zones", zones.length], ["Hosts", hosts.length], ["Active this snapshot", hosts.filter((h) => h.active).length, "good"],
+  el.insertAdjacentHTML("beforeend", kpis([["Zones", zones.length], ["Hosts", hosts.length], ["Active in this range", hosts.filter((h) => h.active).length, "good"],
     ["Not seen", hosts.filter((h) => !h.active).length], ["Not in inventory", hosts.filter((h) => !h.known).length, hosts.some((h) => !h.known) ? "warn" : "good"], ["With Elastic agent", hosts.filter((h) => h.agent).length]]));
   const ctr = document.createElement("div"); ctr.className = "tbltools";
   ctr.innerHTML = `<label class="muted">Colour by</label><select id="nmColor">${[["risk", "Risk"], ["class", "Device class"], ["activity", "Activity"]].map(([k, l]) => `<option value="${k}" ${NM.color === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-    <label><input type="checkbox" id="nmInactive" ${NM.inactive ? "checked" : ""}> show hosts not seen this snapshot</label>
+    <label><input type="checkbox" id="nmInactive" ${NM.inactive ? "checked" : ""}> show hosts not seen in this time range</label>
     <input id="nmQ" type="search" placeholder="Find host (name, IP, MAC, vendor)…" value="${esc(NM.q)}"><button id="nmReset">Reset view</button>`;
   el.appendChild(ctr);
   const wrap = document.createElement("div"); wrap.className = "lmwrap nmwrap";

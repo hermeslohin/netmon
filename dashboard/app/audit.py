@@ -256,9 +256,20 @@ def search(p):
     """p: kind (all|action|llm), range, user, action, outcome, model, q, page. Newest first, 50 per page."""
     size, page = 50, max(0, min(int(p.get("page") or 0), 190))
     flt = []
-    rng = RANGES.get(p.get("range") or "24h")
-    if rng:
-        flt.append({"range": {"@timestamp": {"gte": rng}}})
+    iso = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)$")
+    if p.get("start") or p.get("end"):  # explicit time range (start / end, ISO with offset)
+        r = {}
+        for k, op in (("start", "gte"), ("end", "lte")):
+            v = str(p.get(k) or "")
+            if v:
+                if not iso.match(v):
+                    raise ValueError(f"bad {k} time")
+                r[op] = v
+        flt.append({"range": {"@timestamp": r}})
+    else:
+        rng = RANGES.get(p.get("range") or "24h")
+        if rng:
+            flt.append({"range": {"@timestamp": {"gte": rng}}})
     kind = p.get("kind") or "all"
     if kind in ("action", "llm"):
         flt.append({"term": {"event.dataset": "netmon.audit" if kind == "action" else "netmon.llm"}})

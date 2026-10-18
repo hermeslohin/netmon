@@ -113,8 +113,9 @@ def expected_admin_ip(ip):
 def collect(hours=24):
     if not INTEG.unifi_key():  # UniFi is optional
         return {"skipped": f"no UniFi API key (dashboard Configuration > Integrations or {KEY_FILE})"}
-    t1 = int(time.time() * 1000)
-    t0 = t1 - hours * 3600_000
+    import window  # now, or the end of a dashboard time range
+    t1 = window.end_ms()
+    t0 = t1 - int(hours * 3600_000)
     out, errors = {"window_hours": hours}, {}
 
     def guard(name, fn):

@@ -43,8 +43,8 @@ def _ctx():
 
 
 def rng(hours=None, minutes=None):
-    span = f"now-{minutes}m" if minutes else f"now-{hours or 24}h"
-    return {"range": {"@timestamp": {"gte": span}}}
+    import window  # [end - span, end]; end = now, or the end of a dashboard time range (NETMON_WINDOW_END)
+    return window.since(minutes) if minutes else window.since_h(hours or 24)
 
 
 def is_internal(ip):
