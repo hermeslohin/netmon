@@ -65,7 +65,7 @@
       // own box (user request): title is the card h2, the summary line sits under it
       uc = card("Time and tokens per research run", "");
       uc.id = "ai-usage";
-      const chart = uc.appendChild(document.createElement("div"));
+      const chart = uc;  // header + .chart as direct children so cards.js marks it cc-chart (no phone height cap)
       const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" }));
       hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
           (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
