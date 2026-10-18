@@ -377,11 +377,69 @@ def _an_messages(messages, cache):
     return out
 
 
+def _rs_input(messages):
+    """Neutral messages -> OpenAI Responses API input items. Assistant turns keep the provider's own output items
+    (reasoning with encrypted content, function calls) in m["raw"], so reasoning carries over between turns."""
+    out = []
+    for m in messages:
+        if m["role"] == "tool":
+            out.append({"type": "function_call_output", "call_id": m["id"], "output": m.get("content") or ""})
+        elif m["role"] == "assistant":
+            if m.get("raw"):
+                out.extend(m["raw"])
+                continue
+            if m.get("content"):
+                out.append({"role": "assistant", "content": m["content"]})
+            for t in m.get("tool_calls") or []:
+                out.append({"type": "function_call", "call_id": t["id"], "name": t["name"], "arguments": json.dumps(t.get("args") or {})})
+        else:
+            out.append({"role": "user", "content": m.get("content") or ""})
+    return out
+
+
+def _responses(p, model, system, messages, tools, max_tokens, temperature):
+    body = {"model": model, "input": _rs_input(messages), "max_output_tokens": int(max_tokens), "store": False,
+            "include": ["reasoning.encrypted_content"]}
+    if system:
+        body["instructions"] = system
+    if tools:
+        body["tools"] = [{"type": "function", "name": x["name"], "description": x.get("description", ""),
+                          "parameters": x.get("parameters") or {"type": "object", "properties": {}}} for x in tools]
+    if temperature is not None:
+        body["temperature"] = temperature
+    d = _http(p, "/responses", body)
+    items = [i for i in d.get("output") or [] if isinstance(i, dict)]
+    text = "".join(c.get("text") or "" for i in items if i.get("type") == "message" for c in i.get("content") or [] if c.get("type") == "output_text")
+    calls = []
+    for i in items:
+        if i.get("type") == "function_call":
+            try:
+                args = json.loads(i.get("arguments") or "{}")
+            except ValueError:
+                args = {"_unparsed": (i.get("arguments") or "")[:2000]}
+            calls.append({"id": i.get("call_id") or i.get("id"), "name": i.get("name") or "", "args": args if isinstance(args, dict) else {"value": args}})
+    # store=False: message / call items are re-sent without their server ids; reasoning items need id + encrypted_content
+    keep = [{k: v for k, v in i.items() if k not in ("status",) and (k != "id" or i.get("type") == "reasoning")}
+            for i in items if i.get("type") in ("reasoning", "message", "function_call")]
+    u = d.get("usage") or {}
+    usage = {"prompt": int(u.get("input_tokens") or 0), "completion": int(u.get("output_tokens") or 0),
+             "cache_read": int((u.get("input_tokens_details") or {}).get("cached_tokens") or 0), "cache_write": 0}
+    inc = (d.get("incomplete_details") or {}).get("reason")
+    stop = "tool_calls" if calls else ("length" if inc == "max_output_tokens" else "stop")
+    return {"text": text, "tool_calls": calls, "usage": usage, "stop": stop, "raw": keep}
+
+
 def chat(provider, model, system, messages, tools=None, max_tokens=4000, rate=False, temperature=None):
-    """One turn of a (tool-using) conversation; see the module docstring for the formats."""
+    """One turn of a (tool-using) conversation; see the module docstring for the formats.
+    OpenAI's own API is called through /v1/responses (reasoning models only take tools there); the result then
+    carries "raw" output items, which the caller stores on the assistant message (m["raw"]) for the next turn."""
     p = _target(provider, model, rate)
     t = time.time()
     extra = int(p.get("reasoning_tokens") or 0)
+    if p["type"] == "openai" and _is_openai(p):
+        r = _responses(p, model, system, messages, tools, int(max_tokens) + extra, temperature)
+        r["seconds"] = round(time.time() - t, 2)
+        return r
     if p["type"] == "anthropic":
         body = {"model": model, "max_tokens": int(max_tokens) + extra, "messages": _an_messages(messages, cache=True)}
         if system:

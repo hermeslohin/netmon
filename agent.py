@@ -9,6 +9,7 @@ Budget(tokens, usd) is shared across conversations of one run: every call is cha
 before the next call once a limit is passed.
 """
 import json
+import re
 import time
 
 import llm_providers as LP
@@ -42,6 +43,16 @@ class Budget:
     def summary(self):
         return {**self.usage, "total": self.usage["prompt"] + self.usage["completion"], "calls": self.calls,
                 "cost_usd": round(self.usd, 4) if self.priced else None}
+
+
+_SECRET_RE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"  # JWTs (session tokens in logged HTTP headers)
+                        r"|(?i:(?:bearer|apikey|basic)\s+)[A-Za-z0-9+/=._-]{16,}"  # Authorization header values
+                        r"|(?i:ory_kratos_session|session|token|api[_-]?key|password)(\\*\"?\s*[:=]\s*\\*\"?)[^\s\"\\,;]{12,}")
+
+
+def redact(s):
+    """Remove credentials that log data can carry (HTTP headers, cookies) before a tool result reaches the model or a transcript."""
+    return _SECRET_RE.sub(lambda m: (m.group(1) and m.group(0)[:m.start(1) - m.start(0)] + m.group(1) or "") + "[redacted]", s)
 
 
 def _schema(props, req):
@@ -79,12 +90,13 @@ def run(target, system, user, tools, budget=None, max_turns=30, max_tokens=4000,
         text = r["text"] or text
         if r["text"]:
             emit("text", r["text"])
+        raw = {"raw": r["raw"]} if r.get("raw") else {}
         if not r["tool_calls"]:
-            messages.append({"role": "assistant", "content": r["text"]})
+            messages.append({"role": "assistant", "content": r["text"], **raw})
             if r["stop"] == "length" and not r["text"]:
                 stopped = "the model ran out of output tokens"
             return {"text": text, "messages": messages, "turns": turn, "tool_calls": used, "stopped": stopped}
-        messages.append({"role": "assistant", "content": r["text"], "tool_calls": r["tool_calls"]})
+        messages.append({"role": "assistant", "content": r["text"], "tool_calls": r["tool_calls"], **raw})
         done = False
         for tc in r["tool_calls"]:
             used.append(tc["name"])
@@ -99,6 +111,7 @@ def run(target, system, user, tools, budget=None, max_turns=30, max_tokens=4000,
                     out, ok = res if isinstance(res, str) else json.dumps(res, default=str, ensure_ascii=False), True
                 except Exception as e:  # noqa: BLE001 - the model sees the error and can retry
                     out, ok = f"error: {type(e).__name__}: {str(e)[:600]}", False
+            out = redact(out)
             if len(out) > max_result:
                 out = out[:max_result] + f" …[cut at {max_result} characters; narrow the request for more]"
             emit("tool_done", tc["name"], ok, round(time.time() - t0, 2))

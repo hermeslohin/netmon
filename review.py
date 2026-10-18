@@ -150,7 +150,8 @@ class Run:
         self.fetched, self.notes_out, self.errors, self.counts = set(), [], [], {}
         self.snap = self.stem = None
         self.raw, self.ana = {}, {}
-        os.makedirs(LOGDIR, exist_ok=True)
+        os.makedirs(LOGDIR, mode=0o700, exist_ok=True)
+        os.chmod(LOGDIR, 0o700)
 
     # ---- citations
     def ledger_path(self):
@@ -388,7 +389,9 @@ class Run:
         finally:
             log["usage"] = self.budget.summary()
             fn = os.path.join(LOGDIR, f"{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{name}.json")
-            json.dump(log, open(fn, "w"), indent=1, default=str, ensure_ascii=False)
+            fd = os.open(fn, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # transcripts hold log data: owner-only
+            with os.fdopen(fd, "w") as f:
+                f.write(agent.redact(json.dumps(log, indent=1, default=str, ensure_ascii=False)))
             for old in sorted(glob.glob(os.path.join(LOGDIR, "*.json")))[:-60]:
                 os.remove(old)
 
@@ -554,9 +557,10 @@ def main():
         raise
     finally:
         s = run.summary()
-        st.finish("failed" if fatal else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, pdf)
+        failed = fatal or any(e.startswith("triage:") for e in run.errors)
+        st.finish("failed" if failed else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, pdf)
         print(s)
-    return 1 if fatal else 0
+    return 1 if (fatal or any(e.startswith("triage:") for e in run.errors)) else 0
 
 
 if __name__ == "__main__":
