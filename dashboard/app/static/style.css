@@ -435,3 +435,8 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .kb-rev{padding:1px 8px;font-size:11px;border-radius:10px;cursor:pointer;margin-left:4px}
 .kb-note.kb-st-pending{border-left-color:var(--warn)}
 .kb-note.kb-st-rejected{border-left-color:var(--bad,#c33);opacity:.75}
+
+/* audit log (#/audit) */
+.audit-facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:6px 0 10px;word-break:break-word}
+.audit-sec h3{font-size:13px;margin:12px 0 4px;color:var(--muted)}
+.audit-pre{white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px;margin:0}

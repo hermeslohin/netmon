@@ -25,6 +25,7 @@ INDEX_DEFAULTS = {"zeek": "logs-zeek-so", "suricata": "logs-suricata.alerts-so",
 INDEX_LABELS = {"zeek": "Network logs (Zeek: conn, dns, ssl, dhcp, notice…)", "suricata": "IDS alerts (Suricata)",
                 "detections": "Detection rule hits (Security Onion detections)"}
 UNIFI_DEFAULT = "https://api.ui.com"
+AUDIT_INDEX = "logs-netmon"  # dashboard audit log (dashboard/app/audit.py); its own key: create_doc + read on this index only
 UNIFI_KEY_FILE = os.environ.get("UNIFI_API_KEY_FILE") or os.path.join(HOME, "secrets", "unifi_api_key")
 ENV_KEY = "MCP_SO_ELASTICSEARCH_API_KEY"
 
@@ -87,6 +88,14 @@ def map_index(index):
     return ",".join(es_index(rev[p]) if p in rev else p for p in str(index).split(","))
 
 
+def audit_key():
+    return (load().get("audit") or {}).get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY") or ""
+
+
+def audit_index():
+    return (load().get("audit") or {}).get("index") or AUDIT_INDEX
+
+
 def unifi_url():
     return ((load().get("unifi") or {}).get("url") or UNIFI_DEFAULT).rstrip("/")
 
@@ -103,7 +112,7 @@ def _mask(k):
 def public():
     """What the Configuration page shows: values + source of each, keys masked."""
     d = load()
-    e, u = d.get("elasticsearch") or {}, d.get("unifi") or {}
+    e, u, a = d.get("elasticsearch") or {}, d.get("unifi") or {}, d.get("audit") or {}
     in_container = bool(os.environ.get("NETMON_IN_DASHBOARD"))
     host_es, host_un = (None, None) if in_container else (bool(_env_es_key()), bool(_file_unifi_key()))
     return {
@@ -119,6 +128,10 @@ def public():
             "key_set": bool(u.get("api_key")), "key_hint": _mask(u.get("api_key") or ""), "key_fallback": "~/.hermes/secrets/unifi_api_key",
             "key_fallback_present": host_un,
             "updated_by": u.get("updated_by"), "updated_at": u.get("updated_at")},
+        "audit": {
+            "index": a.get("index") or "", "index_default": AUDIT_INDEX, "key_set": bool(a.get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY")),
+            "key_hint": _mask(a.get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY") or ""),
+            "updated_by": a.get("updated_by"), "updated_at": a.get("updated_at")},
     }
 
 
@@ -146,17 +159,22 @@ def _clean_key(v):
 def candidate(section, body):
     """Merged section dict from a form post, without saving. Empty api_key keeps the current one unless clear_key."""
     cur = dict(load().get(section) or {})
-    new = {"url": _clean_url(body.get("url"))}
+    new = {} if section == "audit" else {"url": _clean_url(body.get("url"))}
     k = _clean_key(body.get("api_key"))
     new["api_key"] = "" if body.get("clear_key") else (k or cur.get("api_key") or "")
     if section == "elasticsearch":
         ix = body.get("indices") or {}
         new["indices"] = {n: _clean_index(ix.get(n)) for n in INDEX_DEFAULTS}
+    if section == "audit":
+        ix = _clean_index(body.get("index"))
+        if "," in ix or "*" in ix:
+            raise ValueError("the audit index must be one concrete index name (no commas or wildcards)")
+        new["index"] = ix
     return {**cur, **new}
 
 
 def save(section, body, user):
-    if section not in ("elasticsearch", "unifi"):
+    if section not in ("elasticsearch", "unifi", "audit"):
         raise ValueError("unknown integration")
     d = load()
     d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -210,6 +228,15 @@ def test(section, body):
                 out["indices"][n] = {"index": ix, "ok": False, "error": _err(e)}
                 out["ok"] = False
         return out
+    if section == "audit":  # the audit key must be able to read the index (search) - writing is checked by the writer
+        url, key, ix = es_url(), c.get("api_key") or "", c.get("index") or AUDIT_INDEX
+        if not key:
+            return {"ok": False, "error": "enter the audit API key to test it"}
+        try:
+            r = _http(f"{url}/{ix}/_count", {"Authorization": f"ApiKey {key}"}, verify=False)
+            return {"ok": True, "url": url, "index": ix, "docs": r.get("count", 0)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "url": url, "index": ix, "error": _err(e)}
     if section == "unifi":
         url, key = c.get("url") or UNIFI_DEFAULT, c.get("api_key") or _file_unifi_key()
         if not key:

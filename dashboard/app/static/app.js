@@ -1110,6 +1110,10 @@ V.history = () => location.replace("#/traffic?at=trend");  // old bookmarks
 
 /* ---------- router ---------- */
 function go(r) { location.hash = "#/" + r; }
+// audit log: report each page the user opens (fire and forget; the server records user, time and route)
+let _lastView = "";
+function auditView(h) { if (h === _lastView) return; _lastView = h;
+  fetch("/api/audit/view", { method: "POST", headers: { "Content-Type": "application/json", "X-Netmon": "1" }, body: JSON.stringify({ route: String(h).slice(0, 200) }) }).catch(() => {}); }
 async function route(keep) {
   S.charts.forEach((c) => c.destroy()); S.charts = []; S._scrolled = false; S._noScroll = !!keep;
   let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
@@ -1118,6 +1122,7 @@ async function route(keep) {
   document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (a.dataset.r + "s" === view + "s" && false) || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
   const el = $("#main"); el.innerHTML = "";
+  if (!keep) auditView(location.hash || "#/" + view);
   try { const p = (V[view] || V.overview)(el, arg); if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
   catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
   flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
@@ -1149,6 +1154,7 @@ async function init() {
     return route();
   }
   if (!isAdmin()) document.querySelectorAll('#nav a[data-r="config"]').forEach((a) => (a.textContent = "Configuration (view)"));
+  if (!isAdmin()) document.querySelectorAll("#nav a.admin-only").forEach((a) => a.remove());
   S.snaps = await api("/api/snapshots");
   const sel = $("#snapSel");
   sel.innerHTML = [...S.snaps].reverse().map((s) => `<option value="${esc(s.id)}">${esc(s.id)}${s.has.includes("triage") ? " ✓" : ""}</option>`).join("");

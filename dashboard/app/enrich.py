@@ -273,6 +273,16 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             "events": pick}
 
 
+def _audit(purpose, model, message, prompt=None, response=None, error=None):
+    """The research job (Hermes cron on the host) talks to its LLM through these files: log what goes in and comes back."""
+    try:
+        import audit
+        audit.llm(purpose, "hermes (research job)", model, user="netmon (research job)", prompt=prompt, response=response, error=error, message=message)
+        audit.flush(drain=False)
+    except Exception as e:  # noqa: BLE001 - the job must not fail because the audit log is down (entries spool)
+        print(f"audit: {e}", file=sys.stderr)
+
+
 def main(argv):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     if argv[:1] == ["events"]:
@@ -286,13 +296,18 @@ def main(argv):
             with _db() as c:
                 c.execute("INSERT INTO runs (snapshot, started, listed, todo, note_keys) VALUES (?,?,?,?,?)",
                           (res["snapshot"], time.time(), res["listed"], res["without_note"], res["note_keys"]))
+        _audit("research-input", "", f"research job: work list handed to the LLM ({res.get('listed')} events, snapshot {res.get('snapshot')})",
+               prompt=json.dumps(res, default=str), error=res.get("error"))
         print(json.dumps(res, indent=1, default=str))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
         import server
         sid = doc.get("snapshot") or (server.snapshots() or [{"id": ""}])[-1]["id"]
         res = server.correlation(sid)
-        print(json.dumps(put({**doc, "snapshot": sid}, (res or {}).get("events") or {})))
+        out = put({**doc, "snapshot": sid}, (res or {}).get("events") or {})
+        _audit("research-result", str(doc.get("model") or ""), f"research job: LLM results stored ({len(doc.get('notes') or [])} notes, "
+               f"{len(doc.get('links') or [])} links) -> {json.dumps(out, default=str)[:200]}", response=json.dumps(doc, default=str))
+        print(json.dumps(out))
     else:
         print(__doc__)
         return 2

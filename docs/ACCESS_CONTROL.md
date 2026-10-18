@@ -27,6 +27,7 @@ what a role can't use. Hiding a button is never the protection.
 | Mark alerts read | shared 🔔 for everyone | shared 🔔 for everyone | private marker, doesn't change anyone else's 🔔 |
 | Add / delete users, reset passwords, change roles, assign devices | ✓ | ✗ | ✗ |
 | Integrations (Elasticsearch, UniFi): view and change | ✓ | ✗ | ✗ |
+| Audit log (More → Audit log): read, set its Elasticsearch key | ✓ | ✗ | ✗ |
 | Security Triage settings, review-job schedule, "Run now", reopen auto-closed | ✓ | ✗ | ✗ |
 | AI models (correlation reviewer, research job), model comparisons, "Use this" | ✓ | ✗ | ✗ |
 
@@ -94,6 +95,11 @@ docker exec -it netmon-dashboard python /app/server.py set-password <user>
 
 Denied requests are logged to the container log as `access denied: <user> (<role>) POST <path>`. Role changes, user
 adds and deletes are logged as `user admin: …`.
+
+Everything is also written to the **audit log** (`dashboard/app/audit.py`, Elasticsearch index `logs-netmon`, page More →
+Audit log): every sign-in attempt, every POST (with its parameters, secrets redacted), page views, report downloads,
+audit-log reads, every refused request (403), console user changes (`server.py add-user / set-role / set-password`),
+and every conversation between the dashboard and an AI model (prompt, answer, model, tokens, time).
 
 ## Upgrade from the single-tier setup
 

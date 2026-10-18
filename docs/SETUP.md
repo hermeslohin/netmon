@@ -104,6 +104,18 @@ cd ~/.hermes/netmon/dashboard && ./deploy.sh
 - **Phone push notifications** need HTTPS with a certificate the phone trusts. A Cloudflare Tunnel (`cloudflared`) pointing at `https://127.0.0.1:8443` with "No TLS Verify" works well. On iPhone, add the site to the Home Screen first, then enable notifications on the Alerts page.
 - The login lockout trusts `CF-Connecting-IP` only from loopback, which is how cloudflared connects.
 
+### Audit log (Elasticsearch `logs-netmon`)
+
+Every user action and every AI conversation is written to the Elasticsearch index `logs-netmon` and shown on **More → Audit log** (admins only, see the [user guide](USER_GUIDE.md#more--audit-log)). One-time setup with an Elasticsearch account that can manage templates (Kibana → Dev Tools, or curl):
+
+1. Index template (fixed mapping, so prompts and answers are full-text searchable): `PUT _index_template/netmon-audit` with the body in `docs/audit_index_template.json`, then `PUT logs-netmon`.
+2. A key for the dashboard that can only add and read entries:
+   `POST _security/api_key {"name": "netmon-audit", "role_descriptors": {"netmon_audit": {"indices": [{"names": ["logs-netmon"], "privileges": ["create_doc", "read", "view_index_metadata"]}]}}}`
+   (create it as a user, not with another API key: Elasticsearch refuses keys with privileges derived from an API key).
+3. Paste the `encoded` value on **More → Audit log → Change the audit key or index**, **Test**, **Save** (stored in `dashboard/state/integrations.json`, 0600). `NETMON_AUDIT_ES_KEY` in `dashboard/.env` works too.
+
+Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 MB) and are sent automatically.
+
 ### Local LLM for correlation review (optional, recommended)
 
 The dashboard links related events and vulnerabilities, then asks a **local LLM** to confirm or reject each link (details in [CORRELATION.md](CORRELATION.md)). Install [LM Studio](https://lmstudio.ai), load a capable instruction model (tested with Gemma 4 31B), and enable its server on port 1234. The container uses host networking and finds the loaded model automatically. Nothing leaves the machine.

@@ -331,6 +331,28 @@ Everything checked off or cleared, with who did it and when. Uncheck to restore.
 
 Accounts and their roles (see [section 10](#10-admin-tasks)). Network defenders see this page read-only; Users don't see it.
 
+### More → Audit log
+
+Admins only. A record of who did what in the dashboard and of every conversation between the dashboard and an AI model.
+
+- **User actions**: sign-ins (failed ones too), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, model comparisons, settings and user changes, report downloads and every refused request. Each entry has the user, role, time, source IP, browser and the result (HTTP status).
+- **AI conversations**: Ask Hermes chats, the background correlation reviewer, model comparisons and the research job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
+- Passwords, keys and tokens are replaced by `[redacted]` before anything is stored.
+
+Filter by type, time range, user, action, outcome or model, or search the text (this searches prompts and answers too). Click an entry to see all its details. Filters are kept in the address, so you can bookmark a view.
+
+The entries are stored in Elasticsearch on Security Onion, in the index `logs-netmon` (also searchable in Kibana). The **Audit log storage** box shows whether the dashboard can write there. The dashboard needs its own API key with only `create_doc` and `read` on `logs-netmon`, so it can add and read entries but never change or delete them. If Elasticsearch is unreachable or no key is set yet, entries wait on the dashboard (`state/audit_spool.jsonl`, up to 50 MB) and are sent automatically later.
+
+To create the key, in Kibana → Dev Tools:
+
+```
+POST /_security/api_key
+{"name": "netmon-audit",
+ "role_descriptors": {"netmon_audit": {"indices": [{"names": ["logs-netmon"], "privileges": ["create_doc", "read", "view_index_metadata"]}]}}}
+```
+
+Paste the `encoded` value into **Change the audit key or index**, press **Test**, then **Save**.
+
 ---
 
 ## 7. AI features

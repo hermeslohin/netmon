@@ -314,7 +314,15 @@ def main(argv):
         print(json.dumps(dump(argv[1] if len(argv) > 1 else ""), indent=1))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
-        print(json.dumps(put(doc)))
+        out = put(doc)
+        try:  # AI-written host notes coming back from the research job's LLM (audit log, see audit.py)
+            import audit
+            audit.llm("research-hostnotes", "hermes (research job)", str(doc.get("model") or ""), user="netmon (research job)",
+                      response=json.dumps(doc, default=str), message=f"research job: host notes from the LLM -> {json.dumps(out, default=str)[:200]}")
+            audit.flush(drain=False)
+        except Exception as e:  # noqa: BLE001 - never fail the job over the audit log
+            print(f"audit: {e}", file=sys.stderr)
+        print(json.dumps(out))
     else:
         print(__doc__)
         return 2

@@ -17,6 +17,7 @@ import auth
 import tintel
 import chat
 import kb
+import audit
 from http.cookies import SimpleCookie
 import base64, glob, gzip, hmac, json, os, re, ssl, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -29,7 +30,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 #   user     - only the alerts / events of the devices an admin assigned to them (allow-list below)
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
-             "/api/alerts/read", "/api/kb/event"}  # /api/kb/event: own notes on own devices' events only (checked below)
+             "/api/alerts/read", "/api/kb/event", "/api/audit/view"}  # /api/kb/event: own notes on own devices' events only (checked below)
 ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/costlimit", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
@@ -359,6 +360,29 @@ def with_software_vulns(tr):
     return out
 
 
+# ---------------------------------------------------------------- audit log (audit.py -> Elasticsearch logs-netmon)
+AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open",
+             "/api/compare/item": "compare.item.history", "/api/aireview/compare": "aireview.compare.history"}
+AUDIT_TARGET = ("username", "id", "eid", "key", "pair", "event", "section", "kind", "title", "subject", "route", "provider", "model")
+
+
+def audit_action_name(path, body):
+    """/api/users + {action: add} -> users.add ; /api/acks + {checked} -> acks.check ; /api/login -> auth.login"""
+    base = {"/api/login": "auth.login", "/api/logout": "auth.logout", "/api/audit/view": "page.view",
+            "/api/account/password": "account.password"}.get(path) or path[len("/api/"):].strip("/").replace("/", ".")
+    if path == "/api/acks":
+        return base + (".check" if body.get("checked") else ".uncheck")
+    act = body.get("action") if isinstance(body, dict) else None
+    return f"{base}.{act}" if isinstance(act, str) and re.fullmatch(r"[a-z_-]{1,30}", act) else base
+
+
+def audit_target(body):
+    if not isinstance(body, dict):
+        return None
+    t = [f"{k}={str(body[k])[:200]}" for k in AUDIT_TARGET if isinstance(body.get(k), (str, int)) and str(body.get(k))]
+    return "; ".join(t) or None
+
+
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript",
         ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon",
         ".png": "image/png", ".json": "application/manifest+json"}
@@ -370,6 +394,20 @@ class H(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *a):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % a))
+
+    def send_response(self, code, message=None):
+        self._code = code  # for the audit entry of this request
+        super().send_response(code, message)
+
+    def _audit(self, user, role, act, method, path, params=None, target=None, message=None, category="web"):
+        code = getattr(self, "_code", None)
+        out = "success" if code and code < 400 else "failure"
+        try:
+            audit.action(user, act, role=role, ip=self._client_ip(), outcome=out, method=method, path=path, status=code, params=params,
+                         target=target, message=message or f"{user or '-'} {act} -> {code}", category=category,
+                         ua=self.headers.get("User-Agent"))
+        except Exception as e:  # noqa: BLE001 - auditing must never break a request
+            print(f"audit failed: {e}", file=sys.stderr)
 
     COOKIE = "netmon_session"
     PUBLIC = {"/login", "/login.html", "/login.js", "/style.css", "/healthz", "/api/login",
@@ -462,17 +500,28 @@ class H(BaseHTTPRequestHandler):
             if m["provider"] in LLM_PROVIDERS and llm_allowed(m["provider"], m["model"]):
                 chat_model = m
         print(f"chat: {user} -> {cid} ({len(text)} chars){' model ' + chat_model['model'] if chat_model else ''}", file=sys.stderr)
+        rec, t0 = {}, time.time()
         try:
             emit("start", {})
-            chat.stream(user, cid, text, emit, body.get("context"), chat_model)
+            chat.stream(user, cid, text, emit, body.get("context"), chat_model, rec)
         except (BrokenPipeError, ConnectionResetError):
             print(f"chat: {user} disconnected mid-answer", file=sys.stderr)
+            rec.update(status="disconnected", error="browser disconnected mid-answer")
         except Exception as e:  # Hermes down / timeout: tell the browser, keep the server alive
             print(f"chat error for {user}: {e.__class__.__name__}: {e}", file=sys.stderr)
+            rec.update(status="failed", error=f"{e.__class__.__name__}: {e}")
             try:
                 emit("end", {"status": "failed", "error": "The assistant is unavailable right now. Try again in a minute."})
             except OSError:
                 pass
+        finally:
+            try:
+                audit.llm("chat", rec.get("provider") or "hermes (netmonchat profile)", rec.get("model") or "", user=user, prompt=rec.get("input") or text,
+                          response=rec.get("answer"), seconds=round(time.time() - t0, 2), error=rec.get("error") or None, session=cid,
+                          tools=rec.get("tools"), status=rec.get("status"), usage=rec.get("usage"),
+                          message=f"Ask Hermes: {user} - {re.sub(chr(92) + 's+', ' ', text)[:100]} ({rec.get('status')})")
+            except Exception as e:  # noqa: BLE001
+                print(f"audit (chat) failed: {e}", file=sys.stderr)
 
     def _chat(self, user, body):
         if not chat.enabled():
@@ -499,6 +548,21 @@ class H(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, separators=(",", ":"), default=str), "application/json")
 
     def do_POST(self):
+        self._code, self._aud = None, {"path": urlparse(self.path).path}
+        try:
+            self._do_post()
+        finally:  # every POST is a user action: one audit entry with the outcome (status code), secrets redacted
+            a = self._aud
+            body = a.get("body") if isinstance(a.get("body"), dict) else {}
+            user = a.get("user") or (str(body.get("username", ""))[:64] if a["path"] == "/api/login" else None)
+            if a["path"] == "/api/chat" and body.get("action") in ("list",):
+                pass  # the chat page's own refresh of its session list, not an action
+            else:
+                self._audit(user, a.get("role"), audit_action_name(a["path"], body), "POST", a["path"],
+                            params={k: v for k, v in body.items() if k != "username" or a["path"] != "/api/login"},
+                            target=audit_target(body), category="authentication" if a["path"] in ("/api/login", "/api/logout") else "web")
+
+    def _do_post(self):
         u = urlparse(self.path)
         # CSRF guard: browsers can't send this header cross-site without a CORS preflight we never approve
         if self.headers.get("X-Netmon") != "1" or "application/json" not in self.headers.get("Content-Type", ""):
@@ -506,6 +570,7 @@ class H(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
+            self._aud["body"] = body
             if u.path == "/api/login":
                 cookie, err = auth.login(str(body.get("username", "")), str(body.get("password", "")), self._client_ip())
                 if err:
@@ -517,6 +582,7 @@ class H(BaseHTTPRequestHandler):
             if not user:
                 return self._json({"error": "login required"}, 401)
             role = auth.role_of(user)
+            self._aud.update(user=user, role=role)
             if role == "user" and u.path not in USER_POST:
                 return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
             if role != "admin" and (u.path.startswith(ADMIN_POST) or (u.path == "/api/aireview" and body.get("action") == "adopt")):
@@ -527,6 +593,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if u.path == "/api/chat":
                 return self._chat(user, body)
+            if u.path == "/api/audit/view":  # the browser reports a page view; do_POST writes the audit entry
+                self._aud["body"] = {"route": str(body.get("route", ""))[:200]}
+                return self._json({"ok": True})
             if u.path == "/api/account/password":
                 cookie, err = auth.change_own_password(user, str(body.get("current", "")), str(body.get("password", "")), self._client_ip())
                 if err:
@@ -749,6 +818,19 @@ class H(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 500)
 
     def do_GET(self):
+        self._code, self._aud = None, {}
+        try:
+            self._do_get()
+        finally:  # GETs are data loads; audited: report downloads, lookups, audit-log reads and every denied request
+            a, code = self._aud, getattr(self, "_code", None)
+            p = urlparse(self.path).path
+            act = a.get("act") or AUDIT_GET.get(p)
+            if a.get("user") and (act or code == 403):
+                q = {k: v[0][:300] for k, v in parse_qs(urlparse(self.path).query).items()}
+                self._audit(a["user"], a.get("role"), act or "access.denied", "GET", p, params=q or None, target=a.get("target"),
+                            category="file" if act == "report.download" else "web")
+
+    def _do_get(self):
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         if path == "/healthz":
@@ -759,6 +841,7 @@ class H(BaseHTTPRequestHandler):
         if path not in self.PUBLIC and not user:
             return self._deny(path)
         role = auth.role_of(user) if user else None
+        self._aud.update(user=user, role=role)
         if role == "user" and (path.startswith("/api/") or path.startswith("/reports/")) and path not in USER_GET:
             return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
         admin = role == "admin"
@@ -779,6 +862,7 @@ class H(BaseHTTPRequestHandler):
                 with open(fn, "rb") as f:
                     body = f.read()
                 inline = (q.get("view") or ["0"])[0] == "1"
+                self._aud.update(act="report.view" if inline else "report.download", target=name)
                 self._extra_headers = [("Content-Disposition", f'{"inline" if inline else "attachment"}; filename="{name}"')]
                 print(f"report download: {user} {name} ({'view' if inline else 'download'})", file=sys.stderr)
                 return self._send(200, body, "application/pdf", "private, no-store")
@@ -790,6 +874,20 @@ class H(BaseHTTPRequestHandler):
                 ul = auth.public_list()
                 return self._json({"users": ul, "me": user, "min_password": auth.MIN_PW,
                                    "prefs": {x["username"]: store.prefs_get(x["username"]) for x in ul}, "devices": device_catalog()})
+            if path in ("/api/audit", "/api/audit/doc", "/api/audit/status"):  # More > Audit log (admin only)
+                if not admin:
+                    return self._json({"error": "only an admin can read the audit log"}, 403)
+                try:
+                    if path == "/api/audit/status":
+                        return self._json(audit.status())
+                    if path == "/api/audit/doc":
+                        d = audit.doc((q.get("id") or [""])[0])
+                        return self._json({"doc": d}) if d else self._json({"error": "not found"}, 404)
+                    return self._json({**audit.search({k: v[0] for k, v in q.items()}), "status": audit.status()})
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                except Exception as e:  # noqa: BLE001 - ES down / no key: the page says so
+                    return self._json({"error": f"audit log unavailable: {str(getattr(e, 'reason', e))[:200]}", "status": audit.status()}, 502)
             if path == "/api/snapshots":
                 return self._json(snapshots())
             if path == "/api/snapshot":
@@ -938,6 +1036,9 @@ def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "set-role":
         # recovery: docker exec -it netmon-dashboard python /app/server.py set-role <user> admin|defender|user
         err = auth.set_role(sys.argv[2], sys.argv[3], actor=None)
+        audit.action("console", "users.role", outcome="failure" if err else "success", category="iam", target=f"username={sys.argv[2]}; role={sys.argv[3]}",
+                     message=f"console (docker exec) set-role {sys.argv[2]} {sys.argv[3]}: {err or 'ok'}")
+        audit.flush(drain=False)
         print(err or "ok")
         sys.exit(1 if err else 0)
     if len(sys.argv) >= 3 and sys.argv[1] in ("set-password", "add-user"):
@@ -947,6 +1048,9 @@ def main():
         name, pw = sys.argv[2], getpass.getpass(f"new password for {sys.argv[2]}: ")
         role = sys.argv[3] if len(sys.argv) >= 4 else "admin"
         err = auth.add(name, pw, role) if sys.argv[1] == "add-user" or name not in auth.load() else auth.set_password(name, pw)
+        audit.action("console", "users.add" if sys.argv[1] == "add-user" else "users.password", outcome="failure" if err else "success", category="iam",
+                     target=f"username={name}", message=f"console (docker exec) {sys.argv[1]} {name}: {err or 'ok'}")
+        audit.flush(drain=False)
         print(err or "ok")
         sys.exit(1 if err else 0)
     if auth.bootstrap(USER, PASS):
@@ -954,6 +1058,11 @@ def main():
     mig = auth.migrate_roles()
     if mig:
         print(f"access control: existing accounts made admins: {', '.join(sorted(mig))}", flush=True)
+    try:  # audit log writer (Elasticsearch logs-netmon); spools to /state while ES is unreachable
+        audit.start()
+        print(f"audit log -> {integrations.es_url() or '(no ES URL)'}/{audit.index()} (key {'set' if integrations.audit_key() else 'NOT set - spooling'})", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print("audit log disabled:", e, flush=True)
     try:
         pushsvc.start()
         print(f"web push enabled ({len(store.push_subs())} subscribers)", flush=True)

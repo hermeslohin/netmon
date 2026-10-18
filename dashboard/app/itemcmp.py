@@ -6,6 +6,7 @@ event research note). Each model gets the same prompt and only the item's data (
 import hashlib, json, re, time
 from concurrent.futures import ThreadPoolExecutor
 
+import audit
 import corr_llm
 
 VERDICTS = ["malicious", "suspicious", "needs-review", "benign", "expected"]
@@ -50,15 +51,29 @@ def first_json(txt):
     return json.JSONDecoder().raw_decode(txt[i:])[0]
 
 
-def _ask(target, kind, title, item):
+def _ask(target, kind, title, item, actor="?"):
     data = json.dumps(_clean(item), default=str, ensure_ascii=False)[:8000].replace("</item>", "</ item>")
     user = f'<item kind="{kind[:60]}" title="{str(title)[:300].replace(chr(34), chr(39))}">\n{data}\n</item>'
+    log = {"txt": None, "system": SYSTEM}
     t = time.time()
+    try:
+        res = _ask_raw(target, user, t, log)
+    except Exception as e:
+        audit.llm("item-compare", target["provider"], target["model"], user=actor, system=log["system"], prompt=user, response=log["txt"],
+                  seconds=round(time.time() - t, 2), error=f"{type(e).__name__}: {e}", message=f"item-compare ({kind}): {str(title)[:120]} - failed")
+        raise
+    audit.llm("item-compare", target["provider"], target["model"], user=actor, system=log["system"], prompt=user, response=log["txt"],
+              usage=res.get("usage"), seconds=res.get("seconds"), message=f"item-compare ({kind}): {str(title)[:120]} -> {res.get('verdict')}")
+    return res
+
+
+def _ask_raw(target, user, t, log):
     if target["provider"] == "anthropic":
         # no structured-output mode through the broker: tagged fields survive quotes in the text, JSON often does not
-        r = corr_llm.broker("/complete", {"provider": "anthropic", "model": target["model"], "max_tokens": 900, "user": user,
-                                          "system": SYSTEM + "\nAnswer with exactly these four tags and nothing else:\n<verdict>...</verdict>\n<priority>...</priority>\n<summary>...</summary>\n<reasoning>...</reasoning>"})
+        log["system"] = SYSTEM + "\nAnswer with exactly these four tags and nothing else:\n<verdict>...</verdict>\n<priority>...</priority>\n<summary>...</summary>\n<reasoning>...</reasoning>"
+        r = corr_llm.broker("/complete", {"provider": "anthropic", "model": target["model"], "max_tokens": 900, "user": user, "system": log["system"]})
         txt, usage, secs = r["content"], r.get("usage") or {}, r.get("seconds") or round(time.time() - t, 2)
+        log["txt"] = txt
         a = {k: (re.search(rf"<{k}>(.*?)</{k}>", txt, re.S) or re.search(rf"<{k}>(.*)", txt, re.S) or [None, ""])[1].strip() for k in ("verdict", "priority", "summary", "reasoning")}
         if not a["verdict"] and not a["summary"]:
             a = first_json(txt)
@@ -70,6 +85,7 @@ def _ask(target, kind, title, item):
         d = corr_llm._get(corr_llm.URL + "/chat/completions", json.dumps(body).encode(), timeout=300)
         u = d.get("usage") or {}
         txt, usage, secs = d["choices"][0]["message"].get("content") or "", {"prompt": u.get("prompt_tokens", 0), "completion": u.get("completion_tokens", 0)}, round(time.time() - t, 2)
+        log["txt"] = txt
     return _norm(first_json(txt), secs, usage)
 
 
@@ -83,7 +99,7 @@ def compare(kind, title, item, targets, user):
     def one(t):
         out = {"provider": t["provider"], "model": t["model"]}
         try:
-            out.update(_ask(t, kind, title, item))
+            out.update(_ask(t, kind, title, item, user))
         except Exception as e:  # noqa: BLE001 - one model failing must not hide the others
             out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
         return out

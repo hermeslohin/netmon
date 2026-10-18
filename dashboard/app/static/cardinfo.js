@@ -1,5 +1,30 @@
 // Generated: info texts for the (i) button on each dashboard box (cardinfo_ui.js). Key: "view|normalised title".
 window.CARD_INFO = {
+"audit|Audit log storage": {
+"source": "Dashboard settings (integrations.json, section audit) and a live count from the Security Onion Elasticsearch index logs-netmon.",
+"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon.",
+"what": "Where the audit log is stored and whether the dashboard can write to it."
+},
+"audit|Filters": {
+"source": "The audit log index (logs-netmon); the lists show the users, actions and models seen in the chosen time range.",
+"use": "Pick a type, time range, user, action, outcome or model, or search the text (also searches prompts and AI answers). Filters are kept in the address, so a filtered view can be bookmarked.",
+"what": "Narrows the audit log entries below."
+},
+"audit|Activity over time": {
+"source": "Audit log entries per time bucket, split into user actions and AI conversations.",
+"use": "Spikes show bursts of activity (many sign-ins, a big review run). Use it to choose a narrower time range.",
+"what": "Bar chart of audit activity."
+},
+"audit|Entries": {
+"source": "Elasticsearch index logs-netmon, newest first, 50 per page.",
+"use": "Click a row to see all details below. Failed sign-ins and refused requests show outcome 'failure'. Background jobs appear as user 'netmon (...)'.",
+"what": "Every user action and every conversation between the dashboard and an AI model."
+},
+"audit|Entry details": {
+"source": "The full audit document from Elasticsearch.",
+"use": "For AI conversations this shows the instructions (system prompt), the exact prompt the app sent, the model's answer, tokens and time. Passwords and keys are shown as [redacted] - they are never stored.",
+"what": "Everything recorded for the selected entry."
+},
 "account|Change password": {
 "source": "The dashboard user store (auth.py). New passwords must be at least 10 characters and differ from the current one; the meter rates length and character variety.",
 "use": "Enter your current password and the new one twice. Your other signed-in browsers and phones are signed out, this one stays signed in. A long passphrase is strongest.",

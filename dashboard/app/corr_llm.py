@@ -19,6 +19,8 @@ Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (defaul
 """
 import json, os, sqlite3, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+import audit
 from datetime import datetime, timezone
 
 URL = os.environ.get("NETMON_LLM_URL", "http://127.0.0.1:1234/v1").rstrip("/")
@@ -183,10 +185,21 @@ def _model():
     return d["data"][0]["id"]
 
 
-def _complete(target, system, user, max_tokens):
-    """One JSON completion from the chosen provider -> (text, usage dict, seconds)."""
+def _complete(target, system, user, max_tokens, purpose="correlation-review", actor="netmon (background reviewer)"):
+    """One JSON completion from the chosen provider -> (text, usage dict, seconds). Every call is audit-logged."""
     t = time.time()
-    if target["provider"] == "anthropic":
+    try:
+        out = _complete_raw(target, system, user, max_tokens, t)
+    except Exception as e:
+        audit.llm(purpose, target["provider"], target["model"], user=actor, system=system, prompt=user, seconds=round(time.time() - t, 2),
+                  error=f"{type(e).__name__}: {e}")
+        raise
+    audit.llm(purpose, target["provider"], target["model"], user=actor, system=system, prompt=user, response=out[0], usage=out[1], seconds=out[2])
+    return out
+
+
+def _complete_raw(target, system, user, max_tokens, t):
+    if target["provider"] == "anthropic":  # (the audit entry shows the shared system prompt; this suffix only fixes the answer format)
         r = broker("/complete", {"provider": "anthropic", "model": target["model"], "max_tokens": max_tokens,
                                   "system": system + "\nReturn ONLY a JSON object of the form {\"decisions\": [{\"id\", \"related\", \"confidence\", \"reason\"}]} - no prose, no code fences.",
                                   "user": user})
@@ -206,7 +219,7 @@ def _target(model=None):
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
 
 
-def _ask_full(target, anchor, cands, notes=None):
+def _ask_full(target, anchor, cands, notes=None, purpose="correlation-review", actor="netmon (background reviewer)"):
     """notes: {"anchor" | "c<i>": [owner note text, ...]} from kb.event_notes (optional)."""
     notes = notes or {}
     def ev(tag, e, extra=""):
@@ -215,7 +228,7 @@ def _ask_full(target, anchor, cands, notes=None):
     lines = ["ANCHOR:", ev("anchor", anchor), "", "CANDIDATES (with the correlation script's evidence):"]
     for i, (e, r) in enumerate(cands, 1):
         lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))
-    txt, usage, secs = _complete(target, SYSTEM, "\n".join(lines), 120 + 90 * len(cands))
+    txt, usage, secs = _complete(target, SYSTEM, "\n".join(lines), 120 + 90 * len(cands), purpose, actor)
     i = txt.find("{")
     return json.JSONDecoder().raw_decode(txt[i:] if i >= 0 else txt)[0]["decisions"], usage, secs
 
@@ -324,7 +337,7 @@ def compare(p, base, targets, user):
     def one(t):
         out = {"provider": t["provider"], "model": t["model"]}
         try:
-            dec, usage, secs = _ask_full(t, E[a], [(E[b], r)])
+            dec, usage, secs = _ask_full(t, E[a], [(E[b], r)], purpose="correlation-compare", actor=user)
             d = next((x for x in dec if x.get("id") == "c1"), dec[0] if dec else {})
             out.update(related=bool(d.get("related")), confidence=float(d.get("confidence") or 0), reason=str(d.get("reason") or "")[:300],
                        seconds=secs, usage=usage)

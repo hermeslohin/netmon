@@ -158,13 +158,16 @@ def rate_check(user):
     return None
 
 
-def stream(user, cid, text, emit, ctx=None, model=None):
+def stream(user, cid, text, emit, ctx=None, model=None, rec=None):
     """Run one turn and call emit(event, dict) for each UI event. Returns when the turn ends.
     model = {"provider", "model"} (already validated by the server) picks the model for this turn;
-    None = the netmonchat profile's default."""
+    None = the netmonchat profile's default. rec (dict) is filled in for the audit log as the turn goes:
+    input (exact text sent to Hermes), answer, tools, status, error, model - also when the turn breaks off."""
+    rec = {} if rec is None else rec
     first = not history_len(cid)
     block = context_block(ctx)
     body = {"input": f"[netmon dashboard · user: {user}]\n{block}{text}"}
+    rec.update(input=body["input"], tools=[], status="started", answer="", model=(model or {}).get("model"), provider=(model or {}).get("provider"))
     if model:
         body.update(provider=model["provider"], model=model["model"])
     req = urllib.request.Request(f"{URL}/api/sessions/{cid}/chat/stream", method="POST", data=json.dumps(body).encode(),
@@ -186,18 +189,25 @@ def stream(user, cid, text, emit, ctx=None, model=None):
             except ValueError:
                 continue
             if ev == "assistant.delta":
+                rec["answer"] += d.get("delta", "")
                 emit("delta", {"t": d.get("delta", "")})
             elif ev == "tool.started":
+                rec["tools"].append(str(d.get("tool_name") or "tool"))
                 lab = _tool_label(d.get("tool_name"))
                 if lab:
                     emit("tool", {"name": lab})
             elif ev in ("tool.failed",):
+                rec["tools"].append(f"{d.get('tool_name') or 'tool'} (failed)")
                 emit("tool_error", {"name": _tool_label(d.get("tool_name")) or "tool"})
             elif ev == "assistant.completed":
                 final = d.get("content") or final
+                rec["answer"] = final or rec["answer"]
             elif ev in ("run.completed", "run.failed", "run.cancelled"):
                 status = ev.split(".")[1]
-                emit("model", {"model": session_model(cid)})
+                rec.update(status=status, error=(d.get("error") or "")[:500] if status != "completed" else "",
+                           usage=d.get("usage") if isinstance(d.get("usage"), dict) else None)
+                rec["model"] = session_model(cid) or rec["model"]
+                emit("model", {"model": rec["model"]})
                 emit("end", {"status": status, "error": (d.get("error") or "")[:300] if status != "completed" else ""})
                 break
     with _db() as c:

@@ -1,0 +1,195 @@
+{
+ "index_patterns": [
+  "logs-netmon"
+ ],
+ "template": {
+  "settings": {
+   "index": {
+    "number_of_shards": "1",
+    "number_of_replicas": "0",
+    "mapping": {
+     "total_fields": {
+      "limit": "500"
+     }
+    }
+   }
+  },
+  "mappings": {
+   "dynamic": false,
+   "properties": {
+    "gen_ai": {
+     "properties": {
+      "request": {
+       "properties": {
+        "model": {
+         "type": "keyword"
+        }
+       }
+      },
+      "completion": {
+       "type": "text"
+      },
+      "system": {
+       "type": "keyword"
+      },
+      "response": {
+       "properties": {
+        "model": {
+         "type": "keyword"
+        }
+       }
+      },
+      "usage": {
+       "properties": {
+        "output_tokens": {
+         "type": "long"
+        },
+        "input_tokens": {
+         "type": "long"
+        }
+       }
+      },
+      "operation": {
+       "properties": {
+        "name": {
+         "type": "keyword"
+        }
+       }
+      },
+      "prompt": {
+       "type": "text"
+      }
+     }
+    },
+    "@timestamp": {
+     "type": "date"
+    },
+    "netmon": {
+     "properties": {
+      "params": {
+       "ignore_above": 1024,
+       "type": "flattened"
+      },
+      "llm": {
+       "properties": {
+        "purpose": {
+         "type": "keyword"
+        },
+        "session_id": {
+         "type": "keyword"
+        },
+        "system_prompt": {
+         "type": "text"
+        },
+        "error": {
+         "type": "text"
+        },
+        "tools": {
+         "type": "keyword"
+        },
+        "status": {
+         "type": "keyword"
+        }
+       }
+      },
+      "target": {
+       "ignore_above": 1024,
+       "type": "keyword"
+      }
+     }
+    },
+    "http": {
+     "properties": {
+      "request": {
+       "properties": {
+        "method": {
+         "type": "keyword"
+        }
+       }
+      },
+      "response": {
+       "properties": {
+        "status_code": {
+         "type": "integer"
+        }
+       }
+      }
+     }
+    },
+    "source": {
+     "properties": {
+      "ip": {
+       "type": "ip"
+      }
+     }
+    },
+    "message": {
+     "type": "text"
+    },
+    "event": {
+     "properties": {
+      "duration": {
+       "type": "long"
+      },
+      "kind": {
+       "type": "keyword"
+      },
+      "module": {
+       "type": "keyword"
+      },
+      "action": {
+       "type": "keyword"
+      },
+      "id": {
+       "type": "keyword"
+      },
+      "category": {
+       "type": "keyword"
+      },
+      "type": {
+       "type": "keyword"
+      },
+      "dataset": {
+       "type": "keyword"
+      },
+      "outcome": {
+       "type": "keyword"
+      }
+     }
+    },
+    "user": {
+     "properties": {
+      "roles": {
+       "type": "keyword"
+      },
+      "name": {
+       "type": "keyword"
+      }
+     }
+    },
+    "user_agent": {
+     "properties": {
+      "original": {
+       "ignore_above": 512,
+       "type": "keyword"
+      }
+     }
+    },
+    "url": {
+     "properties": {
+      "path": {
+       "type": "keyword"
+      }
+     }
+    }
+   }
+  }
+ },
+ "composed_of": [],
+ "priority": 900,
+ "_meta": {
+  "description": "netmon dashboard audit log: user actions + app<->LLM conversations (dashboard/app/audit.py)"
+ },
+ "created_date_millis": 1792343160159,
+ "modified_date_millis": 1792343160159
+}
