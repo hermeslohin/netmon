@@ -197,7 +197,7 @@ The script copies your Anthropic credential (`ANTHROPIC_API_KEY`, or else `ANTHR
 | `collect.py`, `extras.py`, `unifi.py`, `hosts.py`, `hostdetail.py`, `osq.py` | data collection (Elasticsearch, UniFi, endpoints) |
 | `analyze.py`, `mitre.py` | baselines, findings, ATT&CK mapping |
 | `adminproto.py` | admin / lateral-movement protocol + tool catalog, session merger |
-| `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk |
+| `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk ([RISK_SCORING.md](RISK_SCORING.md)) |
 | `dashboard/app/correlate.py`, `corr_llm.py` | event correlation, local-LLM review ([CORRELATION.md](CORRELATION.md)) |
 | `report.py` | PDF rendering |
 | `watch.py` | 15-minute urgent watcher |
