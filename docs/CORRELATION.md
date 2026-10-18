@@ -97,6 +97,46 @@ in the dashboard container:
 | `NETMON_LLM_REASONING` | `none` | reasoning models (Gemma, Qwen) spend the token budget on hidden reasoning otherwise |
 | `NETMON_LLM_WORKERS` | `2` | parallel requests (match LM Studio's parallel slots) |
 
+### Elasticsearch look-ups (optional)
+
+Off by default. When an admin turns on **AI review → Models → Elasticsearch queries**, the reviewer may search the
+Security Onion logs for more context before it decides an event's links, for example to check whether the host
+behind an IDS alert also made the failed SSH logins, or whether a domain was resolved before the connection.
+
+| Setting (AI review → Models, admin only) | Default | |
+|---|---|---|
+| **Elasticsearch queries** (checkbox) | off | lets the reviewer search the logs |
+| **Max per event** | 3 | the total number of searches the reviewer may run for one event review (one anchor event and its up to 10 candidates), 1–20 |
+
+Both are stored in `dashboard/state/llm_config.json` (`"es_queries": {"enabled", "max"}`, with who changed them and
+when) and take effect from the next review. Model comparisons (⇄) never search, so every model gets exactly the
+same prompt.
+
+How a review works with searches on:
+
+1. The request also lists each event's hosts and explains the search format. The model answers either with its
+   decisions or with up to *remaining* searches (`{"decisions": [], "queries": [...]}`).
+2. A search is **not** Elasticsearch DSL. It is a small structured request: `source` (`zeek`, `suricata`,
+   `detections`, `endpoint`, `auth`), up to 6 exact `match` fields, an optional free-text `text`, `start`/`end`
+   (default: the anchor's time ±2 h, at most 7 days), an optional `group_by` field (top 10 values with counts), `size`
+   (1–10 documents) and `why`.
+3. The dashboard container has no Elasticsearch key, so it sends each search to the host LLM broker
+   (`POST /esquery`). `es_context.py` validates it, builds a read-only `_search` itself (field names are checked,
+   no leading wildcards, no scripts), runs it on the configured index and returns the hit count plus trimmed
+   documents (selected fields, 400 characters each) or the top values. The broker allows at most 600 searches an hour.
+4. The results go back to the model inside `<es_result>` tags, which the system prompt marks as log data, never
+   instructions. The model searches again or decides. When the budget is used up it is told to decide now, without
+   the option to search. A search that fails (bad field, ES down) is reported back to the model and still counts.
+5. Every search is kept in `corr_llm.db` (`es_queries`: time, event, candidates, model, query, hit count, error),
+   written to the audit log (`aireview.esquery`), and every model round is in the audit log as usual
+   (`llm.correlation-review`, with the search results in the prompt).
+
+The AI review page shows the setting under **Reviewer**, the searches made in the current pass, and a
+**Reviewer searches** box with the newest 50 (event under review, the search and its *why*, hits, model).
+
+Searching costs time and, with Anthropic or OpenAI reviewers, tokens: each round resends the event, its candidates
+and the earlier results. Most decisions are clear without searching, and the model is told not to search then.
+
 Throughput with Gemma 4 31B on the monitoring host is about 15–30 links a minute. A full day's snapshot (~2,000
 candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If LM Studio is down, the
 worker backs off and retries, and links stay *pending*.
@@ -105,7 +145,7 @@ worker backs off and retries, and links stay *pending*.
 
 Shows the reviewer's status (reviewing / waiting / idle / error / off), the model and endpoint, the queue for the
 current snapshot with % reviewed and an ETA, verdicts per hour, and every decision with both events (linked),
-the verdict, confidence and the model's reason. Filters: confirmed, rejected, set by a person, low confidence,
+the verdict, confidence and the model's reason, the Elasticsearch search setting and the reviewer's recent searches. Filters: confirmed, rejected, set by a person, low confidence,
 this snapshot only. Per decision: **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten by
 the model), **↻** deletes the verdict so the model reviews that link again.
 

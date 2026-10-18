@@ -204,8 +204,56 @@
           catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
         };
       }
+      body.appendChild(esQueriesRow(D));
       if (D.admin) body.appendChild(openaiKeyRow(M));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
+    return c;
+  }
+  // Elasticsearch look-ups by the correlation reviewer: on/off + the most it may run for one event review (admin)
+  function esQueriesRow(D) {
+    const cfg = D.config?.es_queries || { enabled: false, max: 3, limit: 20 };
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: !!cfg.enabled }));
+    lab.append(" reviewer may search the logs for more context");
+    const lab2 = r.appendChild(document.createElement("label")); lab2.className = "small";
+    lab2.append("max per event ");
+    const num = lab2.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: cfg.limit || 20, step: 1, value: cfg.max || 3 }));
+    num.style.width = "4.5em"; num.setAttribute("aria-label", "Maximum Elasticsearch queries per event");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (c) => (c.enabled ? `now: on · up to ${c.max} per event` : "now: off") + (c.by ? ` (${c.by})` : "");
+    msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
+    chk.disabled = num.disabled = !D.admin;
+    const dirty = () => { num.disabled = !D.admin; btn.disabled = !D.admin || (chk.checked === !!cfg.enabled && +num.value === cfg.max); };
+    chk.onchange = num.oninput = dirty;
+    btn.onclick = async () => {
+      const mx = Math.round(+num.value), lim = cfg.limit || 20;
+      if (!(mx >= 1 && mx <= lim)) { msg.textContent = `Enter 1-${lim} queries per event.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/esqueries", { enabled: chk.checked, max: mx }); Object.assign(cfg, r2.es_queries || {}); msg.textContent = "saved · " + show(cfg) + " (from the next review)"; }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    r.title = "When on, the correlation reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
+    return r;
+  }
+  function esCard(D) {
+    const E = D.es_queries || { total: 0, last_day: 0, recent: [] }, on = D.config?.es_queries?.enabled;
+    const fq = (q) => { if (!q || typeof q !== "object") return esc(String(q || ""));
+      const m = Object.entries(q.match || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(" ");
+      return `<span class="mono">${esc(q.source || "?")}</span> ${esc(m)}${q.text ? ` "${esc(q.text)}"` : ""}${q.group_by ? ` <span class="muted">top ${esc(q.group_by)}</span>` : ""}` +
+        `${q.start ? ` <span class="muted small">${esc(String(q.start).slice(5, 16))}→${esc(String(q.end || "").slice(5, 16))}</span>` : ""}${q.why ? `<div class="small muted">${esc(q.why)}</div>` : ""}`; };
+    const c = card(`Reviewer searches (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
+      `<div class="small muted">${on ? "The reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the reviewer search the logs for more context."}</div>`);
+    c.id = "ai-es";
+    if (E.recent.length) c.appendChild(table(null, [
+      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
+      { k: "anchor_label", t: "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(v)}</a>` : esc(v)) },
+      { k: "query", t: "Search", fmt: (v) => fq(v) },
+      { k: "total", t: "Hits", num: true, fmt: (v, r) => (r.error ? `<span class="bad small">${esc(r.error)}</span>` : fn(v)) },
+      { k: "model", t: "Model", cls: "small mono" },
+    ], E.recent, { sort: "ts", limit: 20 }));
     return c;
   }
   // OpenAI API key (write-only): the broker checks it with OpenAI, then stores it in Hermes' .env (main + Ask Hermes profiles)
@@ -373,6 +421,7 @@
 
     el.appendChild(modelsCard(D));
     el.appendChild(costCard(D));
+    el.appendChild(esCard(D));
     el.append(...claudeCard(D.claude || {}));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
@@ -380,7 +429,8 @@
         <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local (LM Studio)")} · <a href="#/aireview?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
-        <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
+        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} searches in 24 h</a>` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
+        <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>
         ${st.error ? `<span class="k">Last error</span><span class="bad">${esc(st.error)}</span>` : ""}
         ${!st.enabled ? `<span class="k">Disabled</span><span>Set <span class="mono">NETMON_LLM=on</span> in dashboard/.env and redeploy.</span>` : ""}</div>

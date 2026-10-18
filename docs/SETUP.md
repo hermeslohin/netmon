@@ -120,6 +120,8 @@ Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 M
 
 Dashboard **time ranges** other than a nightly report window are collected by the LLM broker on the host (`POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`), because the container has no Elasticsearch key. They need the broker service running; nothing else to set up.
 
+The correlation reviewer's optional Elasticsearch look-ups (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason.
+
 ### Local LLM for correlation review (optional, recommended)
 
 The dashboard links related events and vulnerabilities, then asks a **local LLM** to confirm or reject each link (details in [CORRELATION.md](CORRELATION.md)). Install [LM Studio](https://lmstudio.ai), load a capable instruction model (tested with Gemma 4 31B), and enable its server on port 1234. The container uses host networking and finds the loaded model automatically. Nothing leaves the machine.

@@ -17,6 +17,9 @@ through agent.auxiliary_client.call_llm - no key is copied anywhere) and offers 
   POST /range               {start, end} (UTC ISO, whole minutes) -> background `collect.py --start --end --out` +
                             `analyze.py --readonly` into dashboard/state/ranges/<id>.json (the dashboard's time
                             range picker; the container has no Elasticsearch key). Progress: <id>.status.json.
+  POST /esquery             {query, anchor} -> one bounded, read-only Elasticsearch search for the correlation
+                            reviewer (es_context.py builds it from a structured request; the model never sends DSL).
+                            At most 600 per hour.
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env). Provider must be
 "anthropic", "openai-api" or "lmstudio" and the model must be in /models. Run: llm_broker.sh (systemd user unit
@@ -32,7 +35,8 @@ LMS = os.environ.get("NETMON_LLM_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 MAX_TOKENS = 4000
 RATE = (120, 3600)  # cloud (Anthropic + OpenAI) completions per hour (comparisons + correlation review)
 CLOUD = ("anthropic", "openai-api")
-_sent, _lock = [], threading.Lock()
+ES_RATE = (600, 3600)  # reviewer Elasticsearch look-ups per hour (each one is also capped per event by the dashboard)
+_sent, _lock, _es_sent = [], threading.Lock(), []
 
 
 def _key():
@@ -220,6 +224,22 @@ def complete(b):
     u = getattr(r, "usage", None)
     return {"content": r.choices[0].message.content or "", "seconds": round(time.time() - t, 2),
             "usage": {"prompt": getattr(u, "prompt_tokens", 0) or 0, "completion": getattr(u, "completion_tokens", 0) or 0}}
+
+
+def esquery(b):
+    if NM not in sys.path:  # llm_broker.sh runs python -I (isolated): the netmon dir is not on the path
+        sys.path.insert(0, NM)
+    import es_context
+    with _lock:
+        now = time.time()
+        _es_sent[:] = [t for t in _es_sent if now - t < ES_RATE[1]]
+        if len(_es_sent) >= ES_RATE[0]:
+            raise ValueError("rate limit: too many reviewer Elasticsearch queries this hour")
+        _es_sent.append(now)
+    t = time.time()
+    out = es_context.run(b.get("query"), b.get("anchor"))
+    out["seconds"] = round(time.time() - t, 2)
+    return out
 
 
 def _job():
@@ -509,6 +529,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, range_start(b))
             if self.path == "/openai-key":
                 return self._send(200, openai_key_set(b))
+            if self.path == "/esquery":
+                return self._send(200, esquery(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})
