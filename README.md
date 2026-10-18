@@ -3,6 +3,7 @@ Built specific to me and by an AI.  Queries Elasticsearch and Unifi to collect s
 
 ## Background
 I have recently been working with Hermes Agent... and it is wild what it can do along with an LLM.  As my first test I started having it generate reports for security finding of my home network.  It pulls this information from Security Onion Solutions, LLC
+
 Elastic and Unifi API.  For host collection it uses the builtin Elastic Fleet and OsQuery.  It started off generating a report every 24 hours with Claude and every 15 minutes it runs code and checks for "critical" events using a local LLM with a much smaller model.  It does really well at presenting useful information on security and immediately gave me actionable intel like:
 
 Admin access between zones (recurring, awaiting allow rules): admin laptop → server 22/tcp, server 9090/tcp; server → AI host 22/tcp
@@ -11,7 +12,14 @@ iPad upload spikes = Google cloud uploads (Photos/Drive backup) from two family 
 
 Domains that were recently registered, Devices bypassing DNS and more.  I did this all in under an hour.  Finds spike in usage patterns, DNS, compares events to threat intel. Warns me of changes made to devices that are relevant to security. 
 
-I made it research attacks and summarize what is on the web and provide links to them as well so I can review them.  It also gives me "useful security news" and somehow it also decided to give me bicycling news....  I am not sure why it decided that but I kept it.
+<img width="400" height="250" alt="bout endport fedng Ewis Agent on" src="https://github.com/user-attachments/assets/2ff50474-d65d-4c06-acca-ed9897f96287" />
+
+<img width="160" height="310" alt="image" src="https://github.com/user-attachments/assets/86447596-e252-4dfe-ae63-78bdc6f77d2a" />
+
+<img width="375" height="292" alt="image" src="https://github.com/user-attachments/assets/6db70b41-fc0d-41de-877b-3a58cf6165bc" />
+
+
+The goal of this is to rapidly grab events and triage them. Do basic research and analysis of events and provide suggestions what to do.  The correlation capabilities are what have impressed me so far.  It has tied failures in syslog to logs in the firewall and given me detailed instructions how to correct the situation.
 
 That then became... why don't I make an app out of it..  And it built netmon (it came up with the name... not me).  The app now is a simple web app that I vibe coded in under 24 hours.  
 
@@ -30,9 +38,11 @@ Features:
 
 - Correlates events with each other and with known vulnerabilities (shared hosts, IPs, accounts, time, ATT&CK). The local LLM reviews every proposed link and decides whether it is real. Click "Related" on any event to pivot.
 
-- Correlates events together using statistical analysis and LLM assistance.
+- The local LLM reviews each event currently, but in a vacuum, not looking at other events.  A job is run periodically that correlates events first, then sends these events off to a cloud based LLM (currently Opus) and decides if it agrees with the local LLM, enriches the event details with context around the event and researches and provides links to random things it finds on the Internet.  You can optionally have the events be cleared if the events are seen as benign or expected.
 
 - Every chart drills down to the filtered list behind it. Boxes can be collapsed and dragged into your own layout.
+
+- The app is very mobile friendly.  My goal was really to make it primarily a mobile app with the desktop being second.
 
 
 Way more stuff that it just sorta came up with.
