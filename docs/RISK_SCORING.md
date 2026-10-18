@@ -19,6 +19,8 @@ and `dashboard/app/lateral.py` (admin sessions and link scores).
 - [Tuning](#tuning)
 - [Known limitations](#known-limitations)
 
+![Security → Risk: network risk index, high/medium host counts, top 15 hosts stacked by component, and the likelihood × impact bubble chart](img/risk-overview.png)
+
 ---
 
 ## Where the scores are computed
@@ -108,6 +110,8 @@ labels an issue *recurring* once it has been seen in 2 or more snapshots.
 These are shown in the "Score drivers" column, for example `high severity (45) · ×1.1 password-guessable admin
 access · ×1.4 host exposes services to the internet · ×1.24 recurring in 4 reports`.
 
+![Vulnerabilities ranked by risk: each row shows the score, severity, where the issue is, the multipliers behind the score and how to fix it](img/risk-vulns.png)
+
 ---
 
 ## Host risk (0–100)
@@ -122,6 +126,13 @@ impact     = 1–5
 Likelihood measures how probable a compromise is. Impact measures how much a compromise would hurt the rest of the
 network. An impact-5 host can reach the full 100. An impact-2 IoT device tops out at 40, so a noisy camera never
 outranks a moderately exposed server.
+
+![Hosts ranked by risk: score, likelihood, impact, zone, class, open issues and the top three drivers per host](img/risk-hosts.png)
+
+Each host's device or endpoint page has a **Risk to the network** card. It shows the five likelihood components as
+bars against their caps, the impact and its reason, and every driver:
+
+![Risk to the network card on a host page: likelihood 38.3, impact 5, component bars and the list of drivers](img/risk-host-card.png)
 
 ### Which hosts are scored
 
@@ -240,6 +251,8 @@ Level weights are high 3, medium 2, low 1, allowed-admin 0.5 and normal 0. Desti
 impact (3 if unknown). As a result, a medium link into a crown jewel with repeated failures can outrank a high
 link between two IoT devices.
 
+![Lateral movement graph: internal links coloured by level, host bubbles sized and coloured by host risk, with the score inside](img/lateral-movement.png)
+
 ---
 
 ## Colour bands and dashboard summaries
@@ -254,6 +267,9 @@ link between two IoT devices.
   length equals the host's score.
 - The **Likelihood × impact** bubble chart plots every host, with bubble size set by its number of open issues.
 - **Network map** zone badges show the highest host risk in the zone. Badges appear only when that value is ≥ 8.
+  With **Colour by: Risk**, each host is filled green → red by its score, and riskier hosts are drawn larger.
+
+![Network map coloured by host risk, with a zone badge showing the highest risk in each zone](img/network-map.png)
 
 ---
 
@@ -305,6 +321,11 @@ With impact 5 (class `server`), risk = 45.9 × 5 / 5 = **45.9**, which is red. T
 ---
 
 ## Tuning
+
+The **Scoring model** box at the bottom of the Risk page summarises the model and reads the severity bases live
+from the API:
+
+![Scoring model box on the Risk page](img/risk-model.png)
 
 All weights are module-level constants:
 
