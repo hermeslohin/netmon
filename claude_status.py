@@ -75,7 +75,40 @@ def _usage(job_id, n=60):
         return []
     for u in out:  # PDF run = the scheduled 05:00 UTC fire (finishes a few minutes later)
         u["pdf_run"] = bool(u["at"]) and dt.datetime.fromtimestamp(u["at"] - u["duration_s"], dt.timezone.utc).hour == 5
-    return out[-n:]
+    out = out[-n:]
+    _split(job_id, out)
+    return out
+
+
+def _split(job_id, usage):
+    """Add the cache split + cost estimate from Hermes's session DB to each run.
+
+    usage_audit's prompt_tokens is the sum over every API call of the run (the whole conversation is re-sent each
+    call), and ~95% of it is prompt-cache reads billed at ~10% of the input price. The run's cron session in
+    state.db (id cron_<job>_<start>) holds fresh input / cache write / cache read separately. Matched on start time.
+    """
+    p = os.path.join(HOME, "state.db")
+    if not usage or not os.path.exists(p):
+        return
+    try:
+        c = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
+        rows = c.execute("SELECT started_at, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, estimated_cost_usd "
+                         "FROM sessions WHERE id LIKE ? AND parent_session_id IS NULL", (f"cron_{job_id}_%",)).fetchall()
+    except sqlite3.Error as e:
+        print("claude_status: state.db not read:", e, file=sys.stderr)
+        return
+    for u in usage:
+        if not u["at"]:
+            continue
+        start = u["at"] - u["duration_s"]
+        best = min(rows, key=lambda r: abs(r[0] - start), default=None)
+        if not best or abs(best[0] - start) > 300:
+            continue
+        _, fresh, cr, cw, outp, cost = best
+        if (fresh or 0) + (cr or 0) + (cw or 0) != u["prompt"]:
+            continue  # session also holds other turns (e.g. resumed): split would not add up to this run
+        u.update({"fresh": fresh or 0, "cache_read": cr or 0, "cache_write": cw or 0,
+                  "cost_usd": round(cost, 2) if cost is not None else None})
 
 
 def _summary(job_id):

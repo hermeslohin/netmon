@@ -51,22 +51,34 @@
     const U = (J && J.usage) || [];
     if (U.length) {  // time + token use of each research run
       const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
-      const tot = U.reduce((a, u) => a + u.total, 0), mins = U.reduce((a, u) => a + u.duration_s, 0) / 60;
+      // usage_audit's prompt count sums the whole re-sent conversation over every API call of the run; ~95% of it
+      // is prompt-cache reads (~10% of the input price). claude_status.py adds the split from Hermes's session DB.
+      const M = (v) => +((v || 0) / 1e6).toFixed(3), sum = (f) => U.reduce((a, u) => a + (f(u) || 0), 0);
+      const split = (u) => u.cache_read != null;
+      const mins = sum((u) => u.duration_s) / 60, cost = sum((u) => u.cost_usd), nCost = U.filter((u) => u.cost_usd != null).length;
+      const work = sum((u) => split(u) ? u.fresh + u.cache_write + u.completion : u.total), reads = sum((u) => u.cache_read);
       const chart = document.createElement("div");
       const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" })); hd.style.marginTop = "12px";
       hd.append(Object.assign(document.createElement("b"), { textContent: "Time and tokens per research run" }), " ",
-        Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${(tot / 1e6).toFixed(1)} M tokens · ${Math.round(mins)} min in total · average ${(tot / U.length / 1e6).toFixed(1)} M tokens, ${Math.round(mins / U.length)} min per run` }));
+        Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
+          `${(work / 1e6).toFixed(1)} M tokens new input + cache writes + output, plus ${(reads / 1e6).toFixed(0)} M cache re-reads (~10% price; hidden, click the legend to show)` +
+          (nCost ? ` · est. $${cost.toFixed(2)} at API list prices ($${(cost / nCost).toFixed(2)} per run)` : "") }));
       chart.appendChild(Object.assign(document.createElement("div"), { className: "chart" })).appendChild(document.createElement("canvas"));
       c.appendChild(chart);
       queueChart(chart.querySelector("canvas"), { type: "bar", data: { labels: lbl, datasets: [
-        { label: "Input tokens (M)", data: U.map((u) => +(u.prompt / 1e6).toFixed(2)), backgroundColor: "#58a6ff99", stack: "t", yAxisID: "y" },
-        { label: "Output tokens (M)", data: U.map((u) => +(u.completion / 1e6).toFixed(3)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
+        { label: "New input (M)", data: U.map((u) => M(split(u) ? u.fresh : null)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
+        { label: "Cache writes (M)", data: U.map((u) => M(split(u) ? u.cache_write : null)), backgroundColor: "#d29922", stack: "t", yAxisID: "y" },
+        { label: "Input, no cache split (M)", data: U.map((u) => M(split(u) ? null : u.prompt)), backgroundColor: "#8b949e", stack: "t", yAxisID: "y" },
+        { label: "Output (M)", data: U.map((u) => M(u.completion)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
+        { label: "Cache re-reads (M)", data: U.map((u) => M(u.cache_read)), backgroundColor: "#58a6ff33", stack: "t", yAxisID: "y", hidden: true },
         { label: "Run time (min)", type: "line", data: U.map((u) => +(u.duration_s / 60).toFixed(1)), borderColor: "#3fb950", backgroundColor: "#3fb950",
           pointRadius: 3, tension: 0.2, yAxisID: "y1" }] },
         options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
           y: { stacked: true, beginAtZero: true, title: { display: true, text: "tokens (millions)" } },
           y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "minutes" } } },
-          plugins: { tooltip: { callbacks: { footer: (it) => { const u = U[it[0].dataIndex]; return `Total ${(u.total / 1e6).toFixed(2)} M tokens · ${u.model || ""}${u.error ? " · failed" : ""}`; } } } } } });
+          plugins: { tooltip: { callbacks: { footer: (it) => { const u = U[it[0].dataIndex];
+            return `Input incl. cache re-reads: ${(u.prompt / 1e6).toFixed(2)} M` + (u.cost_usd != null ? ` · est. $${u.cost_usd.toFixed(2)}` : "") +
+              ` · ${u.model || ""}${u.error ? " · failed" : ""}`; } } } } } });
     }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
