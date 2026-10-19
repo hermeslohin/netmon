@@ -110,6 +110,14 @@ def _fam(eid):
     return _PORTLIKE.sub("#", str(eid))
 
 
+def etype(eid, ev):
+    """Event class for pair rules: segmentation issues and findings are their own class, "seg"."""
+    eid = str(eid)
+    if eid.startswith("iss|seg|") or eid.startswith("f|segmentation|"):
+        return "seg"
+    return (ev or {}).get("type") or eid.split("|")[0]
+
+
 def pair_type(ta, tb):
     return "-".join(sorted((str(ta), str(tb))))
 
@@ -292,7 +300,7 @@ def _limit_fn(base):
         if i not in famcache:
             famcache[i] = "family|" + _fam(i)
         return famcache[i] in ex
-    mode = lambda a, b: pm.get(pair_type((E.get(a) or {}).get("type", a.split("|")[0]), (E.get(b) or {}).get("type", b.split("|")[0])), pd)  # noqa: E731
+    mode = lambda a, b: pm.get(pair_type(etype(a, E.get(a)), etype(b, E.get(b))), pd)  # noqa: E731
     skipped = lambda a, b: mode(a, b) == "skip" or bad(a) or bad(b)  # noqa: E731
     skipped.testing = lambda a, b: mode(a, b) == "test"  # links that pass every filter but are only tested, never sent
     return skipped
@@ -308,7 +316,7 @@ def limits_view(base, applied=None):
             if k in seen or a not in E or r["id"] not in E:
                 continue
             seen.add(k)
-            t = pair_type(E[a]["type"], E[r["id"]]["type"])
+            t = pair_type(etype(a, E[a]), etype(r["id"], E[r["id"]]))
             tp[t] = tp.get(t, 0) + 1
             ev[a] = ev.get(a, 0) + 1
             ev[r["id"]] = ev.get(r["id"], 0) + 1

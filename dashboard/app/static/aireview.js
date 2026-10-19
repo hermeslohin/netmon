@@ -277,6 +277,40 @@
     return c;
   }
   // ---- review limits (admin or network defender): link types and events that are never sent to the correlation reviewer
+  const TYPE_INFO = {
+    alert: "Watcher alerts: the 15-minute watcher's urgent notices (new device, host notice, policy breach). The most numerous event type.",
+    vuln: "Open fix-list issues: vulnerabilities and misconfigurations (code scan findings, endpoint protection off, recurring system errors). Time-less state, related to events by host.",
+    finding: "Behaviour findings from the analysis: new signatures, port spikes, threat-intel contacts and other anomalies per device.",
+    seg: "Segmentation: cross-zone traffic (e.g. DMZ or server zone reaching into another zone) reported as issues and findings, one per port. Very high volume.",
+    ids: "Suricata IDS signatures seen in the window, one event per signature.",
+    host: "Endpoint host findings from the agents (new network destinations, processes, policy drift).",
+    alarm: "AI triage alarms: rollups the research job writes over the events above.",
+    ti: "Threat-intel hits: traffic to or from IPs and domains on blocklists.",
+    gw: "UniFi gateway events: IPS threats, WAN, VPN and device events.",
+    adm: "Admin sessions (SSH, RDP and similar) between hosts.",
+  };
+  const tip = (t) => `<span class="info-i" tabindex="0" data-tip="${esc(TYPE_INFO[t] || t)}" role="button" aria-label="About ${esc(t)} events" style="cursor:help;display:inline-block;width:1.2em;height:1.2em;line-height:1.2em;text-align:center;border-radius:50%;background:var(--line,#555);color:#fff;font-size:11px;margin-left:3px">i</span>`;
+  if (!window._infoTip) {
+    window._infoTip = true;
+    let b = null;
+    const hide = () => { b?.remove(); b = null; };
+    const show = (el) => {
+      hide();
+      b = document.createElement("div");
+      b.textContent = el.dataset.tip;
+      b.style.cssText = "position:fixed;z-index:9999;max-width:320px;padding:8px 10px;border-radius:6px;background:#1c2128;color:#e6edf3;border:1px solid #6e7681;font-size:13px;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,.5)";
+      document.body.appendChild(b);
+      const r = el.getBoundingClientRect();
+      b.style.left = Math.max(8, Math.min(innerWidth - b.offsetWidth - 8, r.left)) + "px";
+      b.style.top = (r.bottom + 6 + b.offsetHeight > innerHeight ? Math.max(8, r.top - b.offsetHeight - 6) : r.bottom + 6) + "px";
+    };
+    document.addEventListener("click", (e) => { const i = e.target.closest?.(".info-i"); if (i) { e.preventDefault(); e.stopPropagation(); b && b._for === i ? hide() : (show(i), b._for = i); } else hide(); }, true);
+    document.addEventListener("mouseover", (e) => { const i = e.target.closest?.(".info-i"); if (i) { show(i); b._for = i; } });
+    document.addEventListener("mouseout", (e) => { if (e.target.closest?.(".info-i")) hide(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+    addEventListener("hashchange", hide);
+  }
+  const pairTip = (pr) => pr.split("-").map((t) => `<span class="mono small">${esc(t)}</span>${tip(t)}`).join(" – ");
   function limitsCard(D) {
     const Lm = D.limits || { pairs: [], top_events: [], excluded: [] };
     const c = card(`Review limits (${fn(Lm.total || 0)} candidate links)`, `
@@ -306,13 +340,13 @@
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });
     const pairs = c.querySelector(".rl-pairs");
-    pairs.innerHTML = (Lm.pairs || []).map((p) => `<span class="mono small">${esc(p.pair)}</span><span class="small">${fn(p.links)} links</span>
+    pairs.innerHTML = (Lm.pairs || []).map((p) => `<span>${pairTip(p.pair)}</span><span class="small">${fn(p.links)} links</span>
       <select data-pair="${esc(p.pair)}">${["review", "skip", "test"].map((m) => `<option value="${m}"${p.mode === m ? " selected" : ""}>${m}</option>`).join("")}</select>`).join("");
     for (const s of pairs.querySelectorAll("select")) { s.disabled = !D.can_limit;
       s.onchange = () => post({ pair_modes: Object.fromEntries([...pairs.querySelectorAll("select")].map((x) => [x.dataset.pair, x.value])) }); }
     const top = c.querySelector(".rl-top");
     top.innerHTML = (Lm.top_events || []).map((e, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
-      <span style="width:3.5em;text-align:right"><b>${fn(e.links)}</b></span><span class="mono muted" style="width:4.5em">${esc(e.type)}</span><span style="flex:1">${esc(e.label)}</span>
+      <span style="width:3.5em;text-align:right"><b>${fn(e.links)}</b></span><span class="mono muted" style="width:6em">${esc(e.type)}${tip(e.type)}</span><span style="flex:1">${esc(e.label)}</span>
       ${D.can_limit ? (e.excluded || e.family_excluded ? '<span class="muted">excluded</span>' : `<button type="button" data-i="${i}" data-mode="event">exclude</button><button type="button" data-i="${i}" data-mode="family" title="same kind of event: ports and alert numbers ignored">exclude similar</button>`) : ""}</div>`).join("");
     for (const b of top.querySelectorAll("button")) b.onclick = () => { const e = Lm.top_events[+b.dataset.i]; post({ exclude: { id: e.id, mode: b.dataset.mode, label: e.label } }); };
     const rf = c.querySelector(".rl-form"), rr = c.querySelector(".rl-rules");

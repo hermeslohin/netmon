@@ -36,9 +36,9 @@ PDF_HOUR = 5
 SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
 MODES = ("research", "review", "skip", "test")
 MODE_CATS = (("host", "Endpoint host findings"), ("ids12", "Suricata severity 1-2 signatures"), ("gw", "UniFi gateway events"),
-             ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
+             ("seg", "Segmentation (cross-zone traffic volumes)"), ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
              ("medium", "Other events: medium"), ("low", "Other events: low"), ("info", "Other events: info"))
-LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "ti": "research", "alert": "research",
+LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg": "research", "ti": "research", "alert": "research",
                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
 DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
