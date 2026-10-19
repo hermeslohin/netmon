@@ -167,6 +167,7 @@ def job():
     return {"id": "research", "name": "Research job: triage + event research (PDF on the first run after 05 UTC)",
             "model": cfg.get("model"), "provider": cfg.get("provider"), "enabled": cfg.get("enabled"),
             "interval_minutes": cfg.get("interval_minutes"), "next_run": RC.next_run(),
+            "severities": cfg.get("severities"), "severity_options": cfg.get("severity_options"),
             "requested": RC.pending_request(), "last_run": st.get("last_run"), "last_status": st.get("last_status"),
             "last_error": st.get("last_error"), "failure_streak": st.get("failure_streak") or 0,
             "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "summary": st.get("summary"),
@@ -220,15 +221,18 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     quota of `hosts` items on top of `limit`, so they are researched every run instead of losing to network events.
     Suricata severity 1 and 2 signatures (ids|...) get the same treatment with their own quota of `idsq_max` items,
     and so do UniFi gateway events (gw|..., the Posture "Gateway events" card; quota `gw_max`, any severity)."""
-    import server, corr_llm
+    import server, corr_llm, research_cfg as RC
     sid = sid or (server.snapshots() or [{"id": ""}])[-1]["id"]
     res = corr_llm.apply(server.correlation(sid))
     if not res or res.get("error"):
         return {"snapshot": sid, "error": "no correlation for snapshot"}
+    sevs = set(RC.get().get("severities") or ("high", "medium"))  # admin-chosen severities to research (AI review page)
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
     for eid, e in E.items():
-        if not everything and e.get("sev") in ("low", "info", "") and e["type"] not in ("ti", "host", "gw"):
+        # host findings, Suricata/gateway events and store alarms (type "alert", its own "investigate"/"urgent"
+        # priority vocabulary) are always candidates; everything else is gated on the chosen severities
+        if not everything and e["type"] not in ("ti", "host", "gw", "alert") and e.get("sev") not in sevs:
             continue
         groups.setdefault(skey(eid, ak), []).append(eid)
     out = []

@@ -10,6 +10,9 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
   max_batches           event-research conversations per run (8 work items each)
+  severities            which event severities the job will send out for research; others are skipped before any
+                         model call (host findings, severity-1/2 Suricata signatures and gateway events are always
+                         researched regardless of this setting - see enrich.py:_events)
 A "run now" request from the dashboard is meta key "research_request"; the scheduler starts the job and clears it.
 review.py writes its state to <state>/research_job.json (running / last runs / token use), read by the dashboard.
 
@@ -26,8 +29,9 @@ import store  # noqa: E402
 
 KEY, REQ = "research_job", "research_request"
 PDF_HOUR = 5
+SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10}
+            "max_run_tokens": 25_000_000, "max_batches": 10, "severities": ["high", "medium"]}
 LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40)}
 STATE = os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state"))
@@ -61,7 +65,9 @@ def get():
                 out[k] = DEFAULTS[k]
         except (TypeError, ValueError):
             out[k] = DEFAULTS[k]
-    out.update(by=v.get("by"), at=v.get("at"), pdf_hour=PDF_HOUR, limits=LIMITS)
+    sevs = [s for s in (out.get("severities") or []) if s in SEVERITIES] if isinstance(out.get("severities"), list) else []
+    out["severities"] = sevs or list(DEFAULTS["severities"])
+    out.update(by=v.get("by"), at=v.get("at"), pdf_hour=PDF_HOUR, limits=LIMITS, severity_options=list(SEVERITIES))
     return out
 
 
@@ -75,6 +81,11 @@ def put(fields, user, check_model=None):
             cur[k] = str(v or "")[:120]
         elif k == "enabled":
             cur[k] = bool(v)
+        elif k == "severities":
+            sevs = sorted({str(s) for s in (v or []) if str(s) in SEVERITIES}, key=SEVERITIES.index)
+            if not sevs:
+                raise ValueError(f"severities must include at least one of {', '.join(SEVERITIES)}")
+            cur[k] = sevs
         else:
             lo, hi = LIMITS[k]
             try:

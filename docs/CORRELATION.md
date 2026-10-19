@@ -187,6 +187,74 @@ the model), **↻** deletes the verdict so the model reviews that link again.
 - **Users** page: admins assign devices to each person. That sets which devices they get push notifications and the
   🔔 count for (the same setting people edit on their own Alerts page).
 
+## 5. The research step (`review.py`) — what it does and where it looks
+
+`review.py` is the scheduled (or on-demand) **research job**: it turns a raw snapshot into the triage summary,
+alarms, per-event research notes and (once a day) the news briefing + PDF. It runs as a tool-using model with a
+small set of **read-only lookup tools** plus a few **validated submit tools** it must call to write anything.
+
+```mermaid
+flowchart LR
+    subgraph SRC["Where it gets information from"]
+        SNAP["Snapshot & analysis\ndata/*.json, *.analysis.json"]
+        HIST["Previous / 24h-ago triage\ndata/*.triage.json"]
+        POL["known_benign.json\n& policy.json"]
+        KB["Notes KB\nenrich.sh kb (host + event notes)"]
+        DEV["Device lookup\nnetmon_mcp (traffic, services, findings)"]
+        ES["Elasticsearch\nSecurity Onion logs, via es_search tool"]
+        WEB["Public internet\nweb_search / web_fetch"]
+    end
+
+    subgraph JOB["Research step — review.py"]
+        T["Triage phase\nanalyst + triage prompt"]
+        R["Event research phase\nenrich: batches of 8 work items\n(alerts, findings, IDS, admin, gateway,\nthreat intel, vulnerabilities)"]
+        B["Briefing phase\n(PDF run only)"]
+    end
+
+    subgraph OUT["What it writes (validated submit_* tools only)"]
+        TJ["data/*.triage.json\nsummary + alarms"]
+        NOTES["Research notes, link verdicts,\nhost notes -> enrich.sh put"]
+        SRC2["data/*.sources.json\ncited pages only"]
+        BEN["known_benign.json\nnew entries"]
+        BJ["data/*.briefing.json"]
+        PDF["Nightly PDF\nreport.py"]
+    end
+
+    SNAP --> T
+    HIST --> T
+    POL --> T
+    KB --> T
+    SNAP --> R
+    KB --> R
+    DEV --> R
+    ES --> R
+    WEB --> R
+    WEB --> B
+
+    T --> TJ
+    T --> BEN
+    R --> NOTES
+    R --> SRC2
+    R --> BEN
+    B --> BJ
+    BJ --> PDF
+    TJ --> PDF
+```
+
+- **Triage phase** reads the new snapshot, its analysis, the notes KB and the last two triage files (to see what
+  changed) and writes one summary plus a list of alarms (`submit_triage`), optionally adding conclusively benign
+  items to `known_benign.json` so later runs stop raising them.
+- **Event research phase** (`enrich`) works through the same correlation candidates as section 2, in batches of 8,
+  with the broadest toolset: it can query Elasticsearch, look up a device's full history, read the notes KB, and
+  search/fetch the open web — but it may only *cite* a page after fetching it, and may only link pages it actually
+  read. Results go through `submit_notes`, which shells out to `enrich.sh put` to store notes, link verdicts and
+  host notes.
+- **Briefing phase** (daily PDF run only) only has web search/fetch and writes the security news items that go into
+  the PDF.
+- Every write path is a `submit_*` tool that validates its input (ids must exist, URLs must have been fetched,
+  verdicts/priorities must be from a fixed list) — the model proposes, the tool enforces the schema before anything
+  lands on disk.
+
 ## Event ids (for links and the API)
 
 `alert|<id>` · `f|<kind>|<device>|<detail>` · `ids|<signature>` · `adm|<src>|<dst>|<protocol>` · `hf|<key>` ·

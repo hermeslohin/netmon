@@ -402,6 +402,10 @@
           <span class="small muted" style="flex:1 1 380px">Input + output tokens of all calls in one run. Works for models without a price, too.</span></div>
         <div class="llm-row"><span class="k">Research batches</span><span><input type="number" name="max_batches" min="0" max="40" step="1" style="width:5em"></span>
           <span class="small muted" style="flex:1 1 380px">Event-research conversations per run (8 events each). Fewer batches = cheaper runs; events left over are picked up by the next run.</span></div>
+        <div class="llm-row"><span class="k">Severities to research</span><span class="rj-sev">${(R.severity_options || ["high", "medium", "low", "info"])
+          .map((s) => `<label class="small" style="margin-right:10px"><input type="checkbox" value="${esc(s)}"> ${esc(s)}</label>`).join("")}</span>
+          <span class="small muted" style="flex:1 1 380px">Only events at these severities go out to be researched; the rest are skipped before any model call.
+            Host findings, high/medium Suricata alerts, gateway events and alarms are always researched regardless of this setting.</span></div>
       </div>
       <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
         chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
@@ -409,19 +413,25 @@
     c.id = "ai-cost";
     const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches"];
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
+    const sevBoxes = () => [...c.querySelectorAll(".rj-sev input")];
     const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
       c.querySelector(".cost-warn").textContent = r && avg != null && r < avg ? " Below the usual run cost: most runs would stop before finishing."
         : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
-    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; warn(); };
-    fill(L);
+    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0;
+      const sel = new Set(v.severities || ["high", "medium"]); for (const b of sevBoxes()) b.checked = sel.has(b.value); warn(); };
+    fill({ ...L, severities: R.severities });
     for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
+    for (const b of sevBoxes()) { b.disabled = !D.admin; b.onchange = () => { btn.disabled = !D.admin; }; }
     btn.disabled = true;
     if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
       for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
+      const severities = sevBoxes().filter((b) => b.checked).map((b) => b.value);
+      if (!severities.length) { msg.textContent = "error: pick at least one severity"; return; }
+      body.severities = severities;
       btn.disabled = true; msg.textContent = "saving…";
-      try { const r = await apiPost("/api/llm/research", body); fill(r.research.limits || body); msg.textContent = "saved (applies from the next run)"; }
+      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), severities: r.research.severities || severities }); msg.textContent = "saved (applies from the next run)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     return c;

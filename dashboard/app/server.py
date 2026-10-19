@@ -402,6 +402,7 @@ def review_job():
             "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
             "requested": research_cfg.pending_request(),
             "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches")},
+            "severities": cfg["severities"], "severity_options": cfg["severity_options"],
             "spent_today_usd": round(research_cfg.spent_today(), 2), "limit_ranges": cfg["limits"]}
 
 
@@ -811,7 +812,7 @@ class H(BaseHTTPRequestHandler):
                     research_cfg.request(user)
                     print(f"research job: {user} requested a run", file=sys.stderr)
                     return self._json({"ok": True, "research": review_job()})
-                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "enabled") if k in body}
+                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "enabled", "severities") if k in body}
                 try:
                     research_cfg.put(fields, user)
                 except ValueError as e:
