@@ -91,6 +91,160 @@ def config():
             "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")}}
 
 
+# ---------------------------------------------------------------- review limits (admin): what is never sent to the reviewer
+import re as _re
+_PORTLIKE = _re.compile(r"(?<![\d.])\d{4,5}(?![\d.])")
+
+
+def _fam(eid):
+    """Family key of an event id: ports/ids of 4-5 digits are masked (a segmentation issue per port = one family);
+    watcher alerts use their alert key (same kind of alarm), never the bare number."""
+    p = str(eid).split("|")
+    if p[0] == "alert" and len(p) > 1:
+        try:
+            import store
+            k = next((a.get("key") for a in store.alerts_recent(2000) if str(a["id"]) == p[1]), "")
+        except Exception:  # noqa: BLE001
+            k = ""
+        return "alertfam|" + "|".join(str(k).split("|")[:3]) if k else str(eid)
+    return _PORTLIKE.sub("#", str(eid))
+
+
+def pair_type(ta, tb):
+    return "-".join(sorted((str(ta), str(tb))))
+
+
+RULE_SCOPES = ("both", "research", "review")
+
+
+def _glob(pat, text, sub):
+    """Case-insensitive match: a pattern with * or ? is a glob over the whole text, otherwise a substring (sub) / exact."""
+    pat, text = str(pat).lower(), str(text).lower()
+    if "*" in pat or "?" in pat:
+        import fnmatch
+        return fnmatch.fnmatchcase(text, pat)
+    return pat in text if sub else pat == text
+
+
+def rule_match(rule, eid, ev):
+    """Does a suppression rule cover this event? name = event label, host = an IP of the event (or the host in its label),
+    id = the event id; every field the rule has must match (name + host + id together = a host/ID pair)."""
+    ev = ev or {}
+    if rule.get("name") and not _glob(rule["name"], ev.get("label") or "", True):
+        return False
+    if rule.get("id") and not _glob(rule["id"], eid, False if not any(c in rule["id"] for c in "*?") else True):
+        return False
+    h = rule.get("host")
+    if h and not (any(_glob(h, ip, False) for ip in ev.get("ips") or []) or _glob(h, ev.get("label") or "", True)):
+        return False
+    return True
+
+
+def suppressed(rules, scope, eid, ev):
+    return any(r.get("scope", "both") in ("both", scope) and rule_match(r, eid, ev) for r in rules)
+
+
+MAX_LINKS_LIMIT = 200  # per-event cap setting range (0 = no cap)
+
+
+def limits():
+    c = (_raw_config().get("review_limits") or {})
+    return {"skip_pairs": [str(x) for x in c.get("skip_pairs") or []],
+            "excluded": [x for x in c.get("excluded") or [] if isinstance(x, dict) and x.get("key")],
+            "rules": [x for x in c.get("rules") or [] if isinstance(x, dict) and x.get("key")],
+            "max_links": max(0, min(int(c.get("max_links") or 0), MAX_LINKS_LIMIT)) if str(c.get("max_links") or 0).isdigit() else 0}
+
+
+def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=None, rule=None, unrule=None):
+    """skip_pairs: list of "typeA-typeB" (sorted) never reviewed. exclude: {id, mode: event|family, label}. unexclude: key."""
+    c = _raw_config()
+    cur = limits()
+    if skip_pairs is not None:
+        if not isinstance(skip_pairs, list) or not all(_re.fullmatch(r"[a-z]+-[a-z]+", str(x)) for x in skip_pairs):
+            raise ValueError("skip_pairs must be a list like ['alert-vuln']")
+        cur["skip_pairs"] = sorted({str(x) for x in skip_pairs})
+    if exclude:
+        eid, mode = str(exclude.get("id") or "")[:300], exclude.get("mode")
+        if not eid or mode not in ("event", "family"):
+            raise ValueError("exclude needs an event id and mode event|family")
+        key = ("family|" + _fam(eid)) if mode == "family" else "event|" + eid
+        cur["excluded"] = [x for x in cur["excluded"] if x["key"] != key] + [
+            {"key": key, "mode": mode, "label": str(exclude.get("label") or eid)[:160], "by": user, "at": time.time()}]
+        if len(cur["excluded"]) > 500:
+            raise ValueError("too many exclusions (500)")
+    if rule:
+        r = {k: str(rule.get(k) or "").strip()[:200] for k in ("name", "host", "id")}
+        scope = rule.get("scope") or "both"
+        if not any(r.values()):
+            raise ValueError("a rule needs at least a name, a host or an ID")
+        if scope not in RULE_SCOPES:
+            raise ValueError("scope must be both, research or review")
+        if len(cur["rules"]) >= 200:
+            raise ValueError("too many rules (200)")
+        key = "rule|" + "|".join([r["name"].lower(), r["host"].lower(), r["id"].lower(), scope])
+        cur["rules"] = [x for x in cur["rules"] if x["key"] != key] + [{**{k: v for k, v in r.items() if v}, "scope": scope, "key": key, "by": user, "at": time.time()}]
+    if unrule:
+        cur["rules"] = [x for x in cur["rules"] if x["key"] != unrule]
+    if max_links is not None:
+        try:
+            n = int(max_links)
+        except (TypeError, ValueError):
+            raise ValueError("max_links must be a number") from None
+        if not 0 <= n <= MAX_LINKS_LIMIT:
+            raise ValueError(f"max_links must be 0-{MAX_LINKS_LIMIT} (0 = no cap)")
+        cur["max_links"] = n
+    if unexclude:
+        cur["excluded"] = [x for x in cur["excluded"] if x["key"] != unexclude]
+    c["review_limits"] = cur
+    _save_config(c)
+    return limits()
+
+
+def _limit_fn(base):
+    """Returns skipped(a_id, b_id) for undecided links under the admin's limits (type pairs and excluded events)."""
+    L = limits()
+    if not (L["skip_pairs"] or L["excluded"] or L["rules"]):
+        return lambda a, b: False
+    E = (base or {}).get("events") or {}
+    sp, ex = set(L["skip_pairs"]), {x["key"] for x in L["excluded"]}
+    famcache = {}
+
+    def bad(i):
+        if "event|" + i in ex or (L["rules"] and suppressed(L["rules"], "review", i, E.get(i))):
+            return True
+        if not any(k.startswith("family|") for k in ex):
+            return False
+        if i not in famcache:
+            famcache[i] = "family|" + _fam(i)
+        return famcache[i] in ex
+    return lambda a, b: pair_type((E.get(a) or {}).get("type", a.split("|")[0]), (E.get(b) or {}).get("type", b.split("|")[0])) in sp or bad(a) or bad(b)
+
+
+def limits_view(base, applied=None):
+    """For the AI review page: the settings, candidate links per type pair and the events with the most links."""
+    E = (base or {}).get("events") or {}
+    seen, tp, ev = set(), {}, {}
+    for a, lst in ((base or {}).get("related") or {}).items():
+        for r in lst:
+            k = pair(a, r["id"])
+            if k in seen or a not in E or r["id"] not in E:
+                continue
+            seen.add(k)
+            t = pair_type(E[a]["type"], E[r["id"]]["type"])
+            tp[t] = tp.get(t, 0) + 1
+            ev[a] = ev.get(a, 0) + 1
+            ev[r["id"]] = ev.get(r["id"], 0) + 1
+    L = limits()
+    sp = set(L["skip_pairs"])
+    ex = {x["key"] for x in L["excluded"]}
+    top = sorted(ev.items(), key=lambda x: -x[1])[:15]
+    return {**L, "total": len(seen), "limit_range": MAX_LINKS_LIMIT,
+            "pairs": [{"pair": t, "links": n, "skipped": t in sp} for t, n in sorted(tp.items(), key=lambda x: -x[1])] +
+                     [{"pair": t, "links": 0, "skipped": True} for t in sorted(sp - set(tp))],
+            "top_events": [{"id": e, "type": E[e]["type"], "label": E[e]["label"][:140], "links": n, "excluded": "event|" + e in ex,
+                            "family_excluded": "family|" + _fam(e) in ex} for e, n in top]}
+
+
 def set_correlation(provider, model, user):
     c = _raw_config()
     c["correlation"] = {"provider": provider, "model": model, "by": user, "at": time.time()}
@@ -185,12 +339,23 @@ TYPE_DESC = {"alert": "real-time watcher alert", "finding": "baseline behaviour 
 def _db():
     c = sqlite3.connect(DB, timeout=10)
     c.execute("PRAGMA temp_store=MEMORY")  # the container's / and /tmp are read-only: sorts must not spill to temp files
+    c.execute("CREATE TABLE IF NOT EXISTS cleared_events (eid TEXT PRIMARY KEY)")
     c.execute("CREATE TABLE IF NOT EXISTS verdicts (pair TEXT PRIMARY KEY, related INTEGER, confidence REAL, reason TEXT, model TEXT, ts REAL)")
     c.execute("""CREATE TABLE IF NOT EXISTS es_queries (id INTEGER PRIMARY KEY, ts REAL, anchor TEXT, candidates TEXT, model TEXT,
                  query TEXT, total INTEGER, seconds REAL, error TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
                  related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
     return c
+
+
+def _cleared():
+    """Event ids dismissed by clear_pending: undecided links between two of them are not reviewed (the correlation can
+    pick different candidate pairs on each rebuild, so dismissing pairs alone does not keep the queue empty)."""
+    try:
+        with _db() as c:
+            return {e for (e,) in c.execute("SELECT eid FROM cleared_events")}
+    except sqlite3.Error:
+        return set()
 
 
 def pair(a, b):
@@ -223,12 +388,30 @@ def apply(base):
     rel = base.get("related") or {}
     keys = {pair(a, r["id"]) for a, lst in rel.items() for r in lst}
     V = verdicts(keys)
+    CL = _cleared()
+    skipped = _limit_fn(base)
     out, P, C, X = {}, set(), set(), set()  # unique pairs (each link appears under both of its events)
+    cap, over = limits()["max_links"], set()
+    if cap:  # at most `cap` undecided links per event: best score first, a link needs room at both of its events
+        cand = {}
+        for a, lst in rel.items():
+            for r in lst:
+                k = pair(a, r["id"])
+                if k not in V and not ((a in CL and r["id"] in CL) or skipped(a, r["id"])):
+                    cand[k] = (max(cand.get(k, (0,))[0], r.get("score") or 0), a, r["id"])
+        used = {}
+        for k, (sc, a, b) in sorted(cand.items(), key=lambda x: (-x[1][0], x[0])):
+            if used.get(a, 0) < cap and used.get(b, 0) < cap:
+                used[a] = used.get(a, 0) + 1; used[b] = used.get(b, 0) + 1
+            else:
+                over.add(k)
     for a, lst in rel.items():
         keep = []
         for r in lst:
             v = V.get(pair(a, r["id"]))
-            if v is None:
+            if v is None and ((a in CL and r["id"] in CL) or skipped(a, r["id"]) or pair(a, r["id"]) in over):
+                X.add(pair(a, r["id"]))
+            elif v is None:
                 keep.append({**r, "llm": "pending"}); P.add(pair(a, r["id"]))
             elif v["related"]:
                 keep.append({**r, "llm": "yes", "llm_reason": v["reason"], "llm_conf": v["confidence"], "llm_model": v["model"]}); C.add(pair(a, r["id"]))
@@ -239,6 +422,28 @@ def apply(base):
             out[a] = keep
     st = dict(STATUS, pending=len(P), confirmed=len(C), rejected=len(X))
     return {**base, "related": out, "llm": st}
+
+
+def clear_pending(sids, user):
+    """Start fresh: every undecided candidate pair of these snapshots gets a verdict "not related" from model
+    "dismissed:<user>" (reason: queue cleared), so the background reviewer stops waiting on them. Undo by deleting
+    verdicts WHERE model LIKE 'dismissed:%'. Returns {snapshot: pairs dismissed}."""
+    import server
+    out, now = {}, time.time()
+    for sid in sids:
+        getattr(server, "_CORR", {}).clear()  # rebuild: the cached map can predate the newest alerts
+        base = server.correlation(sid)
+        if not base or base.get("error"):
+            continue
+        keys = {pair(a, r["id"]) for a, lst in (base.get("related") or {}).items() for r in lst}
+        have = verdicts(keys)
+        rows = [(k, 0, 0.0, "review queue cleared by an admin", f"dismissed:{user}"[:60], now) for k in keys if k not in have]
+        with _lock, _db() as c:
+            c.executemany("INSERT OR IGNORE INTO verdicts VALUES (?,?,?,?,?,?)", rows)
+        out[sid] = len(rows)
+        with _lock, _db() as c:
+            c.executemany("INSERT OR IGNORE INTO cleared_events VALUES (?)", [(e,) for e in (base.get("events") or {})])
+    return out
 
 
 def want(sid):
@@ -527,15 +732,17 @@ def overview(events, applied):
     now = time.time()
     with _db() as c:
         rows = c.execute("SELECT pair, related, confidence, reason, model, ts FROM verdicts ORDER BY ts DESC").fetchall()
+    real = [r for r in rows if not str(r[4]).startswith("dismissed:")]  # queue-clear markers are not reviews
     hours = {}
-    for _, _, _, _, m, ts in rows:
+    for _, _, _, _, m, ts in real:
         if now - ts <= 86400:
             h = int((now - ts) // 3600)
             hours[h] = hours.get(h, 0) + 1
-    last_hour = sum(1 for r in rows if now - r[5] <= 3600)
+    last_hour = sum(1 for r in real if now - r[5] <= 3600)
+    per_min = round(sum(1 for r in real if now - r[5] <= 300) / 5, 1)  # reviews decided per minute, last 5 min
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)
-    rate = sum(1 for r in rows if now - r[5] <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
+    rate = sum(1 for r in real if now - r[5] <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
     out = []
     for p, rel, conf, why, m, ts in rows:
         a, b = p.split("\x1f", 1)
@@ -555,7 +762,7 @@ def overview(events, applied):
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
             "totals": {"verdicts": len(out), "related": sum(r["related"] for r in out), "rejected": sum(not r["related"] for r in out),
-                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate,
+                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min,
                        "avg_conf": round(sum(r["confidence"] or 0 for r in out) / len(out), 2) if out else None},
             "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out[:3000]}
 

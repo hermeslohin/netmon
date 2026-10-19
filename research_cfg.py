@@ -10,9 +10,13 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
   max_batches           event-research conversations per run (8 work items each)
-  severities            which event severities the job will send out for research; others are skipped before any
-                         model call (host findings, severity-1/2 Suricata signatures and gateway events are always
-                         researched regardless of this setting - see enrich.py:_events)
+  modes                 per event category what the job does: "research" (send to the model; events that already have
+                         a note are only rewritten if the new run contradicts it), "review" (never sent to the model:
+                         the work list is matched against earlier research - the event's own note and the notes of
+                         correlated events - and anything already researched is left alone) or "skip" (ignored).
+                         Categories: host, ids12, gw, ti, alert (by kind) and high, medium, low, info (all other events
+                         by severity) - see MODE_CATS and enrich.py:_events
+  severities            legacy view of modes: the severity categories that are not "skip"
 A "run now" request from the dashboard is meta key "research_request"; the scheduler starts the job and clears it.
 review.py writes its state to <state>/research_job.json (running / last runs / token use), read by the dashboard.
 
@@ -30,8 +34,15 @@ import store  # noqa: E402
 KEY, REQ = "research_job", "research_request"
 PDF_HOUR = 5
 SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
+MODES = ("research", "review", "skip")
+MODE_CATS = (("host", "Endpoint host findings"), ("ids12", "Suricata severity 1-2 signatures"), ("gw", "UniFi gateway events"),
+             ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
+             ("medium", "Other events: medium"), ("low", "Other events: low"), ("info", "Other events: info"))
+DEFAULT_MODES = {"host": "research", "ids12": "research", "gw": "research", "ti": "research", "alert": "research",
+                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10, "severities": ["high", "medium"]}
+            "max_run_tokens": 25_000_000, "max_batches": 10, "severities": ["high", "medium"],
+            "modes": DEFAULT_MODES}
 LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40)}
 STATE = os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state"))
@@ -65,9 +76,16 @@ def get():
                 out[k] = DEFAULTS[k]
         except (TypeError, ValueError):
             out[k] = DEFAULTS[k]
-    sevs = [s for s in (out.get("severities") or []) if s in SEVERITIES] if isinstance(out.get("severities"), list) else []
-    out["severities"] = sevs or list(DEFAULTS["severities"])
-    out.update(by=v.get("by"), at=v.get("at"), pdf_hour=PDF_HOUR, limits=LIMITS, severity_options=list(SEVERITIES))
+    modes = dict(DEFAULT_MODES)
+    if isinstance(v.get("severities"), list) and not isinstance(v.get("modes"), dict):  # settings saved before modes existed
+        for s_ in SEVERITIES:
+            modes[s_] = "research" if s_ in v["severities"] else "skip"
+    if isinstance(v.get("modes"), dict):
+        modes.update({k: m for k, m in v["modes"].items() if k in DEFAULT_MODES and m in MODES})
+    out["modes"] = modes
+    out["severities"] = [s_ for s_ in SEVERITIES if modes[s_] != "skip"]
+    out.update(by=v.get("by"), at=v.get("at"), pdf_hour=PDF_HOUR, limits=LIMITS, severity_options=list(SEVERITIES),
+               mode_options=list(MODES), mode_cats=[{"key": k, "label": l} for k, l in MODE_CATS])
     return out
 
 
@@ -81,11 +99,19 @@ def put(fields, user, check_model=None):
             cur[k] = str(v or "")[:120]
         elif k == "enabled":
             cur[k] = bool(v)
-        elif k == "severities":
-            sevs = sorted({str(s) for s in (v or []) if str(s) in SEVERITIES}, key=SEVERITIES.index)
-            if not sevs:
-                raise ValueError(f"severities must include at least one of {', '.join(SEVERITIES)}")
-            cur[k] = sevs
+        elif k == "modes":
+            if not isinstance(v, dict) or any(a not in DEFAULT_MODES or b not in MODES for a, b in v.items()):
+                raise ValueError(f"modes must map {', '.join(DEFAULT_MODES)} to one of {', '.join(MODES)}")
+            m = get()["modes"]
+            m.update(v)
+            if all(x == "skip" for x in m.values()):
+                raise ValueError("at least one category must be research or review")
+            cur[k] = m
+        elif k == "severities":  # legacy API: a list of severities to research
+            m = get()["modes"]
+            for s_ in SEVERITIES:
+                m[s_] = "research" if s_ in (v or []) else "skip"
+            cur["modes"] = m
         else:
             lo, hi = LIMITS[k]
             try:

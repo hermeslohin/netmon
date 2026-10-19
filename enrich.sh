@@ -15,7 +15,7 @@ src() { if [ "$1" = "-" ]; then cat; else cat "$1"; fi; }
 case "${1:-}" in
   events) OUT=${2:?usage: enrich.sh events OUT.json [--all] [--max N] [--hosts N] [--ids N] [--gw N]}; shift 2
           docker exec "$C" python /app/enrich.py events "$@" > "$OUT"
-          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[1], {k: d.get(k) for k in ("snapshot","total_events","note_keys","without_note","host_findings","host_without_note","ids_sev12","ids_sev12_without_note","gateway","gateway_without_note","events_with_user_notes","hosts_with_notes","listed","error")})' "$OUT" ;;
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sys.argv[1], {k: d.get(k) for k in ("snapshot","total_events","note_keys","without_note","host_findings","host_without_note","ids_sev12","ids_sev12_without_note","gateway","gateway_without_note","events_with_user_notes","hosts_with_notes","listed","review_only","review_covered","error")})' "$OUT" ;;
   put)    IN=${2:?usage: enrich.sh put NOTES.json|-}
           src "$IN" | docker exec -i "$C" python /app/enrich.py put -
           docker exec "$C" python /app/autoclose.py run "review job" >&2 || echo "autoclose failed (notes were stored)" >&2 ;;

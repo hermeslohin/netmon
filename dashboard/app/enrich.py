@@ -193,9 +193,19 @@ def status(event_ids=()):
     with corr_llm._db() as c:  # verdicts written by the enrichment runs' model(s)
         cv = c.execute(f"SELECT count(*), sum(related), sum(ts > ?), max(ts), group_concat(DISTINCT model) FROM verdicts "
                        f"WHERE model IN ({','.join('?' * len(models))})", (now - 86400, *models)).fetchone()
+    queue = None
+    try:  # events the next run would send out: research-mode, no note yet, not dismissed (cached briefly: it is a full work-list build)
+        if time.time() - _QCACHE.get("t", 0) > 30:
+            r = _events()
+            _QCACHE.update(t=time.time(), v=None if r.get("error") else {"count": r["research_queue"], "review_only": r["review_only"],
+                                                                   "review_covered": r["review_covered"]})
+        queue = _QCACHE.get("v")
+    except Exception as e:  # noqa: BLE001
+        print(f"research queue: {e}", file=sys.stderr)
     ids = list(event_ids)
     covered = len(load(ids)) if ids else 0
     return {"jobs": jobs.get("jobs") or [], "exported": jobs.get("exported"), "runs": runs,
+            "queue": queue,
             "notes": {"total": n_total or 0, "last_24h": n_24 or 0, "by_verdict": verd,
                       "current_events": len(ids), "current_with_note": covered},
             "links": {"total": cv[0] or 0, "related": cv[1] or 0, "last_24h": cv[2] or 0, "last": cv[3], "models": (cv[4] or "").split(",") if cv[4] else []}}
@@ -226,15 +236,22 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     res = corr_llm.apply(server.correlation(sid))
     if not res or res.get("error"):
         return {"snapshot": sid, "error": "no correlation for snapshot"}
-    sevs = set(RC.get().get("severities") or ("high", "medium"))  # admin-chosen severities to research (AI review page)
+    modes = RC.get()["modes"]  # admin-chosen research / review / skip per event category (AI review page)
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
+    rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the research job
     for eid, e in E.items():
-        # host findings, Suricata/gateway events and store alarms (type "alert", its own "investigate"/"urgent"
-        # priority vocabulary) are always candidates; everything else is gated on the chosen severities
-        if not everything and e["type"] not in ("ti", "host", "gw", "alert") and e.get("sev") not in sevs:
+        if rules and not everything and corr_llm.suppressed(rules, "research", eid, e):
+            continue
+        # host findings, gateway events, threat intel and store alarms are categories of their own; the rest is gated
+        # on its severity (Suricata sev 1-2 is split off below, once the signature detail is known)
+        if not everything and e["type"] not in ("ti", "host", "gw", "alert") and modes.get(e.get("sev"), "skip") == "skip" \
+                and e["type"] != "ids":
             continue
         groups.setdefault(skey(eid, ak), []).append(eid)
+    if not everything:  # queue cleared by an admin (clear_queue): those note keys are not researched until reset
+        dismissed = set(RC._meta("research_dismissed").get("keys") or [])
+        groups = {k: v for k, v in groups.items() if k not in dismissed}
     out = []
     for k, ids in groups.items():
         ids.sort(key=lambda i: -(E[i].get("t0") or 0))
@@ -254,8 +271,13 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
         if g:
             x["suricata"] = {"severity": g.get("severity"), "count": g.get("count"), "category": g.get("category"),
                              "src": g.get("src"), "dst": g.get("dst"), "dport": g.get("dport"), "first": g.get("first"), "last": g.get("last")}
-    todo = sum(1 for x in out if not x["note"])
     sev12 = lambda x: x["type"] == "ids" and (x.get("suricata") or {}).get("severity") in (1, 2)  # noqa: E731
+    cat = lambda x: x["type"] if x["type"] in ("host", "gw", "ti", "alert") else ("ids12" if sev12(x) else x.get("sev"))  # noqa: E731
+    if not everything:  # drop the categories set to skip (Suricata sev 3 falls through to its severity)
+        out = [x for x in out if modes.get(cat(x), "skip") != "skip"]
+    for x in out:
+        x["mode"] = "review" if modes.get(cat(x)) == "review" else "research"
+    todo = sum(1 for x in out if not x["note"])
     hostq = [x for x in out if x["type"] == "host"]
     idsq = [x for x in out if sev12(x)]
     gwq = [x for x in out if x["type"] == "gw"]
@@ -263,6 +285,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     pick = ((hostq[:hosts] if hosts else hostq) + (idsq[:idsq_max] if idsq_max else idsq) + (gwq[:gw_max] if gw_max else gwq)
             + (rest[:limit] if limit else rest))
     pick.sort(key=lambda x: (x["note"] is not None, not (x["type"] in ("host", "gw") or sev12(x))))
+    _prior(pick, E, res, notes)
     hn_count = 0
     try:  # the owner's event notes (authoritative guidance) and what earlier runs learned about the hosts involved
         import kb
@@ -286,11 +309,64 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
         print(f"kb notes unavailable: {e}", file=sys.stderr)
     return {"snapshot": sid, "total_events": len(E), "note_keys": len(out), "without_note": todo,
             "host_findings": len(hostq), "host_without_note": sum(1 for x in hostq if not x["note"]),
+            "review_only": sum(1 for x in pick if x.get("mode") == "review"),
+            "review_covered": sum(1 for x in pick if x.get("mode") == "review" and x.get("researched")),
+            "research_queue": sum(1 for x in out if x["mode"] == "research" and not x["note"]),
             "ids_sev12": len(idsq), "ids_sev12_without_note": sum(1 for x in idsq if not x["note"]),
             "gateway": len(gwq), "gateway_without_note": sum(1 for x in gwq if not x["note"]),
             "events_with_user_notes": sum(1 for x in pick if x.get("user_notes")), "hosts_with_notes": hn_count,
             "listed": len(pick), "llm": {k: res.get("llm", {}).get(k) for k in ("model", "confirmed", "rejected", "pending")},
             "events": pick}
+
+
+_QCACHE = {}
+
+
+def _prior(pick, E, res, notes):
+    """Review-mode items: what was researched before. Own note (same family), else the notes of correlated events.
+    Sets x["prior"] (list of {id, verdict, summary, age_h, how}) and x["researched"]; research-mode items are untouched."""
+    rel_ids = {r["id"] for x in pick if x.get("mode") == "review" and not x["note"] for r in (res["related"].get(x["id"]) or [])}
+    rn = load(rel_ids) if rel_ids else {}
+    for x in pick:
+        if x.get("mode") != "review":
+            continue
+        prior = []
+        if x["note"]:
+            prior.append({"id": x["id"], "how": "same event family", "verdict": x["note"]["verdict"], "summary": x["note"]["summary"],
+                          "age_h": x["note"]["age_h"]})
+        else:
+            for r in (res["related"].get(x["id"]) or [])[:8]:
+                n = rn.get(r["id"])
+                if n:
+                    prior.append({"id": r["id"], "how": "correlated: " + str(r.get("why") or "")[:80], "verdict": n["verdict"],
+                                  "summary": n["summary"], "age_h": round((time.time() - n["at"]) / 3600, 1)})
+        x["prior"], x["researched"] = prior, bool(prior)
+
+
+def clear_queue(user, wipe=False):
+    """Start fresh: every event family in the current snapshot is dismissed from the research queue (new events and new
+    note keys are researched as usual); wipe=True also deletes all event notes and the model's correlation verdicts
+    (manual verdicts are kept). Databases are copied to <state>/backup-<ts>/ first."""
+    import server, corr_llm, research_cfg as RC, shutil
+    sid = (server.snapshots() or [{"id": ""}])[-1]["id"]
+    res = server.correlation(sid)
+    if not res or res.get("error"):
+        return {"error": "no correlation for snapshot"}
+    ak = _alert_keys()
+    keys = sorted({skey(eid, ak) for eid in res["events"]})
+    out = {"snapshot": sid, "dismissed": len(keys)}
+    if wipe:
+        bk = os.path.join(os.path.dirname(DB), "backup-" + time.strftime("%Y%m%d-%H%M%S"))
+        os.makedirs(bk)
+        for src in (DB, corr_llm.DB):
+            d = sqlite3.connect(src); b = sqlite3.connect(os.path.join(bk, os.path.basename(src))); d.backup(b); b.close(); d.close()
+        with _db() as c:
+            out["notes_deleted"] = c.execute("DELETE FROM notes").rowcount
+        with corr_llm._db() as c:
+            out["verdicts_deleted"] = c.execute("DELETE FROM verdicts WHERE model NOT LIKE 'manual:%'").rowcount
+        out["backup"] = bk
+    RC._meta_put("research_dismissed", {"keys": keys, "by": str(user)[:64], "at": time.time(), "snapshot": sid})
+    return out
 
 
 def _audit(purpose, model, message, prompt=None, response=None, error=None):
@@ -319,6 +395,12 @@ def main(argv):
         _audit("research-input", "", f"research job: work list handed to the LLM ({res.get('listed')} events, snapshot {res.get('snapshot')})",
                prompt=json.dumps(res, default=str), error=res.get("error"))
         print(json.dumps(res, indent=1, default=str))
+    elif argv[:1] == ["clear-queue"]:
+        print(json.dumps(clear_queue("cli", "--wipe" in argv), default=str))
+    elif argv[:1] == ["clear-review"]:
+        import server, corr_llm
+        sids = [x["id"] for x in (server.snapshots() or [])][-3:]
+        print(json.dumps(corr_llm.clear_pending(sids, "cli")))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
         import server

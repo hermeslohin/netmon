@@ -276,6 +276,58 @@
     ], E.recent, { sort: "ts", limit: 20 }));
     return c;
   }
+  // ---- review limits (admin or network defender): link types and events that are never sent to the correlation reviewer
+  function limitsCard(D) {
+    const Lm = D.limits || { pairs: [], top_events: [], excluded: [] };
+    const c = card(`Review limits (${fn(Lm.total || 0)} candidate links)`, `
+      <div class="small muted">Links that are skipped or excluded here are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
+        Changes apply from the next review round.</div>
+      <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
+        <button type="button" class="rl-maxsave">Save</button>
+        <span class="small muted">Each event is reviewed against at most this many links, best-scoring first (0 = no cap). Applies to links without a verdict; a link needs room at both of its events.</span></div>
+      <h3 style="margin:10px 0 4px">Event types</h3>
+      <div class="rl-pairs" style="display:grid;grid-template-columns:auto auto auto;gap:4px 14px;justify-content:start"></div>
+      <h3 style="margin:12px 0 4px">Events with the most links</h3><div class="rl-top"></div>
+      <h3 style="margin:12px 0 4px">Never send (${(Lm.rules || []).length} rules)</h3>
+      <div class="small muted">Stop sending a class of events to the AI by name, or by host and ID. Fill in one field or several (all must match). Name: part of the event text, or a pattern with * ?.
+        Host: an IP, or text that appears in the event. ID: the event id, e.g. <span class="mono">ids|ET DNS*</span> or <span class="mono">iss|seg|*</span>. Scope: the research job, the correlation reviewer, or both.</div>
+      <div class="rl-form" style="display:${D.can_limit ? "flex" : "none"};gap:6px;flex-wrap:wrap;margin:6px 0"><input name="name" placeholder="name contains…" style="width:14em"><input name="host" placeholder="host / IP" style="width:11em">
+        <input name="id" placeholder="event ID pattern" style="width:16em"><select name="scope"><option value="both">research + review</option><option value="research">research only</option><option value="review">review only</option></select>
+        <button type="button" class="rl-add">Add rule</button></div>
+      <div class="rl-rules"></div>
+      <h3 style="margin:12px 0 4px">Excluded (${(Lm.excluded || []).length})</h3><div class="rl-ex"></div>
+      <div class="small muted rl-msg" style="margin-top:6px">${D.can_limit ? "" : "Only an admin or network defender can change these limits."}</div>`);
+    c.id = "ai-limits";
+    const msg = c.querySelector(".rl-msg");
+    const post = async (b) => { msg.textContent = "saving…";
+      try { await apiPost("/api/llm/review-limits", b); location.reload(); }
+      catch (e) { msg.textContent = "error: " + e.message; } };
+    const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
+    mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
+    mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });
+    const pairs = c.querySelector(".rl-pairs");
+    pairs.innerHTML = (Lm.pairs || []).map((p) => `<span class="mono small">${esc(p.pair)}</span><span class="small">${fn(p.links)} links</span>
+      <select data-pair="${esc(p.pair)}"><option value="review"${p.skipped ? "" : " selected"}>review</option><option value="skip"${p.skipped ? " selected" : ""}>skip</option></select>`).join("");
+    for (const s of pairs.querySelectorAll("select")) { s.disabled = !D.can_limit;
+      s.onchange = () => post({ skip_pairs: [...pairs.querySelectorAll("select")].filter((x) => x.value === "skip").map((x) => x.dataset.pair) }); }
+    const top = c.querySelector(".rl-top");
+    top.innerHTML = (Lm.top_events || []).map((e, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
+      <span style="width:3.5em;text-align:right"><b>${fn(e.links)}</b></span><span class="mono muted" style="width:4.5em">${esc(e.type)}</span><span style="flex:1">${esc(e.label)}</span>
+      ${D.can_limit ? (e.excluded || e.family_excluded ? '<span class="muted">excluded</span>' : `<button type="button" data-i="${i}" data-mode="event">exclude</button><button type="button" data-i="${i}" data-mode="family" title="same kind of event: ports and alert numbers ignored">exclude similar</button>`) : ""}</div>`).join("");
+    for (const b of top.querySelectorAll("button")) b.onclick = () => { const e = Lm.top_events[+b.dataset.i]; post({ exclude: { id: e.id, mode: b.dataset.mode, label: e.label } }); };
+    const rf = c.querySelector(".rl-form"), rr = c.querySelector(".rl-rules");
+    c.querySelector(".rl-add").onclick = () => { const f = (n) => rf.querySelector(`[name=${n}]`).value; post({ rule: { name: f("name"), host: f("host"), id: f("id"), scope: f("scope") } }); };
+    rr.innerHTML = (Lm.rules || []).length ? Lm.rules.map((x, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
+      <span class="mono muted" style="width:9em">${esc(x.scope)}</span><span style="flex:1">${[x.name && `name: <b>${esc(x.name)}</b>`, x.host && `host: <b>${esc(x.host)}</b>`, x.id && `id: <b class="mono">${esc(x.id)}</b>`].filter(Boolean).join(" · ")}</span>
+      <span class="muted">${esc(x.by || "")}</span>${D.can_limit ? `<button type="button" data-i="${i}">remove</button>` : ""}</div>`).join("") : '<div class="small muted">None.</div>';
+    for (const b of rr.querySelectorAll("button")) b.onclick = () => post({ unrule: Lm.rules[+b.dataset.i].key });
+    const ex = c.querySelector(".rl-ex");
+    ex.innerHTML = (Lm.excluded || []).length ? Lm.excluded.map((x, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
+      <span class="mono muted" style="width:5em">${esc(x.mode)}</span><span style="flex:1">${esc(x.label)}</span><span class="muted">${esc(x.by || "")}</span>
+      ${D.can_limit ? `<button type="button" data-i="${i}">remove</button>` : ""}</div>`).join("") : '<div class="small muted">None.</div>';
+    for (const b of ex.querySelectorAll("button")) b.onclick = () => post({ unexclude: Lm.excluded[+b.dataset.i].key });
+    return c;
+  }
   // ---- AI providers (admin): any OpenAI-compatible or Anthropic API with a key, called by the dashboard itself
   function providersCard() {
     const c = card("AI providers", `<div class="small muted"><b>Local (LM Studio)</b> is the LM Studio server on this host (no key; its enabled flag and rate limit can be set here;
@@ -402,10 +454,12 @@
           <span class="small muted" style="flex:1 1 380px">Input + output tokens of all calls in one run. Works for models without a price, too.</span></div>
         <div class="llm-row"><span class="k">Research batches</span><span><input type="number" name="max_batches" min="0" max="40" step="1" style="width:5em"></span>
           <span class="small muted" style="flex:1 1 380px">Event-research conversations per run (8 events each). Fewer batches = cheaper runs; events left over are picked up by the next run.</span></div>
-        <div class="llm-row"><span class="k">Severities to research</span><span class="rj-sev">${(R.severity_options || ["high", "medium", "low", "info"])
-          .map((s) => `<label class="small" style="margin-right:10px"><input type="checkbox" value="${esc(s)}"> ${esc(s)}</label>`).join("")}</span>
-          <span class="small muted" style="flex:1 1 380px">Only events at these severities go out to be researched; the rest are skipped before any model call.
-            Host findings, high/medium Suricata alerts, gateway events and alarms are always researched regardless of this setting.</span></div>
+        <div class="llm-row" style="align-items:flex-start"><span class="k">Events to research</span>
+          <span class="rj-modes" style="display:grid;grid-template-columns:auto auto;gap:4px 14px">${(R.mode_cats || []).map((m) => `<span class="small">${esc(m.label)}</span>
+            <select name="mode_${esc(m.key)}" data-cat="${esc(m.key)}">${(R.mode_options || ["research", "review", "skip"]).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>`).join("")}</span>
+          <span class="small muted" style="flex:1 1 380px"><b>research</b>: sent to the model (a repeat that already has a note is only rewritten if the new run contradicts it).
+            <b>review</b>: never sent to the model; matched against earlier research (the event's own note and the notes of correlated events) and left alone if it was researched before.
+            <b>skip</b>: ignored. Changes apply from the next run.</span></div>
       </div>
       <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
         chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
@@ -413,25 +467,24 @@
     c.id = "ai-cost";
     const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches"];
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
-    const sevBoxes = () => [...c.querySelectorAll(".rj-sev input")];
+    const modeSel = () => [...c.querySelectorAll(".rj-modes select")];
     const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
       c.querySelector(".cost-warn").textContent = r && avg != null && r < avg ? " Below the usual run cost: most runs would stop before finishing."
         : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
     const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0;
-      const sel = new Set(v.severities || ["high", "medium"]); for (const b of sevBoxes()) b.checked = sel.has(b.value); warn(); };
-    fill({ ...L, severities: R.severities });
+      for (const b of modeSel()) b.value = (v.modes || {})[b.dataset.cat] || "research"; warn(); };
+    fill({ ...L, modes: R.modes });
     for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
-    for (const b of sevBoxes()) { b.disabled = !D.admin; b.onchange = () => { btn.disabled = !D.admin; }; }
+    for (const b of modeSel()) { b.disabled = !D.admin; b.onchange = () => { btn.disabled = !D.admin; }; }
     btn.disabled = true;
     if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
       for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
-      const severities = sevBoxes().filter((b) => b.checked).map((b) => b.value);
-      if (!severities.length) { msg.textContent = "error: pick at least one severity"; return; }
-      body.severities = severities;
+      body.modes = Object.fromEntries(modeSel().map((b) => [b.dataset.cat, b.value]));
+      if (Object.values(body.modes).every((m) => m === "skip")) { msg.textContent = "error: pick research or review for at least one category"; return; }
       btn.disabled = true; msg.textContent = "saving…";
-      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), severities: r.research.severities || severities }); msg.textContent = "saved (applies from the next run)"; }
+      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), modes: r.research.modes || body.modes }); msg.textContent = "saved (applies from the next run)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     return c;
@@ -563,14 +616,17 @@
     const health = !st.enabled ? ["Off", "sev-unknown"] : st.error ? ["Error", "sev-high"] : st.busy ? ["Reviewing", "sev-good"] : q.pending ? ["Waiting", "sev-medium"] : ["Idle · up to date", "sev-good"];
     el.insertAdjacentHTML("beforeend", kpis([
       ["Status", `<span class="badge ${health[1]}" style="font-size:14px">${health[0]}</span>`],
+      ["Awaiting research", (D.research_status || {}).queue ? `<a href="#/aireview?at=ai-research">${fn(D.research_status.queue.count)}</a>` : "?",
+        (D.research_status || {}).queue?.count ? "warn" : "good"],
       ["Awaiting review", `<a href="#/aireview?at=ai-queue">${fn(q.pending)}</a>`, q.pending ? "warn" : "good"],
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
-      ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
+      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     el.appendChild(modelsCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
+    el.appendChild(limitsCard(D));
     el.appendChild(lookbackCard(D));
     el.appendChild(esCard(D));
     el.append(...researchCard(D.research_status || {}, D));

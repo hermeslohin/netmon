@@ -403,6 +403,7 @@ def review_job():
             "requested": research_cfg.pending_request(),
             "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches")},
             "severities": cfg["severities"], "severity_options": cfg["severity_options"],
+            "modes": cfg["modes"], "mode_options": cfg["mode_options"], "mode_cats": cfg["mode_cats"],
             "spent_today_usd": round(research_cfg.spent_today(), 2), "limit_ranges": cfg["limits"]}
 
 
@@ -812,13 +813,20 @@ class H(BaseHTTPRequestHandler):
                     research_cfg.request(user)
                     print(f"research job: {user} requested a run", file=sys.stderr)
                     return self._json({"ok": True, "research": review_job()})
-                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "enabled", "severities") if k in body}
+                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "enabled", "severities", "modes") if k in body}
                 try:
                     research_cfg.put(fields, user)
                 except ValueError as e:
                     return self._json({"error": str(e)[:300]}, 400)
                 print(f"research job: {user} set {fields}", file=sys.stderr)
                 return self._json({"ok": True, "research": review_job()})
+            if u.path == "/api/llm/review-limits":  # which candidate links the reviewer never sees (admin)
+                try:
+                    corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"))
+                except ValueError as e:
+                    return self._json({"error": str(e)[:300]}, 400)
+                print(f"review limits: {user} set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule') if k in body})[:300]}", file=sys.stderr)
+                return self._json({"ok": True, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
             if u.path == "/api/llm/providers":  # admin-added AI providers (any OpenAI-compatible or Anthropic API with a key)
                 act = str(body.get("action") or "")
                 try:
@@ -1089,9 +1097,10 @@ class H(BaseHTTPRequestHandler):
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
                 base = correlation(sid) or {}
-                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin,
+                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin, "can_limit": role in ("admin", "defender"),
                       "provider_names": {p["provider"]: p["name"] for p in llm_providers.public()}}
                 ov["research"] = review_job()
+                ov["limits"] = corr_llm.limits_view(base)
                 ov["chat"] = corr_llm.config()["chat"]
                 ov["lookback"] = lookback.get()
                 try:
