@@ -406,7 +406,7 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest(".ack-toggle"); if (!t) return;
   e.preventDefault(); S.showAcked[t.dataset.s] = !S.showAcked[t.dataset.s]; rerender();
 });
-function rerender() { const y = window.scrollY; route(true); window.scrollTo(0, y); }
+function rerender() { const y = window.scrollY; route(true).then(() => requestAnimationFrame(() => window.scrollTo(0, y))); }
 
 /* ---------- views ---------- */
 const V = {};
@@ -1122,10 +1122,12 @@ async function route(keep) {
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
   const el = $("#main"); el.innerHTML = "";
   if (!keep) auditView(location.hash || "#/" + view);
-  try { const p = (V[view] || V.overview)(el, arg); if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
+  let p;
+  try { p = (V[view] || V.overview)(el, arg); if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
   catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
   flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
   const at = !keep && hq().get("at"); if (at) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 0);
+  if (p && p.then) await p.catch(() => {});  // let callers (rerender) know the view's own content is actually in the DOM
 }
 
 async function loadSnap(id) {

@@ -618,8 +618,15 @@
         b.closest(".ai-acts").innerHTML = `<span class="small muted">${b.dataset.ai === "rereview" ? "queued for the model" : "saved"}</span>`; }
       catch (err) { b.disabled = false; alert(String(err)); }
     });
-    // live refresh while the model is working (only if the user is not in the middle of something)
-    if (st.busy || q.pending) { const t = setTimeout(() => { if (location.hash.startsWith("#/aireview") && !document.hidden && !document.querySelector(".rel-pop")) rerender(); }, 60000);
+    // live refresh while the model is working (only if the user is not in the middle of something: typing,
+    // a popover open, or an unsaved edit in one of the Save-gated forms below)
+    const midEdit = () => {
+      const a = document.activeElement;
+      if (a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) return true;
+      if (document.querySelector(".rel-pop")) return true;
+      return [...document.querySelectorAll("button.cost-save, button.pf-save")].some((b) => !b.disabled);
+    };
+    if (st.busy || q.pending) { const t = setTimeout(() => { if (location.hash.startsWith("#/aireview") && !document.hidden && !midEdit()) rerender(); }, 60000);
       addEventListener("hashchange", () => clearTimeout(t), { once: true }); }
   };
 })();
