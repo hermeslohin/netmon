@@ -241,7 +241,11 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     groups = {}
     CS = corr_llm.cleared_sigs(res["events"])  # events cleared on the Checked page: same name + IPs is not researched again
     rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the research job
+    forced = _requested(E, notes, ak)  # note keys a person asked to have researched (not researched yet)
     for eid, e in E.items():
+        if skey(eid, ak) in forced:
+            groups.setdefault(skey(eid, ak), []).append(eid)
+            continue
         if not everything and (corr_llm.sig_cleared(CS, e) or (rules and corr_llm.suppressed(rules, "research", eid, e))):
             continue
         # host findings, gateway events, threat intel and store alarms are categories of their own; the rest is gated
@@ -252,7 +256,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
         groups.setdefault(skey(eid, ak), []).append(eid)
     if not everything:  # queue cleared by an admin (clear_queue): those note keys are not researched until reset
         dismissed = set(RC._meta("research_dismissed").get("keys") or [])
-        groups = {k: v for k, v in groups.items() if k not in dismissed}
+        groups = {k: v for k, v in groups.items() if k not in dismissed or k in forced}
     out = []
     for k, ids in groups.items():
         ids.sort(key=lambda i: -(E[i].get("t0") or 0))
@@ -275,9 +279,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     sev12 = lambda x: x["type"] == "ids" and (x.get("suricata") or {}).get("severity") in (1, 2)  # noqa: E731
     cat = lambda x: x["type"] if x["type"] in ("host", "gw", "ti", "alert") else ("ids12" if sev12(x) else x.get("sev"))  # noqa: E731
     if not everything:  # drop the categories set to skip (Suricata sev 3 falls through to its severity)
-        out = [x for x in out if modes.get(cat(x), "skip") != "skip"]
+        out = [x for x in out if modes.get(cat(x), "skip") != "skip" or skey(x["id"], ak) in forced]
     for x in out:
-        x["mode"] = "review" if modes.get(cat(x)) == "review" else "research"
+        x["mode"] = "review" if modes.get(cat(x)) == "review" and skey(x["id"], ak) not in forced else "research"
+        x["requested"] = skey(x["id"], ak) in forced
     todo = sum(1 for x in out if not x["note"])
     hostq = [x for x in out if x["type"] == "host"]
     idsq = [x for x in out if sev12(x)]
@@ -323,13 +328,47 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
 _QCACHE = {}
 
 
+def _requested(E, notes, ak):
+    """Note keys with a pending 'send to research' request whose event has no note yet; satisfied requests are dropped."""
+    import research_cfg as RC
+    reqs = RC._meta("research_requests").get("items") or {}
+    if not reqs:
+        return set()
+    have = {skey(eid, ak) for eid in E if notes.get(eid)}
+    live = {k: v for k, v in reqs.items() if k not in have}
+    if len(live) != len(reqs):
+        RC._meta_put("research_requests", {"items": live})
+    return {k for k in live if any(skey(eid, ak) == k for eid in E)}
+
+
+def request_research(eid, user, send=True):
+    """A person asks for one event to be researched. State: researched (a note exists), queued (requested or already due),
+    idle. Sending adds it to the next run whatever its category mode, dismissals or rules."""
+    import research_cfg as RC
+    ak = _alert_keys()
+    k = skey(eid, ak)
+    if load([eid]).get(eid):
+        return {"state": "researched"}
+    reqs = dict(RC._meta("research_requests").get("items") or {})
+    if k in reqs:
+        return {"state": "queued", "by": reqs[k].get("by")}
+    if not send:
+        return {"state": "idle"}
+    if len(reqs) >= 200:
+        raise ValueError("too many pending research requests (200)")
+    reqs[k] = {"eid": eid[:300], "by": str(user)[:64], "at": time.time()}
+    RC._meta_put("research_requests", {"items": reqs})
+    _QCACHE.clear()
+    return {"state": "queued", "by": reqs[k]["by"]}
+
+
 def queue_items():
     """Events the next research run would send out (research mode, no note yet, not dismissed or suppressed)."""
     r = _events()
     if r.get("error"):
         return {"error": r["error"], "items": []}
     items = [{"id": x["id"], "type": x["type"], "sev": x.get("sev"), "label": x["label"], "link": x.get("link"), "when": x["when"],
-              "repeats": x["repeats"]} for x in r["events"] if x.get("mode") == "research" and not x["note"]]
+              "repeats": x["repeats"], "requested": x.get("requested")} for x in r["events"] if x.get("mode") == "research" and not x["note"]]
     return {"snapshot": r["snapshot"], "count": len(items), "items": items}
 
 

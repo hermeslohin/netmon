@@ -31,7 +31,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 #   user     - only the alerts / events of the devices an admin assigned to them (allow-list below)
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
-             "/api/alerts/read", "/api/kb/event", "/api/audit/view"}  # /api/kb/event: own notes on own devices' events only (checked below)
+             "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
 ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
@@ -934,6 +934,20 @@ class H(BaseHTTPRequestHandler):
                     print(f"kb: {user} deleted host note {body.get('id')!r}", file=sys.stderr)
                     return self._json({"ok": bool(n)})
                 return self._json({"error": "action must be add or delete"}, 400)
+            if u.path == "/api/research/request":  # send one event to the research job if it was not researched yet
+                eid, act = str(body.get("eid") or "")[:300], body.get("action")
+                if not eid or act not in ("status", "send"):
+                    return self._json({"error": "eid and action status|send required"}, 400)
+                if role == "user" and eid not in {e["id"] for e in my_events(user)["events"]}:
+                    print(f"access denied: {user} (user) research request outside their devices {eid[:80]!r}", file=sys.stderr)
+                    return self._json({"error": "not one of your devices' events"}, 403)
+                try:
+                    r = enrich.request_research(eid, user, act == "send")
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                if act == "send":
+                    print(f"research requested: {user} ({role}) {eid[:100]!r} -> {r['state']}", file=sys.stderr)
+                return self._json({"ok": True, **r})
             if u.path == "/api/kb/event":  # people's notes on an event (📝); the AI reads APPROVED ones as guidance
                 act, eid = body.get("action"), str(body.get("eid") or "")
                 mine = user if role == "user" else None  # a User sees / deletes only their own notes

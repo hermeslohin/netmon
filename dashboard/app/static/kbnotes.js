@@ -95,8 +95,17 @@
         <div><button type="button" class="kb-save">Save note</button></div>
         <div class="small muted">${U ? "Tell the network defenders what this event is (e.g. 'that was me installing an app'). Your note goes to them for review; the AI only reads it after a defender or admin approves it."
           : "The AI reads approved notes on this event (and on later repeats of it) in its twice-daily research and when deciding which events are related, and treats them as authoritative guidance. Notes written by User accounts need your approval first."}</div>
-      </div>`;
+      </div>
+      <div class="rs-box small" style="border-top:1px solid var(--line,#444);margin-top:8px;padding-top:6px"><span class="muted">Checking research status…</span></div>`;
     pop.querySelector(".rel-x").onclick = close;
+    const rs = pop.querySelector(".rs-box");
+    const rsShow = (r) => {
+      if (r.state === "researched") rs.innerHTML = '<span class="muted">Already researched by the AI. Its findings are in the event\'s research note.</span>';
+      else if (r.state === "queued") rs.innerHTML = `<span class="muted">⏳ Queued for research${r.by ? ` (requested by ${esc(r.by)})` : ""}. It is sent on the next research run.</span>`;
+      else { rs.innerHTML = '<button type="button" class="rs-send">🔬 Send to research</button> <span class="muted">Not researched yet. Sends this event to the AI on the next run.</span>';
+        rs.querySelector(".rs-send").onclick = () => apiPost("/api/research/request", { action: "send", eid }).then(rsShow, (er) => { rs.textContent = "error: " + er.message; }); }
+    };
+    apiPost("/api/research/request", { action: "status", eid }).then(rsShow, () => { rs.textContent = ""; });
     pop.querySelector(".kb-save").onclick = () => {
       const t = pop.querySelector(".kb-text").value.trim(); if (!t) return;
       apiPost("/api/kb/event", { action: "add", eid, label: me?.label || "", text: t }).then((r) => { (S.corr.unotes ||= {})[eid] = r.notes || []; refreshBtns(eid); render(btn); }, (er) => alert(er.message));

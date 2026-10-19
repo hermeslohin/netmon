@@ -21,6 +21,7 @@ what a role can't use. Hiding a button is never the protection.
 | Configuration and Users pages | view + change | view only | ✗ |
 | Check off events, write 📝 event notes and host notes, confirm/reject AI correlation verdicts | ✓ | ✓ | ✗ |
 | 📝 notes on events of own devices (pending until approved; sees only own notes) | ✓ | ✓ | ✓ (assigned devices only) |
+| Send an event to research (📝 popover; Users: own devices' events only) | ✓ | ✓ | ✓ |
 | Approve / reject User notes so the AI may read them | ✓ | ✓ | ✗ |
 | Ask AI (chat) | ✓ (and can pick the model per message) | ✓ (the configured chat model) | ✗ |
 | Choose own alert devices (Alerts → Notification settings) | ✓ | ✓ | ✗ (an admin assigns them) |
