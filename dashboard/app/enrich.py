@@ -224,7 +224,7 @@ def _sigs(sid):
     return {x.get("name"): x for x in ((raw.get("alerts") or {}).get("signatures") or [])}
 
 
-def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=30):
+def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=30, only=None):
     """Work list for the enrichment run: one entry per note key (alert families and repeat findings collapse),
     events without a note first, most severe first, capped at `limit` (0 = no cap). Endpoint host findings
     (hf|..., the Posture "Host findings" box) are always included, whatever their severity, in their own
@@ -242,6 +242,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     CS = corr_llm.cleared_sigs(res["events"])  # events cleared on the Checked page: same name + IPs is not researched again
     rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the research job
     forced = _requested(E, notes, ak)  # note keys a person asked to have researched (not researched yet)
+    if only:  # a single-event run (review.py --event): just that event's family, whatever its category or rules
+        forced = {skey(only, ak)} if only in E else set()
+        E = {i: e for i, e in E.items() if skey(i, ak) in forced}
+        notes = {i: n for i, n in notes.items() if i in E}
     for eid, e in E.items():
         if skey(eid, ak) in forced:
             groups.setdefault(skey(eid, ak), []).append(eid)
@@ -351,7 +355,8 @@ def request_research(eid, user, send=True):
         return {"state": "researched"}
     reqs = dict(RC._meta("research_requests").get("items") or {})
     if k in reqs:
-        return {"state": "queued", "by": reqs[k].get("by")}
+        st = reqs[k].get("started")
+        return {"state": "running" if st and time.time() - st < 1800 else "queued", "by": reqs[k].get("by")}
     if not send:
         return {"state": "idle"}
     if len(reqs) >= 200:
@@ -359,7 +364,17 @@ def request_research(eid, user, send=True):
     reqs[k] = {"eid": eid[:300], "by": str(user)[:64], "at": time.time()}
     RC._meta_put("research_requests", {"items": reqs})
     _QCACHE.clear()
-    return {"state": "queued", "by": reqs[k]["by"]}
+    try:  # start the research now on the host; if that fails the request stays queued for the next scheduled run
+        import corr_llm
+        r = corr_llm.broker("/research-event", {"eid": eid, "user": str(user)[:64]}, timeout=20)
+        if r.get("started"):
+            reqs[k]["started"] = time.time()
+            RC._meta_put("research_requests", {"items": reqs})
+            return {"state": "running", "by": reqs[k]["by"]}
+        return {"state": "queued", "by": reqs[k]["by"], "note": r.get("reason") or "another research run is in progress"}
+    except Exception as e:  # noqa: BLE001
+        print(f"research now: {e}", file=sys.stderr)
+        return {"state": "queued", "by": reqs[k]["by"], "note": "could not start right away"}
 
 
 def queue_items():
@@ -438,7 +453,7 @@ def main(argv):
         hq = int(argv[argv.index("--hosts") + 1]) if "--hosts" in argv else 60
         iq = int(argv[argv.index("--ids") + 1]) if "--ids" in argv else 40
         gq = int(argv[argv.index("--gw") + 1]) if "--gw" in argv else 30
-        res = _events(sid, "--all" in argv, lim, hq, iq, gq)
+        res = _events(sid, "--all" in argv, lim, hq, iq, gq, argv[argv.index("--only") + 1] if "--only" in argv else None)
         if not res.get("error"):
             with _db() as c:
                 c.execute("INSERT INTO runs (snapshot, started, listed, todo, note_keys) VALUES (?,?,?,?,?)",

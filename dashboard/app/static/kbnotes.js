@@ -101,8 +101,9 @@
     const rs = pop.querySelector(".rs-box");
     const rsShow = (r) => {
       if (r.state === "researched") rs.innerHTML = '<span class="muted">Already researched by the AI. Its findings are in the event\'s research note.</span>';
-      else if (r.state === "queued") rs.innerHTML = `<span class="muted">⏳ Queued for research${r.by ? ` (requested by ${esc(r.by)})` : ""}. It is sent on the next research run.</span>`;
-      else { rs.innerHTML = '<button type="button" class="rs-send">🔬 Send to research</button> <span class="muted">Not researched yet. Sends this event to the AI on the next run.</span>';
+      else if (r.state === "running") rs.innerHTML = '<span class="muted">🔬 Research started. The AI is working on it now; the note appears in a few minutes.</span>';
+      else if (r.state === "queued") rs.innerHTML = `<span class="muted">⏳ Queued for research${r.by ? ` (requested by ${esc(r.by)})` : ""}. ${r.note ? ` ${esc(r.note)}.` : ""} It is sent on the next research run.</span>`;
+      else { rs.innerHTML = '<button type="button" class="rs-send">🔬 Send to research</button> <span class="muted">Not researched yet. Sends this event to the AI right now.</span>';
         rs.querySelector(".rs-send").onclick = () => apiPost("/api/research/request", { action: "send", eid }).then(rsShow, (er) => { rs.textContent = "error: " + er.message; }); }
     };
     apiPost("/api/research/request", { action: "status", eid }).then(rsShow, () => { rs.textContent = ""; });

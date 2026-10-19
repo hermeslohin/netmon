@@ -38,6 +38,24 @@ def prompt(name):
 
 
 # ------------------------------------------------------------------ run state (AI review page)
+class EventStatus:
+    """Status of a single-event run: leaves the main run's state alone, only adds its token use to the day's cost."""
+    def __init__(self, target):
+        self.target, self.t0 = target, time.time()
+
+    def phase(self, p):
+        pass
+
+    def finish(self, status, error, budget, summary, pdf):
+        d, u = RC.status() or {}, budget.summary()
+        d["usage"] = ((d.get("usage") or []) + [{"at": time.time(), "prompt": u["prompt"], "completion": u["completion"], "total": u["total"],
+                                                  "duration_s": round(time.time() - self.t0), "model": self.target["model"], "provider": self.target["provider"],
+                                                  "error": status != "completed", "pdf_run": False, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
+                                                  "cache_read": u["cache_read"], "cache_write": u["cache_write"], "cost_usd": u["cost_usd"], "calls": u["calls"],
+                                                  "event_run": True}])[-60:]
+        RC.write_status(d)
+
+
 class Status:
     def __init__(self, target, trigger, pdf):
         self.d = RC.status() or {}
@@ -435,7 +453,7 @@ class Run:
 
     def enrich(self):
         out = self.stem + ".work.json"
-        rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out], timeout=600)
+        rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out] + (["--only", self.args.event] if getattr(self.args, "event", None) else []), timeout=600)
         if rc:
             raise RuntimeError(f"enrich.sh events failed: {(err or o)[-300:]}")
         d = jload(out, {})
@@ -479,7 +497,9 @@ class Run:
         self.status, self.started = status, time.time()
         fatal = None
         steps = [("collect + analyze", self.collect, True), ("triage", self.triage, False), ("event research", self.enrich, False)]
-        if self.pdf:
+        if getattr(self.args, "event", None):  # one event on request: no new snapshot, no triage, no PDF
+            steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
+        elif self.pdf:
             steps += [("briefing", self.briefing, False), ("report", self.report, False)]
         for name, fn, must in steps:
             if fatal and name != "report":
@@ -533,13 +553,14 @@ def main():
     ap.add_argument("--trigger", default="manual")
     ap.add_argument("--skip-collect", action="store_true", help="use the newest existing snapshot")
     ap.add_argument("--max-batches", type=int)
+    ap.add_argument("--event", help="research just this event id now (started from the dashboard's Send to research button)")
     args = ap.parse_args()
     cfg = RC.get()
     target = {"provider": cfg["provider"], "model": cfg["model"]}
     if not LP.allowed(target["provider"], target["model"]):
         print(f"research model not configured or unavailable ({target}); set it on the dashboard's AI review page", file=sys.stderr)
         return 2
-    lock = open(os.path.join(RC.STATE, ".research.lock"), "w")
+    lock = open(os.path.join(RC.STATE, ".research-event.lock" if args.event else ".research.lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -548,9 +569,11 @@ def main():
     if cfg["max_day_usd"] and RC.spent_today() >= cfg["max_day_usd"]:
         print(f"daily cost cap reached (${RC.spent_today():.2f} of ${cfg['max_day_usd']:.2f}); not starting", file=sys.stderr)
         return 4
-    pdf = args.pdf or (not args.no_pdf and pdf_due())
+    pdf = False if args.event else (args.pdf or (not args.no_pdf and pdf_due()))
+    if args.event:
+        args.skip_collect = True
     run = Run(target, pdf, args)
-    st = Status(target, args.trigger, pdf)
+    st = EventStatus(target) if args.event else Status(target, args.trigger, pdf)
     fatal = None
     try:
         fatal = run.go(st)
