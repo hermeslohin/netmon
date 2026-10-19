@@ -66,6 +66,10 @@ sees what goes in and what comes back (provider `research job`), not the job's i
 conversations, tool calls included, are saved on the host under `logs/research/` (the newest 60), and each run's
 tokens and estimated cost are on the AI review page.
 
+### Switching the AI sources off
+
+On the Audit log page, **Audit log storage** has two checkboxes: *Send reviewer events* (user `netmon (background reviewer)`: its conversations and Elasticsearch look-ups) and *Send researcher events* (user `netmon (research job)`: work list, results, host notes). Each is independent and on by default; when off, those entries are dropped (not queued). Stored in `integrations.json` section `audit` as `send_reviewer` / `send_researcher`.
+
 ## What is not recorded
 
 - **Secrets.** Any request parameter whose name looks like a password, key, token, cookie or credential (`password`,
