@@ -80,7 +80,7 @@ node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/d
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
 
 # ---------------- monitoring host
-node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio", "reviews correlations"], "LOCAL")
+node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio - optional", "AI review > AI providers"], "OPTIONAL")
 node("sched", 626, 100, 140, 76, "back", "scheduler.py", ["systemd user unit", "runs every job"], "JOBS")
 node("broker", 782, 100, 138, 76, "bus", "host_broker.py", ["loopback · bearer key", "/range · /esquery"], "BROKER")
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
@@ -93,7 +93,7 @@ node("chatp", 698, 608, 222, 76, "ai", "Ask AI chat", ["chat.py in the dashboard
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
 
 # ---------------- cloud
-node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "triage · research · briefing · chat"], "LLM")
+node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "correlation · triage · research · chat"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
 node("fc", 1000, 356, 260, 76, "cloud", "Web search", ["DuckDuckGo · Firecrawl · Brave · Tavily", "source pages for cited research"], "WEB")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
@@ -135,9 +135,9 @@ arrow(anchor("dash", "r", 0.4), anchor("users", "l", 0.6), "#22d3ee", both=True)
 lab2(947, 468, "#22d3ee", "HTTPS", "Web Push")
 arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
 lab2(960, 726, "#94a3b8", "scanned", "push")
-# local LLM <-> dashboard: correlation review (left edge of the monitoring host column)
+# local LLM <-> dashboard: correlation review, optional (left edge of the monitoring host column)
 arrows.append('<path d="M470,176 L440,176 L440,500 L460,500" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="3,3" marker-start="url(#ah-e879f9)" marker-end="url(#ah-e879f9)"/>')
-lab2(440, 420, "#e879f9", "link", "review")
+lab2(440, 420, "#e879f9", "link review", "(if local)")
 # Ask AI: dashboard chat -> read-only netmon tools -> netmon data; chat model = the chosen AI provider
 arrow((809, 568), (809, 608), "#e879f9", "Ask AI", ldy=4)
 arrow(anchor("chatp", "l"), anchor("mcp", "r"), "#fb923c", "tools", ldy=-6)
@@ -167,11 +167,11 @@ for i, (c, t) in enumerate(legend):
 out_leg.append(f'<line x1="720" y1="{ly + 18}" x2="760" y2="{ly + 18}" stroke="#94a3b8" stroke-width="1.5"/><text x="768" y="{ly + 22}" fill="#94a3b8" font-size="10">request / data flow</text>')
 out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6,3"/><text x="768" y="{ly + 42}" fill="#94a3b8" font-size="10">via internet / cloud</text>')
 notes = ["Elasticsearch is queried read-only; the one write is the dashboard's append-only audit log (index logs-netmon). netmon never changes UniFi or the network.",
-         "Research job (every 30 min-24 h, set on the dashboard): AI triage + event research with narrow read-only tools; the first run after 05:00 UTC adds the briefing + PDF.",
+         "Research job (every 30 min-24 h, set on the dashboard): AI triage + event research with read-only tools; needs a reasoning-capable model. First run after 05:00 UTC adds the briefing + PDF.",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and reviewer look-ups go through host_broker.py.",
-         "Correlation: the script proposes links between events and vulnerabilities; the local LLM confirms or rejects each one.",
+         "Correlation: the script proposes links; the admin's chosen model confirms or rejects each one - Local LM Studio is optional, any configured provider works (AI review > Models).",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
@@ -182,7 +182,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{
 <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>{markers}</defs>
 <rect width="{W}" height="{H}" fill="#020617"/><rect width="{W}" height="{H}" fill="url(#grid)"/>
 <circle cx="30" cy="34" r="5" fill="#22d3ee"/><text x="44" y="39" fill="#f8fafc" font-size="18" font-weight="700">netmon · home network &amp; endpoint security monitoring</text>
-<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · AI provider of your choice · web search · local LLM</text>
+<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · AI provider of your choice · web search · local LLM (optional)</text>
 {"".join(arrows)}
 {"".join(out)}
 {"".join(out_leg)}

@@ -73,15 +73,16 @@ for being close in time. Each candidate gets a score:
 
 Kept: score ≥ 1.5, at most 4 of any one type and 10 per event.
 
-## 3. Local-LLM review
+## 3. Correlation review (local or cloud model)
 
-The script only *proposes* links. **The local LLM decides.** `dashboard/app/corr_llm.py` runs as a background thread
+The script only *proposes* links. **A model decides.** `dashboard/app/corr_llm.py` runs as a background thread
 in the dashboard container:
 
 1. For the newest snapshot (and any snapshot someone opened in the last hour), each event with undecided candidates
    becomes one request. The request holds the event, up to 10 candidates, and the script's evidence for each one.
-2. The model (LM Studio, OpenAI-compatible API, temperature 0, JSON schema output) answers *related / not related*,
-   with a confidence and a one-line reason. The system prompt tells it to be sceptical of coincidences (a busy
+2. The model answers *related / not related*, with a confidence and a one-line reason. Local (LM Studio) gets
+   temperature 0 and JSON-schema output; an admin-added API provider gets the answer format in the prompt instead
+   (no structured-output mode). The system prompt tells it to be sceptical of coincidences (a busy
    shared host, the same 24-hour window). It also tells it to treat everything inside `<event>` tags as data,
    never as instructions, because log text can contain anything.
 3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db`, so each pair is asked once and the
@@ -89,20 +90,31 @@ in the dashboard container:
 4. `/api/correlate` drops **rejected** links, marks **confirmed** ones with the model's reason, and flags the rest
    as **pending**. Until the model has reviewed a link, the script's evidence is still shown.
 
+**Which model it uses.** AI review → Models → Correlation reviewer picks the provider and model explicitly; that
+choice is remembered until someone changes it. If nothing has ever been chosen, it defaults to the first enabled,
+configured provider with at least one model (an admin-added API provider before Local (LM Studio), since the
+reviewer calls far more often than a typical API rate cap allows) - **the reviewer no longer requires Local
+(LM Studio) to be running.** If the chosen provider is later disabled or deleted, the next run raises a clear
+error on the AI review page instead of silently falling back, so pick another model there. Mind each API
+provider's calls-per-hour cap (AI review → AI providers): the reviewer can fire many calls a minute, so a
+cloud provider meant for the occasional research run will hit its cap quickly unless you raise it.
+
 | Setting (`dashboard/.env`) | Default | |
 |---|---|---|
 | `NETMON_LLM` | `on` | `off` disables the review (links show the script's evidence only) |
-| `NETMON_LLM_URL` | `http://127.0.0.1:1234/v1` | any OpenAI-compatible endpoint, http(s) only |
+| `NETMON_LLM_URL` | `http://127.0.0.1:1234/v1` | Local (LM Studio)'s endpoint, any OpenAI-compatible http(s) URL |
 
-| `NETMON_LLM_MODEL` | the model loaded in LM Studio | pin a model id |
+| `NETMON_LLM_MODEL` | the model loaded in LM Studio | pin a model id for Local (LM Studio) |
 | `NETMON_LLM_REASONING` | `none` | reasoning models (Gemma, Qwen) spend the token budget on hidden reasoning otherwise |
 | `NETMON_LLM_WORKERS` | `2` | parallel requests (match LM Studio's parallel slots) |
 
-Besides LM Studio, the reviewer can use any provider an admin adds on AI review > **AI providers** (`llm_providers.py`,
-stored in `/state/llm_providers.json`, mode 600). These are OpenAI-compatible (`POST {base}/chat/completions`, Bearer
-key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called directly from the dashboard container; the model
-choice is `api:<id>` plus the model name. They get the answer format in the prompt (no structured-output mode), and
-each provider has its own calls-per-hour cap.
+Local (LM Studio) is itself an AI review → **AI providers** row: an admin can disable it or set its calls-per-hour
+cap there, same as any other provider (no key or URL to enter - those come from `NETMON_LLM_URL` and the live
+model list). Besides Local (LM Studio), the reviewer can use any provider an admin adds on AI review > **AI
+providers** (`llm_providers.py`, stored in `/state/llm_providers.json`, mode 600). These are OpenAI-compatible
+(`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
+directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
+its own calls-per-hour cap.
 
 ### Elasticsearch look-ups (optional)
 
@@ -145,8 +157,9 @@ Searching costs time and, with Anthropic or OpenAI reviewers, tokens: each round
 and the earlier results. Most decisions are clear without searching, and the model is told not to search then.
 
 Throughput with Gemma 4 31B on the monitoring host is about 15–30 links a minute. A full day's snapshot (~2,000
-candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If LM Studio is down, the
-worker backs off and retries, and links stay *pending*.
+candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If the reviewer's current
+provider goes down or hits its rate cap, the worker backs off and retries, and links stay *pending* until it's
+reachable again (or an admin picks a different model on AI review → Models).
 
 ### AI review page (More → AI review)
 

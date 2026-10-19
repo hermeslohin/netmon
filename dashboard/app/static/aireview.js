@@ -194,29 +194,34 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage, event research and daily report (local models are much slower and weaker at web research). Chat: the Ask AI assistant. Add cloud models in the AI providers box."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). Research job: the scheduled triage, event research and daily report - needs a reasoning-capable model (it works through several tool calls per event and decides what to do next between them); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model (Qwen, DeepSeek-R1...) in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
       : "Only an admin can change models.";
-    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(null, D.research?.interval_minutes)})`, D.research && !D.research.error ? D.research : {}],
+    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Research job (${every(null, D.research?.interval_minutes)}) · needs reasoning`, D.research && !D.research.error ? D.research : {}],
       ["chat", "Chat (Ask AI)", D.chat || {}]];
     loadModels().then((M) => {
       if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start LM Studio. " + note.textContent;
+      const reasoningTokens = (provider) => (provider === "lmstudio" ? null : ((M.custom || []).find((g) => g.provider === provider) || {}).reasoning_tokens ?? null);
       for (const [sec, label, cur] of rows) {
         const r = body.appendChild(document.createElement("div")); r.className = "llm-row";
         r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: label }));
         const sel = r.appendChild(modelSelect(M, cur, sec === "correlation" ? null : "— choose a model —")); sel.disabled = !D.admin;
         const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
         const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
-        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the research job does not run until a model is chosen")
+        const warn = sec === "research" ? r.appendChild(Object.assign(document.createElement("span"), { className: "small warn" })) : null;
+        const showWarn = (provider) => { if (!warn) return; const rt = reasoningTokens(provider);
+          warn.textContent = rt === 0 ? " ⚠ this provider has 0 reasoning tokens set (AI providers > edit) - research quality will suffer" : ""; };
+        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the research job does not run until a reasoning-capable model is chosen")
           : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (model loaded in LM Studio)";
+        if (sec === "research") showWarn(cur.provider);
         sel.onchange = () => { btn.disabled = !D.admin || !sel.value || sel.value === optKey(cur.provider, cur.model);
-          if (sec === "research") { const [p, ...m] = sel.value.split("|"); previewResearchCost(p, m.join("|"), M, cur); } };
+          if (sec === "research") { const [p, ...m] = sel.value.split("|"); previewResearchCost(p, m.join("|"), M, cur); showWarn(p); } };
         if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
         btn.onclick = async () => {
           const [provider, ...rest] = sel.value.split("|"), model = rest.join("|");
           btn.disabled = true; msg.textContent = "saving…";
           try { const r2 = await apiPost("/api/llm/config", { section: sec, provider, model }); const now = r2[sec] || {};
             cur.provider = now.provider; cur.model = now.model; msg.textContent = `saved: ${PROV[now.provider] || now.provider} · ${now.model}`;
-            if (sec === "research") previewResearchCost(now.provider, now.model, M, cur); }
+            if (sec === "research") { previewResearchCost(now.provider, now.model, M, cur); showWarn(now.provider); } }
           catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
         };
       }

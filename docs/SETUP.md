@@ -178,13 +178,36 @@ Run state, tokens and estimated cost are in `dashboard/state/research_job.json` 
 
 Everything is set by an admin on the dashboard's **AI review** page; nothing on the host needs editing.
 
-**AI providers.** Add as many as you like. Each has a type, **OpenAI / OpenAI-compatible** (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM, ...) or **Anthropic**, an optional base URL (plain `http://` only for LAN or loopback addresses), an API key, and its models, one per line. After a model id you can add prices in $ per million tokens, `model input output [cached-input]`; they are used for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the correlation reviewer and comparisons) and an optional number of extra reasoning tokens. Keys are stored in `dashboard/state/llm_providers.json` (mode 600), only the last 4 characters are ever shown, and they are scrubbed from error messages. Changing a provider's type or base URL requires entering the key again. The built-in local LM Studio server (`NETMON_LLM_URL`) is always listed without a key. Model choices are stored as `api:<provider id>` or `lmstudio` plus the model name.
+**AI providers.** **Local (LM Studio)** is always the first row - no key or URL to set (those come from
+`NETMON_LLM_URL`), just an **enabled** switch and a **calls per hour** cap; disable it or lower its cap here
+instead of editing `.env`. Add as many other providers as you like. Each has a type, **OpenAI / OpenAI-compatible**
+(OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM, ...) or **Anthropic**, an
+optional base URL (plain `http://` only for LAN or loopback addresses), an API key, and its models, one per line.
+After a model id you can add prices in $ per million tokens, `model input output [cached-input]`; they are used
+for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models
+without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the correlation
+reviewer and comparisons) and an optional number of extra reasoning tokens. Keys are stored in
+`dashboard/state/llm_providers.json` (mode 600), only the last 4 characters are ever shown, and they are scrubbed
+from error messages. Changing a provider's type or base URL requires entering the key again. Model choices are
+stored as `api:<provider id>` or `lmstudio` plus the model name.
 
-**Models.** Three choices: the **correlation reviewer**, the **research job** and the **chat (Ask AI)**. The research job and the chat are off until you choose a model. A provider that is in use can't be deleted. On any current correlation decision, the ⇄ button asks up to 4 models the same question side by side and can store one model's answer as the decision.
+**Models.** Three choices: the **correlation reviewer**, the **research job** and the **chat (Ask AI)**. The
+research job and the chat are off until you choose a model. A provider that is in use can't be deleted (Local
+(LM Studio) can only be disabled, never deleted). On any current correlation decision, the ⇄ button asks up to 4
+models the same question side by side and can store one model's answer as the decision.
+
+The **research job needs a reasoning-capable model** - it works through several tool calls per event (web search,
+reading pages, checking netmon data) and decides what to do next between them, which a plain chat model does
+noticeably worse at and sometimes gets stuck looping on. Pick a reasoning model (OpenAI's `o`-series / GPT-5
+family, Anthropic's extended-thinking Claude models, or a local reasoning model such as Qwen/DeepSeek-R1 in LM
+Studio) and give it some **extra reasoning tokens** on its provider row - 0 there effectively turns reasoning off
+and will hurt research quality even on a model that supports it. The correlation reviewer and the chat don't need
+this: the reviewer only ever answers one fixed-format question per call, and the chat still works, just more
+superficially, on a non-reasoning model.
 
 **Research job limits** (also on AI review): $ per run (default 5), $ per day (default 20), tokens per run (input + output, works without prices; default 25,000,000) and research batches per run (default 10). A run stops when it passes its caps, and no new run starts once today's runs (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **AI triage & enrichment** card shows the job's status, schedule and next run, **Run now** / **Pause**, recent runs, and the *Time and tokens per research run* chart with a cost preview for another model.
 
-Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`research_cfg.py`) and `dashboard/state/llm_config.json`; deleting `llm_config.json` returns the reviewer to the model loaded in LM Studio.
+Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`research_cfg.py`) and `dashboard/state/llm_config.json`. The correlation reviewer's model is remembered once chosen; if none has ever been chosen, it defaults to the first enabled, configured provider with a model (an API provider before Local (LM Studio), since the reviewer calls far more often than a typical API rate cap allows) - it no longer requires Local (LM Studio) to be running.
 
 ## 7c. Web search (research job and chat)
 

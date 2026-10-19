@@ -192,6 +192,7 @@ def default_target():
 def model_groups():
     """Usable providers for the model menus (/api/llm/models "custom"): enabled, with a key and at least one model."""
     return [{"provider": PREFIX + p["id"], "name": p.get("name") or p["id"], "type": p.get("type"),
+             "reasoning_tokens": int(p.get("reasoning_tokens") or 0),
              "models": [{"id": m, "price": price(PREFIX + p["id"], m)} for m in p.get("models") or []]}
             for p in _load() if p.get("enabled", True) and p.get("api_key") and p.get("models")]
 
