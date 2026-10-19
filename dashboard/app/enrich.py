@@ -400,11 +400,33 @@ def queue_items():
     return {"snapshot": r["snapshot"], "count": sum(1 for x in items if not x["testing"]), "testing": sum(1 for x in items if x["testing"]), "items": items}
 
 
+def _similar(x, skeys, limit=4, min_ratio=0.6):
+    """Earlier notes on events of the same type whose label (numbers masked) looks like this item's: [(ratio, row)]."""
+    import difflib
+    me = _NUM.sub("#", x.get("label") or "")
+    if not me:
+        return []
+    out = []
+    with _db() as c:
+        for r in c.execute("SELECT skey, eid, label, verdict, priority, summary, research, model, ts FROM notes WHERE eid LIKE ?",
+                           (x["id"].split("|")[0] + "|%",)):
+            if r[0] in skeys or not r[2]:
+                continue
+            q = difflib.SequenceMatcher(None, me, _NUM.sub("#", r[2])).ratio()
+            if q >= min_ratio:
+                out.append((q, r))
+    out.sort(key=lambda t: -t[0])
+    return out[:limit]
+
+
 def _prior(pick, E, res, notes):
-    """Review-mode items: what was researched before. Own note (same family), else the notes of correlated events.
-    Sets x["prior"] (list of {id, verdict, summary, age_h, how}) and x["researched"]; research-mode items are untouched."""
+    """Review-mode items: what was researched before. Own note (same family), the notes of correlated events and notes on
+    events with a similar label. Sets x["prior"] (list of {id, how, verdict, priority, summary, research, label, age_h}) and
+    x["researched"]; research-mode items are untouched. The research job's reviewer (review.py) decides from these whether
+    an item can reuse a prior note (copy_notes) or must go back to research."""
     rel_ids = {r["id"] for x in pick if x.get("mode") == "review" and not x["note"] for r in (res["related"].get(x["id"]) or [])}
     rn = load(rel_ids) if rel_ids else {}
+    ak = _alert_keys()
     for x in pick:
         if x.get("mode") != "review":
             continue
@@ -413,12 +435,46 @@ def _prior(pick, E, res, notes):
             prior.append({"id": x["id"], "how": "same event family", "verdict": x["note"]["verdict"], "summary": x["note"]["summary"],
                           "age_h": x["note"]["age_h"]})
         else:
+            seen = {skey(x["id"], ak)}
             for r in (res["related"].get(x["id"]) or [])[:8]:
                 n = rn.get(r["id"])
-                if n:
-                    prior.append({"id": r["id"], "how": "correlated: " + str(r.get("why") or "")[:80], "verdict": n["verdict"],
-                                  "summary": n["summary"], "age_h": round((time.time() - n["at"]) / 3600, 1)})
+                if n and skey(r["id"], ak) not in seen:
+                    seen.add(skey(r["id"], ak))
+                    prior.append({"id": r["id"], "how": "correlated: " + str(r.get("why") or "")[:80], "label": (E.get(r["id"]) or {}).get("label", "")[:160],
+                                  "verdict": n["verdict"], "priority": n["priority"], "summary": n["summary"],
+                                  "research": (n.get("research") or "")[:800], "age_h": round((time.time() - n["at"]) / 3600, 1)})
+            try:
+                for q, r in _similar(x, seen):
+                    prior.append({"id": r[1], "how": f"similar event (label match {q:.0%})", "label": r[2][:160], "verdict": r[3], "priority": r[4],
+                                  "summary": r[5], "research": (r[6] or "")[:800], "age_h": round((time.time() - r[8]) / 3600, 1)})
+            except Exception as e:  # noqa: BLE001 - similar-event lookup is optional
+                print(f"similar notes unavailable: {e}", file=sys.stderr)
         x["prior"], x["researched"] = prior, bool(prior)
+
+
+def copy_notes(doc, events=None):
+    """The research job's reviewer judged an event the same as one researched before: store the earlier note for it, with a
+    line saying it was copied. doc = {model, snapshot, copies: [{id, from, reason}]} -> {copied, rejected_ids}."""
+    model = str(doc.get("model") or "unknown")[:80]
+    sid = str(doc.get("snapshot") or "")[:40]
+    ak, now, bad, rows = _alert_keys(), time.time(), [], []
+    for cp in doc.get("copies") or []:
+        eid, src = str(cp.get("id") or ""), str(cp.get("from") or "")
+        if not eid or not src or (events is not None and eid not in events):
+            bad.append(eid); continue
+        old = load([src]).get(src)
+        if not old:
+            bad.append(eid); continue
+        label = (events or {}).get(eid, {}).get("label", "")[:200]
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(old["at"]))
+        head = (f"[Copied by the reviewer ({model}) from the note on {src} ({when}, researched by {old.get('model')}): "
+                f"{str(cp.get('reason') or 'judged the same activity')[:400]}. Not re-researched.]")
+        rows.append((skey(eid, ak), eid, label, old["verdict"], old["priority"], old["summary"][:600], (head + "\n\n" + (old["research"] or ""))[:4000],
+                     json.dumps(old["links"]), old.get("model") or model, "reviewer (copied note)", now, sid))
+    if rows:
+        with _db() as c:
+            c.executemany("INSERT OR REPLACE INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    return {"copied": len(rows), "rejected_ids": bad}
 
 
 def clear_queue(user, wipe=False):
@@ -480,6 +536,13 @@ def main(argv):
         import server, corr_llm
         sids = [x["id"] for x in (server.snapshots() or [])][-3:]
         print(json.dumps(corr_llm.clear_pending(sids, "cli")))
+    elif argv[:1] == ["copy"]:
+        doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
+        import server
+        sid = doc.get("snapshot") or (server.snapshots() or [{"id": ""}])[-1]["id"]
+        out = copy_notes({**doc, "snapshot": sid}, (server.correlation(sid) or {}).get("events") or {})
+        _audit("research-copy", str(doc.get("model") or ""), f"research job reviewer: {out['copied']} earlier notes reused", response=json.dumps(doc, default=str))
+        print(json.dumps(out))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
         import server

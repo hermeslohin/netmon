@@ -459,9 +459,13 @@ class Run:
         d = jload(out, {})
         os.remove(out)
         items = d.get("events") or []
-        # review-mode items are never sent out: they are only matched against earlier research (enrich.py:_prior)
+        # review-mode items: the reviewer compares them with earlier research and either copies a prior note or sends them to research
+        review = [x for x in items if x.get("mode") == "review"]
         self.counts["review_only"], self.counts["review_covered"] = d.get("review_only", 0), d.get("review_covered", 0)
         items = [x for x in items if x.get("mode") not in ("review", "test")]  # test-mode items are only listed on the dashboard
+        if review:
+            self.status.phase("reviewer")
+            items += self.review_items([x for x in review if not x.get("note")])
         todo = [x for x in items if not x.get("note")] + [x for x in items if x.get("note") and str(x.get("id", "")).split("|")[0] in ("ids", "gw", "hf")]
         self.counts["work_items"], self.counts["without_note"] = len(items), sum(1 for x in items if not x.get("note"))
         sysmsg = prompt("analyst") + "\n\n" + prompt("enrich")
@@ -478,6 +482,64 @@ class Run:
                 raise
             except Exception as e:  # noqa: BLE001 - one bad batch must not stop the others
                 self.errors.append(f"event research batch {b // BATCH + 1}: {str(e)[:200]}")
+
+    def review_items(self, review):
+        """Reviewer: for each review-mode item without a note, copy the most similar prior note (marked as copied) or send it back
+        to research. Returns the items that go to research. Any failure sends everything back (nothing is silently dropped)."""
+        if not review:
+            return []
+        decided, copies = {}, []
+        for b in range(0, len(review), BATCH * 2):
+            batch = review[b:b + BATCH * 2]
+            ids = {x["id"]: x for x in batch}
+
+            def submit(a, ids=ids):
+                n = 0
+                for i, dcs in enumerate(a.get("decisions") or []):
+                    if not isinstance(dcs, dict) or dcs.get("id") not in ids or dcs.get("action") not in ("copy", "research"):
+                        raise ValueError(f"decisions[{i}]: id must be one of the batch ids, action copy|research")
+                    if dcs["action"] == "copy":
+                        if dcs.get("from") not in {p["id"] for p in ids[dcs["id"]].get("prior") or []}:
+                            raise ValueError(f"decisions[{i}]: 'from' must be the id of one of that item's prior notes")
+                        decided[dcs["id"]] = dict(id=dcs["id"], **{"from": dcs["from"]}, reason=str(dcs.get("reason") or "")[:400])
+                    else:
+                        decided[dcs["id"]] = None
+                    n += 1
+                missing = [i for i in ids if i not in decided]
+                return {"ok": True, "decided": n} if not missing else f"error: stored, but no decision yet for: {missing}"
+            cand = [x for x in batch if x.get("prior")]
+            for x in batch:
+                if not x.get("prior"):
+                    decided[x["id"]] = None  # nothing earlier to compare with
+            if not cand:
+                continue
+            ids = {x["id"]: x for x in cand}
+            user = (f"Snapshot {os.path.basename(self.stem)}. {len(cand)} items to review against earlier research:\n"
+                    f"<work_items>\n{json.dumps(cand, ensure_ascii=False)[:60000]}\n</work_items>")
+            T = self.tools("enrich", cand)
+            T = {k: T[k] for k in ("es_search", "device_lookup", "notes_kb")}
+            T["submit_review"] = (submit, "Store the copy / research decision for every item (call once).",
+                                  {"decisions": {"type": "array", "items": {"type": "object"}}}, ["decisions"])
+            try:
+                self.converse(f"review{b // (BATCH * 2) + 1}", prompt("analyst") + "\n\n" + prompt("reviewer"), user, T, ("submit_review",),
+                              max_turns=20, max_tokens=6000)
+            except agent.BudgetExceeded:
+                raise
+            except Exception as e:  # noqa: BLE001
+                self.errors.append(f"reviewer batch {b // (BATCH * 2) + 1}: {str(e)[:200]}")
+        copies = [v for v in decided.values() if v]
+        if copies:
+            rc, out, err = sh([os.path.join(NM, "enrich.sh"), "copy", "-"], timeout=300,
+                              inp=json.dumps({"model": self.target["model"], "snapshot": os.path.basename(self.stem), "copies": copies}))
+            if rc:
+                self.errors.append(f"reviewer copy failed: {(err or out)[-200:]}")
+                copies = []
+            else:
+                self.counts["review_copied"] = len(copies)
+        done = {c["id"] for c in copies}
+        back = [x for x in review if x["id"] not in done]
+        self.counts["review_to_research"] = len(back)
+        return back
 
     def briefing(self):
         topics = SITE.get("briefing_topics") or [{"category": "Security", "count": 3, "about": "high-impact computer security news"}]
@@ -525,7 +587,7 @@ class Run:
             parts.append(self.triage_summary[:900])
         parts.append(f"Alarms: {c.get('alarms', 0)} ({c.get('investigate', 0)} Investigate). Research notes stored: {c.get('notes', 0)}, "
                      f"link verdicts: {c.get('links', 0)}, host notes added/updated: {c.get('host_notes_added', 0)}/{c.get('host_notes_updated', 0)}, "
-                     f"work items without a note at start: {c.get('without_note', 0)}.")
+                     f"work items without a note at start: {c.get('without_note', 0)}. Reviewer: {c.get('review_copied', 0)} earlier notes copied, {c.get('review_to_research', 0)} sent to research.")
         if c.get("pdf"):
             parts.append(f"Report: {c['pdf']}.")
         parts.append(f"Tokens: {u['total']:,} in {u['calls']} calls" + (f", est. ${u['cost_usd']:.2f}" if u["cost_usd"] is not None else "") + ".")
