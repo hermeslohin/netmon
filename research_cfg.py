@@ -10,7 +10,7 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
   max_batches           event-research conversations per run (8 work items each)
-  modes                 per event category what the job does: "research" (send to the model; events that already have
+  modes                 per event category what the job does: "test" (queued and tagged "testing" but never sent: shows what a mode would send, filters apply; the default on new deployments), "research" (send to the model; events that already have
                          a note are only rewritten if the new run contradicts it), "review" (never sent to the model:
                          the work list is matched against earlier research - the event's own note and the notes of
                          correlated events - and anything already researched is left alone) or "skip" (ignored).
@@ -34,12 +34,13 @@ import store  # noqa: E402
 KEY, REQ = "research_job", "research_request"
 PDF_HOUR = 5
 SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
-MODES = ("research", "review", "skip")
+MODES = ("research", "review", "skip", "test")
 MODE_CATS = (("host", "Endpoint host findings"), ("ids12", "Suricata severity 1-2 signatures"), ("gw", "UniFi gateway events"),
              ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
              ("medium", "Other events: medium"), ("low", "Other events: low"), ("info", "Other events: info"))
-DEFAULT_MODES = {"host": "research", "ids12": "research", "gw": "research", "ti": "research", "alert": "research",
-                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}
+LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "ti": "research", "alert": "research",
+                "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
+DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
             "max_run_tokens": 25_000_000, "max_batches": 10, "severities": ["high", "medium"],
             "modes": DEFAULT_MODES}
@@ -76,14 +77,14 @@ def get():
                 out[k] = DEFAULTS[k]
         except (TypeError, ValueError):
             out[k] = DEFAULTS[k]
-    modes = dict(DEFAULT_MODES)
+    modes = dict(DEFAULT_MODES if not v else LEGACY_MODES)  # a deployment that already has settings keeps its behaviour
     if isinstance(v.get("severities"), list) and not isinstance(v.get("modes"), dict):  # settings saved before modes existed
         for s_ in SEVERITIES:
             modes[s_] = "research" if s_ in v["severities"] else "skip"
     if isinstance(v.get("modes"), dict):
         modes.update({k: m for k, m in v["modes"].items() if k in DEFAULT_MODES and m in MODES})
     out["modes"] = modes
-    out["severities"] = [s_ for s_ in SEVERITIES if modes[s_] != "skip"]
+    out["severities"] = [s_ for s_ in SEVERITIES if modes[s_] in ("research", "review")]
     out.update(by=v.get("by"), at=v.get("at"), pdf_hour=PDF_HOUR, limits=LIMITS, severity_options=list(SEVERITIES),
                mode_options=list(MODES), mode_cats=[{"key": k, "label": l} for k, l in MODE_CATS])
     return out
@@ -123,6 +124,7 @@ def put(fields, user, check_model=None):
             cur[k] = n
     if ("provider" in fields or "model" in fields) and check_model and not check_model(cur.get("provider"), cur.get("model")):
         raise ValueError("unknown provider or model")
+    cur.setdefault("modes", get()["modes"])  # pin the effective modes so a later default change never alters this deployment
     cur.update(by=str(user)[:64], at=time.time())
     _meta_put(KEY, cur)
     return get()

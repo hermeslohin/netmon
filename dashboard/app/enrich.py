@@ -197,7 +197,7 @@ def status(event_ids=()):
     try:  # events the next run would send out: research-mode, no note yet, not dismissed (cached briefly: it is a full work-list build)
         if time.time() - _QCACHE.get("t", 0) > 30:
             r = _events()
-            _QCACHE.update(t=time.time(), v=None if r.get("error") else {"count": r["research_queue"], "review_only": r["review_only"],
+            _QCACHE.update(t=time.time(), v=None if r.get("error") else {"count": r["research_queue"], "testing": r["research_testing"], "review_only": r["review_only"],
                                                                    "review_covered": r["review_covered"]})
         queue = _QCACHE.get("v")
     except Exception as e:  # noqa: BLE001
@@ -285,7 +285,8 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     if not everything:  # drop the categories set to skip (Suricata sev 3 falls through to its severity)
         out = [x for x in out if modes.get(cat(x), "skip") != "skip" or skey(x["id"], ak) in forced]
     for x in out:
-        x["mode"] = "review" if modes.get(cat(x)) == "review" and skey(x["id"], ak) not in forced else "research"
+        m = modes.get(cat(x)) if skey(x["id"], ak) not in forced else "research"
+        x["mode"] = m if m in ("review", "test") else "research"
         x["requested"] = skey(x["id"], ak) in forced
     todo = sum(1 for x in out if not x["note"])
     hostq = [x for x in out if x["type"] == "host"]
@@ -322,6 +323,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             "review_only": sum(1 for x in pick if x.get("mode") == "review"),
             "review_covered": sum(1 for x in pick if x.get("mode") == "review" and x.get("researched")),
             "research_queue": sum(1 for x in out if x["mode"] == "research" and not x["note"]),
+            "research_testing": sum(1 for x in out if x["mode"] == "test" and not x["note"]),
             "ids_sev12": len(idsq), "ids_sev12_without_note": sum(1 for x in idsq if not x["note"]),
             "gateway": len(gwq), "gateway_without_note": sum(1 for x in gwq if not x["note"]),
             "events_with_user_notes": sum(1 for x in pick if x.get("user_notes")), "hosts_with_notes": hn_count,
@@ -345,6 +347,16 @@ def _requested(E, notes, ak):
     return {k for k in live if any(skey(eid, ak) == k for eid in E)}
 
 
+def _testing_ids():
+    """Ids of events currently held in test mode (queued and tagged, never sent); cached with the queue numbers."""
+    try:
+        if time.time() - _QCACHE.get("ti_t", 0) > 30:
+            _QCACHE.update(ti_t=time.time(), ti={i for x in _events()["events"] if x.get("mode") == "test" and not x["note"] for i in [x["id"]] + x["other_ids"]})
+        return _QCACHE.get("ti") or set()
+    except Exception:  # noqa: BLE001
+        return set()
+
+
 def request_research(eid, user, send=True):
     """A person asks for one event to be researched. State: researched (a note exists), queued (requested or already due),
     idle. Sending adds it to the next run whatever its category mode, dismissals or rules."""
@@ -358,7 +370,7 @@ def request_research(eid, user, send=True):
         st = reqs[k].get("started")
         return {"state": "running" if st and time.time() - st < 1800 else "queued", "by": reqs[k].get("by")}
     if not send:
-        return {"state": "idle"}
+        return {"state": "idle", "testing": eid in _testing_ids()}
     if len(reqs) >= 200:
         raise ValueError("too many pending research requests (200)")
     reqs[k] = {"eid": eid[:300], "by": str(user)[:64], "at": time.time()}
@@ -383,8 +395,9 @@ def queue_items():
     if r.get("error"):
         return {"error": r["error"], "items": []}
     items = [{"id": x["id"], "type": x["type"], "sev": x.get("sev"), "label": x["label"], "link": x.get("link"), "when": x["when"],
-              "repeats": x["repeats"], "requested": x.get("requested")} for x in r["events"] if x.get("mode") == "research" and not x["note"]]
-    return {"snapshot": r["snapshot"], "count": len(items), "items": items}
+              "repeats": x["repeats"], "requested": x.get("requested"), "testing": x.get("mode") == "test"}
+             for x in r["events"] if x.get("mode") in ("research", "test") and not x["note"]]
+    return {"snapshot": r["snapshot"], "count": sum(1 for x in items if not x["testing"]), "testing": sum(1 for x in items if x["testing"]), "items": items}
 
 
 def _prior(pick, E, res, notes):

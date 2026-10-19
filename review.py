@@ -461,7 +461,7 @@ class Run:
         items = d.get("events") or []
         # review-mode items are never sent out: they are only matched against earlier research (enrich.py:_prior)
         self.counts["review_only"], self.counts["review_covered"] = d.get("review_only", 0), d.get("review_covered", 0)
-        items = [x for x in items if x.get("mode") != "review"]
+        items = [x for x in items if x.get("mode") not in ("review", "test")]  # test-mode items are only listed on the dashboard
         todo = [x for x in items if not x.get("note")] + [x for x in items if x.get("note") and str(x.get("id", "")).split("|")[0] in ("ids", "gw", "hf")]
         self.counts["work_items"], self.counts["without_note"] = len(items), sum(1 for x in items if not x.get("note"))
         sysmsg = prompt("analyst") + "\n\n" + prompt("enrich")

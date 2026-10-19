@@ -195,22 +195,48 @@ def sig_cleared(sigs, ev):
 MAX_LINKS_LIMIT = 200  # per-event cap setting range (0 = no cap)
 
 
+PAIR_MODES = ("review", "skip", "test")
+
+
+def _is_new_deployment():
+    try:
+        with _db() as c:
+            return c.execute("SELECT 1 FROM verdicts LIMIT 1").fetchone() is None
+    except sqlite3.Error:
+        return False
+
+
 def limits():
-    c = (_raw_config().get("review_limits") or {})
-    return {"skip_pairs": [str(x) for x in c.get("skip_pairs") or []],
+    raw = _raw_config()
+    c = (raw.get("review_limits") or {})
+    if "pair_default" not in c:  # decided once: a new deployment starts in test mode, an existing one keeps reviewing everything
+        c = dict(c, pair_default="test" if ("review_limits" not in raw and _is_new_deployment()) else "review")
+        raw["review_limits"] = c
+        try:
+            _save_config(raw)
+        except OSError:
+            pass
+    pm = {str(k): v for k, v in (c.get("pair_modes") or {}).items() if v in PAIR_MODES}
+    for x in c.get("skip_pairs") or []:  # settings saved before test mode
+        pm.setdefault(str(x), "skip")
+    return {"skip_pairs": sorted(k for k, v in pm.items() if v == "skip"), "pair_modes": pm, "pair_default": c["pair_default"],
             "excluded": [x for x in c.get("excluded") or [] if isinstance(x, dict) and x.get("key")],
             "rules": [x for x in c.get("rules") or [] if isinstance(x, dict) and x.get("key")],
             "max_links": max(0, min(int(c.get("max_links") or 0), MAX_LINKS_LIMIT)) if str(c.get("max_links") or 0).isdigit() else 0}
 
 
-def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=None, rule=None, unrule=None):
+def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=None, rule=None, unrule=None, pair_modes=None):
     """skip_pairs: list of "typeA-typeB" (sorted) never reviewed. exclude: {id, mode: event|family, label}. unexclude: key."""
     c = _raw_config()
     cur = limits()
     if skip_pairs is not None:
         if not isinstance(skip_pairs, list) or not all(_re.fullmatch(r"[a-z]+-[a-z]+", str(x)) for x in skip_pairs):
             raise ValueError("skip_pairs must be a list like ['alert-vuln']")
-        cur["skip_pairs"] = sorted({str(x) for x in skip_pairs})
+        pair_modes = {**{p: "review" for p in cur["pair_modes"] if cur["pair_modes"][p] == "skip"}, **{str(x): "skip" for x in skip_pairs}}
+    if pair_modes is not None:
+        if not isinstance(pair_modes, dict) or not all(_re.fullmatch(r"[a-z]+-[a-z]+", str(k)) and v in PAIR_MODES for k, v in pair_modes.items()):
+            raise ValueError("pair_modes must map type pairs like 'alert-vuln' to review, skip or test")
+        cur["pair_modes"] = {**cur["pair_modes"], **{str(k): v for k, v in pair_modes.items()}}
     if exclude:
         eid, mode = str(exclude.get("id") or "")[:300], exclude.get("mode")
         if not eid or mode not in ("event", "family"):
@@ -243,6 +269,7 @@ def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=No
         cur["max_links"] = n
     if unexclude:
         cur["excluded"] = [x for x in cur["excluded"] if x["key"] != unexclude]
+    cur.pop("skip_pairs", None)
     c["review_limits"] = cur
     _save_config(c)
     return limits()
@@ -253,7 +280,8 @@ def _limit_fn(base):
     L = limits()
     E = (base or {}).get("events") or {}
     CS = cleared_sigs(E)
-    sp, ex = set(L["skip_pairs"]), {x["key"] for x in L["excluded"]}
+    ex = {x["key"] for x in L["excluded"]}
+    pm, pd = L["pair_modes"], L["pair_default"]
     famcache = {}
 
     def bad(i):
@@ -264,7 +292,10 @@ def _limit_fn(base):
         if i not in famcache:
             famcache[i] = "family|" + _fam(i)
         return famcache[i] in ex
-    return lambda a, b: pair_type((E.get(a) or {}).get("type", a.split("|")[0]), (E.get(b) or {}).get("type", b.split("|")[0])) in sp or bad(a) or bad(b)
+    mode = lambda a, b: pm.get(pair_type((E.get(a) or {}).get("type", a.split("|")[0]), (E.get(b) or {}).get("type", b.split("|")[0])), pd)  # noqa: E731
+    skipped = lambda a, b: mode(a, b) == "skip" or bad(a) or bad(b)  # noqa: E731
+    skipped.testing = lambda a, b: mode(a, b) == "test"  # links that pass every filter but are only tested, never sent
+    return skipped
 
 
 def limits_view(base, applied=None):
@@ -282,12 +313,12 @@ def limits_view(base, applied=None):
             ev[a] = ev.get(a, 0) + 1
             ev[r["id"]] = ev.get(r["id"], 0) + 1
     L = limits()
-    sp = set(L["skip_pairs"])
+    pm, pd = L["pair_modes"], L["pair_default"]
     ex = {x["key"] for x in L["excluded"]}
     top = sorted(ev.items(), key=lambda x: -x[1])[:15]
     return {**L, "total": len(seen), "limit_range": MAX_LINKS_LIMIT,
-            "pairs": [{"pair": t, "links": n, "skipped": t in sp} for t, n in sorted(tp.items(), key=lambda x: -x[1])] +
-                     [{"pair": t, "links": 0, "skipped": True} for t in sorted(sp - set(tp))],
+            "pairs": [{"pair": t, "links": n, "mode": pm.get(t, pd)} for t, n in sorted(tp.items(), key=lambda x: -x[1])] +
+                     [{"pair": t, "links": 0, "mode": pm[t]} for t in sorted(set(pm) - set(tp))],
             "top_events": [{"id": e, "type": E[e]["type"], "label": E[e]["label"][:140], "links": n, "excluded": "event|" + e in ex,
                             "family_excluded": "family|" + _fam(e) in ex} for e, n in top]}
 
@@ -437,7 +468,7 @@ def apply(base):
     V = verdicts(keys)
     CL = _cleared()
     skipped = _limit_fn(base)
-    out, P, C, X = {}, set(), set(), set()  # unique pairs (each link appears under both of its events)
+    out, P, C, X, T = {}, set(), set(), set(), []  # unique pairs (each link appears under both of its events); T = testing
     cap, over = limits()["max_links"], set()
     if cap:  # at most `cap` undecided links per event: best score first, a link needs room at both of its events
         cand = {}
@@ -458,6 +489,8 @@ def apply(base):
             v = V.get(pair(a, r["id"]))
             if v is None and ((a in CL and r["id"] in CL) or skipped(a, r["id"]) or pair(a, r["id"]) in over):
                 X.add(pair(a, r["id"]))
+            elif v is None and skipped.testing(a, r["id"]):  # test mode: listed as "testing", never sent to the reviewer
+                T.append((a, r["id"]))
             elif v is None:
                 keep.append({**r, "llm": "pending"}); P.add(pair(a, r["id"]))
             elif v["related"]:
@@ -467,27 +500,37 @@ def apply(base):
         keep.sort(key=lambda r: (r["llm"] != "yes", -(r.get("llm_conf") or 0) * 2 - r["score"]))
         if keep:
             out[a] = keep
-    st = dict(STATUS, pending=len(P), confirmed=len(C), rejected=len(X))
-    return {**base, "related": out, "llm": st}
+    tests = list({pair(x, y): (x, y) for x, y in T}.values())
+    st = dict(STATUS, pending=len(P), confirmed=len(C), rejected=len(X), testing=len(tests))
+    return {**base, "related": out, "llm": st, "testing": tests}
 
 
 def pending_list(base, limit=500):
-    """Undecided links the reviewer will look at (after limits), best score first."""
+    """Undecided links the reviewer will look at (after limits), best score first, plus links held in test mode (testing=True)."""
     E = (base or {}).get("events") or {}
-    seen, out = set(), []
-    for a, lst in (apply(base).get("related") or {}).items():
+    A = apply(base)
+    rel = {}
+    for a, lst in (base.get("related") or {}).items():
         for r in lst:
-            if r.get("llm") != "pending":
-                continue
-            k = pair(a, r["id"])
-            if k in seen or a not in E or r["id"] not in E:
-                continue
-            seen.add(k)
-            out.append({"a": a, "b": r["id"], "a_type": E[a]["type"], "b_type": E[r["id"]]["type"], "a_label": E[a]["label"][:160],
-                        "b_label": E[r["id"]]["label"][:160], "a_link": E[a].get("link") or "", "b_link": E[r["id"]].get("link") or "",
-                        "why": r.get("why") or "", "score": r.get("score") or 0})
+            rel.setdefault(pair(a, r["id"]), r)
+    seen, out = set(), []
+
+    def add(a, b, r, testing):
+        k = pair(a, b)
+        if k in seen or a not in E or b not in E:
+            return
+        seen.add(k)
+        out.append({"a": a, "b": b, "a_type": E[a]["type"], "b_type": E[b]["type"], "a_label": E[a]["label"][:160],
+                    "b_label": E[b]["label"][:160], "a_link": E[a].get("link") or "", "b_link": E[b].get("link") or "",
+                    "why": r.get("why") or "", "score": r.get("score") or 0, "testing": testing})
+    for a, lst in (A.get("related") or {}).items():
+        for r in lst:
+            if r.get("llm") == "pending":
+                add(a, r["id"], r, False)
+    for a, b in A.get("testing") or []:
+        add(a, b, rel.get(pair(a, b)) or {}, True)
     out.sort(key=lambda x: -x["score"])
-    return {"count": len(out), "items": out[:limit]}
+    return {"count": sum(1 for x in out if not x["testing"]), "testing": sum(1 for x in out if x["testing"]), "items": out[:limit]}
 
 
 def clear_pending(sids, user):

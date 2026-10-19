@@ -280,7 +280,7 @@
   function limitsCard(D) {
     const Lm = D.limits || { pairs: [], top_events: [], excluded: [] };
     const c = card(`Review limits (${fn(Lm.total || 0)} candidate links)`, `
-      <div class="small muted">Links that are skipped or excluded here are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
+      <div class="small muted">Links that are skipped or excluded here (or set to <b>test</b>, which only lists them as <i>testing</i>) are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
         Changes apply from the next review round.</div>
       <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
         <button type="button" class="rl-maxsave">Save</button>
@@ -307,9 +307,9 @@
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });
     const pairs = c.querySelector(".rl-pairs");
     pairs.innerHTML = (Lm.pairs || []).map((p) => `<span class="mono small">${esc(p.pair)}</span><span class="small">${fn(p.links)} links</span>
-      <select data-pair="${esc(p.pair)}"><option value="review"${p.skipped ? "" : " selected"}>review</option><option value="skip"${p.skipped ? " selected" : ""}>skip</option></select>`).join("");
+      <select data-pair="${esc(p.pair)}">${["review", "skip", "test"].map((m) => `<option value="${m}"${p.mode === m ? " selected" : ""}>${m}</option>`).join("")}</select>`).join("");
     for (const s of pairs.querySelectorAll("select")) { s.disabled = !D.can_limit;
-      s.onchange = () => post({ skip_pairs: [...pairs.querySelectorAll("select")].filter((x) => x.value === "skip").map((x) => x.dataset.pair) }); }
+      s.onchange = () => post({ pair_modes: Object.fromEntries([...pairs.querySelectorAll("select")].map((x) => [x.dataset.pair, x.value])) }); }
     const top = c.querySelector(".rl-top");
     top.innerHTML = (Lm.top_events || []).map((e, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
       <span style="width:3.5em;text-align:right"><b>${fn(e.links)}</b></span><span class="mono muted" style="width:4.5em">${esc(e.type)}</span><span style="flex:1">${esc(e.label)}</span>
@@ -459,7 +459,7 @@
             <select name="mode_${esc(m.key)}" data-cat="${esc(m.key)}">${(R.mode_options || ["research", "review", "skip"]).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>`).join("")}</span>
           <span class="small muted" style="flex:1 1 380px"><b>research</b>: sent to the model (a repeat that already has a note is only rewritten if the new run contradicts it).
             <b>review</b>: never sent to the model; matched against earlier research (the event's own note and the notes of correlated events) and left alone if it was researched before.
-            <b>skip</b>: ignored. Changes apply from the next run.</span></div>
+            <b>skip</b>: ignored. <b>test</b>: queued and tagged <i>testing</i> in the lists above, but never sent to the model; use it to see what a setting would send (filters still apply). New deployments start in test. Changes apply from the next run.</span></div>
       </div>
       <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
         chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
@@ -616,9 +616,9 @@
     const health = !st.enabled ? ["Off", "sev-unknown"] : st.error ? ["Error", "sev-high"] : st.busy ? ["Reviewing", "sev-good"] : q.pending ? ["Waiting", "sev-medium"] : ["Idle · up to date", "sev-good"];
     el.insertAdjacentHTML("beforeend", kpis([
       ["Status", `<span class="badge ${health[1]}" style="font-size:14px">${health[0]}</span>`],
-      ["Awaiting research", (D.research_status || {}).queue ? (D.admin ? `<a href="#/aireview" class="rq-open">${fn(D.research_status.queue.count)}</a>` : fn(D.research_status.queue.count)) : "?",
+      ["Awaiting research", (D.research_status || {}).queue ? (D.admin ? `<a href="#/aireview" class="rq-open">${fn(D.research_status.queue.count)}</a>` : fn(D.research_status.queue.count)) + (D.research_status.queue.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode: listed, never sent">+${fn(D.research_status.queue.testing)} testing</span>` : "") : "?",
         (D.research_status || {}).queue?.count ? "warn" : "good"],
-      ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>`, q.pending ? "warn" : "good"],
+      ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>` + (q.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode: listed, never sent">+${fn(q.testing)} testing</span>` : ""), q.pending ? "warn" : "good"],
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
       ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
@@ -648,10 +648,10 @@
       (el.querySelector(".kpis") || el.lastElementChild).after(box);
       try {
         const Q = await api("/api/aireview/research-queue");
-        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events the next run would send to the model (research mode, no note yet). Snapshot ${esc(Q.snapshot || "")}.</div>`;
+        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events the next run would send to the model (research mode, no note yet)${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}. Snapshot ${esc(Q.snapshot || "")}.</div>`;
         if (Q.items?.length) box.appendChild(table(null, [
           { k: "type", t: "Type", cls: "mono small" }, { k: "sev", t: "Severity" },
-          { k: "label", t: "Event", fmt: (v, r) => (r.link ? `<a href="${esc(r.link)}">${esc(v)}</a>` : esc(v)) },
+          { k: "label", t: "Event", fmt: (v, r) => (r.testing ? '<span class="badge sev-unknown" title="test mode: never sent">testing</span> ' : "") + (r.link ? `<a href="${esc(r.link)}">${esc(v)}</a>` : esc(v)) },
           { k: "when", t: "When", cls: "small" }, { k: "repeats", t: "Repeats", num: true }], Q.items, { sort: "sev", limit: 50 }));
       } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
@@ -664,10 +664,10 @@
       (el.querySelector("#ai-rq") || el.querySelector(".kpis") || el.lastElementChild).after(box);
       try {
         const Q = await api("/api/aireview/review-queue");
-        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
+        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
         const ln = (l, lk, t) => `<span class="mono muted small">${esc(t)}</span> ${lk ? `<a href="${esc(lk)}">${esc(l)}</a>` : esc(l)}`;
         if (Q.items?.length) box.appendChild(table(null, [
-          { k: "a_label", t: "Event", fmt: (v, r) => ln(v, r.a_link, r.a_type) },
+          { k: "a_label", t: "Event", fmt: (v, r) => (r.testing ? '<span class="badge sev-unknown" title="test mode: never sent">testing</span> ' : "") + ln(v, r.a_link, r.a_type) },
           { k: "b_label", t: "Linked to", fmt: (v, r) => ln(v, r.b_link, r.b_type) },
           { k: "why", t: "Why correlated", cls: "small", fmt: (v) => esc(Array.isArray(v) ? v.join(", ") : String(v || "")) }, { k: "score", t: "Score", num: true, fmt: (v) => esc(String(Math.round(v * 100) / 100)) }],
           Q.items, { sort: "score", limit: 50 }));
