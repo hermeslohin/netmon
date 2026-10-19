@@ -616,13 +616,63 @@
     const health = !st.enabled ? ["Off", "sev-unknown"] : st.error ? ["Error", "sev-high"] : st.busy ? ["Reviewing", "sev-good"] : q.pending ? ["Waiting", "sev-medium"] : ["Idle · up to date", "sev-good"];
     el.insertAdjacentHTML("beforeend", kpis([
       ["Status", `<span class="badge ${health[1]}" style="font-size:14px">${health[0]}</span>`],
-      ["Awaiting research", (D.research_status || {}).queue ? `<a href="#/aireview?at=ai-research">${fn(D.research_status.queue.count)}</a>` : "?",
+      ["Awaiting research", (D.research_status || {}).queue ? (D.admin ? `<a href="#/aireview" class="rq-open">${fn(D.research_status.queue.count)}</a>` : fn(D.research_status.queue.count)) : "?",
         (D.research_status || {}).queue?.count ? "warn" : "good"],
-      ["Awaiting review", `<a href="#/aireview?at=ai-queue">${fn(q.pending)}</a>`, q.pending ? "warn" : "good"],
+      ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>`, q.pending ? "warn" : "good"],
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
       ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
+    if (D.admin) {
+      const bar = document.createElement("div"); bar.style.cssText = "margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center";
+      bar.innerHTML = '<button type="button" class="clr-rq">Clear research queue</button><button type="button" class="clr-rv">Clear review queue</button><span class="small muted clr-msg"></span>';
+      el.querySelector(".kpis").after(bar);
+      const msg = bar.querySelector(".clr-msg");
+      const go = async (path, warn) => {
+        if (!confirm(warn)) return;
+        msg.textContent = "clearing…";
+        try { const r = await apiPost(path, {}); msg.textContent = `done (${fn(r.dismissed || 0)} dismissed)`; setTimeout(() => location.reload(), 800); }
+        catch (e) { msg.textContent = "error: " + e.message; }
+      };
+      bar.querySelector(".clr-rq").onclick = () => go("/api/aireview/clear-research",
+        `WARNING: this removes every event currently waiting for research (${fn((D.research_status || {}).queue?.count || 0)}) from the queue.\n\nThey will NOT be researched, even if they occur again under the same ID. Existing notes are kept. New events are still researched.\n\nThis cannot be undone from the page. Continue?`);
+      bar.querySelector(".clr-rv").onclick = () => go("/api/aireview/clear-review",
+        `WARNING: this marks every link currently waiting for review (${fn(q.pending)}) as "not related" without asking the model.\n\nThose links will be hidden from the Related column and never reviewed. Existing verdicts are kept. New events are still reviewed.\n\nThis cannot be undone from the page. Continue?`);
+    }
+    const rqa = el.querySelector(".rq-open");
+    if (rqa) rqa.onclick = async (ev) => {
+      ev.preventDefault();
+      let box = el.querySelector("#ai-rq");
+      if (box) { box.remove(); return; }
+      box = card("Events awaiting research", '<div class="small muted">Loading…</div>'); box.id = "ai-rq";
+      (el.querySelector(".kpis") || el.lastElementChild).after(box);
+      try {
+        const Q = await api("/api/aireview/research-queue");
+        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events the next run would send to the model (research mode, no note yet). Snapshot ${esc(Q.snapshot || "")}.</div>`;
+        if (Q.items?.length) box.appendChild(table(null, [
+          { k: "type", t: "Type", cls: "mono small" }, { k: "sev", t: "Severity" },
+          { k: "label", t: "Event", fmt: (v, r) => (r.link ? `<a href="${esc(r.link)}">${esc(v)}</a>` : esc(v)) },
+          { k: "when", t: "When", cls: "small" }, { k: "repeats", t: "Repeats", num: true }], Q.items, { sort: "sev", limit: 50 }));
+      } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
+    };
+    const rva = el.querySelector(".rv-open");
+    if (rva) rva.onclick = async (ev) => {
+      ev.preventDefault();
+      let box = el.querySelector("#ai-rv");
+      if (box) { box.remove(); return; }
+      box = card("Links awaiting review", '<div class="small muted">Loading…</div>'); box.id = "ai-rv";
+      (el.querySelector("#ai-rq") || el.querySelector(".kpis") || el.lastElementChild).after(box);
+      try {
+        const Q = await api("/api/aireview/review-queue");
+        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
+        const ln = (l, lk, t) => `<span class="mono muted small">${esc(t)}</span> ${lk ? `<a href="${esc(lk)}">${esc(l)}</a>` : esc(l)}`;
+        if (Q.items?.length) box.appendChild(table(null, [
+          { k: "a_label", t: "Event", fmt: (v, r) => ln(v, r.a_link, r.a_type) },
+          { k: "b_label", t: "Linked to", fmt: (v, r) => ln(v, r.b_link, r.b_type) },
+          { k: "why", t: "Why correlated", cls: "small", fmt: (v) => esc(Array.isArray(v) ? v.join(", ") : String(v || "")) }, { k: "score", t: "Score", num: true, fmt: (v) => esc(String(Math.round(v * 100) / 100)) }],
+          Q.items, { sort: "score", limit: 50 }));
+      } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
+    };
     el.appendChild(modelsCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));

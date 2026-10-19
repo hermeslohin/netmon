@@ -239,9 +239,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     modes = RC.get()["modes"]  # admin-chosen research / review / skip per event category (AI review page)
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
+    CS = corr_llm.cleared_sigs(res["events"])  # events cleared on the Checked page: same name + IPs is not researched again
     rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the research job
     for eid, e in E.items():
-        if rules and not everything and corr_llm.suppressed(rules, "research", eid, e):
+        if not everything and (corr_llm.sig_cleared(CS, e) or (rules and corr_llm.suppressed(rules, "research", eid, e))):
             continue
         # host findings, gateway events, threat intel and store alarms are categories of their own; the rest is gated
         # on its severity (Suricata sev 1-2 is split off below, once the signature detail is known)
@@ -322,6 +323,16 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
 _QCACHE = {}
 
 
+def queue_items():
+    """Events the next research run would send out (research mode, no note yet, not dismissed or suppressed)."""
+    r = _events()
+    if r.get("error"):
+        return {"error": r["error"], "items": []}
+    items = [{"id": x["id"], "type": x["type"], "sev": x.get("sev"), "label": x["label"], "link": x.get("link"), "when": x["when"],
+              "repeats": x["repeats"]} for x in r["events"] if x.get("mode") == "research" and not x["note"]]
+    return {"snapshot": r["snapshot"], "count": len(items), "items": items}
+
+
 def _prior(pick, E, res, notes):
     """Review-mode items: what was researched before. Own note (same family), else the notes of correlated events.
     Sets x["prior"] (list of {id, verdict, summary, age_h, how}) and x["researched"]; research-mode items are untouched."""
@@ -365,6 +376,7 @@ def clear_queue(user, wipe=False):
         with corr_llm._db() as c:
             out["verdicts_deleted"] = c.execute("DELETE FROM verdicts WHERE model NOT LIKE 'manual:%'").rowcount
         out["backup"] = bk
+    keys = sorted(set(keys) | set(RC._meta("research_dismissed").get("keys") or []))
     RC._meta_put("research_dismissed", {"keys": keys, "by": str(user)[:64], "at": time.time(), "snapshot": sid})
     return out
 

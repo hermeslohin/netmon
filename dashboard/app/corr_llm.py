@@ -144,6 +144,54 @@ def suppressed(rules, scope, eid, ev):
     return any(r.get("scope", "both") in ("both", scope) and rule_match(r, eid, ev) for r in rules)
 
 
+def _fnv(t):
+    """Same hash as app.js fnv() (FNV-1a over UTF-16 code units, base 36)."""
+    h, b = 0x811c9dc5, t.encode("utf-16-le")
+    for i in range(0, len(b), 2):
+        h = ((h ^ int.from_bytes(b[i:i + 2], "little")) * 0x01000193) & 0xFFFFFFFF
+    out = ""
+    while h:
+        h, r = divmod(h, 36); out = "0123456789abcdefghijklmnopqrstuvwxyz"[r] + out
+    return out or "0"
+
+
+def _ack_keys(eid):
+    """(ack type, key) pairs a checked-off item of this event would be stored under (see app.js ACK keys)."""
+    p = str(eid).split("|")
+    if p[0] == "alarm" and len(p) == 2:
+        return [("alarm", p[1])]
+    if p[0] == "hf":
+        return [("host", "|".join(p[1:]))]
+    if p[0] == "iss":
+        k = "|".join(p[1:])
+        return [("issue", k)] + ([("seg", "|".join(p[2:]))] if p[1:2] == ["seg"] else [])
+    if p[0] == "f" and len(p) >= 4:
+        return [("finding", _fnv(f"{p[2]}|{p[1]}|{'|'.join(p[3:])}"))]
+    return []
+
+
+def cleared_sigs(E):
+    """(name, ips) signatures of events an analyst cleared (Checked page). Remembered, so the rule still holds when the
+    cleared event leaves the snapshot. Events with the same name and the same IPs are not sent for review or research."""
+    import research_cfg as RC, store
+    try:
+        A = store.acks_load()
+    except Exception:  # noqa: BLE001
+        return set()
+    saved = {(n, tuple(i)) for n, i in (RC._meta("cleared_sigs").get("sigs") or [])}
+    new = set(saved)
+    for eid, e in (E or {}).items():
+        if any(k in (A.get(t) or {}) for t, k in _ack_keys(eid)):
+            new.add((str(e.get("label") or "").strip().lower(), tuple(sorted(e.get("ips") or []))))
+    if new != saved:
+        RC._meta_put("cleared_sigs", {"sigs": sorted([n, list(i)] for n, i in new)[:5000]})
+    return new
+
+
+def sig_cleared(sigs, ev):
+    return bool(sigs) and (str((ev or {}).get("label") or "").strip().lower(), tuple(sorted((ev or {}).get("ips") or []))) in sigs
+
+
 MAX_LINKS_LIMIT = 200  # per-event cap setting range (0 = no cap)
 
 
@@ -203,14 +251,13 @@ def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=No
 def _limit_fn(base):
     """Returns skipped(a_id, b_id) for undecided links under the admin's limits (type pairs and excluded events)."""
     L = limits()
-    if not (L["skip_pairs"] or L["excluded"] or L["rules"]):
-        return lambda a, b: False
     E = (base or {}).get("events") or {}
+    CS = cleared_sigs(E)
     sp, ex = set(L["skip_pairs"]), {x["key"] for x in L["excluded"]}
     famcache = {}
 
     def bad(i):
-        if "event|" + i in ex or (L["rules"] and suppressed(L["rules"], "review", i, E.get(i))):
+        if "event|" + i in ex or (L["rules"] and suppressed(L["rules"], "review", i, E.get(i))) or sig_cleared(CS, E.get(i)):
             return True
         if not any(k.startswith("family|") for k in ex):
             return False
@@ -422,6 +469,25 @@ def apply(base):
             out[a] = keep
     st = dict(STATUS, pending=len(P), confirmed=len(C), rejected=len(X))
     return {**base, "related": out, "llm": st}
+
+
+def pending_list(base, limit=500):
+    """Undecided links the reviewer will look at (after limits), best score first."""
+    E = (base or {}).get("events") or {}
+    seen, out = set(), []
+    for a, lst in (apply(base).get("related") or {}).items():
+        for r in lst:
+            if r.get("llm") != "pending":
+                continue
+            k = pair(a, r["id"])
+            if k in seen or a not in E or r["id"] not in E:
+                continue
+            seen.add(k)
+            out.append({"a": a, "b": r["id"], "a_type": E[a]["type"], "b_type": E[r["id"]]["type"], "a_label": E[a]["label"][:160],
+                        "b_label": E[r["id"]]["label"][:160], "a_link": E[a].get("link") or "", "b_link": E[r["id"]].get("link") or "",
+                        "why": r.get("why") or "", "score": r.get("score") or 0})
+    out.sort(key=lambda x: -x["score"])
+    return {"count": len(out), "items": out[:limit]}
 
 
 def clear_pending(sids, user):

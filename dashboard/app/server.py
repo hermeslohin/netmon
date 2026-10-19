@@ -32,7 +32,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/research", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -827,6 +827,21 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:300]}, 400)
                 print(f"review limits: {user} set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule') if k in body})[:300]}", file=sys.stderr)
                 return self._json({"ok": True, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
+            if u.path in ("/api/aireview/clear-review", "/api/aireview/clear-research"):  # admin: empty a queue (see ADMIN_POST)
+                try:
+                    if u.path.endswith("review"):
+                        n = corr_llm.clear_pending([x["id"] for x in (snapshots() or [])][-3:], user)
+                        what, res = "review queue", {"dismissed": sum(n.values())}
+                    else:
+                        res = enrich.clear_queue(user, False)
+                        what = "research queue"
+                        if res.get("error"):
+                            return self._json(res, 400)
+                        enrich._QCACHE.clear()
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": str(e)[:300]}, 500)
+                print(f"queue cleared: {user} emptied the {what} {json.dumps(res)[:200]}", file=sys.stderr)
+                return self._json({"ok": True, **res})
             if u.path == "/api/llm/providers":  # admin-added AI providers (any OpenAI-compatible or Anthropic API with a key)
                 act = str(body.get("action") or "")
                 try:
@@ -1093,6 +1108,13 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"history": itemcmp.history(str((q.get("key") or [""])[0])[:64])})
             if path == "/api/aireview/compare":
                 return self._json({"history": corr_llm.comparisons(str((q.get("pair") or [""])[0])[:1200])})
+            if path == "/api/aireview/review-queue":  # links awaiting review (admin / network defender)
+                s_ = snapshots()
+                return self._json(corr_llm.pending_list(correlation(s_[-1]["id"]) if s_ else {}))
+            if path == "/api/aireview/research-queue":  # events awaiting research (admin)
+                if not admin:
+                    return self._json({"error": "admin only"}, 403)
+                return self._json(enrich.queue_items())
             if path == "/api/aireview":
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
