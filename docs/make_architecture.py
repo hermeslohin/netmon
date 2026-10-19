@@ -84,7 +84,7 @@ node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio - optional", "AI r
 node("sched", 626, 100, 140, 76, "back", "scheduler.py", ["systemd user unit", "runs every job"], "JOBS")
 node("broker", 782, 100, 138, 76, "bus", "host_broker.py", ["loopback · bearer key", "/range · /esquery"], "BROKER")
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
-node("nightly", 698, 226, 222, 82, "back", "Research job (review.py)", ["collect → analyze → AI triage", "event research · briefing · PDF"], "EVERY N MIN")
+node("nightly", 698, 226, 222, 82, "back", "Research job (review.py)", ["collect → analyze → AI triage", "reviewer (copy or research) · research · PDF"], "EVERY N MIN")
 node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "snapshots + triage JSON"])
 node("pdf", 698, 348, 222, 76, "db", "PDF reports", ["one per day, kept locally", "served for download"])
 node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed) · chart drill-down", "Web Push urgent notifications · per-user device subscriptions", "audit log: every user action + AI conversation"], "WEB APP")
@@ -167,7 +167,7 @@ for i, (c, t) in enumerate(legend):
 out_leg.append(f'<line x1="720" y1="{ly + 18}" x2="760" y2="{ly + 18}" stroke="#94a3b8" stroke-width="1.5"/><text x="768" y="{ly + 22}" fill="#94a3b8" font-size="10">request / data flow</text>')
 out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6,3"/><text x="768" y="{ly + 42}" fill="#94a3b8" font-size="10">via internet / cloud</text>')
 notes = ["Elasticsearch is queried read-only; the one write is the dashboard's append-only audit log (index logs-netmon). netmon never changes UniFi or the network.",
-         "Research job (every 30 min-24 h, set on the dashboard): AI triage + event research with read-only tools; needs a reasoning-capable model. First run after 05:00 UTC adds the briefing + PDF.",
+         "Research job (every 30 min-24 h, set on the dashboard): AI triage, a reviewer that copies similar earlier notes (marked as copied) or sends events to research, and event research with read-only tools; needs a reasoning-capable model. First run after 05:00 UTC adds the briefing + PDF.",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and reviewer look-ups go through host_broker.py.",

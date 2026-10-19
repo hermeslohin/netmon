@@ -207,12 +207,14 @@ flowchart LR
 
     subgraph JOB["Research step — review.py"]
         T["Triage phase\nanalyst + triage prompt"]
+        RV{"Reviewer phase\nreview-mode events vs prior notes"}
         R["Event research phase\nenrich: batches of 8 work items\n(alerts, findings, IDS, admin, gateway,\nthreat intel, vulnerabilities)"]
         B["Briefing phase\n(PDF run only)"]
     end
 
     subgraph OUT["What it writes (validated submit_* tools only)"]
         TJ["data/*.triage.json\nsummary + alarms"]
+        COPY["Copied note\n(marked 'Copied by the reviewer')\nenrich.sh copy"]
         NOTES["Research notes, link verdicts,\nhost notes -> enrich.sh put"]
         SRC2["data/*.sources.json\ncited pages only"]
         BEN["known_benign.json\nnew entries"]
@@ -224,6 +226,10 @@ flowchart LR
     HIST --> T
     POL --> T
     KB --> T
+    SNAP --> RV
+    PRIOR["Earlier research notes\nsame family, correlated,\nsimilar label"] --> RV
+    RV -- "similar enough: copy" --> COPY
+    RV -- "different / unsure / no prior" --> R
     SNAP --> R
     KB --> R
     DEV --> R
@@ -234,6 +240,7 @@ flowchart LR
     T --> TJ
     T --> BEN
     R --> NOTES
+    COPY --> NOTES
     R --> SRC2
     R --> BEN
     B --> BJ
@@ -244,6 +251,17 @@ flowchart LR
 - **Triage phase** reads the new snapshot, its analysis, the notes KB and the last two triage files (to see what
   changed) and writes one summary plus a list of alarms (`submit_triage`), optionally adding conclusively benign
   items to `known_benign.json` so later runs stop raising them.
+- **Reviewer phase** handles events whose category is set to **review** (AI review → Events to research) and that
+  have no note of their own. `enrich.py` attaches the candidate prior notes to each such event: the note of the same
+  event family, notes of correlated events, and notes on same-type events whose label is at least 60 % similar (numbers
+  masked). The reviewer model (prompt `prompts/reviewer.md`; tools: Elasticsearch, device lookup, notes KB) answers per
+  event with `submit_review`: **copy** (naming which prior note and why) or **research**. A copy is stored by
+  `enrich.sh copy` / `enrich.py copy_notes`: the earlier verdict, priority, summary, links and research are reused, with a
+  first line `[Copied by the reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
+  re-researched.]`, and the note's source shows "reviewer (copied note)". Everything else goes to the research phase in
+  the same run. The reviewer is told to prefer research when unsure, when a malicious/suspicious prior doesn't clearly
+  match, or when the prior is old; events with no prior at all go to research. If the reviewer fails, its events go to
+  research too, so nothing is dropped. The run summary shows how many notes were copied and how many were sent back.
 - **Event research phase** (`enrich`) works through the same correlation candidates as section 2, in batches of 8,
   with the broadest toolset: it can query Elasticsearch, look up a device's full history, read the notes KB, and
   search/fetch the open web — but it may only *cite* a page after fetching it, and may only link pages it actually
