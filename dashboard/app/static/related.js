@@ -3,7 +3,8 @@
 (() => {
   const main = document.getElementById("main"); if (!main) return;
   const TYPE = { alert: ["Alert", "sev-high"], finding: ["Finding", "sev-medium"], ids: ["IDS", "sev-medium"], admin: ["Admin", "sev-low"],
-    host: ["Endpoint", "sev-low"], ti: ["Threat intel", "sev-high"], vuln: ["Vulnerability", "sev-critical"], gw: ["Gateway", "sev-medium"] };
+    host: ["Endpoint", "sev-low"], ti: ["Threat intel", "sev-high"], vuln: ["Vulnerability", "sev-critical"], gw: ["Gateway", "sev-medium"],
+    alarm: ["Triage alarm", "sev-high"] };
   let loading = null;
   function ensure() {
     const sid = S.snap?.id; if (!sid) return;

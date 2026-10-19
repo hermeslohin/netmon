@@ -10,6 +10,8 @@ Events (each gets a stable id the dashboard can rebuild from the row it already 
   ti|in|<ip>, ti|out|<ip>, ti|dom|<domain>   threat-intel hits
   iss|<key>                         open fix-list issues = vulnerabilities / misconfigurations (time-less state)
   gw|<time>|<key>|<src>|<dst>       UniFi gateway events (raw.unifi.events: IPS threats, high-severity, WAN, devices, VPN)
+  alarm|<fnv(title|who)>            AI triage alarms (triage.alarms) - a rollup written over the events above;
+                                     the id matches app.js's fnv(`${title}|${who}`) so the dashboard can build it client-side
 
 Two events are related when they share an entity (internal host, external IP, domain, user account) and are
 close in time; vulnerabilities relate by host alone (a weakness on a host that is being attacked or is doing
@@ -58,6 +60,20 @@ def _topics_key(key):
     return t
 
 
+def fnv(s):
+    """32-bit FNV-1a, base36 - must match app.js's fnv() exactly so an alarm's id can be computed on either side."""
+    h = 0x811c9dc5
+    for ch in s:
+        h = ((h ^ ord(ch)) * 0x01000193) & 0xFFFFFFFF
+    if h == 0:
+        return "0"
+    digits, out = "0123456789abcdefghijklmnopqrstuvwxyz", ""
+    while h:
+        h, r = divmod(h, 36)
+        out = digits[r] + out
+    return out
+
+
 def _ts(v):
     if v is None or v == "":
         return None
@@ -75,7 +91,7 @@ def gw_id(g):
     return f"gw|{g.get('time') or ''}|{g.get('key') or ''}|{g.get('src') or ''}|{g.get('dst') or ''}"
 
 
-def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False, cleared=frozenset()):
+def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False, cleared=frozenset(), triage=None):
     """raw/analysis = snapshot; alerts = store.alerts_recent(); issues = open fix-list issues; admin = lateral.admin_sessions();
     internal(ip) -> bool; resolve(host name) -> internal IP or ""; techniques(source, text) -> [ATT&CK ids].
     latest = this is the newest snapshot, so watcher alerts raised after it (up to now) are included too."""
@@ -236,6 +252,16 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         add(f"iss|{i['key']}", "vuln", f"{i.get('title', '')} - {i.get('target', '')}", None, None, e, techniques("issue", i["key"]),
             "#/issues?ev=iss|" + i["key"], i.get("severity", ""), vuln=True, topics=_topics_key(i["key"]))
 
+    # --- AI triage alarms (rollup over the events above): id matches app.js's fnv(`${title}|${who}`)
+    for a in (triage or {}).get("alarms") or []:
+        title, who = str(a.get("title") or ""), str(a.get("who") or "")
+        if not title:
+            continue
+        eid = f"alarm|{fnv(f'{title}|{who}')}"
+        e = ents_from_text(f"{title} {who} {a.get('evidence', '')}")
+        add(eid, "alarm", title, w0, w1, e, _TECH.findall(a.get("evidence", "")), "#/security",
+            {"investigate": "high", "review": "medium"}.get(str(a.get("priority", "")).lower(), "low"))
+
     # --- score pairs that share an entity
     idx = defaultdict(set)
     for eid, x in ev.items():
@@ -297,4 +323,4 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
     events = {eid: {**{k: x[k] for k in ("type", "label", "link", "sev", "t0")},  # ips: internal hosts involved (host notes lookup)
                     "ips": sorted(v for k, v in x["ents"] if k == "ip")[:8]} for eid, x in ev.items()}
     return {"events": events, "related": out, "window": [w0, w1], "counts": {t: sum(1 for x in ev.values() if x["type"] == t) for t in
-                                                                              ("alert", "finding", "ids", "admin", "host", "ti", "vuln", "gw")}}
+                                                                              ("alert", "finding", "ids", "admin", "host", "ti", "vuln", "gw", "alarm")}}

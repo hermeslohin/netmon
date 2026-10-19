@@ -367,7 +367,7 @@ def correlation(sid):
     import site_cfg as SITE
     v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, lateral.admin_sessions(res["raw"], pol),
                         SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=bool(snapshots()) and snapshots()[-1]["id"] == sid,
-                        cleared=pol.get("_cleared_seg") or set())
+                        cleared=pol.get("_cleared_seg") or set(), triage=res.get("triage"))
     _CORR.update(k=ck, v=v)
     return v
 

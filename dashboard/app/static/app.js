@@ -103,7 +103,13 @@ function ipLink(ip, withName = true) {
 }
 const hostLink = (h) => `<a href="#/endpoint/${encodeURIComponent(h)}">${esc(h)}</a>`;
 function linkifyIps(text) {
-  return esc(text).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, (m) => (isInternal(m) && S.snap?.raw?.devices?.[m] ? `<a href="#/device/${m}">${m}</a>` : m));
+  const seen = new Set(), U = isUserRole();
+  return esc(text).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, (m) => {
+    if (isInternal(m)) return S.snap?.raw?.devices?.[m] ? `<a href="#/device/${m}">${m}</a>` : m;
+    if (U || seen.has(m)) return m;
+    seen.add(m);
+    return `${m} <button type="button" class="extnote-btn" data-extip="${m}" title="Your notes on external IP ${m}">📝</button>`;
+  });
 }
 
 /* ---------- chart drill-down: charts link to lists filtered via hash query params ---------- */
@@ -260,6 +266,7 @@ function hourLabels() {
 
 /* ---------- check-off (acknowledge) ---------- */
 function fnv(str) { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); }
+const alarmEvId = (a) => `alarm|${fnv(`${a.title}|${a.who || ""}`)}`;  // must match correlate.py build()'s alarm eid
 const ACK = {
   alarm: (a) => fnv(`${a.title}|${a.who || ""}`),
   finding: (f) => fnv(`${f.device}|${f.kind}|${f.detail}`),
@@ -454,7 +461,7 @@ function topTalkersChart(n) {
 }
 
 function alarmsHtml(list) {
-  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${cmpBtn("triage alarm", a.title, a)}${pivBtn("alarm", a)}${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
+  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${cmpBtn("triage alarm", a.title, a)}${pivBtn("alarm", a)}<button type="button" class="rel-btn" data-rel="${esc(alarmEvId(a))}" title="Related events">…</button>${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
     ${a.who ? `<p><span class="k">Who:</span> ${linkifyIps(a.who)}</p>` : ""}${a.evidence ? `<p><span class="k">Evidence:</span> ${linkifyIps(a.evidence)}</p>` : ""}
     ${a.why ? `<p><span class="k">Why:</span> ${linkifyIps(a.why)}</p>` : ""}${a.context ? `<p><span class="k">Context:</span> ${linkifyIps(a.context)}</p>` : ""}
     ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)} ${trFlare()}</p>` : ""}
