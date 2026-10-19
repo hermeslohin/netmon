@@ -119,7 +119,8 @@ def etype(eid, ev):
 
 
 def pair_type(ta, tb):
-    return "-".join(sorted((str(ta), str(tb))))
+    t = "-".join(sorted((str(ta), str(tb))))
+    return "host-seg" if t == "seg-seg" else t  # segmentation-to-segmentation links are part of host-seg, not a type of their own
 
 
 RULE_SCOPES = ("both", "research", "review")
@@ -225,6 +226,7 @@ def limits():
         except OSError:
             pass
     pm = {str(k): v for k, v in (c.get("pair_modes") or {}).items() if v in PAIR_MODES}
+    pm.pop("seg-seg", None)  # folded into host-seg (pair_type)
     for x in c.get("skip_pairs") or []:  # settings saved before test mode
         pm.setdefault(str(x), "skip")
     return {"skip_pairs": sorted(k for k, v in pm.items() if v == "skip"), "pair_modes": pm, "pair_default": c["pair_default"],
