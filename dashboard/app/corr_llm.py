@@ -83,7 +83,10 @@ def config():
     except (TypeError, ValueError):
         mx = ES_MAX_DEFAULT
     ch = c.get("chat") or {}
-    return {"correlation": {"provider": cor.get("provider") or "lmstudio", "model": cor.get("model") or MODEL},
+    prov, model = cor.get("provider"), cor.get("model")
+    if not prov:  # nothing explicitly chosen yet: default to any configured provider, not necessarily LM Studio
+        prov, model = llm_providers.default_target()
+    return {"correlation": {"provider": prov, "model": model or MODEL},
             "chat": {"provider": ch.get("provider") or "", "model": ch.get("model") or "", "by": ch.get("by"), "at": ch.get("at")},
             "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")}}
 
@@ -303,6 +306,8 @@ def _target(model=None):
         return {"provider": c["provider"], "model": c["model"]}
     if c["provider"] != "lmstudio":
         raise RuntimeError(f"reviewer provider {c['provider']} is no longer available - pick another model on AI review > Models")
+    if not llm_providers.local_enabled():
+        raise RuntimeError("Local (LM Studio) is disabled on AI review > AI providers - pick another model on AI review > Models")
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
 
 

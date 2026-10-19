@@ -35,35 +35,58 @@ RATE_DEFAULT, RATE_MAX = 120, 3000
 ANTHROPIC_VERSION = "2023-06-01"
 _lock = threading.Lock()
 _sent = {}  # provider id -> [timestamps of calls in the last hour]
-_cache = {"k": None, "v": []}
+_cache = {"k": None, "v": [], "local": {}}
 
 
 # ---------------------------------------------------------------- storage
-def _load():
+def _load_all():
     try:
         st = os.stat(PATH)
         k = (st.st_mtime_ns, st.st_size)
         if _cache["k"] != k:
             d = json.load(open(PATH))
-            _cache.update(k=k, v=[p for p in (d.get("providers") if isinstance(d, dict) else []) or [] if isinstance(p, dict) and p.get("id")])
-        return _cache["v"]
+            if not isinstance(d, dict):
+                d = {}
+            ps = [p for p in (d.get("providers") or []) if isinstance(p, dict) and p.get("id")]
+            loc = d.get("local") if isinstance(d.get("local"), dict) else {}
+            _cache.update(k=k, v=ps, local=loc)
+        return _cache["v"], _cache.get("local") or {}
     except (OSError, ValueError):
-        return []
+        return [], {}
 
 
-def _save(providers):
+def _load():
+    return _load_all()[0]
+
+
+def _load_local_cfg():
+    """Admin settings for the local server (enabled, rate_per_hour) - {} means the defaults below."""
+    return _load_all()[1]
+
+
+def _save(providers, local=None):
+    if local is None:
+        local = _load_local_cfg()
     tmp = PATH + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
-        json.dump({"providers": providers}, f, indent=1)
+        json.dump({"providers": providers, "local": local}, f, indent=1)
     os.chmod(tmp, 0o600)
     os.replace(tmp, PATH)
     _cache["k"] = None
 
 
+def local_enabled():
+    """Whether an admin has switched the local server off (AI providers > Local (LM Studio))."""
+    return bool(_load_local_cfg().get("enabled", True))
+
+
 def _local():
+    lc = _load_local_cfg()
     return {"id": LOCAL, "name": "Local (LM Studio)", "type": "openai", "base_url": LMS_URL, "api_key": "lm-studio",
-            "models": [m["id"] for m in local_models()], "enabled": True, "rate_per_hour": RATE_MAX, "reasoning_tokens": 0}
+            "models": [m["id"] for m in local_models()], "enabled": bool(lc.get("enabled", True)),
+            "rate_per_hour": int(lc.get("rate_per_hour") or RATE_MAX), "reasoning_tokens": 0,
+            "by": lc.get("by"), "at": lc.get("at")}
 
 
 def local_models():
@@ -130,14 +153,40 @@ def _mask(k):
 
 
 def public():
-    """All providers for the admin editor, keys masked."""
-    return [{"id": p["id"], "provider": PREFIX + p["id"], "name": p.get("name") or p["id"], "type": p.get("type"),
+    """All providers for the admin editor, keys masked. The local LM Studio server is always first, flagged
+    "local": True so the admin UI offers it a reduced edit form (enabled + rate limit only, no key/models/url)."""
+    loc = _local()
+    local_row = {"id": LOCAL, "provider": LOCAL, "name": loc["name"], "type": "local", "type_label": "Local (LM Studio)",
+                 "base_url": loc["base_url"], "key_set": True, "key_hint": "not needed", "models": list(loc["models"]),
+                 "prices": {}, "rate_per_hour": loc["rate_per_hour"], "reasoning_tokens": 0, "enabled": loc["enabled"],
+                 "by": loc.get("by"), "at": loc.get("at"), "local": True,
+                 "calls_last_hour": len([t for t in _sent.get(LOCAL, []) if time.time() - t < 3600])}
+    return [local_row] + [{"id": p["id"], "provider": PREFIX + p["id"], "name": p.get("name") or p["id"], "type": p.get("type"),
              "type_label": TYPES.get(p.get("type"), {}).get("label", p.get("type")), "base_url": p.get("base_url") or "",
              "key_set": bool(p.get("api_key")), "key_hint": _mask(p.get("api_key") or ""), "models": list(p.get("models") or []),
              "prices": dict(p.get("prices") or {}),
              "rate_per_hour": p.get("rate_per_hour") or RATE_DEFAULT, "reasoning_tokens": int(p.get("reasoning_tokens") or 0),
-             "enabled": bool(p.get("enabled", True)), "by": p.get("by"), "at": p.get("at"),
+             "enabled": bool(p.get("enabled", True)), "by": p.get("by"), "at": p.get("at"), "local": False,
              "calls_last_hour": len([t for t in _sent.get(p["id"], []) if time.time() - t < 3600])} for p in _load()]
+
+
+def save_local(body, user):
+    """Admin edit of the local server row: only enabled + rate_per_hour (no key, URL or model list - those come
+    live from LM Studio / NETMON_LLM_URL)."""
+    rate = _int(body.get("rate_per_hour"), 1, RATE_MAX, RATE_DEFAULT, "calls per hour")
+    enabled = bool(body.get("enabled", True))
+    with _lock:
+        _save(_load(), {"enabled": enabled, "rate_per_hour": rate, "by": user, "at": time.time()})
+    return next(p for p in public() if p["id"] == LOCAL)
+
+
+def default_target():
+    """A provider+model usable as a feature's default WITHOUT requiring the local LM Studio server to be running:
+    the first enabled, API-key provider with at least one model; the local server only when none is configured."""
+    for g in model_groups():
+        if g["models"]:
+            return g["provider"], g["models"][0]["id"]
+    return LOCAL, None
 
 
 def model_groups():
@@ -204,6 +253,8 @@ def _int(v, lo, hi, default, what):
 
 def save(body, user):
     """Add (no id) or update (id) a provider. An empty api_key on update keeps the stored key."""
+    if str(body.get("id") or "") == LOCAL:
+        raise ValueError("use save_local for the local server row")
     typ = str(body.get("type") or "")
     if typ not in TYPES:
         raise ValueError("type must be openai or anthropic")
@@ -244,6 +295,8 @@ def save(body, user):
 
 
 def delete(pid):
+    if pid == LOCAL:
+        raise ValueError("the local server can't be deleted - disable it instead")
     with _lock:
         ps = [p for p in _load() if p["id"] != pid]
         if len(ps) == len(_load()):

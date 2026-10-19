@@ -273,7 +273,8 @@
   }
   // ---- AI providers (admin): any OpenAI-compatible or Anthropic API with a key, called by the dashboard itself
   function providersCard() {
-    const c = card("AI providers", `<div class="small muted">Add any number of AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
+    const c = card("AI providers", `<div class="small muted"><b>Local (LM Studio)</b> is the LM Studio server on this host (no key; its enabled flag and rate limit can be set here;
+      the model list comes live from LM Studio). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
       OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
       <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, the research job and the chat,
       and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
@@ -285,18 +286,39 @@
     const draw = () => {
       if (!P.length) { list.innerHTML = `<div class="small muted">No providers yet.</div>`; return; }
       list.replaceChildren(table(null, [
-        { k: "name", t: "Name", fmt: (v, r) => `<b>${esc(v)}</b>${r.enabled ? "" : ' <span class="badge sev-unknown">off</span>'}` },
+        { k: "name", t: "Name", sort: (r) => (r.local ? "0" : "1") + String(r.name).toLowerCase(),
+          fmt: (v, r) => `<b>${esc(v)}</b>${r.enabled ? "" : ' <span class="badge sev-unknown">off</span>'}` },
         { k: "type_label", t: "Type" },
         { k: "base_url", t: "Base URL", cls: "small mono" },
         { k: "key_hint", t: "Key", cls: "small mono", fmt: (v, r) => (r.key_set ? esc(v) : '<span class="bad">missing</span>') },
         { k: "models", t: "Models", fmt: (v) => (v.length ? `<span title="${esc(v.join(", "))}">${v.length}: ${esc(v.slice(0, 3).join(", "))}${v.length > 3 ? "…" : ""}</span>` : '<span class="warn">none - add some</span>') },
         { k: "rate_per_hour", t: "Calls/h", num: true, fmt: (v, r) => `${fn(r.calls_last_hour)} / ${fn(v)}` },
-        { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts"><button data-pe="${esc(r.id)}" title="Edit">✎</button><button data-pt="${esc(r.id)}" title="Test the key">Test</button><button data-pd="${esc(r.id)}" title="Delete">✕</button></span>` },
-      ], P, { sort: "name" }));
+        { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts"><button data-pe="${esc(r.id)}" title="Edit">✎</button>${r.local ? "" : `<button data-pt="${esc(r.id)}" title="Test the key">Test</button><button data-pd="${esc(r.id)}" title="Delete">✕</button>`}</span>` },
+      ], P, { sort: "name", dir: 1 }));
     };
     const load = async () => { try { const d = await api("/api/llm/providers"); P = d.providers || []; TYPES = d.types || {}; draw(); } catch (e) { list.textContent = "error: " + e.message; } };
     const reloadModels = () => { MODELS = null; msg.textContent += " · reload the page to see the change in the model menus"; };
+    function localForm(p) {
+      formBox.innerHTML = `<div class="llm-grid" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+        <div class="llm-row"><span class="k">Local (LM Studio)</span><span class="small muted">${esc(p.base_url)} - ${p.models.length} model(s) visible${p.models.length ? ": " + esc(p.models.slice(0, 3).join(", ")) + (p.models.length > 3 ? "…" : "") : ""}</span></div>
+        <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
+          <span class="small muted">cap on single calls (correlation reviewer + comparisons) - limits cost/load if something loops</span></div>
+        <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
+        <div class="llm-row"><span class="k"></span><button type="button" class="pf-save">Save</button><button type="button" class="pf-cancel">Cancel</button>
+          <span class="small muted pf-msg"></span></div></div>`;
+      const f = (n) => formBox.querySelector(`[name="${n}"]`), fm = formBox.querySelector(".pf-msg");
+      f("rate_per_hour").value = p.rate_per_hour; f("enabled").checked = p.enabled !== false;
+      formBox.querySelector(".pf-cancel").onclick = () => { formBox.innerHTML = ""; };
+      formBox.querySelector(".pf-save").onclick = async (ev) => {
+        ev.target.disabled = true; fm.textContent = "saving…";
+        try {
+          const r = await apiPost("/api/llm/providers", { action: "save", id: p.id, rate_per_hour: f("rate_per_hour").value, enabled: f("enabled").checked });
+          P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = "saved Local (LM Studio)"; reloadModels();
+        } catch (e) { fm.textContent = "error: " + e.message; ev.target.disabled = false; }
+      };
+    }
     function form(p) {
+      if (p && p.local) return localForm(p);
       p = p || { type: "openai", enabled: true, rate_per_hour: 120, reasoning_tokens: 3000, models: [] };
       formBox.innerHTML = `<div class="llm-grid" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
         <div class="llm-row"><span class="k">Name</span><input name="name" class="llm-sel" maxlength="60" placeholder="e.g. OpenAI, OpenRouter, Anthropic (work)"></div>

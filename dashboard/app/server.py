@@ -72,13 +72,13 @@ def my_events(user):
     return {"snapshot": sid, "devices": assigned_devices(user), "events": out, "unotes": un}
 def llm_models():
     """Models the AI review page may choose: the local LM Studio server ("local") and the admin-added API-key
-    providers ("custom", llm_providers.py)."""
+    providers ("custom", llm_providers.py). The local group is empty when an admin has disabled it."""
     try:
         cu = llm_providers.model_groups()
     except Exception as e:  # noqa: BLE001 - a broken providers file must not hide the local models
         print(f"llm providers unreadable: {e}", file=sys.stderr)
         cu = []
-    return {"local": llm_providers.local_models(), "custom": cu}
+    return {"local": llm_providers.local_models() if llm_providers.local_enabled() else [], "custom": cu}
 
 
 def llm_allowed(provider, model, M=None):
@@ -821,6 +821,11 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/llm/providers":  # admin-added AI providers (any OpenAI-compatible or Anthropic API with a key)
                 act = str(body.get("action") or "")
                 try:
+                    if act == "save" and str(body.get("id") or "") == llm_providers.LOCAL:
+                        res = llm_providers.save_local(body, user)
+                        print(f"llm providers: {user} set local (LM Studio) enabled={res['enabled']} rate_per_hour={res['rate_per_hour']}",
+                              file=sys.stderr)
+                        return self._json({"ok": True, "provider": res, "providers": llm_providers.public()})
                     if act == "save":
                         res = llm_providers.save(body, user)
                         print(f"llm providers: {user} saved {res['name']!r} ({res['type']}, {res['base_url']}, {len(res['models'])} models, "
