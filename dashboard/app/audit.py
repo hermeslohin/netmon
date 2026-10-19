@@ -61,7 +61,14 @@ def _cut(s, n=MAX_TEXT):
     return s if len(s) <= n else s[:n] + f"\n… [truncated, {len(s)} chars]"
 
 
+ACTORS = {"netmon (background reviewer)": "reviewer", "netmon (research job)": "researcher"}
+
+
 def emit(doc):
+    who = ACTORS.get((doc.get("user") or {}).get("name"))
+    if who and not integrations.audit_send(who):  # switched off on the Audit log page (Send reviewer / researcher events)
+        STATUS["skipped"] = STATUS.get("skipped", 0) + 1
+        return
     doc.setdefault("@timestamp", _now())
     doc.setdefault("event", {}).setdefault("id", uuid.uuid4().hex)
     doc["event"].update(kind="event", module="netmon")
@@ -325,7 +332,7 @@ def doc(doc_id):
 
 def status():
     out = {k: STATUS.get(k) for k in ("sent", "spooled", "dropped", "rejected", "last_reject", "last_ok", "last_error")}
-    out.update(index=index(), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
+    out.update(send_reviewer=integrations.audit_send("reviewer"), send_researcher=integrations.audit_send("researcher"), skipped=STATUS.get("skipped", 0), index=index(), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
     try:
         out["spool_bytes"] = os.path.getsize(SPOOL) if os.path.exists(SPOOL) else 0
     except OSError:

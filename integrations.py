@@ -100,6 +100,11 @@ def audit_index():
     return (load().get("audit") or {}).get("index") or AUDIT_INDEX
 
 
+def audit_send(who):
+    """Is the audit log (logs-netmon) written for this background actor? who: "reviewer" | "researcher". On unless switched off."""
+    return (load().get("audit") or {}).get("send_" + who) is not False
+
+
 def unifi_url():
     return ((load().get("unifi") or {}).get("url") or UNIFI_DEFAULT).rstrip("/")
 
@@ -143,6 +148,7 @@ def public():
         "audit": {
             "index": a.get("index") or "", "index_default": AUDIT_INDEX, "key_set": bool(a.get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY")),
             "key_hint": _mask(a.get("api_key") or os.environ.get("NETMON_AUDIT_ES_KEY") or ""),
+            "send_reviewer": audit_send("reviewer"), "send_researcher": audit_send("researcher"),
             "updated_by": a.get("updated_by"), "updated_at": a.get("updated_at")},
         "web": {
             "provider": w.get("provider") or "duckduckgo", "providers": WEB_PROVIDERS,
@@ -189,10 +195,14 @@ def candidate(section, body):
         ix = body.get("indices") or {}
         new["indices"] = {n: _clean_index(ix.get(n)) for n in INDEX_DEFAULTS}
     if section == "audit":
-        ix = _clean_index(body.get("index"))
-        if "," in ix or "*" in ix:
-            raise ValueError("the audit index must be one concrete index name (no commas or wildcards)")
-        new["index"] = ix
+        if "index" in body or "api_key" in body or body.get("clear_key"):  # a switch-only post leaves the index alone
+            ix = _clean_index(body.get("index"))
+            if "," in ix or "*" in ix:
+                raise ValueError("the audit index must be one concrete index name (no commas or wildcards)")
+            new["index"] = ix
+        for w in ("reviewer", "researcher"):  # on/off switches; absent from the form = keep the current value
+            if "send_" + w in body:
+                new["send_" + w] = bool(body["send_" + w])
     return {**cur, **new}
 
 

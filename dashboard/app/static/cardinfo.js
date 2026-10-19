@@ -2,7 +2,7 @@
 window.CARD_INFO = {
 "audit|Audit log storage": {
 "source": "Dashboard settings (integrations.json, section audit) and a live count from the Security Onion Elasticsearch index logs-netmon.",
-"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon.",
+"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the background reviewer's and the research job's entries on or off independently.",
 "what": "Where the audit log is stored and whether the dashboard can write to it."
 },
 "audit|Filters": {

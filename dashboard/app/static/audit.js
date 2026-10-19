@@ -46,6 +46,10 @@
       ${sp ? `<div style="margin-top:6px"><span class="badge sev-medium">${fb(sp)} waiting</span> Entries are kept on the dashboard (<span class="mono">state/audit_spool.jsonl</span>) and sent as soon as Elasticsearch accepts them.</div>` : ""}
       ${St.rejected ? `<div style="margin-top:6px"><span class="badge sev-high">${fn(St.rejected)} rejected</span> <span class="muted">${esc(St.last_reject || "")}</span></div>` : ""}
       <div class="muted" style="margin-top:6px">API key: ${St.key_set ? `set <span class="mono">${esc(I?.key_hint || "")}</span>` : "<b>not set</b>"} — it only needs <span class="mono">create_doc</span> and <span class="mono">read</span> on this index, so the dashboard can add and read audit entries but never change or delete them.</div></div>
+      <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+        <label><input type="checkbox" id="au-rev"${I?.send_reviewer !== false ? " checked" : ""}> Send reviewer events</label>
+        <label><input type="checkbox" id="au-res"${I?.send_researcher !== false ? " checked" : ""}> Send researcher events</label>
+        <span class="muted small">Each switch stops (or resumes) that AI's entries going to Elasticsearch. Takes effect at once; nothing is queued while off.</span> <span id="au-sw" class="small"></span></div>
       <details style="margin-top:8px"><summary>Change the audit key or index</summary>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
         <input id="au-key" type="password" autocomplete="off" placeholder="${St.key_set ? "keep the current key" : "Elasticsearch API key (encoded)"}" style="min-width:22em">
@@ -58,6 +62,12 @@
     const msg = (t, bad) => { const m = c.querySelector("#au-msg"); m.textContent = t; m.style.color = bad ? "var(--bad)" : ""; };
     c.querySelector("#au-test").onclick = async () => { msg("Testing…"); try { const R = await apiPost("/api/config/integrations/audit/test", body()); msg(R.ok ? `OK — ${fn(R.docs)} entries in ${R.index}` : R.error, !R.ok); } catch (e) { msg(String(e.message || e), true); } };
     c.querySelector("#au-save").onclick = async () => { msg("Saving…"); try { await apiPost("/api/config/integrations/audit", body()); msg("Saved."); setTimeout(() => route(true), 600); } catch (e) { msg(String(e.message || e), true); } };
+    [["#au-rev", "send_reviewer"], ["#au-res", "send_researcher"]].forEach(([sel, k]) => {
+      const box = c.querySelector(sel);
+      box.onchange = async () => { const m = c.querySelector("#au-sw"); m.textContent = "Saving…"; m.style.color = "";
+        try { await apiPost("/api/config/integrations/audit", { [k]: box.checked }); m.textContent = "Saved."; }
+        catch (e) { box.checked = !box.checked; m.textContent = String(e.message || e); m.style.color = "var(--bad)"; } };
+    });
     return c;
   }
 
