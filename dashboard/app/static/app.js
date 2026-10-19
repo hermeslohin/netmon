@@ -243,7 +243,11 @@ function kvTable(obj, keyTitle, valTitle, valFmt = fn, keyFmt = esc, opts = {}) 
 }
 
 /* ---------- layout helpers ---------- */
-function card(title, body, cls = "") { const c = document.createElement("div"); c.className = "card " + cls; c.innerHTML = title ? `<h2>${title}</h2>` : ""; if (typeof body === "string") c.insertAdjacentHTML("beforeend", body); else if (body) c.appendChild(body); return c; }
+// A string body becomes one wrapper <div> (not loose top-level nodes): .cc-body (cards.js) is a flex column, so any
+// stray top-level text/button sitting directly in a card - e.g. an inline note icon 📝 next to an IP in prose - would
+// become its own flex item and get stretched to the full card width (align-items:stretch) instead of flowing inline.
+function card(title, body, cls = "") { const c = document.createElement("div"); c.className = "card " + cls; c.innerHTML = title ? `<h2>${title}</h2>` : "";
+  if (typeof body === "string") { const w = document.createElement("div"); w.innerHTML = body; c.appendChild(w); } else if (body) c.appendChild(body); return c; }
 function grid(cls, ...cards) { const g = document.createElement("div"); g.className = "grid " + cls; cards.filter(Boolean).forEach((c) => g.appendChild(c)); return g; }
 function kpis(list) { return `<div class="kpis">${list.map(([l, v, c]) => `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>`; }
 function chartCard(title, cfg, cls = "", h = "") { const c = card(title, `<div class="chart ${h}"><canvas></canvas></div>`, cls); queueChart(c.querySelector("canvas"), cfg); return c; }
