@@ -899,7 +899,7 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)}, 400)
                 print(f"ai review: {user} {act} {pr[:120]!r}", file=sys.stderr)
                 return self._json({"ok": True})
-            if u.path == "/api/kb/host":  # host/device notes (AI-written knowledge; people may add or delete)
+            if u.path == "/api/kb/host":  # host/device/domain notes (AI-written knowledge; people may add or delete)
                 act = body.get("action")
                 if act == "add":
                     nid = kb.add_host_note({"subject": body.get("subject")}, body.get("text"), body.get("category"), author="user:" + user,
@@ -1106,12 +1106,13 @@ class H(BaseHTTPRequestHandler):
                     sid = s_[-1]["id"] if s_ else ""
                 corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
                 return self._json(kb.apply(enrich.apply(corr_llm.apply(correlation(sid)))) or {"error": "not found"}, 200)
-            if path == "/api/kb/host":  # notes for one device / endpoint: ?s=mac:..,ip:..,host:..
+            if path == "/api/kb/host":  # notes for one device / endpoint / domain: ?s=mac:..,ip:..,host:..,dom:..
                 subs = [s.strip() for s in (q.get("s") or [""])[0].split(",") if s.strip()][:20]
                 return self._json({"notes": kb.host_notes(subs)})
-            if path == "/api/kb/resolve":  # canonical subject for ?ip= / ?mac= / ?host=
+            if path == "/api/kb/resolve":  # canonical subject for ?ip= / ?mac= / ?host= / ?dom=
                 try:
-                    s_, label = kb.resolve(ip=(q.get("ip") or [None])[0], mac=(q.get("mac") or [None])[0], host=(q.get("host") or [None])[0])
+                    s_, label = kb.resolve(ip=(q.get("ip") or [None])[0], mac=(q.get("mac") or [None])[0],
+                                            host=(q.get("host") or [None])[0], dom=(q.get("dom") or [None])[0])
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"subject": s_, "label": label})

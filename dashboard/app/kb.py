@@ -16,9 +16,10 @@ or filters status='approved' itself (netmon_mcp.py).
 
 Subjects (host notes):
   mac:<mac>      a network device with a known MAC (preferred - survives DHCP changes)
-  ip:<ip>        a network device without a MAC in the registry
+  ip:<ip>        a network device without a MAC in the registry, or an external IP
   host:<name>    an Elastic Agent endpoint (short host name, lower case)
-resolve() turns an IP / MAC / host name into the canonical subject (IP -> MAC via the device registry).
+  dom:<domain>   a DNS domain name (lower case, dot-trimmed) - internal or external
+resolve() turns an IP / MAC / host name / domain into the canonical subject (IP -> MAC via the device registry).
 
 CLI (inside the dashboard container; host wrapper: netmon/enrich.sh kb ...):
   kb.py dump [FILTER]                    all host notes + event notes as JSON (optional subject/text substring filter)
@@ -32,6 +33,7 @@ MAX_TEXT = 2000
 MAX_PER_SUBJECT = 40
 _MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 _IP = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+_DOM = re.compile(r"^(?:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
 
 
 def _db():
@@ -57,8 +59,8 @@ def _registry():
         return {}
 
 
-def resolve(ip=None, mac=None, host=None, subject=None, reg=None):
-    """Canonical subject + display label for an IP, MAC, endpoint host name or an explicit subject."""
+def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
+    """Canonical subject + display label for an IP, MAC, endpoint host name, DNS domain or an explicit subject."""
     if subject:
         s = str(subject).strip()
         k, _, v = s.partition(":")
@@ -68,7 +70,14 @@ def resolve(ip=None, mac=None, host=None, subject=None, reg=None):
             return resolve(ip=v, reg=reg)
         if k == "host" and v:
             return resolve(host=v, reg=reg)
-        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip> or host:<name>)")
+        if k == "dom" and v:
+            return resolve(dom=v, reg=reg)
+        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, host:<name> or dom:<domain>)")
+    if dom:
+        d = str(dom).strip().lower().rstrip(".")
+        if not _DOM.match(d):
+            raise ValueError(f"bad domain {dom!r}")
+        return "dom:" + d, d
     if host:
         h = str(host).strip().lower().split(".")[0]
         if not re.match(r"^[a-z0-9_-]{1,63}$", h):
@@ -127,8 +136,8 @@ def host_notes(subjects=None, q=""):
 
 
 def add_host_note(subject_spec, text, category="other", author="", model="", via="", note_id=None, reg=None):
-    """Add a host note, or replace note `note_id` (same subject) when given. subject_spec: {ip|mac|host|subject}."""
-    subj, label = resolve(**{k: subject_spec.get(k) for k in ("ip", "mac", "host", "subject")}, reg=reg)
+    """Add a host note, or replace note `note_id` (same subject) when given. subject_spec: {ip|mac|host|dom|subject}."""
+    subj, label = resolve(**{k: subject_spec.get(k) for k in ("ip", "mac", "host", "dom", "subject")}, reg=reg)
     text = str(text or "").strip()[:MAX_TEXT]
     if not text:
         raise ValueError("empty note")

@@ -102,14 +102,25 @@ function ipLink(ip, withName = true) {
   return internal && S.snap?.raw?.devices?.[ip] ? `<a href="#/device/${encodeURIComponent(ip)}">${label}</a>` : label;
 }
 const hostLink = (h) => `<a href="#/endpoint/${encodeURIComponent(h)}">${esc(h)}</a>`;
+const DOM_RE = /\b((?:[a-z0-9-]+\.)+(?:com|net|org|io|ru|cn|xyz|top|info|biz|us|co|me|app|dev|cloud|online|site))\b/gi;
+const isInternalDom = (d) => /\.(lan|local|hades)$/i.test(d);
+const extNoteBtn = (kind, v) => `<button type="button" class="extnote-btn" data-ext${kind}="${esc(v)}" title="Your notes on ${kind === "ip" ? "external IP" : "domain"} ${esc(v)}">📝</button>`;
+const domFmt = (d) => `${esc(d)}${!isUserRole() && !isInternalDom(String(d)) ? " " + extNoteBtn("dom", String(d).toLowerCase()) : ""}`;
 function linkifyIps(text) {
-  const seen = new Set(), U = isUserRole();
-  return esc(text).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, (m) => {
+  const seenIp = new Set(), seenDom = new Set(), U = isUserRole();
+  let html = esc(text).replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, (m) => {
     if (isInternal(m)) return S.snap?.raw?.devices?.[m] ? `<a href="#/device/${m}">${m}</a>` : m;
-    if (U || seen.has(m)) return m;
-    seen.add(m);
-    return `${m} <button type="button" class="extnote-btn" data-extip="${m}" title="Your notes on external IP ${m}">📝</button>`;
+    if (U || seenIp.has(m)) return m;
+    seenIp.add(m);
+    return `${m} ${extNoteBtn("ip", m)}`;
   });
+  if (!U) html = html.replace(DOM_RE, (m) => {
+    const d = m.toLowerCase();
+    if (isInternalDom(d) || seenDom.has(d)) return m;
+    seenDom.add(d);
+    return `${m} ${extNoteBtn("dom", d)}`;
+  });
+  return html;
 }
 
 /* ---------- chart drill-down: charts link to lists filtered via hash query params ---------- */
@@ -569,7 +580,7 @@ V.device = (el, ip) => {
   if (dns.queries) {
     const c = card("DNS", kpis([["Queries", fn(dns.queries)], ["Unique names", fn(dns.unique_names)], ["Unique domains", fn(dns.unique_domains)], ["NXDOMAIN", fn(dns.nxdomain)], ["SERVFAIL", fn(dns.servfail)], ["Avg name len", (+dns.avg_len || 0).toFixed(1)]]), "span");
     el.appendChild(c);
-    el.appendChild(grid("g3", card("Top domains", kvTable(dns.top_domains, "Domain", "Queries")), card("NXDOMAIN domains", kvTable(dns.nx_domains, "Domain", "Queries")),
+    el.appendChild(grid("g3", card("Top domains", kvTable(dns.top_domains, "Domain", "Queries", fn, domFmt)), card("NXDOMAIN domains", kvTable(dns.nx_domains, "Domain", "Queries", fn, domFmt)),
       chartCard("Query types", doughnutCfg(dns.qtypes, { onClick: (l) => drill("devices", { qtype: l }) }))));
     el.appendChild(grid("g3", card("Resolvers used", kvTable(dns.resolvers, "Resolver", "Queries", fn, (k) => ipLink(k))), card("TLDs", kvTable(dns.tlds, "TLD", "Queries")),
       card("Other DNS signals", `<div class="idgrid"><span class="k">External resolvers</span><span>${esc(Object.keys(dns.external_resolvers || {}).join(", ") || "none")}</span>
@@ -584,7 +595,7 @@ V.device = (el, ip) => {
     tls && card("TLS client fingerprints (JA4)", kvTable(tls.ja4, "JA4", "Conns", fn, (k) => `<span class="mono">${esc(k)}</span>`)),
     tls && chartCard("TLS versions", doughnutCfg(tls.versions, { onClick: (l) => drill("devices", { tls: l }) })),
     tls && (tls.bad_certs || []).length && card("Bad certificates", `<pre>${esc(JSON.stringify(tls.bad_certs, null, 1))}</pre>`),
-    iot && card("IoT: domains contacted", kvTable(iot.domains, "Domain", "Conns")),
+    iot && card("IoT: domains contacted", kvTable(iot.domains, "Domain", "Conns", fn, domFmt)),
     iot && card("IoT: SNI", kvTable(iot.sni, "SNI", "Conns")),
     iot && card("IoT: ASNs", kvTable(iot.asns, "ASN", "Bytes", fb))));
   const dcerts = (S.snap.raw.tls?.certs || []).filter((c) => c.clients?.[ip]);
@@ -963,10 +974,10 @@ V.security = (el) => {
     (() => { const c = card("Threat-intel feeds", table(null, [{ k: "f", t: "Feed" }, { k: "s", t: "Status", cls: "small" }], entries(ti.feed_status).map(([f, s]) => ({ f, s })), { search: false }));
       c.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin-top:6px">Indicators: ${entries(ti.feed_sizes).map(([k, v]) => esc(k) + " " + fn(v)).join(" · ")}</div>`); return c; })(),
     card(`Inbound hits from listed IPs (${(ti.ip_hits_in || []).length})`, table(null, [askCol("threat-intel hit", (x) => `inbound from listed IP ${x.ip}`), { k: "ip", t: "Source", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "targets", t: "Targets", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(",")) }], ti.ip_hits_in || [], { search: false })),
-    card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => esc(v || r.ip) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
+    card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => (v ? domFmt(v) : esc(r.ip)) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
       [...(ti.ip_hits_out || []), ...(ti.domain_hits || []), ...(ti.new_domains || [])], { search: false }))));
   el.appendChild(grid("g2",
-    card(`DNS-tunnel scoring (${(raw.dns_tunnel || []).length})`, table(null, [askCol("DNS-tunnel candidate", (x) => x.domain), { k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], raw.dns_tunnel || [], { sort: "score" })),
+    card(`DNS-tunnel scoring (${(raw.dns_tunnel || []).length})`, table(null, [askCol("DNS-tunnel candidate", (x) => x.domain), { k: "domain", t: "Domain", fmt: domFmt }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], raw.dns_tunnel || [], { sort: "score" })),
     card("Malicious JA3 / internal scans / detections", `<h3>Malicious JA3</h3>` + ((raw.tls?.malicious_ja3 || []).map((m) => `<div class="small"><span class="mono">${esc(m.ja3)}</span> — ${esc(m.malware)} ×${fn(m.count)} from ${entries(m.sources).map(([k]) => ipLink(k)).join(", ")} → ${esc((m.servers || []).join(", "))}</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>Internal scans</h3>` + ((raw.internal?.scans || []).map((s) => `<div class="small">${ipLink(s.src)}: ${fn(s.failed_conns)} failed conns to ${s.hosts} hosts / ${s.ports} ports (top ${esc((s.top_ports || []).join(", "))})</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>SO detections</h3>` + ((raw.detections || []).map((d) => `<div class="small">${ft(d.time)} ${esc(d.rule)} ${esc(d.host || "")} ${esc(d.message || "")}</div>`).join("") || '<div class="empty">none</div>'))));
@@ -1006,7 +1017,7 @@ V.dns = (el) => {
   const rows = S.idx.rows.filter((r) => r.dnsq);
   el.appendChild(grid("g2", chartCard("DNS queries by device (top 15)", (() => { const t = [...rows].sort((a, b) => b.dnsq - a.dnsq).slice(0, 15); return barCfg(t.map((r) => r.name || r.ip), t.map((r) => r.dnsq), { color: PALETTE[5], onClick: (i) => go("device/" + t[i].ip) }); })(), "", "tall"),
     chartCard("NXDOMAIN by device (top 15)", (() => { const t = [...rows].sort((a, b) => b.nx - a.nx).slice(0, 15); return barCfg(t.map((r) => r.name || r.ip), t.map((r) => r.nx), { color: PALETTE[3], onClick: (i) => go("device/" + t[i].ip) }); })(), "", "tall")));
-  el.appendChild(grid("g3", card("Top domains (all devices)", kvTable(dom, "Domain", "Queries")), card("NXDOMAIN domains", kvTable(nx, "Domain", "Queries")), chartCard("Query types", doughnutCfg(qt, { onClick: (l) => drill("devices", { qtype: l }) }))));
+  el.appendChild(grid("g3", card("Top domains (all devices)", kvTable(dom, "Domain", "Queries", fn, domFmt)), card("NXDOMAIN domains", kvTable(nx, "Domain", "Queries", fn, domFmt)), chartCard("Query types", doughnutCfg(qt, { onClick: (l) => drill("devices", { qtype: l }) }))));
   el.appendChild(grid("g2", card("Resolvers", kvTable(res, "Resolver", "Queries", fn, (k) => ipLink(k))), card("TLDs", kvTable(tld, "TLD", "Queries"))));
   const tls = raw.tls?.devices || {}; const ja4 = {}, ver = {};
   for (const t of Object.values(tls)) { for (const [k, v] of entries(t.ja4)) ja4[k] = (ja4[k] || 0) + v; for (const [k, v] of entries(t.versions)) ver[k] = (ver[k] || 0) + v; }
