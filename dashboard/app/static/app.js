@@ -180,9 +180,15 @@ function table(id, cols, rows, opts = {}) {
   const labelled = cols.filter((c) => c.t && !c.k.startsWith("_"));
   const tcol = opts.titleKey ? cols.find((c) => c.k === opts.titleKey) : (TITLE.map((k) => labelled.find((c) => c.k === k && !c.num)).find(Boolean) || labelled.find((c) => !c.num && !BADGE.includes(c.k)));
   cols.forEach((c) => { lc[c.k] = c === tcol ? "lc-title" : !c.t || c.k === "_rel" || c.k === "_ack" ? "lc-act" : BADGE.includes(c.k) ? "lc-badge" : ""; });
+  // search text per row: raw values (object keys for maps such as sources/destinations) plus the visible text of formatted cells
+  const hayC = new Map(), txt = document.createElement("template");
+  const hay = (x) => { let h = hayC.get(x); if (h != null) return h;
+    h = cols.filter((c) => c.k !== "_rel" && c.k !== "_ack").map((c) => { const v = c.sort ? c.sort(x) : x[c.k]; let o = v != null && typeof v === "object" ? Object.keys(v).join(" ") : String(v ?? "");
+      if (c.fmt) { try { txt.innerHTML = String(c.fmt(x[c.k], x) ?? ""); o += " " + txt.content.textContent; } catch (e) { /* ignore */ } } return o; }).join(" \n").toLowerCase();
+    hayC.set(x, h); return h; };
   const render = () => {
     let r = rows;
-    if (st.q) { const q = st.q.toLowerCase(); r = r.filter((x) => cols.some((c) => String(c.sort ? c.sort(x) : x[c.k] ?? "").toLowerCase().includes(q))); }
+    if (st.q) { const qs = st.q.toLowerCase().split(/\s+/).filter(Boolean); r = r.filter((x) => { const h = hay(x); return qs.every((q) => h.includes(q)); }); }
     if (st.key != null) {
       const c = cols.find((c) => c.k === st.key); const g = c?.sort || ((x) => x[st.key]);
       r = [...r].sort((a, b) => { const A = g(a), B = g(b); return (typeof A === "number" && typeof B === "number" ? A - B : String(A ?? "").localeCompare(String(B ?? ""))) * st.dir; });
@@ -198,7 +204,7 @@ function table(id, cols, rows, opts = {}) {
     if (more) more.innerHTML = opts.limit && r.length > opts.limit && !st.q ? `<button>${st.showAll ? "Show top " + opts.limit : "Show all " + r.length}</button>` : `<span class="muted small">${r.length} rows</span>`;
     wrap.querySelectorAll("th").forEach((th) => { th.classList.remove("sorted-asc", "sorted-desc"); if (th.dataset.k === String(st.key)) th.classList.add(st.dir > 0 ? "sorted-asc" : "sorted-desc"); });
   };
-  wrap.innerHTML = chipHtml + (opts.search !== false && rows.length > 8 ? `<div class="tbltools"><input placeholder="Filter…" type="search"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
+  wrap.innerHTML = chipHtml + (opts.search !== false && (opts.filter || rows.length > 8) ? `<div class="tbltools"><input placeholder="Filter…" type="search" aria-label="Filter list"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
     `<div class="tblwrap ${opts.short ? "short" : ""}"><table><thead><tr>${cols.map((c) => `<th data-k="${esc(c.k)}" class="${c.num ? "num" : ""}">${esc(c.t)}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`;
   wrap.querySelector("thead").onclick = (e) => { const k = e.target.closest("th")?.dataset.k; if (!k) return; st.dir = st.key === k ? -st.dir : (cols.find((c) => c.k === k)?.num ? -1 : 1); st.key = k; render(); };
   const inp = wrap.querySelector("input"); if (inp) inp.oninput = () => { st.q = inp.value; render(); };
@@ -956,13 +962,13 @@ V.security = (el) => {
     { const ac = card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`); ac.id = "sec-alarms-card"; el.appendChild(ac); } }
   { const rn = researchNotes(tr.research_notes); if (rn.length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + rn.map((n) => `<li>${linkifyIps(n)} ${cmpBtn("triage research note", n, { note: n, triage_summary: tr.summary })}</li>`).join("") + "</ul>")); }
   const BF = ackSplit("finding", an.findings || [], "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
     if (HF.done.length) el.appendChild(card(`Host findings checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
   }
@@ -972,7 +978,7 @@ V.security = (el) => {
     chartCard("IDS alerts by category", doughnutCfg(sigs.reduce((o, s) => ((o[s.category] = (o[s.category] || 0) + s.count), o), {}), { onClick: (l) => drill("security", { category: l }) }))));
   el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [askPivCol("IDS signature", (x) => x.name, "IDS signature"), { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
     { k: "src", t: "Sources", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.src || {}).join() }, { k: "dst", t: "Destinations", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.dst || {}).join() },
-    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "count", evId: (x) => x.name && `ids|${x.name}`, urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
+    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { filter: true, sort: "count", evId: (x) => x.name && `ids|${x.name}`, urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
   const SV = ackSplit("violation", an.violations || [], "sec-viol");
   el.appendChild(grid("g2",
     card(`Segmentation violations (${SV.open.length} open)${SV.toggle}`, SV.show.length ? table(null, [{ k: "_ack", t: "Clear", sort: (x) => (acked("violation", x) ? 1 : 0),
@@ -992,7 +998,7 @@ V.security = (el) => {
       `<h3>SO detections</h3>` + ((raw.detections || []).map((d) => `<div class="small">${ft(d.time)} ${esc(d.rule)} ${esc(d.host || "")} ${esc(d.message || "")}</div>`).join("") || '<div class="empty">none</div>'))));
   el.appendChild(grid("g3",
     card("Zeek notices", table(null, [{ k: "note", t: "Notice" }, { k: "count", t: "Count", num: true, fmt: fn }], raw.notices || [], { search: false })),
-    card("Zeek weird", table(null, [{ k: "name", t: "Name" }, { k: "count", t: "Count", num: true, bar: true, fmt: fn }, { k: "src", t: "Top sources", fmt: (v) => sortDesc(v).slice(0, 3).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>") }], raw.weird || [], { sort: "count", short: true })),
+    card("Zeek weird", table(null, [{ k: "name", t: "Name" }, { k: "count", t: "Count", num: true, bar: true, fmt: fn }, { k: "src", t: "Top sources", fmt: (v) => sortDesc(v).slice(0, 3).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>") }], raw.weird || [], { filter: true, sort: "count", short: true })),
     card(`Files (${(raw.files?.files || []).length}, PE: ${fn(raw.files?.pe_count)})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "mime", t: "MIME", cls: "small" }, { k: "receiver", t: "Receiver", fmt: (v) => ipLink(v) }, { k: "host", t: "Host", cls: "small" }, { k: "size", t: "Size", num: true, fmt: fb }, { k: "mhr_detect_pct", t: "MHR%", num: true }], raw.files?.files || [], { short: true }))));
   el.appendChild(card(`Software inventory from traffic (${(raw.files?.software || []).length})`, table(null, [{ k: "ip", t: "Device", fmt: (v) => ipLink(v) }, { k: "name", t: "Name" }, { k: "version", t: "Version" }, { k: "type", t: "Type", cls: "small" }, { k: "unparsed", t: "Raw", cls: "mono small" }], raw.files?.software || [], { sort: "ip", dir: 1 })));
 };
