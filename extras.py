@@ -641,8 +641,22 @@ def classify(ip, mac, pol):
     return c.get(mac or "", c.get(ip, "unclassified"))
 
 
+STANDARD_PORTS = {20, 21, 25, 53, 80, 110, 123, 143, 389, 443, 465, 587, 636, 993, 995, 3000, 5000, 8000, 8080, 8443, 8888}
+
+
+def port_severity(port, sens, std):
+    """Segmentation severity from the port alone: high = admin/remote-control capability (policy sensitive_ports plus
+    adminproto.ADMIN_PORTS), low = standard service ports (policy standard_ports, default STANDARD_PORTS), medium = anything else (odd ports)."""
+    import adminproto as _ap
+    port = int(port)
+    if port in sens or port in _ap.ADMIN_PORTS:
+        return "high"
+    return "low" if port in std else "medium"
+
+
 def policy_violations(flows, ip2mac, pol):
-    """Flag internal flows that break the segmentation policy (see policy.json)."""
+    """Flag internal flows that break the segmentation policy (see policy.json). Severity is by port class (port_severity)."""
+    std = set(pol.get("standard_ports") or STANDARD_PORTS) | set(pol.get("discovery_ports", []))
     sens = set(pol.get("sensitive_ports", []))
     allow = pol.get("allow", [])
     disc = set(pol.get("discovery_ports", []))
@@ -679,6 +693,7 @@ def policy_violations(flows, ip2mac, pol):
         elif f["src_zone"] != f["dst_zone"] and f["dst_zone"] in ("servers", "k8s", "ai") and f["port"] not in disc and f["answered"]:
             reason, sev = f"cross-zone access {f['src_zone']} -> {f['dst_zone']} on {f['port']}/{f['proto']}", "low"
         if reason:
+            sev = port_severity(f["port"], sens, std)
             out.append({**f, "src_class": sc, "dst_class": dc, "reason": reason, "severity": sev})
     return sorted(out, key=lambda v: ({"high": 0, "medium": 1, "low": 2}[v["severity"]], -v["conns"]))
 

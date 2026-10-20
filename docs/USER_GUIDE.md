@@ -176,6 +176,7 @@ When you have looked at an alarm or finding and are satisfied, tick its check bo
 
 The network is split into zones (for example main, IoT, servers, guest). `policy.json` says which zone may talk to which. A *segmentation violation* is a connection the policy doesn't allow.
 
+- **Severity is by port:** *high* = admin/remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker/Kubernetes APIs... the same set as Lateral movement); *medium* = odd ports that are neither admin nor standard; *low* = standard ports (HTTP, HTTPS, DNS, mail, etc.). Lists come from `policy.json` (`sensitive_ports`, optional `standard_ports`). On **AI review** the three levels are separate categories (Segmentation: high / medium / low), each set to research, review, test or skip.
 - If the flow is expected (for example your laptop managing a server over SSH), click the green **Clear** box on **Posture → Segmentation violations**, or the Clear box on **Lateral movement**.
 - **What clearing does:** the flow is hidden on Posture, the Fix list and Lateral movement; it stops counting toward host risk; and it is listed under **Cleared segmentation**.
 - **To bring a flow back:** uncheck it in Cleared segmentation.

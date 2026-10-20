@@ -281,7 +281,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             x["suricata"] = {"severity": g.get("severity"), "count": g.get("count"), "category": g.get("category"),
                              "src": g.get("src"), "dst": g.get("dst"), "dport": g.get("dport"), "first": g.get("first"), "last": g.get("last")}
     sev12 = lambda x: x["type"] == "ids" and (x.get("suricata") or {}).get("severity") in (1, 2)  # noqa: E731
-    cat = lambda x: x["type"] if x["type"] in ("host", "gw", "ti", "alert") else ("seg" if corr_llm.etype(x["id"], x) == "seg" else "ids12" if sev12(x) else x.get("sev"))  # noqa: E731
+    cat = lambda x: x["type"] if x["type"] in ("host", "gw", "ti", "alert") else ("seg_" + (x.get("sev") if x.get("sev") in ("high", "medium") else "low") if corr_llm.etype(x["id"], x) == "seg" else "ids12" if sev12(x) else x.get("sev"))  # noqa: E731
     if not everything:  # drop the categories set to skip (Suricata sev 3 falls through to its severity)
         out = [x for x in out if modes.get(cat(x), "skip") != "skip" or skey(x["id"], ak) in forced]
     for x in out:

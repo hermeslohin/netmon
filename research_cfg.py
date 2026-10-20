@@ -39,9 +39,10 @@ PDF_HOUR = 5
 SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
 MODES = ("research", "review", "skip", "test")
 MODE_CATS = (("host", "Endpoint host findings"), ("ids12", "Suricata severity 1-2 signatures"), ("gw", "UniFi gateway events"),
-             ("seg", "Segmentation (cross-zone traffic volumes)"), ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
+             ("seg_high", "Segmentation: high (admin ports)"), ("seg_medium", "Segmentation: medium (odd ports)"),
+             ("seg_low", "Segmentation: low (standard ports)"), ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
              ("medium", "Other events: medium"), ("low", "Other events: low"), ("info", "Other events: info"))
-LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg": "research", "ti": "research", "alert": "research",
+LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg_high": "research", "seg_medium": "research", "seg_low": "research", "ti": "research", "alert": "research",
                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
 DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
@@ -87,6 +88,9 @@ def get():
         for s_ in SEVERITIES:
             modes[s_] = "research" if s_ in v["severities"] else "skip"
     if isinstance(v.get("modes"), dict):
+        old = v["modes"].get("seg")  # one segmentation category before it was split by severity
+        if old in MODES:
+            modes.update({k: old for k in ("seg_high", "seg_medium", "seg_low")})
         modes.update({k: m for k, m in v["modes"].items() if k in DEFAULT_MODES and m in MODES})
     out["modes"] = modes
     out["severities"] = [s_ for s_ in SEVERITIES if modes[s_] in ("research", "review")]
