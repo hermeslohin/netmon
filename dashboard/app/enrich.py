@@ -34,38 +34,8 @@ def _db():
                  summary TEXT, research TEXT, links TEXT, model TEXT, via TEXT, ts REAL, snapshot TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, snapshot TEXT, started REAL, listed INTEGER, todo INTEGER,
                  note_keys INTEGER, stored REAL, notes INTEGER, links INTEGER, rejected INTEGER, model TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS artifacts (skey TEXT, kind TEXT, value TEXT, relation TEXT, decision TEXT,
-                 model TEXT, via TEXT, ts REAL, PRIMARY KEY (skey, kind, value))""")
     c.execute("PRAGMA temp_store=MEMORY")
     return c
-
-
-ART_KINDS = ("file", "process", "user", "ip", "dns")
-ART_DECISIONS = ("benign", "expected", "suspicious")
-
-
-def clean_artifacts(arts):
-    """Validate the artifacts an AI listed for a note: [{kind, value, relation, decision}] -> cleaned list (max 40, deduped)."""
-    out, seen = [], set()
-    for a in arts or []:
-        if not isinstance(a, dict):
-            continue
-        kind = str(a.get("kind") or a.get("type") or "").lower().strip()
-        kind = {"domain": "dns", "dns query": "dns", "dns_query": "dns", "address": "ip", "account": "user", "path": "file"}.get(kind, kind)
-        val = str(a.get("value") or "").strip()[:300]
-        dec = str(a.get("decision") or "").lower().strip()
-        if kind not in ART_KINDS or not val or dec not in ART_DECISIONS or (kind, val) in seen:
-            continue
-        seen.add((kind, val))
-        out.append({"kind": kind, "value": val, "relation": str(a.get("relation") or "")[:400], "decision": dec})
-    return out[:40]
-
-
-def store_artifacts(c, skey_, arts, model, via, now):
-    """Replace the artifacts of one note key (one connection, same transaction as the note)."""
-    c.execute("DELETE FROM artifacts WHERE skey=?", (skey_,))
-    c.executemany("INSERT OR REPLACE INTO artifacts VALUES (?,?,?,?,?,?,?,?)",
-                  [(skey_, a["kind"], a["value"], a["relation"], a["decision"], a.get("model") or model, a.get("via") or via, now) for a in arts])
 
 
 def _alert_keys():
@@ -102,14 +72,8 @@ def load(eids):
             for r in c.execute(f"SELECT skey, eid, verdict, priority, summary, research, links, model, via, ts, snapshot FROM notes "
                                f"WHERE skey IN ({','.join('?' * len(ch))})", ch):
                 for eid in keys[r[0]]:
-                    out[eid] = {"artifacts": [], "verdict": r[2], "priority": r[3], "summary": r[4], "research": r[5], "links": json.loads(r[6] or "[]"),
+                    out[eid] = {"verdict": r[2], "priority": r[3], "summary": r[4], "research": r[5], "links": json.loads(r[6] or "[]"),
                                 "model": r[7], "via": r[8], "at": r[9], "snapshot": r[10], "same_event": r[1] == eid}
-            for r in c.execute(f"SELECT skey, kind, value, relation, decision, model, via, ts FROM artifacts "
-                               f"WHERE skey IN ({','.join('?' * len(ch))}) ORDER BY rowid", ch):
-                for eid in keys[r[0]]:
-                    if eid in out:
-                        out[eid]["artifacts"].append({"kind": r[1], "value": r[2], "relation": r[3], "decision": r[4],
-                                                      "model": r[5], "via": r[6], "at": r[7]})
     return out
 
 
@@ -155,7 +119,7 @@ def put(doc, events=None):
     model = str(doc.get("model") or "unknown")[:80]
     via = str(doc.get("via") or "netmon research")[:80]
     sid = str(doc.get("snapshot") or "")[:40]
-    now, rows, bad, ak, arts = time.time(), [], [], _alert_keys(), {}
+    now, rows, bad, ak = time.time(), [], [], _alert_keys()
     for n in doc.get("notes") or []:
         eid = str(n.get("id") or "")
         if not eid or (events is not None and eid not in events):
@@ -164,12 +128,8 @@ def put(doc, events=None):
         rows.append((skey(eid, ak), eid, (events or {}).get(eid, {}).get("label", "")[:200], v if v in VERDICTS else "needs-review",
                      n.get("priority") if n.get("priority") in PRIORITIES else "Info", str(n.get("summary") or "")[:600],
                      str(n.get("research") or "")[:4000], json.dumps(_clean_links(n.get("links"))), model, via, now, sid))
-        if "artifacts" in n:  # a note without the field keeps the artifacts it had
-            arts[rows[-1][0]] = clean_artifacts(n.get("artifacts"))
     with _db() as c:
         c.executemany("INSERT OR REPLACE INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-        for k, a in arts.items():
-            store_artifacts(c, k, a, model, via, now)
     import corr_llm
     lrows, kept = [], 0
     with corr_llm._db() as c:
@@ -191,7 +151,7 @@ def put(doc, events=None):
         else:
             c.execute("INSERT INTO runs (snapshot, started, stored, notes, links, rejected, model) VALUES (?,?,?,?,?,?,?)",
                       (sid, now, now, len(rows), len(lrows), len(bad), model))
-    out = {"notes": len(rows), "artifacts": sum(len(a) for a in arts.values()), "links": len(lrows), "manual_kept": kept, "rejected_ids": bad[:50]}
+    out = {"notes": len(rows), "links": len(lrows), "manual_kept": kept, "rejected_ids": bad[:50]}
     if doc.get("host_notes") or doc.get("host_notes_delete"):  # what the run learned about devices (kb.py)
         import kb
         out.update(kb.put({**doc, "model": model, "via": via}))
@@ -497,7 +457,7 @@ def copy_notes(doc, events=None):
     line saying it was copied. doc = {model, snapshot, copies: [{id, from, reason}]} -> {copied, rejected_ids}."""
     model = str(doc.get("model") or "unknown")[:80]
     sid = str(doc.get("snapshot") or "")[:40]
-    ak, now, bad, rows, carts = _alert_keys(), time.time(), [], [], {}
+    ak, now, bad, rows = _alert_keys(), time.time(), [], []
     for cp in doc.get("copies") or []:
         eid, src = str(cp.get("id") or ""), str(cp.get("from") or "")
         if not eid or not src or (events is not None and eid not in events):
@@ -511,12 +471,9 @@ def copy_notes(doc, events=None):
                 f"{str(cp.get('reason') or 'judged the same activity')[:400]}. Not re-researched.]")
         rows.append((skey(eid, ak), eid, label, old["verdict"], old["priority"], old["summary"][:600], (head + "\n\n" + (old["research"] or ""))[:4000],
                      json.dumps(old["links"]), old.get("model") or model, "reviewer (copied note)", now, sid))
-        carts[rows[-1][0]] = [{**a, "via": "reviewer (copied artifact)"} for a in old.get("artifacts") or []]
     if rows:
         with _db() as c:
             c.executemany("INSERT OR REPLACE INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-            for k, a in carts.items():  # keep the model that wrote each artifact
-                store_artifacts(c, k, a, model, "reviewer (copied artifact)", now)
     return {"copied": len(rows), "rejected_ids": bad}
 
 
