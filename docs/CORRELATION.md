@@ -273,6 +273,86 @@ flowchart LR
   verdicts/priorities must be from a fixed list) — the model proposes, the tool enforces the schema before anything
   lands on disk.
 
+## 6. The review phase (reviewer) — copy an earlier note or send back to research
+
+The reviewer sits between triage and event research inside `review.py` (`Review.review_items`). Its job is to avoid
+paying for research twice: when an event is the same activity as one already researched, the earlier note is reused;
+everything else goes to the normal event research phase **in the same run**. Only events whose category is **review**
+(AI review → Events to research) and that have **no note of their own** enter this phase. Events set to *research*
+skip it; events set to *test* are only listed on the dashboard.
+
+```mermaid
+flowchart LR
+    subgraph IN["What goes in"]
+        WORK["Work items\nenrich.sh events\nmode = review, no note yet"]
+        subgraph PRIORS["Candidate prior notes (enrich.py _prior)"]
+            P1["Same event family\n(the event's own earlier note)"]
+            P2["Correlated events\nup to 8, from section 2"]
+            P3["Similar label\nsame type, >= 60% match\nnumbers masked, up to 4"]
+        end
+    end
+
+    subgraph REV["Reviewer phase — review.py review_items"]
+        NP{"Any prior\nnote?"}
+        RM["Reviewer model\nprompts/reviewer.md\nbatches of 16, max 20 turns"]
+        TOOLS["Read-only tools\nes_search, device_lookup, notes_kb"]
+        SUB["submit_review\nvalidated decision per item"]
+        DEC{"Decision"}
+    end
+
+    subgraph OUT["What happens next"]
+        CP["enrich.sh copy -> copy_notes\nverdict, priority, summary, links, research reused\nfirst line: Copied by the reviewer ... Not re-researched\nsource: reviewer (copied note)"]
+        RS["Event research phase\nenrich, batches of 8"]
+        STAT["Run summary\nnotes copied / sent to research"]
+    end
+
+    WORK --> NP
+    P1 --> NP
+    P2 --> NP
+    P3 --> NP
+    NP -- "no" --> RS
+    NP -- "yes" --> RM
+    TOOLS <--> RM
+    RM --> SUB
+    SUB --> DEC
+    DEC -- "copy (from = prior id, reason)" --> CP
+    DEC -- "research (different / unsure / old / loose match)" --> RS
+    SUB -. "batch fails or copy step fails" .-> RS
+    CP --> STAT
+    RS --> STAT
+```
+
+**Step by step**
+
+1. **Collect work items.** `enrich.sh events` lists the snapshot's work items. Review-mode items without a note are
+   handed to the reviewer.
+2. **Attach prior notes** (`enrich.py _prior`). Each item gets a `prior` list: the note of the same event family,
+   notes of correlated events (up to 8, see section 2), and notes on same-type events whose label is at least 60 %
+   similar with numbers masked (up to 4, via `difflib`). Each prior carries `how` it was found, its label, verdict,
+   priority, summary, research (first 800 characters) and age in hours.
+3. **No prior, no model call.** Items with nothing to compare against are sent straight to research.
+4. **Ask the reviewer.** The rest go to the model in batches of 16 (system prompt: analyst + `prompts/reviewer.md`),
+   with `es_search`, `device_lookup` and `notes_kb` available to check the item's evidence against the prior note.
+   It answers once through `submit_review` with `{id, action: "copy"|"research", from?, reason}` for every item.
+5. **Rules the reviewer follows.** Copy only when it is the same activity: same signature or rule, same kind of
+   source and destination, same behaviour, nothing in the item's evidence or `user_notes` that contradicts the prior
+   verdict. Choose research when hosts, ports or behaviour differ, when a malicious/suspicious prior does not clearly
+   match, when the prior is old, when the match is loose, or when unsure. A wrong copy hides a real event.
+6. **Validation.** `submit_review` rejects ids outside the batch, actions other than copy/research, and a `from`
+   that is not one of that item's prior note ids. If some items get no decision, the tool tells the model to fill
+   them in.
+7. **Store copies.** Copy decisions go to `enrich.sh copy` (`copy_notes`), which reuses the earlier verdict,
+   priority, summary, links and research, prefixed with `[Copied by the reviewer (<model>) from the note on <id>
+   (<date>), researched by <model>: <reason>. Not re-researched.]`. The note's source reads "reviewer (copied note)".
+8. **Hand back the rest.** Every item not copied joins the event research phase in the same run.
+
+**Failure behaviour.** Nothing is dropped. If a reviewer batch errors, its items go to research and the error is
+listed in the run's errors. If the copy step fails, no copies are stored and all items go to research. A budget
+overrun stops the run as it would anywhere else.
+
+**Where to see it.** The run summary reports *N earlier notes copied, M sent to research*. A copied note shows the
+copy line first and its source on the Notes views, with the usual ✨ model flare for the reviewer's model.
+
 ## Event ids (for links and the API)
 
 `alert|<id>` · `f|<kind>|<device>|<detail>` · `ids|<signature>` · `adm|<src>|<dst>|<protocol>` · `hf|<key>` ·
