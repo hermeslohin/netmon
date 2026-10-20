@@ -300,9 +300,10 @@ const ACK = {
   host: (f) => f.key,
   admin: (s) => `${s.src}|${s.dst}|${s.protocol}`,  // lateral admin sessions
   beacon: (b) => `${b.src}|${b.dst}|${b.port}`,
+  dnstunnel: (t) => String(t.domain || "").toLowerCase(),  // by DNS name, so it stays checked across snapshots and sources
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
-const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", seg: "Cleared segmentation flow" };
+const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", dnstunnel: "DNS-tunnel domain", seg: "Cleared segmentation flow" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
 const SEG_RE = /\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)\/(\w+)/;
@@ -631,13 +632,13 @@ V.device = (el, ip) => {
   const files = (raw.files?.files || []).filter((f) => f.receiver === ip || f.sender === ip);
   const sw = (raw.files?.software || []).filter((s) => s.ip === ip);
   const weird = (raw.weird || []).filter((w) => w.src?.[ip]).map((w) => ({ name: w.name, count: w.src[ip] }));
-  const tun = (raw.dns_tunnel || []).filter((t) => t.sources?.[ip]);
+  const tunAllD = (raw.dns_tunnel || []).filter((t) => t.sources?.[ip]), DTD = ackSplit("dnstunnel", tunAllD, "dev-dnstun"), tun = DTD.show;
   const sec = [];
   if (sigs.length) sec.push(card(`IDS alerts (${sigs.length})`, table(null, [{ k: "name", t: "Signature" }, { k: "severity", t: "Sev", num: true }, { k: "role", t: "Role" }, { k: "here", t: "Hits", num: true, fmt: fn }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "here", short: true })));
   if (viol.length) sec.push(card(`Segmentation violations (${viol.length})`, table(null, [{ k: "severity", t: "Sev", fmt: badge }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], viol, { search: false })));
   if (beacons.length) sec.push(card("Beacon candidates", table(null, [{ k: "_piv", t: "", cls: "askcell", fmt: (v, b) => pivBtn("beacon", b) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)} <span class="muted small">${esc(b.name || "")}</span>` }, { k: "port", t: "Port" }, { k: "interval_s", t: "Interval s", num: true }, { k: "jitter_s", t: "Jitter s", num: true }, { k: "conns", t: "Conns", num: true }, { k: "score", t: "Score", num: true }], beacons, { sort: "score", search: false })));
   if (ti.length) sec.push(card("Threat-intel matches", `<pre>${esc(JSON.stringify(ti, null, 1))}</pre>`));
-  if (tun.length) sec.push(card("DNS-tunnel scoring", table(null, [{ k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }], tun, { sort: "score", search: false })));
+  if (tunAllD.length) sec.push(card(`DNS-tunnel scoring${DTD.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), { k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }], tun, { sort: "score", search: false, rowClass: ackRowCls("dnstunnel") })));
   if (files.length) sec.push(card(`Files transferred (${files.length})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "mime", t: "MIME" }, { k: "size", t: "Size", num: true, fmt: fb }, { k: "host", t: "Host" }, { k: "exec", t: "Exec", fmt: (v) => (v ? badge("high") : "") }, { k: "mhr_detect_pct", t: "MHR %", num: true }], files, { short: true })));
   if (sw.length) sec.push(card(`Software observed (${sw.length})`, table(null, [{ k: "name", t: "Name" }, { k: "version", t: "Version" }, { k: "type", t: "Type", cls: "small" }, { k: "unparsed", t: "Raw", cls: "small mono" }], sw, { short: true })));
   if (weird.length) sec.push(card("Zeek weird", kvTable(Object.fromEntries(weird.map((w) => [w.name, w.count])), "Name", "Count")));
@@ -932,6 +933,7 @@ V.checked = (el) => {
   const lookup = { alarm: Object.fromEntries((tr.alarms || []).map((a) => [ACK.alarm(a), a])), finding: Object.fromEntries((an.findings || []).map((f) => [ACK.finding(f), f])),
     host: Object.fromEntries((S.snap.raw.hosts?.findings || []).map((f) => [f.key, f])),
     beacon: Object.fromEntries((S.snap.raw.beacons?.candidates || []).map((b) => [ACK.beacon(b), b])),
+    dnstunnel: Object.fromEntries((S.snap.raw.dns_tunnel || []).map((t) => [ACK.dnstunnel(t), t])),
     admin: S.lateral && S.lateral._snap === S.snap.id ? Object.fromEntries((S.lateral.admin || []).map((s) => [ACK.admin(s), s])) : {},
     issue: Object.fromEntries([...I.open.map((i) => [i.key, { ...i, _st: "open" }]), ...I.fixed.map((i) => [i.key, { ...i, _st: "fixed" }])]) };
   const rows = [];
@@ -991,7 +993,7 @@ V.security = (el) => {
     card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => (v ? domFmt(v) : esc(r.ip)) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
       [...(ti.ip_hits_out || []), ...(ti.domain_hits || []), ...(ti.new_domains || [])], { search: false }))));
   el.appendChild(grid("g2",
-    card(`DNS-tunnel scoring (${(raw.dns_tunnel || []).length})`, table(null, [askCol("DNS-tunnel candidate", (x) => x.domain), { k: "domain", t: "Domain", fmt: domFmt }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], raw.dns_tunnel || [], { sort: "score" })),
+    (() => { const DT = ackSplit("dnstunnel", raw.dns_tunnel || [], "sec-dnstun"); return card(`DNS-tunnel scoring (${DT.open.length} open of ${(raw.dns_tunnel || []).length})${DT.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), askCol("DNS-tunnel candidate", (x) => x.domain), { k: "domain", t: "Domain", fmt: domFmt }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], DT.show, { sort: "score", rowClass: ackRowCls("dnstunnel") })); })(),
     card("Malicious JA3 / internal scans / detections", `<h3>Malicious JA3</h3>` + ((raw.tls?.malicious_ja3 || []).map((m) => `<div class="small"><span class="mono">${esc(m.ja3)}</span> — ${esc(m.malware)} ×${fn(m.count)} from ${entries(m.sources).map(([k]) => ipLink(k)).join(", ")} → ${esc((m.servers || []).join(", "))}</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>Internal scans</h3>` + ((raw.internal?.scans || []).map((s) => `<div class="small">${ipLink(s.src)}: ${fn(s.failed_conns)} failed conns to ${s.hosts} hosts / ${s.ports} ports (top ${esc((s.top_ports || []).join(", "))})</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>SO detections</h3>` + ((raw.detections || []).map((d) => `<div class="small">${ft(d.time)} ${esc(d.rule)} ${esc(d.host || "")} ${esc(d.message || "")}</div>`).join("") || '<div class="empty">none</div>'))));

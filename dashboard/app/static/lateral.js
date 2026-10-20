@@ -310,6 +310,9 @@ V.lateral = async (el, arg) => {
   el.querySelector(".loading").remove();
   const c = D.counts;
   el.insertAdjacentHTML("beforeend", kpis([["High-risk links", c.high, c.high ? "bad" : "good"], ["Medium-risk links", c.medium, c.medium ? "warn" : "good"], ["Low-risk links", c.low], ["Allowed admin links", c["allowed-admin"]], ["Normal links", c.normal], ["Internal hosts", D.nodes.filter((n) => !n.gateway).length]]));
+  if (window.lmReportCard) { const rc = lmReportCard(); const det = document.createElement("details"); det.className = "card"; det.style.padding = "0";
+    det.innerHTML = `<summary style="cursor:pointer;padding:10px 14px;font-weight:600">Multi-period report — pick several time periods ▾</summary>`; rc.style.margin = "0"; det.appendChild(rc);
+    if (hq().get("at") === "report") det.open = true; el.appendChild(det); }
   const ctr = document.createElement("div"); ctr.className = "tbltools";
   ctr.innerHTML = `<label class="muted">Show</label><select id="lmFilter">${LM_FILTERS.map(([k, l]) => `<option value="${k}" ${LM.filter === k ? "selected" : ""}>${l}</option>`).join("")}</select>
     <label><input type="checkbox" id="lmGw" ${LM.gateways ? "checked" : ""}> gateway interfaces</label><label><input type="checkbox" id="lmLab" ${LM.labels ? "checked" : ""}> labels</label>

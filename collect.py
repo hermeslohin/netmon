@@ -503,8 +503,28 @@ def _devices_section():
             "self_ip": SELF_IP, "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
 
 
+def _lateral_section():
+    """Everything the lateral-movement report needs for a period, straight from Elasticsearch: internal flows, admin
+    sessions, segmentation violations, and just enough device naming (inventory + DHCP; no traffic profile)."""
+    import extras
+    inv, _ = inventory()
+    dmap = dhcp_map()
+    ip_to_mac = {v["ip"]: m for m, v in inv.items()}
+    for ip, v in dmap.items():
+        if v["macs"]:
+            ip_to_mac[ip] = v["macs"][0]
+    it, adm = extras.internal_traffic(HOURS), extras.admin_access(HOURS)
+    devs = {ip: {"mac": mac, "name": (inv[mac]["name"] if mac in inv else (dmap.get(ip, {}).get("hostname") or None)), "known": mac in inv}
+            for ip, mac in ip_to_mac.items()}
+    viol = extras.policy_violations(it.get("flows", []), ip_to_mac, extras.load_policy())
+    return {"internal": it, "admin_access": adm, "devices": devs, "violations": viol,
+            "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
+
+
 def section(name):
     import extras
+    if name == "lateral":
+        return _lateral_section()
     if name == "devices":
         return _devices_section()
     if name == "notices":

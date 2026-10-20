@@ -202,3 +202,78 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
     return {"nodes": list(nodes.values()), "edges": el, "counts": counts, "admin": admin,
             "admin_sources": (raw.get("admin_access") or {}).get("sources"), "admin_collected": "admin_access" in raw,
             "zones": sorted({n["zone"] for n in nodes.values()})}
+
+
+def report(periods, policy, known_benign=None):
+    """Multi-period lateral-movement report. `periods` = [{start, end, data}] where data is the broker's 'lateral'
+    section (internal, admin_access, devices, violations, inventory_ips) for that window. Every period is classified
+    with build(); the result merges links and admin sessions across periods and records in which periods each appears."""
+    pol, built = policy or {}, []
+    for p in periods:
+        d = p["data"]
+        raw = {"devices": d.get("devices") or {}, "inventory_ips": d.get("inventory_ips") or {}, "internal": d.get("internal") or {},
+               "admin_access": d.get("admin_access") or {}}
+        D = build(raw, {"violations": d.get("violations") or []}, pol, None, known_benign)
+        built.append(D)
+    n = len(built)
+    names = {}
+    for D in built:
+        for x in D["nodes"]:
+            names.setdefault(x["id"], {"name": x["name"], "zone": x["zone"], "class": x["class"], "known": x["known"], "gateway": x["gateway"]})
+    worse = lambda a, b: a if ORDER.index(a) <= ORDER.index(b) else b
+    links, adm = {}, {}
+    for i, D in enumerate(built):
+        for e in D["edges"]:
+            m = links.setdefault((e["src"], e["dst"]), {"src": e["src"], "dst": e["dst"], "src_zone": e["src_zone"], "dst_zone": e["dst_zone"],
+                                                          "level": "normal", "periods": [None] * n, "ports": {}, "conns": 0, "answered": 0, "bytes": 0.0})
+            m["level"] = worse(m["level"], e["level"])
+            m["periods"][i] = {"level": e["level"], "conns": e["conns"]}
+            m["conns"] += e["conns"]; m["answered"] += e["answered"]; m["bytes"] += e["bytes"] or 0
+            for pt in e["ports"]:
+                q = m["ports"].setdefault((pt["port"], pt["proto"]), {"port": pt["port"], "proto": pt["proto"], "service": pt["service"], "conns": 0,
+                                                                    "level": "normal", "why": "", "periods": []})
+                q["conns"] += pt["conns"]
+                if i not in q["periods"]:
+                    q["periods"].append(i)
+                if ORDER.index(pt["level"]) < ORDER.index(q["level"]) or not q["why"]:
+                    q["level"], q["why"] = worse(q["level"], pt["level"]), pt["why"]
+        for a in D["admin"]:
+            m = adm.setdefault((a["src"], a["dst"], a["protocol"]), {"src": a["src"], "dst": a["dst"], "protocol": a["protocol"], "level": "normal", "why": "",
+                                                                   "periods": [None] * n, "auth_ok": 0, "auth_fail": 0, "conn_failed": 0, "connected": 0,
+                                                                   "users": {}, "first": None, "last": None})
+            if ORDER.index(a["level"]) < ORDER.index(m["level"]) or not m["why"]:
+                m["level"], m["why"] = worse(m["level"], a["level"]), a["why"]
+            m["periods"][i] = {"level": a["level"], "ok": a["auth_ok"], "fail": a["auth_fail"], "refused": a["conn_failed"]}
+            for k in ("auth_ok", "auth_fail", "conn_failed", "connected"):
+                m[k] += a[k]
+            for u, c in (a.get("users") or {}).items():
+                t = m["users"].setdefault(u, {"ok": 0, "fail": 0}); t["ok"] += c["ok"]; t["fail"] += c["fail"]
+            for k, f in (("first", min), ("last", max)):
+                if a.get(k):
+                    m[k] = f(filter(None, [m[k], a[k]]))
+    def tag(m):
+        seen = [i for i, x in enumerate(m["periods"]) if x]
+        m["seen_in"] = seen
+        m["status"] = "persistent" if n > 1 and len(seen) == n else "new" if n > 1 and seen[0] > 0 and len(seen) == 1 and seen[0] == n - 1 else "recurring" if len(seen) > 1 else "once"
+    el = []
+    for m in links.values():
+        m["ports"] = sorted(m["ports"].values(), key=lambda q: (ORDER.index(q["level"]), -q["conns"]))
+        tag(m); el.append(m)
+    al = list(adm.values())
+    for m in al:
+        tag(m)
+    key = lambda m: (ORDER.index(m["level"]), -len(m["seen_in"]), -m["conns" if "conns" in m else "auth_fail"])
+    el.sort(key=key); al.sort(key=lambda m: (ORDER.index(m["level"]), -len(m["seen_in"]), -(m["auth_fail"] + m["conn_failed"])))
+    normal = sum(1 for m in el if m["level"] == "normal")
+    el = [m for m in el if m["level"] != "normal"]  # normal links are only counted: thousands of them would bury the report
+    summary = []
+    for p, D in zip(periods, built):
+        A = D["admin"]
+        summary.append({"start": p["start"], "end": p["end"], "counts": D["counts"], "hosts": len([x for x in D["nodes"] if not x["gateway"]]),
+                        "admin_sessions": len(A), "logins_ok": sum(a["auth_ok"] for a in A), "logins_failed": sum(a["auth_fail"] for a in A),
+                        "refused": sum(a["conn_failed"] for a in A), "admin_high": sum(1 for a in A if a["level"] == "high"),
+                        "admin_collected": D["admin_collected"], "admin_sources": D.get("admin_sources")})
+    return {"periods": summary, "links": el, "normal_links": normal, "admin": al, "nodes": names,
+            "totals": {lvl: sum(1 for m in el if m["level"] == lvl) for lvl in ORDER if lvl != "normal"},
+            "persistent": sum(1 for m in el + al if m["status"] == "persistent" and m["level"] in ("high", "medium", "low")),
+            "new": sum(1 for m in el + al if m["status"] == "new" and m["level"] in ("high", "medium", "low"))}

@@ -392,6 +392,42 @@ def range_request(body):
     return r, 200
 
 
+def lateral_report_request(body):
+    """{periods: [{start, end}, ...]} -> merged lateral-movement report. Each period is queried from Elasticsearch on the
+    host (broker section 'lateral', cached per window); the classification and the merge happen here."""
+    import datetime as dt
+    from concurrent.futures import ThreadPoolExecutor
+    ps = body.get("periods")
+    if not isinstance(ps, list) or not 1 <= len(ps) <= 8:
+        return {"error": "choose between 1 and 8 time periods"}, 400
+    wins = []
+    for p in ps:
+        try:
+            s = dt.datetime.fromisoformat(str((p or {}).get("start") or "").replace("Z", "+00:00"))
+            e = dt.datetime.fromisoformat(str((p or {}).get("end") or "").replace("Z", "+00:00"))
+            if not (s.tzinfo and e.tzinfo):
+                raise ValueError
+        except ValueError:
+            return {"error": "each period needs an ISO start and end with a UTC offset"}, 400
+        wins.append((s, e))
+
+    def one(w):
+        r = corr_llm.broker("/range", {"start": w[0].isoformat(), "end": w[1].isoformat()}, timeout=30)
+        corr_llm.broker("/section", {"id": r["id"], "name": "lateral"}, timeout=300)
+        d = load_json(os.path.join(RANGES, r["id"] + ".sec.lateral.json"))
+        if d is None:
+            raise RuntimeError("no data for " + r["id"])
+        m = range_meta(r["id"]) or {}
+        return {"start": m.get("start") or w[0].isoformat(), "end": m.get("end") or w[1].isoformat(), "data": d}
+    try:
+        with ThreadPoolExecutor(3) as ex:
+            data = list(ex.map(one, wins))
+    except Exception as ex:  # noqa: BLE001 - broker down / validation error
+        return {"error": str(ex).replace("broker: ", "")[:300]}, 400
+    pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
+    return lateral.report(data, pol, load_json(os.path.join(ROOT, "known_benign.json"), {})), 200
+
+
 def correlation(sid):
     """Related-events map for a snapshot (correlate.py). Cached until the snapshot, its alerts or the issues change.
     A time range uses its nightly snapshot's map (correlation, AI verdicts and research notes are per report run)."""
@@ -729,6 +765,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True})
             if u.path == "/api/chat":
                 return self._chat(user, body)
+            if u.path == "/api/lateral/report":  # multi-period lateral-movement report, queried from Elasticsearch
+                return self._json(*lateral_report_request(body))
             if u.path == "/api/range":  # header time picker: a start/end that isn't a nightly snapshot window
                 return self._json(*range_request(body))
             if u.path == "/api/audit/view":  # the browser reports a page view; do_POST writes the audit entry

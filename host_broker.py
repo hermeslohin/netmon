@@ -10,6 +10,7 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
   POST /section   {id, name} -> one section of a time range (collect.py --section: queries Elasticsearch/UniFi cache directly, a
                   second or two each) into dashboard/state/ranges/<id>.sec.<name>.json; name "analysis" assembles every
                   section into <id>.json and runs analyze.py --readonly. The page loads sections one by one.
+  POST /section {name: "lateral"} -> the lateral-movement report's data for a period (internal flows, admin sessions, violations).
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the correlation reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
@@ -148,7 +149,7 @@ def section(b):
     rid, name = str(b.get("id") or ""), str(b.get("name") or "")
     if not re.match(r"^r\d{8}T\d{4}Z-\d{8}T\d{4}Z$", rid) or not os.path.exists(os.path.join(RANGES, rid + ".meta.json")):
         raise ValueError("unknown time range")
-    if name != "analysis" and name not in SECTIONS:
+    if name != "analysis" and name != "lateral" and name not in SECTIONS:
         raise ValueError("unknown section")
     with _sec_locks_guard:
         lk = _sec_locks.setdefault((rid, name), threading.Lock())

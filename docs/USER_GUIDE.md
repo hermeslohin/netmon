@@ -252,7 +252,7 @@ The main working page.
 | Segmentation violations | Connections the zone policy doesn't allow, each with a **Clear** box. |
 | Beacon candidates | Connections that repeat on a regular timer (possible malware check-ins; usually updates or telemetry). |
 | Threat intel | Matches against threat-intelligence feeds (see Threat intel below). |
-| DNS-tunnel scoring | Domains with many random-looking subdomains (possible data smuggling over DNS). |
+| DNS-tunnel scoring | Domains with many random-looking subdomains (possible data smuggling over DNS). | Each row has a check box (keyed by DNS name): check it off to hide it everywhere; "show N checked" or the Checked off page brings it back.
 | Zeek notices / weird | Protocol oddities and notices from Zeek. |
 | Files | Files transferred over the network and their reputation. |
 | Software inventory from traffic | Software versions seen in network traffic. |
@@ -299,6 +299,8 @@ Host-to-host connections inside the network, compared against the zone policy.
 - **Failed logins** raise host risk and alert the watcher.
 
 ![Lateral movement map](img/lateral-movement.png)
+
+**Multi-period report.** Open **Multi-period report** at the top of the page, add up to eight time periods (type them in, or use *Add last 1h / 6h / 24h / 3d / 7d*), and press **Generate report**. Each period is queried directly from Security Onion's Elasticsearch (internal connections, SSH/RDP/SMB/WinRM... logins, segmentation violations) and the results are merged: every risky link and admin session shows the periods it appeared in, and is marked *In every period* (persistent) or *New in latest period*. Download it as **HTML** or **CSV**, or print it. The periods are independent of the time range chosen in the page header.
 
 ### Network → DNS & TLS
 
