@@ -270,7 +270,45 @@ def resolve_sid(sid):
     return sid
 
 
+_fseen = {"sig": None, "val": {}}
+
+
+def finding_last_seen():
+    """{finding key: generated time of the newest nightly snapshot that contained it} (baseline 'f|kind|dev|detail', host 'hf|key')."""
+    snaps = snapshots()
+    sig = tuple((s["id"], os.path.getmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
+    if _fseen["sig"] != sig:
+        seen = {}
+        for s in snaps:  # oldest -> newest, so the last write wins
+            raw = load_json(os.path.join(DATA, s["id"] + ".json")) or {}
+            an = load_json(os.path.join(DATA, s["id"] + ".analysis.json")) or {}
+            gen = raw.get("generated")
+            if not gen:
+                continue
+            for f in an.get("findings") or []:
+                seen["f|%s|%s|%s" % (f.get("kind"), f.get("device") or "", f.get("detail") or "")] = gen
+            for f in (raw.get("hosts") or {}).get("findings") or []:
+                seen["hf|" + str(f.get("key"))] = gen
+        _fseen["sig"], _fseen["val"] = sig, seen
+    return _fseen["val"]
+
+
 def snapshot(sid):
+    res = _snapshot(sid)
+    if res:
+        try:
+            seen = finding_last_seen()
+            gen = (res.get("raw") or {}).get("generated")
+            for f in (res.get("analysis") or {}).get("findings") or []:
+                f["last_seen"] = seen.get("f|%s|%s|%s" % (f.get("kind"), f.get("device") or "", f.get("detail") or "")) or gen
+            for f in ((res.get("raw") or {}).get("hosts") or {}).get("findings") or []:
+                f["last_seen"] = seen.get("hf|" + str(f.get("key"))) or gen
+        except Exception as e:  # noqa: BLE001 - never break the snapshot for a display column
+            print("finding last_seen failed", e, file=sys.stderr)
+    return res
+
+
+def _snapshot(sid):
     if RANGE_RE.match(sid or ""):
         return range_snapshot(sid)
     if not SNAP_RE.match(sid or ""):
