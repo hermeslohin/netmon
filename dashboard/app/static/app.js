@@ -970,7 +970,6 @@ V.security = (el) => {
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
     const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
-    if (HF.done.length) el.appendChild(card(`Host findings checked off (${HF.done.length})`, table(null, [ackCol("host", (x) => x.text), { k: "_at", t: "Checked", fmt: (v, x) => esc(ft(ackInfo("host", x)?.at)), sort: (x) => ackInfo("host", x)?.at || "" }, { k: "priority", t: "Priority", fmt: badge }, { k: "text", t: "Finding", fmt: linkifyIps }], HF.done, { sort: "_at", rowClass: ackRowCls("host"), search: false })));
   }
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
