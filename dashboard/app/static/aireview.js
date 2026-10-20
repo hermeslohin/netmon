@@ -181,9 +181,7 @@
     const groups = [["lmstudio", (M.local || []).map((m) => [m.id, m.id + (m.loaded ? " (loaded)" : "")])], ...(M.custom || []).map((g) => [g.provider, g.models.map((m) => [m.id, m.id])])];
     for (const [prov, items] of groups) {
       if (!items.length) continue;
-      const g = document.createElement("optgroup"); g.label = PROV[prov];
-      items.forEach(([id, label]) => g.appendChild(new Option(label, optKey(prov, id))));
-      sel.appendChild(g);
+      items.forEach(([id, label]) => sel.add(new Option(`${label} · ${PROV[prov] || prov}`, optKey(prov, id))));
     }
     if (cur && cur.model) { const k = optKey(cur.provider, cur.model); if (![...sel.options].some((o) => o.value === k)) sel.add(new Option(`${cur.model} (current, unavailable)`, k)); sel.value = k; }
     return sel;
@@ -205,7 +203,6 @@
         const r = body.appendChild(document.createElement("div")); r.className = "llm-row";
         r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: label }));
         const sel = r.appendChild(modelSelect(M, cur, sec === "correlation" ? null : "— choose a model —")); sel.disabled = !D.admin;
-        const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
         const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
         const warn = sec === "research" ? r.appendChild(Object.assign(document.createElement("span"), { className: "small warn" })) : null;
         const showWarn = (provider) => { if (!warn) return; const rt = reasoningTokens(provider);
@@ -213,16 +210,18 @@
         msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the research job does not run until a reasoning-capable model is chosen")
           : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (model loaded in LM Studio)";
         if (sec === "research") showWarn(cur.provider);
-        sel.onchange = () => { btn.disabled = !D.admin || !sel.value || sel.value === optKey(cur.provider, cur.model);
-          if (sec === "research") { const [p, ...m] = sel.value.split("|"); previewResearchCost(p, m.join("|"), M, cur); showWarn(p); } };
         if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
-        btn.onclick = async () => {
+        // picking a model applies it straight away (no Save button)
+        sel.onchange = async () => {
+          if (!D.admin || !sel.value || sel.value === optKey(cur.provider, cur.model)) return;
           const [provider, ...rest] = sel.value.split("|"), model = rest.join("|");
-          btn.disabled = true; msg.textContent = "saving…";
+          if (sec === "research") { previewResearchCost(provider, model, M, cur); showWarn(provider); }
+          sel.disabled = true; msg.textContent = "switching…";
           try { const r2 = await apiPost("/api/llm/config", { section: sec, provider, model }); const now = r2[sec] || {};
-            cur.provider = now.provider; cur.model = now.model; msg.textContent = `saved: ${PROV[now.provider] || now.provider} · ${now.model}`;
+            cur.provider = now.provider; cur.model = now.model; msg.textContent = `now using: ${PROV[now.provider] || now.provider} · ${now.model}`;
             if (sec === "research") { previewResearchCost(now.provider, now.model, M, cur); showWarn(now.provider); } }
-          catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+          catch (e) { msg.textContent = "error: " + e.message; sel.value = optKey(cur.provider, cur.model); }
+          sel.disabled = !D.admin;
         };
       }
       body.appendChild(esQueriesRow(D));
