@@ -488,6 +488,8 @@
           <span class="small muted" style="flex:1 1 380px">Input + output tokens of all calls in one run. Works for models without a price, too.</span></div>
         <div class="llm-row"><span class="k">Research batches</span><span><input type="number" name="max_batches" min="0" max="40" step="1" style="width:5em"></span>
           <span class="small muted" style="flex:1 1 380px">Event-research conversations per run (8 events each). Fewer batches = cheaper runs; events left over are picked up by the next run.</span></div>
+        <div class="llm-row"><span class="k">Web research</span><span><label><input type="checkbox" name="web_research"> on</label></span>
+          <span class="small muted" style="flex:1 1 380px">Lets the model search and read web pages and cite them. Turn it off for cheaper, local-data-only runs (no web tools, no links or citations, and the daily news briefing is skipped).</span></div>
         <div class="llm-row" style="align-items:flex-start"><span class="k">Events to research</span>
           <span class="rj-modes" style="display:grid;grid-template-columns:auto auto;gap:4px 14px">${(R.mode_cats || []).map((m) => `<span class="small">${esc(m.label)}</span>
             <select name="mode_${esc(m.key)}" data-cat="${esc(m.key)}">${(R.mode_options || ["research", "review", "skip"]).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>`).join("")}</span>
@@ -505,20 +507,23 @@
     const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
       c.querySelector(".cost-warn").textContent = r && avg != null && r < avg ? " Below the usual run cost: most runs would stop before finishing."
         : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
-    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0;
+    const web = c.querySelector('input[name="web_research"]');
+    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research !== false;
       for (const b of modeSel()) b.value = (v.modes || {})[b.dataset.cat] || "research"; warn(); };
-    fill({ ...L, modes: R.modes });
+    fill({ ...L, modes: R.modes, web_research: R.web_research });
     for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
+    web.disabled = !D.admin; web.onchange = () => { btn.disabled = !D.admin; };
     for (const b of modeSel()) { b.disabled = !D.admin; b.onchange = () => { btn.disabled = !D.admin; }; }
     btn.disabled = true;
     if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
       for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
+      body.web_research = web.checked;
       body.modes = Object.fromEntries(modeSel().map((b) => [b.dataset.cat, b.value]));
       if (Object.values(body.modes).every((m) => m === "skip")) { msg.textContent = "error: pick research or review for at least one category"; return; }
       btn.disabled = true; msg.textContent = "saving…";
-      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), modes: r.research.modes || body.modes }); msg.textContent = "saved (applies from the next run)"; }
+      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), modes: r.research.modes || body.modes, web_research: r.research.web_research }); msg.textContent = "saved (applies from the next run)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     return c;

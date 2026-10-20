@@ -9,6 +9,7 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_run_usd           stop a run when its estimated cost passes this (needs a price for the model; 0 = no cap)
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
+  web_research          True/False: let the job search and read web pages (and cite them). Off = local data only; the daily news briefing is skipped
   max_batches           event-research conversations per run (8 work items each)
   modes                 per event category what the job does: "test" (queued and tagged "testing" but never sent: shows what a mode would send, filters apply; the default on new deployments), "research" (send to the model; events that already have
                          a note are only rewritten if the new run contradicts it), "review" (never sent to the model:
@@ -42,7 +43,7 @@ LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg"
                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
 DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10, "severities": ["high", "medium"],
+            "max_run_tokens": 25_000_000, "max_batches": 10, "web_research": True, "severities": ["high", "medium"],
             "modes": DEFAULT_MODES}
 LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40)}
@@ -98,7 +99,7 @@ def put(fields, user, check_model=None):
             continue
         if k in ("provider", "model"):
             cur[k] = str(v or "")[:120]
-        elif k == "enabled":
+        elif k in ("enabled", "web_research"):
             cur[k] = bool(v)
         elif k == "modes":
             if not isinstance(v, dict) or any(a not in DEFAULT_MODES or b not in MODES for a, b in v.items()):

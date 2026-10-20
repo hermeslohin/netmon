@@ -164,6 +164,7 @@ class Run:
         self.target, self.pdf, self.args = target, pdf, args
         cfg = RC.get()
         self.budget = agent.Budget(target["provider"], target["model"], cfg["max_run_tokens"] or None, cfg["max_run_usd"] or None)
+        self.web = bool(cfg.get("web_research", True))
         self.max_batches = args.max_batches if args.max_batches is not None else cfg["max_batches"]
         self.fetched, self.notes_out, self.errors, self.counts = set(), [], [], {}
         self.snap = self.stem = None
@@ -356,6 +357,8 @@ class Run:
             return res
         return submit
 
+    NOWEB = "\n\nWeb research is switched off for this run: you have no web_search, web_fetch or cite tools. Work from the local data only, do not cite sources or add links, and say so in a note when a verdict would need outside information."
+
     def tools(self, kind, batch=None):
         T = {
             "es_search": (self.t_es, "Read-only Elasticsearch search (query DSL). Keep size small (<= 50) and use aggregations for counts.",
@@ -393,6 +396,9 @@ class Run:
             T = {k: T[k] for k in ("web_search", "web_fetch")}
             T["submit_briefing"] = (self.t_briefing, "Store the briefing items (call once at the end).",
                                     {"items": {"type": "array", "items": {"type": "object"}}}, ["items"])
+        if not self.web:  # admin turned web research off (AI review > Research job limits)
+            for k in ("web_search", "web_fetch", "cite"):
+                T.pop(k, None)
         return T
 
     def converse(self, name, system, user, tools, stop, **kw):
@@ -445,7 +451,7 @@ class Run:
                 f"Previous triage: {os.path.basename(prev) if prev else 'none'}; about 24 h ago: {os.path.basename(day) if day else 'none'}.\n\n"
                 f"<notes_kb>\n{(kb if rc == 0 else '{}')[:30000]}\n</notes_kb>\n\n"
                 f"<analysis>\n{ana[:60000]}{' …[truncated - read_data analysis for the rest]' if len(ana) > 60000 else ''}\n</analysis>\n\n"
-                f"Snapshot top-level keys: {list(self.raw.keys())}")
+                f"Snapshot top-level keys: {list(self.raw.keys())}{self.NOWEB if not self.web else ''}")
         r = self.converse("triage", prompt("analyst") + "\n\n" + prompt("triage"), user, self.tools("triage"), ("submit_triage",),
                           max_turns=60, max_tokens=8000)
         if not os.path.exists(self.stem + ".triage.json") or os.path.getmtime(self.stem + ".triage.json") < self.started:
@@ -474,7 +480,7 @@ class Run:
             self.status.phase(f"event research {b // BATCH + 1}/{min(-(-len(todo) // BATCH), self.max_batches)}")
             user = (f"Snapshot {os.path.basename(self.stem)}. Batch of {len(batch)} work items"
                     f"{' (these already have notes: only rewrite a note if this run contradicts it)' if all(x.get('note') for x in batch) else ''}:\n"
-                    f"<work_items>\n{json.dumps(batch, ensure_ascii=False)[:60000]}\n</work_items>")
+                    f"<work_items>\n{json.dumps(batch, ensure_ascii=False)[:60000]}\n</work_items>{self.NOWEB if not self.web else ''}")
             try:
                 self.converse(f"enrich{b // BATCH + 1}", sysmsg, user, self.tools("enrich", batch), ("submit_notes",), max_turns=40, max_tokens=8000)
                 self.counts["batches"] = self.counts.get("batches", 0) + 1
@@ -542,6 +548,9 @@ class Run:
         return back
 
     def briefing(self):
+        if not self.web:
+            print("web research is off: briefing skipped", file=sys.stderr)
+            return
         topics = SITE.get("briefing_topics") or [{"category": "Security", "count": 3, "about": "high-impact computer security news"}]
         want = "\n".join(f"- {t.get('category')}: {t.get('count', 1)} stor{'y' if t.get('count', 1) == 1 else 'ies'} about {t.get('about') or t.get('category')}"
                          for t in topics)
