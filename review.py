@@ -580,7 +580,9 @@ class Run:
         if getattr(self.args, "event", None):  # one event on request: no new snapshot, no triage, no PDF
             steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
         elif self.pdf:
-            steps += [("briefing", self.briefing, False), ("report", self.report, False)]
+            steps.append(("briefing", self.briefing, False))
+            if RC.get().get("pdf_report", True):
+                steps.append(("report", self.report, False))
         for name, fn, must in steps:
             if fatal and name != "report":
                 continue

@@ -476,6 +476,7 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 ## 8. Reports
 
 - **When:** one PDF a day, made by the 05:00 UTC run (1 AM Eastern in summer, midnight in winter).
+- **Turning it off:** admins can clear **AI review → Research job limits → PDF report**. The 05:00 UTC run then still covers 24 h, triages and writes the briefing, but makes no PDF; existing reports stay on the Reports page.
 - **What it covers:** the last 24 hours. It contains:
   - the triage summary and alarms, with sources;
   - IDS signal versus known noise;
