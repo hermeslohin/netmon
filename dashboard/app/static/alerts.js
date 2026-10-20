@@ -121,7 +121,8 @@
       rows.length ? table(null, [
         ...(isUserRole() ? [] : [askCol("alert", (x) => x.text)]), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
-        { k: "text", t: "Alert", fmt: (v, x) => `<span style="${x.read ? "" : "font-weight:600"}">${linkifyIps(v)}</span>` }],
+        { k: "text", t: "Alert", fmt: (v, x) => `<span style="${x.read ? "" : "font-weight:600"}">${linkifyIps(v)}</span>` },
+        ...(["admin", "defender"].includes(S.me?.role) ? [{ k: "_m", t: "Never send to AI", fmt: (v, x) => alertMuteHtml(x.text) }] : [])],
         rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(isUserRole() ? {} : { evId: (x) => `alert|${x.id}` }) }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
     el.appendChild(ac);
     ac.querySelector("#fTog")?.addEventListener("click", () => { A.showAll = !A.showAll; V.alerts(el); });

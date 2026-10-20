@@ -6,11 +6,12 @@
   const TYPE = { alert: "Alert", finding: "Finding", ids: "IDS", admin: "Admin", host: "Endpoint", ti: "Threat intel", vuln: "Vulnerability", gw: "Gateway",
     f: "Finding", adm: "Admin", hf: "Endpoint", iss: "Vulnerability" };
   const ago = (ts) => { if (!ts) return "never"; const s = Date.now() / 1000 - ts; return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " d ago"; };
-  const evCell = (lbl, typ, link) => `<span class="badge sev-info">${esc(TYPE[typ] || typ)}</span> ${link ? `<a href="${esc(link)}">${esc(lbl.length > 110 ? lbl.slice(0, 108) + "…" : lbl)}</a>` : `<span class="muted">${esc(lbl.length > 110 ? lbl.slice(0, 108) + "…" : lbl)}</span>`}`;
+  const evCell = (lbl, typ, link) => `<span class="badge sev-info">${esc(TYPE[typ] || typ)}</span>${typ === "alert" ? " " + alertMuteHtml(lbl) : ""} ${link ? `<a href="${esc(link)}">${esc(lbl.length > 110 ? lbl.slice(0, 108) + "…" : lbl)}</a>` : `<span class="muted">${esc(lbl.length > 110 ? lbl.slice(0, 108) + "…" : lbl)}</span>`}`;
   const FILTERS = {
     verdict: ["Verdict", (r, v) => (v === "confirmed" ? r.related : v === "rejected" ? !r.related : v === "manual" ? r.manual : true)],
     type: ["Event type", (r, v) => (TYPE[r.a_type] || r.a_type) === v || (TYPE[r.b_type] || r.b_type) === v],
     conf: ["Confidence", (r, v) => (v === "low" ? (r.confidence ?? 1) < 0.7 : v === "high" ? (r.confidence ?? 0) >= 0.9 : true)],
+    pair: ["Event pair", (r, v) => pairKey(r.a_type, r.b_type) === v],
     scope: ["Snapshot", (r, v) => (v === "current" ? r.current : true)],
   };
 
@@ -773,8 +774,9 @@
         box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
         const ln = (l, lk, t, id) => `<span class="mono muted small">${esc(t)}</span> ${lk ? `<a href="${esc(lk)}">${esc(l)}</a>` : esc(l)}${id ? `<div class="mono muted small" style="word-break:break-all">${esc(id)}</div>` : ""}`;
         if (Q.items?.length) box.appendChild(table(null, [
-          { k: "a_label", t: "Event", fmt: (v, r) => (r.testing ? '<span class="badge sev-unknown" title="test mode: never sent">testing</span> ' : "") + ln(v, r.a_link, `${r.a_type} - ${r.b_type}`, r.a) },
-          { k: "b_label", t: "Linked to", fmt: (v, r) => ln(v, r.b_link, r.b_type, r.b) },
+          { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => esc(pairText(r.a_type, r.b_type)) },
+          { k: "a_label", t: "Event", fmt: (v, r) => (r.testing ? '<span class="badge sev-unknown" title="test mode: never sent">testing</span> ' : "") + ln(v, r.a_link, TYPE[r.a_type] || r.a_type, r.a) + (r.a_type === "alert" ? " " + alertMuteHtml(v) : "") },
+          { k: "b_label", t: "Linked to", fmt: (v, r) => ln(v, r.b_link, TYPE[r.b_type] || r.b_type, r.b) + (r.b_type === "alert" ? " " + alertMuteHtml(v) : "") },
           { k: "why", t: "Why correlated", cls: "small", fmt: (v) => esc(Array.isArray(v) ? v.join(", ") : String(v || "")) }, { k: "score", t: "Score", num: true, fmt: (v) => esc(String(Math.round(v * 100) / 100)) }],
           Q.items, { sort: "score", limit: 50 }));
       } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
@@ -811,6 +813,7 @@
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
       { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
       { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
+      { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
       { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
       { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
       { k: "reason", t: "Reason", cls: "small", fmt: (v, r) => `${esc(v)} ${r.manual ? "" : aiFlare({ model: r.model, via: "correlation review", at: new Date(r.ts * 1000).toISOString() })}` },

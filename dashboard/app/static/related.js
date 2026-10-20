@@ -73,7 +73,7 @@
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || [e.type, ""];
         const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
           : `<span class="rel-ai pend" title="The local LLM has not reviewed this link yet">AI review pending</span>`;
-        return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
+        return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-pair small muted" title="event pair">${esc(pairText(me?.type, e.type))}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
           <span class="rel-time small muted">🕒 ${esc(evTime(e))}</span>
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
           ${artifactsHtml(r.llm_artifacts)}
@@ -130,6 +130,25 @@
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
   }
+  // ---- event pair label ("Alarm – IDS") and "never send to the AI" rules for watcher alerts (shared with alerts.js / aireview.js)
+  const PAIR_NAME = { alert: "Alert", finding: "Finding", f: "Finding", ids: "IDS", admin: "Admin", adm: "Admin", host: "Endpoint", hf: "Endpoint", ti: "Threat intel", vuln: "Vulnerability", iss: "Vulnerability", gw: "Gateway", alarm: "Triage alarm" };
+  window.pairText = (a, b) => `${PAIR_NAME[a] || a} – ${PAIR_NAME[b] || b}`;
+  window.pairKey = (a, b) => [a, b].sort().join("-");
+  const canMute = () => ["admin", "defender"].includes(S.me?.role);
+  const alertName = (label) => { const g = String(label || "").replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "*").replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "*").replace(/\d+(?:[.,:]\d+)*/g, "*").replace(/\*(?:[\s,/()-]*\*)+/g, "*"); return "*" + g.replace(/…$/, "").trim().replace(/^\*+|\*+$/g, "") + "*"; };
+  const alertHost = (label) => (String(label || "").match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/) || String(label || "").match(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/i) || [""])[0];
+  window.alertMuteHtml = (label) => { if (!canMute()) return ""; const h = alertHost(label);
+    return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Never send alerts named like this to the AI (Review limits > Never send): ${esc(alertName(label))}">mute name</button>`
+      + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host</button></span>`; };
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest(".mute-btn"); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const wrap = b.closest(".mute-btns"), label = wrap.dataset.label, rule = { name: alertName(label), scope: "both" };
+    if (b.dataset.mute === "host") rule.host = alertHost(label);
+    b.disabled = true;
+    try { await apiPost("/api/llm/review-limits", { rule }); wrap.innerHTML = `<span class="muted" title="${esc(JSON.stringify(rule))}">muted ✓ (${rule.host ? "name + " + esc(rule.host) : "name"})</span>`; S.corr = null; }
+    catch (err) { b.disabled = false; alert(String(err.message || err)); }
+  }, true);
   // Triage alarm title -> the best-matching underlying event (host finding, new device, IDS, gateway, TI, admin ...)
   const GO_RANK = { host: 3, finding: 3, admin: 3, gw: 2, ti: 2, alert: 2, ids: 1, vuln: 0 };
   function alarmTarget(id) {
