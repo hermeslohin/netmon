@@ -319,6 +319,23 @@ class Run:
         self.counts["briefing_items"] = len(items)
         return {"ok": True, "stored": len(items)}
 
+    ART_KINDS = ("file", "process", "user", "ip", "dns")
+    ART_DECISIONS = ("benign", "expected", "suspicious")
+
+    def _artifacts(self, arts, where):
+        """Artifacts of a note (files, processes, users, IPs, DNS queries across the correlated events) with a relation and a decision."""
+        if arts in (None, ""):
+            return []
+        if not isinstance(arts, list):
+            raise ValueError(f"{where}.artifacts must be a list of {{kind, value, relation, decision}}")
+        out = []
+        for j, a in enumerate(arts):
+            if not isinstance(a, dict) or a.get("kind") not in self.ART_KINDS or not str(a.get("value") or "").strip() \
+                    or a.get("decision") not in self.ART_DECISIONS:
+                raise ValueError(f"{where}.artifacts[{j}]: kind {self.ART_KINDS}, a value and decision {self.ART_DECISIONS} are required")
+            out.append({"kind": a["kind"], "value": str(a["value"]).strip()[:300], "relation": str(a.get("relation") or "")[:400], "decision": a["decision"]})
+        return out[:40]
+
     def t_notes_factory(self, batch):
         ids = set()
         for it in batch:
@@ -334,7 +351,8 @@ class Run:
                 if n.get("verdict") not in VERDICTS or n.get("priority") not in PRIOS:
                     raise ValueError(f"notes[{i}]: verdict {VERDICTS} and priority {PRIOS} are required")
                 notes.append({"id": n["id"], "verdict": n["verdict"], "priority": n["priority"], "summary": str(n.get("summary") or "")[:600],
-                              "research": str(n.get("research") or "")[:4000], "links": self._links(n.get("links"), f"notes[{i}]")})
+                              "research": str(n.get("research") or "")[:4000], "links": self._links(n.get("links"), f"notes[{i}]"),
+                              "artifacts": self._artifacts(n.get("artifacts"), f"notes[{i}]")})
             links = [l for l in a.get("links") or [] if isinstance(l, dict) and l.get("a") and l.get("b")]
             doc = {"model": self.target["model"], "via": VIA, "snapshot": os.path.basename(self.stem), "notes": notes, "links": links,
                    "host_notes": [h for h in a.get("host_notes") or [] if isinstance(h, dict)],
@@ -350,7 +368,7 @@ class Run:
                         break
                     except ValueError:
                         pass
-            for k in ("notes", "links", "host_notes_added", "host_notes_updated"):
+            for k in ("notes", "artifacts", "links", "host_notes_added", "host_notes_updated"):
                 if isinstance(res.get(k), int):
                     self.counts[k] = self.counts.get(k, 0) + res[k]
             if res.get("rejected_ids"):

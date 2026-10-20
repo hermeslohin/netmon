@@ -206,6 +206,7 @@ An event with a note shows a **✨ verdict** button next to its Related count. C
 - the verdict and priority;
 - a short summary;
 - what was checked and found (hosts, ports and times);
+- **Correlated artifacts**: the files, processes, users, IP addresses and DNS queries that tie the correlated events together, each with a one-line relation, a decision (*benign*, *expected* or *suspicious*) and a flare showing which AI model wrote it;
 - links to the sources the AI actually read.
 
 Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI review** page shows how many events have notes.

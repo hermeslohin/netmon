@@ -68,6 +68,16 @@
     pop.querySelector(".rel-x").onclick = close;
   }
   const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
+  const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎" };
+  function artifactsHtml(n) {
+    const arts = n.artifacts || [];
+    if (!arts.length) return "";
+    const cnt = { suspicious: 0, expected: 0, benign: 0 }; arts.forEach((a) => { if (a.decision in cnt) cnt[a.decision]++; });
+    return `<div class="note-arts"><b>Correlated artifacts</b> <span class="small muted">${arts.length} · ${cnt.suspicious} suspicious · ${cnt.expected} expected · ${cnt.benign} benign</span>
+      <ul>${arts.map((a) => `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code>
+        <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${aiFlare({ model: a.model, via: a.via || "event enrichment", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
+        ${a.relation ? `<div class="small muted">${esc(a.relation)}</div>` : ""}</li>`).join("")}</ul></div>`;
+  }
   function openNote(btn) {
     close();
     const id = btn.dataset.note, n = S.corr?.notes?.[id], me = S.corr?.events?.[id];
@@ -81,6 +91,7 @@
           ${n.same_event ? "" : `<span class="small muted">written for an earlier run of this finding (${esc(n.snapshot || "")}); numbers may differ</span>`}</div>
         ${n.summary ? `<p><b>${esc(n.summary)}</b></p>` : ""}
         ${n.research ? `<div class="note-research">${esc(n.research)}</div>` : ""}
+        ${artifactsHtml(n)}
         ${links.length ? `<div class="small"><b>Sources</b><ol class="note-links">${links.map((l) => `<li><a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a></li>`).join("")}</ol></div>` : ""}
         <div class="small muted">AI research from the scheduled research job. Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
       </div>`;

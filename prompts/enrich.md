@@ -27,6 +27,17 @@ Type-specific guidance:
   with a package install, update, cron job or admin session; what the vendor docs say. Findings with one shared cause
   may share research text, but each gets its own note with its own id.
 
+Artifacts (do this last, once you know which related events really belong together): for every note, list the concrete
+artifacts that tie the event to its correlated events, as `artifacts: [{kind, value, relation, decision}]`:
+- kind: file | process | user | ip | dns (a DNS query name)
+- value: the exact path, process name/command, account, IP address or queried name seen in the evidence
+- relation: one short sentence on how it links the events (e.g. "the process that opened the connection in the IDS alert",
+  "the account used in the SSH login that preceded the host finding", "the name resolved just before the flagged flow")
+- decision: benign (looked odd, harmless) | expected (normal for that device or task) | suspicious (needs a person's eye)
+Only list artifacts you saw in the work item or confirmed in Elasticsearch; never invent values. Skip the field when the
+event has no correlated events or no concrete artifacts. A suspicious artifact should make the note's verdict at least
+needs-review. Each artifact is stamped with your model name on the dashboard, so judge it yourself.
+
 Also review each item's `related` candidates: is each pair genuinely the same activity or incident? Give
 {a, b, related: true|false, confidence 0-1, reason} - prioritise pairs the local model has not reviewed or that you
 disagree with.
