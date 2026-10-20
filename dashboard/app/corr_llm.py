@@ -446,6 +446,12 @@ def _db():
                  query TEXT, total INTEGER, seconds REAL, error TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
                  related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
+    c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
+    for col in ("completion INTEGER", "secs REAL"):  # output tokens + call time, for the tokens / sec card
+        try:
+            c.execute("ALTER TABLE review_tokens ADD COLUMN " + col)
+        except sqlite3.OperationalError:
+            pass
     return c
 
 
@@ -660,6 +666,15 @@ def _complete(target, system, user, max_tokens, purpose="correlation-review", ac
                   error=f"{type(e).__name__}: {e}")
         raise
     audit.llm(purpose, target["provider"], target["model"], user=actor, system=system, prompt=user, response=out[0], usage=out[1], seconds=out[2])
+    if purpose == "correlation-review":  # remembered for the AI review page's tokens / minute
+        try:
+            n = int((out[1] or {}).get("prompt") or 0) + int((out[1] or {}).get("completion") or 0)
+            with _lock, _db() as c:
+                c.execute("INSERT INTO review_tokens (ts, tokens, completion, secs) VALUES (?,?,?,?)",
+                          (time.time(), n, int((out[1] or {}).get("completion") or 0), float(out[2] or 0)))
+                c.execute("DELETE FROM review_tokens WHERE ts < ?", (time.time() - 7 * 86400,))
+        except Exception:
+            pass
     return out
 
 
@@ -918,6 +933,10 @@ def overview(events, applied):
             hours[h] = hours.get(h, 0) + 1
     last_hour = sum(1 for r in real if now - r[5] <= 3600)
     per_min = round(sum(1 for r in real if now - r[5] <= 300) / 5, 1)  # reviews decided per minute, last 5 min
+    with _db() as c:
+        tok5 = c.execute("SELECT COALESCE(SUM(tokens),0) FROM review_tokens WHERE ts > ?", (now - 300,)).fetchone()[0]
+        tc, ts_ = c.execute("SELECT COALESCE(SUM(completion),0), COALESCE(SUM(secs),0) FROM review_tokens WHERE ts > ? AND secs > 0", (now - 3600,)).fetchone()
+    tps = round(tc / ts_, 1) if ts_ > 0 and tc > 0 else None  # average output tokens per second of model time, last hour
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)
     rate = sum(1 for r in real if now - r[5] <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
@@ -940,7 +959,7 @@ def overview(events, applied):
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
             "totals": {"verdicts": len(out), "related": sum(r["related"] for r in out), "rejected": sum(not r["related"] for r in out),
-                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min,
+                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps,
                        "avg_conf": round(sum(r["confidence"] or 0 for r in out) / len(out), 2) if out else None},
             "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out[:3000]}
 
