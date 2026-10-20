@@ -762,7 +762,7 @@ window.CARD_INFO = {
 },
 "security|Segmentation violations": {
 "source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal flows checked against policy.json zones, device classes, sensitive ports and allow rules. High: DMZ initiating inward, or IoT/camera reaching servers or using admin ports; medium: admin ports between hosts; low: cross-zone access.",
-"use": "If a flow is expected, tick the green Clear box (it moves to Cleared segmentation). Answered connections matter more than refused attempts. Use 💬 Ask AI if unsure.",
+"use": "If a flow is expected, tick the green Clear box (it disappears; use “show checked” on the card to bring it back). Answered connections matter more than refused attempts. Use 💬 Ask AI if unsure.",
 "what": "Internal connections between zones or devices that the zone policy does not allow, with severity, ports, connection counts, answered count and reason."
 },
 "security|Software inventory from traffic": {
