@@ -164,6 +164,7 @@ class Run:
         self.target, self.pdf, self.args = target, pdf, args
         cfg = RC.get()
         self.budget = agent.Budget(target["provider"], target["model"], cfg["max_run_tokens"] or None, cfg["max_run_usd"] or None)
+        self.max_searches = cfg.get("max_searches", 3)
         self.web = bool(cfg.get("web_research", True))
         self.max_batches = args.max_batches if args.max_batches is not None else cfg["max_batches"]
         self.fetched, self.notes_out, self.errors, self.counts = set(), [], [], {}
@@ -396,6 +397,14 @@ class Run:
             T = {k: T[k] for k in ("web_search", "web_fetch")}
             T["submit_briefing"] = (self.t_briefing, "Store the briefing items (call once at the end).",
                                     {"items": {"type": "array", "items": {"type": "object"}}}, ["items"])
+        if kind == "enrich" and batch and self.web and self.max_searches and "web_search" in T:
+            left, fn, cap = [self.max_searches * len(batch)], T["web_search"][0], self.max_searches * len(batch)
+            def capped(a, _fn=fn, _left=left, _cap=cap):
+                if _left[0] <= 0:
+                    raise ValueError(f"web search limit reached ({self.max_searches} per event, {_cap} for this batch): use web_fetch on pages you already found, or finish with what you have")
+                _left[0] -= 1
+                return _fn(a)
+            T["web_search"] = (capped,) + tuple(T["web_search"][1:])
         if not self.web:  # admin turned web research off (AI review > Research job limits)
             for k in ("web_search", "web_fetch", "cite"):
                 T.pop(k, None)

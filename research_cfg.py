@@ -9,6 +9,7 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_run_usd           stop a run when its estimated cost passes this (needs a price for the model; 0 = no cap)
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
+  max_searches          web searches allowed per event in event research (a batch of 8 events shares 8x this; 0 = no cap)
   web_research          True/False: let the job search and read web pages (and cite them). Off = local data only; the daily news briefing is skipped
   max_batches           event-research conversations per run (8 work items each)
   modes                 per event category what the job does: "test" (queued and tagged "testing" but never sent: shows what a mode would send, filters apply; the default on new deployments), "research" (send to the model; events that already have
@@ -43,10 +44,10 @@ LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg"
                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
 DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10, "web_research": True, "severities": ["high", "medium"],
+            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": True, "severities": ["high", "medium"],
             "modes": DEFAULT_MODES}
 LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
-          "max_batches": (0, 40)}
+          "max_batches": (0, 40), "max_searches": (0, 20)}
 STATE = os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state"))
 STATUS = os.path.join(STATE, "research_job.json")
 

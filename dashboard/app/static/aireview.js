@@ -488,6 +488,8 @@
           <span class="small muted" style="flex:1 1 380px">Input + output tokens of all calls in one run. Works for models without a price, too.</span></div>
         <div class="llm-row"><span class="k">Research batches</span><span><input type="number" name="max_batches" min="0" max="40" step="1" style="width:5em"></span>
           <span class="small muted" style="flex:1 1 380px">Event-research conversations per run (8 events each). Fewer batches = cheaper runs; events left over are picked up by the next run.</span></div>
+        <div class="llm-row"><span class="k">Searches per event</span><span><input type="number" name="max_searches" min="0" max="20" step="1" style="width:5em"></span>
+          <span class="small muted" style="flex:1 1 380px">Web searches allowed per event in event research (a batch of 8 events shares 8 times this). Reading pages you already found is not counted. 0 = no limit. Ignored when web research is off.</span></div>
         <div class="llm-row"><span class="k">Web research</span><span><label><input type="checkbox" name="web_research"> on</label></span>
           <span class="small muted" style="flex:1 1 380px">Lets the model search and read web pages and cite them. Turn it off for cheaper, local-data-only runs (no web tools, no links or citations, and the daily news briefing is skipped).</span></div>
         <div class="llm-row" style="align-items:flex-start"><span class="k">Events to research</span>
@@ -501,7 +503,7 @@
         chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
       <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>`);
     c.id = "ai-cost";
-    const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches"];
+    const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches"];
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
     const modeSel = () => [...c.querySelectorAll(".rj-modes select")];
     const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
