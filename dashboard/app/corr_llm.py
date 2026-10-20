@@ -118,9 +118,23 @@ def etype(eid, ev):
     return (ev or {}).get("type") or eid.split("|")[0]
 
 
+SEG_CLASSES = ("seg_high", "seg_medium", "seg_low")  # segmentation split by port severity (high = admin ports, medium = odd ports, low = standard)
+
+
+def pclass(eid, ev):
+    """Event class for review limits: like etype, but segmentation is split by its severity."""
+    t = etype(eid, ev)
+    if t != "seg":
+        return t
+    sev = (ev or {}).get("sev")
+    return "seg_" + (sev if sev in ("high", "medium") else "low")
+
+
 def pair_type(ta, tb):
-    t = "-".join(sorted((str(ta), str(tb))))
-    return "host-seg" if t == "seg-seg" else t  # segmentation-to-segmentation links are part of host-seg, not a type of their own
+    ta, tb = str(ta), str(tb)
+    if ta in SEG_CLASSES and tb in SEG_CLASSES:  # segmentation-to-segmentation links are part of host-seg_<worse severity>, not a type of their own
+        return "host-" + SEG_CLASSES[min(SEG_CLASSES.index(ta), SEG_CLASSES.index(tb))]
+    return "-".join(sorted((ta, tb)))
 
 
 RULE_SCOPES = ("both", "research", "review")
@@ -227,6 +241,10 @@ def limits():
             pass
     pm = {str(k): v for k, v in (c.get("pair_modes") or {}).items() if v in PAIR_MODES}
     pm.pop("seg-seg", None)  # folded into host-seg (pair_type)
+    for old in [k for k in pm if k.endswith("-seg")]:  # settings saved before segmentation was split by severity apply to all three levels
+        for n in SEG_CLASSES:
+            pm.setdefault(old[:-3] + n, pm[old])
+        pm.pop(old)
     for x in c.get("skip_pairs") or []:  # settings saved before test mode
         pm.setdefault(str(x), "skip")
     return {"skip_pairs": sorted(k for k, v in pm.items() if v == "skip"), "pair_modes": pm, "pair_default": c["pair_default"],
@@ -240,11 +258,11 @@ def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=No
     c = _raw_config()
     cur = limits()
     if skip_pairs is not None:
-        if not isinstance(skip_pairs, list) or not all(_re.fullmatch(r"[a-z]+-[a-z]+", str(x)) for x in skip_pairs):
+        if not isinstance(skip_pairs, list) or not all(_re.fullmatch(r"[a-z_]+-[a-z_]+", str(x)) for x in skip_pairs):
             raise ValueError("skip_pairs must be a list like ['alert-vuln']")
         pair_modes = {**{p: "review" for p in cur["pair_modes"] if cur["pair_modes"][p] == "skip"}, **{str(x): "skip" for x in skip_pairs}}
     if pair_modes is not None:
-        if not isinstance(pair_modes, dict) or not all(_re.fullmatch(r"[a-z]+-[a-z]+", str(k)) and v in PAIR_MODES for k, v in pair_modes.items()):
+        if not isinstance(pair_modes, dict) or not all(_re.fullmatch(r"[a-z_]+-[a-z_]+", str(k)) and v in PAIR_MODES for k, v in pair_modes.items()):
             raise ValueError("pair_modes must map type pairs like 'alert-vuln' to review, skip or test")
         cur["pair_modes"] = {**cur["pair_modes"], **{str(k): v for k, v in pair_modes.items()}}
     if exclude:
@@ -302,7 +320,7 @@ def _limit_fn(base):
         if i not in famcache:
             famcache[i] = "family|" + _fam(i)
         return famcache[i] in ex
-    mode = lambda a, b: pm.get(pair_type(etype(a, E.get(a)), etype(b, E.get(b))), pd)  # noqa: E731
+    mode = lambda a, b: pm.get(pair_type(pclass(a, E.get(a)), pclass(b, E.get(b))), pd)  # noqa: E731
     skipped = lambda a, b: mode(a, b) == "skip" or bad(a) or bad(b)  # noqa: E731
     skipped.testing = lambda a, b: mode(a, b) == "test"  # links that pass every filter but are only tested, never sent
     return skipped
@@ -318,7 +336,7 @@ def limits_view(base, applied=None):
             if k in seen or a not in E or r["id"] not in E:
                 continue
             seen.add(k)
-            t = pair_type(etype(a, E[a]), etype(r["id"], E[r["id"]]))
+            t = pair_type(pclass(a, E[a]), pclass(r["id"], E[r["id"]]))
             tp[t] = tp.get(t, 0) + 1
             ev[a] = ev.get(a, 0) + 1
             ev[r["id"]] = ev.get(r["id"], 0) + 1
