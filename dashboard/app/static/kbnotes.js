@@ -141,7 +141,8 @@
   /* ---------- external IP / domain notes popover (📝 inline wherever linkifyIps shows one) ---------- */
   let epop = null;
   const eclose = () => { epop?.remove(); epop = null; };
-  const extInfo = (btn) => (btn.dataset.extip ? { v: btn.dataset.extip, subj: "ip:" + btn.dataset.extip, what: "external IP" }
+  const extInfo = (btn) => (btn.dataset.extart ? { v: btn.dataset.extart.replace(/^[^:]*:/, ""), subj: "art:" + btn.dataset.extart, what: btn.dataset.extart.split(":")[0] + " artifact" }
+    : btn.dataset.extip ? { v: btn.dataset.extip, subj: "ip:" + btn.dataset.extip, what: "external IP" }
     : { v: btn.dataset.extdom, subj: "dom:" + btn.dataset.extdom, what: "domain" });
   function erender(btn) {
     const { v, subj, what } = extInfo(btn);
@@ -156,7 +157,7 @@
           || `<div class="muted small">No notes on this ${esc(what)} yet.</div>`}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Known CDN / expected contact. / Flag if seen talking to other hosts."></textarea>
         <div><button type="button" class="kb-save">Add note</button></div>
-        <div class="small muted">Treated the same as device notes: the AI reads these before judging traffic to/from this ${esc(what)}.</div>`;
+        <div class="small muted">${subj.startsWith("art:") ? "The correlation reviewer reads these notes when it decides whether events are related and which artifacts matter." : `Treated the same as device notes: the AI reads these before judging traffic to/from this ${esc(what)}.`}</div>`;
       epop.querySelector(".kb-save").onclick = () => {
         const t = epop.querySelector(".kb-text").value.trim(); if (!t) return;
         apiPost("/api/kb/host", { action: "add", subject: subj, category: "watch", text: t }).then(() => erender(btn), (er) => alert(er.message));

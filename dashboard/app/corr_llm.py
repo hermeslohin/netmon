@@ -738,6 +738,14 @@ def _ask_full(target, anchor, cands, notes=None, purpose="correlation-review", a
     lines = ["ANCHOR:", ev("anchor", anchor), "", "CANDIDATES (with the correlation script's evidence):"]
     for i, (e, r) in enumerate(cands, 1):
         lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))
+    try:  # people's notes on artifacts (files, processes, users, IPs, DNS) seen in earlier reviews
+        import kb
+        an = [n for n in kb.host_notes() if str(n["subject"]).startswith("art:")][:25]
+        if an:
+            lines += ["", "OWNER NOTES ON ARTIFACTS (authoritative guidance from the network owners; apply when the same artifact appears):"]
+            lines += [f'<artifact_note artifact="{n["subject"][4:][:200]}">{str(n["text"])[:300]}</artifact_note>' for n in an]
+    except Exception as e:  # noqa: BLE001 - reviews work without notes
+        print(f"corr_llm: artifact notes unavailable: {e}", file=sys.stderr)
     prompt, budget = "\n".join(lines), max(0, int(es_max or 0))
     usage, secs, results, n = {"prompt": 0, "completion": 0}, 0.0, [], 0
 

@@ -18,6 +18,7 @@ Subjects (host notes):
   mac:<mac>      a network device with a known MAC (preferred - survives DHCP changes)
   ip:<ip>        a network device without a MAC in the registry, or an external IP
   host:<name>    an Elastic Agent endpoint (short host name, lower case)
+  art:<kind>:<value>  a correlated artifact (file path, process, user, ip, dns) listed by the correlation reviewer
   dom:<domain>   a DNS domain name (lower case, dot-trimmed) - internal or external
 resolve() turns an IP / MAC / host name / domain into the canonical subject (IP -> MAC via the device registry).
 
@@ -59,6 +60,9 @@ def _registry():
         return {}
 
 
+ART_KINDS = ("file", "process", "user", "ip", "dns")
+
+
 def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
     """Canonical subject + display label for an IP, MAC, endpoint host name, DNS domain or an explicit subject."""
     if subject:
@@ -72,7 +76,13 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             return resolve(host=v, reg=reg)
         if k == "dom" and v:
             return resolve(dom=v, reg=reg)
-        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, host:<name> or dom:<domain>)")
+        if k == "art":  # a correlated artifact the reviewer listed: art:<file|process|user|ip|dns>:<value>
+            ak, _, av = v.partition(":")
+            av = av.strip()
+            if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av:
+                av = av.lower() if ak in ("ip", "dns") else av
+                return f"art:{ak}:{av}", f"{ak} {av}"
+        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, host:<name>, dom:<domain> or art:<kind>:<value>)")
     if dom:
         d = str(dom).strip().lower().rstrip(".")
         if not _DOM.match(d):

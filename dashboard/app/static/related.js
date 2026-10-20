@@ -49,7 +49,7 @@
   const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎" };
   function artifactsHtml(arts) {
     if (!arts?.length) return "";
-    return `<div class="note-arts"><b class="small">Correlated artifacts</b><ul>${arts.map((a) => `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code>
+    return `<div class="note-arts"><b class="small">Correlated artifacts</b><ul>${arts.map((a) => `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
       <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
   }
