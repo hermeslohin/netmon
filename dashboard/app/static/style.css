@@ -276,6 +276,7 @@ td.askcell{width:1%;padding-right:2px}
 .rel-head .muted{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rel-x{padding:0 6px;background:none;border:0;color:var(--muted);cursor:pointer}
 .rel-item{display:block;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--fg)}.rel-item:hover{background:var(--panel2);text-decoration:none}
 .rel-item .rel-why{display:block;margin-top:2px}
+.rel-item .rel-time{display:block;margin-top:2px}
 
 /* draggable boxes (cards.js) */
 .cc-grip{float:right;margin-left:8px;padding:0 4px;color:var(--muted);cursor:grab;touch-action:none;user-select:none;font-size:15px;line-height:1;opacity:.55}

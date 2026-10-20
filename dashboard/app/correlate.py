@@ -320,7 +320,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             if len(keep) >= TOP:
                 break
         out[eid] = keep
-    events = {eid: {**{k: x[k] for k in ("type", "label", "link", "sev", "t0")},  # ips: internal hosts involved (host notes lookup)
+    events = {eid: {**{k: x[k] for k in ("type", "label", "link", "sev", "t0", "t1")},  # ips: internal hosts involved (host notes lookup)
                     "ips": sorted(v for k, v in x["ents"] if k == "ip")[:8]} for eid, x in ev.items()}
     return {"events": events, "related": out, "window": [w0, w1], "counts": {t: sum(1 for x in ev.values() if x["type"] == t) for t in
                                                                               ("alert", "finding", "ids", "admin", "host", "ti", "vuln", "gw", "alarm")}}
