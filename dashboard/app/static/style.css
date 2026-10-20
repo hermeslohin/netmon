@@ -478,3 +478,7 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .rel-pop .art-k{min-width:0;font-size:10px !important}
 .rel-pop .badge,.rel-pop .rel-ai,.rel-pop .ai-flare,.rel-pop .note-arts .badge{font-size:9.5px !important}
 .rel-pop .note-v{font-size:9.5px !important;line-height:1.5;padding:0 6px}
+
+/* unified flairs: every pill matches the AI model flair box */
+.badge,.rel-ai,.note-v,.ai-flare{font-size:10.5px;font-weight:600;line-height:1.5;padding:0 7px;border-radius:9px;vertical-align:middle}
+.rel-pop .badge,.rel-pop .rel-ai,.rel-pop .ai-flare,.rel-pop .note-v,.rel-pop .note-arts .badge,.rel-item .badge,.rel-item .rel-ai,.rel-item .ai-flare{font-size:9.5px !important;line-height:1.5;padding:0 6px}
