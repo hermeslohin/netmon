@@ -130,7 +130,24 @@
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
   }
+  // Triage alarm title -> the best-matching underlying event (host finding, new device, IDS, gateway, TI, admin ...)
+  const GO_RANK = { host: 3, finding: 3, admin: 3, gw: 2, ti: 2, alert: 2, ids: 1, vuln: 0 };
+  function alarmTarget(id) {
+    const rel = (S.corr?.related?.[id] || []).filter((r) => S.corr.events?.[r.id] && S.corr.events[r.id].type !== "alarm" && S.corr.events[r.id].link);
+    rel.sort((a, b) => ((GO_RANK[S.corr.events[b.id].type] ?? 0) + (b.llm === "yes" ? 3 : 0) + (b.score || 0)) - ((GO_RANK[S.corr.events[a.id].type] ?? 0) + (a.llm === "yes" ? 3 : 0) + (a.score || 0)));
+    return rel[0] ? S.corr.events[rel[0].id] : null;
+  }
   document.addEventListener("click", (e) => {
+    const go = e.target.closest(".alarm-go");
+    if (go) {
+      e.preventDefault(); e.stopPropagation();
+      const t = alarmTarget(go.dataset.alarmEv);
+      if (t) { location.hash = t.link.replace(/^#/, ""); return; }
+      const b = go.closest(".alarm")?.querySelector(".rel-btn");
+      go.title = S.corr ? "No matching event found for this alarm" : "Correlations still loading - try again";
+      if (b && !b.disabled) open(b); else go.classList.add("nomatch");
+      return;
+    }
     const cbt = e.target.closest(".cls-btn");
     if (cbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === cbt) return close(); openClass(cbt); if (pop) pop._for = cbt; return; }
     const nbt = e.target.closest(".note-btn");

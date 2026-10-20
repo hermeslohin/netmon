@@ -489,7 +489,7 @@ function topTalkersChart(n) {
 }
 
 function alarmsHtml(list) {
-  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} ${esc(a.title)} ${askBtn("alarm", a.title, a)}${cmpBtn("triage alarm", a.title, a)}${pivBtn("alarm", a)}<button type="button" class="rel-btn" data-rel="${esc(alarmEvId(a))}" title="Related events">…</button>${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
+  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} <a href="#/security" class="alarm-go" data-alarm-ev="${esc(alarmEvId(a))}" title="Open the matching event (host finding, IDS, new device, …)">${esc(a.title)}</a> ${askBtn("alarm", a.title, a)}${cmpBtn("triage alarm", a.title, a)}${pivBtn("alarm", a)}<button type="button" class="rel-btn" data-rel="${esc(alarmEvId(a))}" title="Related events">…</button>${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
     ${a.who ? `<p><span class="k">Who:</span> ${linkifyIps(a.who)}</p>` : ""}${a.evidence ? `<p><span class="k">Evidence:</span> ${linkifyIps(a.evidence)}</p>` : ""}
     ${a.why ? `<p><span class="k">Why:</span> ${linkifyIps(a.why)}</p>` : ""}${a.context ? `<p><span class="k">Context:</span> ${linkifyIps(a.context)}</p>` : ""}
     ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)} ${trFlare()}</p>` : ""}
