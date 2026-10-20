@@ -75,6 +75,8 @@
       const split = (u) => u.cache_read != null;
       const mins = sum((u) => u.duration_s) / 60, cost = sum((u) => u.cost_usd), nCost = U.filter((u) => u.cost_usd != null).length;
       const S = U.filter(split), nRaw = U.length - S.length;
+      const tokAll = sum((u) => split(u) ? u.fresh + u.cache_write + u.completion : (u.prompt || 0) + (u.completion || 0)), readsAll = sum((u) => u.cache_read);
+      const tpm = mins > 0 ? Math.round(tokAll / mins) : 0, tpmR = mins > 0 ? Math.round((tokAll + readsAll) / mins) : 0;
       const work = S.reduce((a, u) => a + u.fresh + u.cache_write + u.completion, 0), reads = S.reduce((a, u) => a + u.cache_read, 0);
       // own box (user request): title is the card h2, the summary line sits under it
       uc = card("Time and tokens per research run", "");
@@ -82,6 +84,7 @@
       const chart = uc;  // header + .chart as direct children so cards.js marks it cc-chart (no phone height cap)
       const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" }));
       hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
+          (tpm ? `avg ${tpm.toLocaleString()} tokens/min (${tpmR.toLocaleString()} incl. cache re-reads) · ` : "") +
           (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
           (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
           (nCost ? ` · est. $${cost.toFixed(2)} at the prices entered for the model ($${(cost / nCost).toFixed(2)} per run)` : "") }));
