@@ -304,15 +304,15 @@ V.lateral = async (el, arg) => {
   if (arg) { LM.focus = arg; if (!["all", "admin"].includes(LM.filter)) LM.filter = "admin"; }
   el.innerHTML = `<h1>Lateral movement</h1><div class="sub">Host-to-host connections inside the network only (internet hosts are never mapped), grouped by zone. Links are classified against the segmentation policy: policy violations, failed admin logins and refused admin connections, and internal scans are risky; admin access you've allowed in policy.json is shown separately. <a href="#/lateral?at=admin">Admin access ↓</a></div><div class="loading">Loading…</div>`;
   let D;
-  try { D = S.lateral && S.lateral._snap === S.snap.id ? S.lateral : await api("/api/lateral?id=" + encodeURIComponent(S.snap.id)); D._snap = S.snap.id; S.lateral = D; }
+  // custom time range or extra periods from the header picker: query Elasticsearch for exactly those periods and combine them
+  const per = (S.extra?.length || /^r\d/.test(S.snap.id)) && window.rangePeriods ? rangePeriods() : null, pkey = S.snap.id + "|" + (per ? per.map((r) => r.start + "~" + r.end).join(",") : "");
+  try { D = S.lateral && S.lateral._key === pkey ? S.lateral : await api("/api/lateral?id=" + encodeURIComponent(S.snap.id) + (per ? "&p=" + encodeURIComponent(per.map((r) => r.start + "~" + r.end).join(",")) : "")); D._snap = S.snap.id; D._key = pkey; D._per = per; S.lateral = D; }
   catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
   LM.data = D;
   el.querySelector(".loading").remove();
+  if (D._per?.length > 1) el.insertAdjacentHTML("beforeend", `<div class="card small" style="margin:8px 0"><b>${D._per.length} periods combined</b> (set in the time picker at the top): ${D._per.map((r, i) => `${i + 1}. ${esc(ft(r.start))} → ${esc(ft(r.end))}`).join(" · ")}. Connection counts and login counts are added up across the periods.</div>`);
   const c = D.counts;
   el.insertAdjacentHTML("beforeend", kpis([["High-risk links", c.high, c.high ? "bad" : "good"], ["Medium-risk links", c.medium, c.medium ? "warn" : "good"], ["Low-risk links", c.low], ["Allowed admin links", c["allowed-admin"]], ["Normal links", c.normal], ["Internal hosts", D.nodes.filter((n) => !n.gateway).length]]));
-  if (window.lmReportCard) { const rc = lmReportCard(); const det = document.createElement("details"); det.className = "card"; det.style.padding = "0";
-    det.innerHTML = `<summary style="cursor:pointer;padding:10px 14px;font-weight:600">Multi-period report — pick several time periods ▾</summary>`; rc.style.margin = "0"; det.appendChild(rc);
-    if (hq().get("at") === "report") det.open = true; el.appendChild(det); }
   const ctr = document.createElement("div"); ctr.className = "tbltools";
   ctr.innerHTML = `<label class="muted">Show</label><select id="lmFilter">${LM_FILTERS.map(([k, l]) => `<option value="${k}" ${LM.filter === k ? "selected" : ""}>${l}</option>`).join("")}</select>
     <label><input type="checkbox" id="lmGw" ${LM.gateways ? "checked" : ""}> gateway interfaces</label><label><input type="checkbox" id="lmLab" ${LM.labels ? "checked" : ""}> labels</label>

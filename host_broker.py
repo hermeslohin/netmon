@@ -90,7 +90,10 @@ def _prune():
             ids.append(b)
     for b in ids[:-RANGE_KEEP]:
         for f in glob.glob(os.path.join(RANGES, b + ".*")):
-            os.remove(f)
+            try:
+                os.remove(f)
+            except FileNotFoundError:  # a parallel request pruned it first
+                pass
 
 
 def range_start(b):

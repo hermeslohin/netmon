@@ -300,7 +300,8 @@ Host-to-host connections inside the network, compared against the zone policy.
 
 ![Lateral movement map](img/lateral-movement.png)
 
-**Multi-period report.** Open **Multi-period report** at the top of the page, add up to eight time periods (type them in, or use *Add last 1h / 6h / 24h / 3d / 7d*), and press **Generate report**. Each period is queried directly from Security Onion's Elasticsearch (internal connections, SSH/RDP/SMB/WinRM... logins, segmentation violations) and the results are merged: every risky link and admin session shows the periods it appeared in, and is marked *In every period* (persistent) or *New in latest period*. Download it as **HTML** or **CSV**, or print it. The periods are independent of the time range chosen in the page header.
+
+**Several time periods.** In the time picker at the top, press **+ Add period** under *Also include these periods* (up to 8 in total) and Apply. The graph, tables, charts and admin-session lists on this page then combine all periods: connection and login counts are added up and each link keeps its worst risk. A custom range, or any extra period, is queried straight from Security Onion's Elasticsearch (internal connections, admin logins, segmentation violations), so the page does not wait for the full range to be collected. Other pages show the main range only.
 
 ### Network → DNS & TLS
 

@@ -27,9 +27,11 @@
           <label>End <input type="datetime-local" id="rgEnd" step="60"></label></div>
         <div class="rp-row rp-pre">Last ${PRESETS.map(([l, h]) => `<button type="button" data-h="${h}">${l}</button>`).join("")}</div>
         <div class="rp-row"><label style="flex:1">Nightly report window <select id="rgSnap"></select></label></div>
+        <div class="rp-row"><b class="small">Also include these periods</b> <button type="button" id="rgAddP" title="Add another time period">+ Add period</button></div>
+        <div id="rgExtra"></div>
         <div class="rp-row"><button type="button" id="rgApply" class="primary">Apply</button> <button type="button" id="rgCancel">Cancel</button>
           <span id="rgMsg" class="small muted"></span></div>
-        <div class="muted small rp-note">Times are your local time. Report windows load instantly; any other range is collected from Security Onion and UniFi for exactly that time (usually under a minute). Alarms (Alerts, AI triage alarms, research notes) always come from the nightly report that ends in the range.</div>
+        <div class="muted small rp-note">Times are your local time. Report windows load instantly; any other range is collected from Security Onion and UniFi for exactly that time (usually under a minute). Alarms (Alerts, AI triage alarms, research notes) always come from the nightly report that ends in the range. Extra periods are combined with the main range on the Lateral movement page (graph, tables and charts), queried straight from Elasticsearch.</div>
       </div>`;
     const btn = box.querySelector("#rangeBtn"), pop = box.querySelector("#rangePop"), st = box.querySelector("#rgStart"), en = box.querySelector("#rgEnd");
     const place = () => {  // keep the panel inside the viewport (the header can be wider than a phone screen)
@@ -47,7 +49,26 @@
       const end = new Date(); end.setSeconds(0, 0); en.value = toLocal(end); st.value = toLocal(new Date(end - h * 36e5)); box.querySelector("#rgSnap").value = ""; };
     box.querySelector("#rgSnap").onchange = (e) => { const id = e.target.value; if (!id) return; const end = snapEnd(id);
       en.value = toLocal(end); st.value = toLocal(new Date(end - 24 * 36e5)); };
+    const xbox = box.querySelector("#rgExtra");
+    const xrow = (r) => `<div class="rp-row rp-x"><label>Start <input type="datetime-local" step="60" value="${esc(r.start)}"></label><label>End <input type="datetime-local" step="60" value="${esc(r.end)}"></label><button type="button" class="rg-del" title="Remove">✕</button></div>`;
+    const xfill = () => { xbox.innerHTML = (S.extra || []).map((r) => xrow({ start: toLocal(new Date(r.start)), end: toLocal(new Date(r.end)) })).join(""); };
+    box.querySelector("#rgAddP").onclick = () => {  // the new row starts as the same length, directly before the previous one
+      const rows = [...xbox.querySelectorAll(".rp-x")], ref = rows.length ? rows[rows.length - 1].querySelectorAll("input") : [st, en];
+      const s0 = new Date(ref[0].value), e0 = new Date(ref[1].value), len = e0 - s0 > 0 ? e0 - s0 : 24 * 36e5;
+      if (rows.length >= 7) return msg("At most 8 periods.", true);
+      xbox.insertAdjacentHTML("beforeend", xrow({ start: toLocal(new Date(s0 - len)), end: toLocal(s0) })); };
+    xbox.onclick = (e) => { e.target.closest(".rg-del")?.closest(".rp-x").remove(); };
+    window.rangeXFill = xfill;
     box.querySelector("#rgApply").onclick = async () => {
+      const extra = [];
+      for (const row of xbox.querySelectorAll(".rp-x")) {
+        const [a, b] = [...row.querySelectorAll("input")].map((i) => new Date(i.value));
+        if (isNaN(a) || isNaN(b)) return msg("Fill in every extra period's start and end.", true);
+        if (b <= a) return msg("An extra period's end must be after its start.", true);
+        if (b - Date.now() > 6e4) return msg("An extra period can't end in the future.", true);
+        extra.push({ start: a.toISOString(), end: b.toISOString() });
+      }
+      S.extra = extra; sessionStorage.setItem(KEY + "_x", JSON.stringify(extra));
       const s = new Date(st.value), e = new Date(en.value);
       if (isNaN(s) || isNaN(e)) return msg("Enter a start and an end.", true);
       if (e <= s) return msg("The end must be after the start.", true);
@@ -63,12 +84,14 @@
       const sel = box.querySelector("#rgSnap");
       sel.innerHTML = `<option value="">— choose a report —</option>` + [...S.snaps].reverse().map((s) => `<option value="${esc(s.id)}">${esc(fmt(snapEnd(s.id)))}${s.has.includes("triage") ? " ✓" : ""}</option>`).join("");
       sel.value = S.snap && !S.snap.range ? S.snap.id : "";
-      msg("");
+      msg(""); xfill();
     }
     window.closeRangePop = () => open(false);
   }
 
-  function showLabel() { const l = document.getElementById("rangeLbl"); if (l && S.range) l.innerHTML = label(S.range); }
+  function showLabel() { const l = document.getElementById("rangeLbl"); if (l && S.range) l.innerHTML = label(S.range) + (S.extra?.length ? ` <span class="badge sev-info">+${S.extra.length}</span>` : ""); }
+  // every period the Lateral movement page combines: the main range first, then the extras
+  window.rangePeriods = () => [S.range, ...(S.extra || [])].filter(Boolean);
   // phones: a compact label (dates without the year/minutes noise)
   const label0 = label;
   label = (r) => (window.matchMedia("(max-width: 900px)").matches ? (() => { const s = new Date(r.start), e = new Date(r.end), o = { month: "numeric", day: "numeric", hour: "numeric" };
@@ -104,6 +127,7 @@
   // called by init() once the snapshot list is known
   window.initRange = async () => {
     build();
+    try { S.extra = JSON.parse(sessionStorage.getItem(KEY + "_x") || "[]"); } catch (_) { S.extra = []; }
     let saved = null; try { saved = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (_) {}
     if (saved?.id && saved.start) {  // reload: same range again (cached on the server)
       S.range = { start: saved.start, end: saved.end };
