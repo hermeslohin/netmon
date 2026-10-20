@@ -299,9 +299,10 @@ const ACK = {
   issue: (i) => i.key,
   host: (f) => f.key,
   admin: (s) => `${s.src}|${s.dst}|${s.protocol}`,  // lateral admin sessions
+  beacon: (b) => `${b.src}|${b.dst}|${b.port}`,
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
-const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", seg: "Cleared segmentation flow" };
+const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", seg: "Cleared segmentation flow" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
 const SEG_RE = /\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)\/(\w+)/;
@@ -930,6 +931,7 @@ V.checked = (el) => {
   const tr = S.snap.triage || {}, an = S.snap.analysis || {}, I = S.issues || { open: [], fixed: [] };
   const lookup = { alarm: Object.fromEntries((tr.alarms || []).map((a) => [ACK.alarm(a), a])), finding: Object.fromEntries((an.findings || []).map((f) => [ACK.finding(f), f])),
     host: Object.fromEntries((S.snap.raw.hosts?.findings || []).map((f) => [f.key, f])),
+    beacon: Object.fromEntries((S.snap.raw.beacons?.candidates || []).map((b) => [ACK.beacon(b), b])),
     admin: S.lateral && S.lateral._snap === S.snap.id ? Object.fromEntries((S.lateral.admin || []).map((s) => [ACK.admin(s), s])) : {},
     issue: Object.fromEntries([...I.open.map((i) => [i.key, { ...i, _st: "open" }]), ...I.fixed.map((i) => [i.key, { ...i, _st: "fixed" }])]) };
   const rows = [];
@@ -982,7 +984,7 @@ V.security = (el) => {
     card(`Segmentation violations (${SV.open.length} open)${SV.toggle}`, SV.show.length ? table(null, [{ k: "_ack", t: "Clear", sort: (x) => (acked("violation", x) ? 1 : 0),
       fmt: (v, x) => `<label class="seg-clr${acked("violation", x) ? " on" : ""}">${ackBox("violation", x, "")}<span>${acked("violation", x) ? "Cleared" : "Clear"}</span></label>` },
       askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], SV.show, { sort: "severity", dir: 1, rowClass: ackRowCls("violation") }) : `<div class="empty">All segmentation violations cleared. Use “show checked” in the card title to bring them back.</div>`),
-    card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [askPivCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`, "beacon"), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));
+    (() => { const BC = ackSplit("beacon", raw.beacons?.candidates || [], "sec-beacon"); return card(`Beacon candidates (${BC.open.length} open of ${fn(raw.beacons?.pairs_scored)} pairs)${BC.toggle}`, table(null, [ackCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), askPivCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`, "beacon"), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], BC.show, { filter: true, sort: "score", rowClass: ackRowCls("beacon") })); })()));
   el.appendChild(grid("g3",
     (() => { const c = card("Threat-intel feeds", table(null, [{ k: "f", t: "Feed" }, { k: "s", t: "Status", cls: "small" }], entries(ti.feed_status).map(([f, s]) => ({ f, s })), { search: false }));
       c.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin-top:6px">Indicators: ${entries(ti.feed_sizes).map(([k, v]) => esc(k) + " " + fn(v)).join(" · ")}</div>`); return c; })(),
