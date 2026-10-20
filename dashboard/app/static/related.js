@@ -46,6 +46,13 @@
   setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
   let pop = null;
   const close = () => { pop?.remove(); pop = null; };
+  const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎" };
+  function artifactsHtml(arts) {
+    if (!arts?.length) return "";
+    return `<div class="note-arts"><b class="small">Correlated artifacts</b><ul>${arts.map((a) => `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code>
+      <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
+      ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
+  }
   function open(btn) {
     close();
     const id = btn.dataset.rel, rel = S.corr?.related?.[id] || [], me = S.corr?.events?.[id];
@@ -57,6 +64,7 @@
           : `<span class="rel-ai pend" title="The local LLM has not reviewed this link yet">AI review pending</span>`;
         return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
+          ${artifactsHtml(r.llm_artifacts)}
           <span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span></a>`; }).join("")}
       <div class="small muted" style="padding:6px 10px">${esc(llmLine())}</div>`;
     document.body.appendChild(pop);

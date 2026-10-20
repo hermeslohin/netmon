@@ -469,3 +469,6 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 #secProg i{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent,#58a6ff);border-radius:50%;animation:secspin .8s linear infinite}
 @keyframes secspin{to{transform:rotate(360deg)}}
 @keyframes secpulse{50%{opacity:.7}}
+.note-arts{margin:6px 0;font-size:12.5px}.note-arts ul{list-style:none;margin:4px 0 0;padding:0}
+.note-arts li{padding:3px 0;border-top:1px solid var(--border)}.note-arts code{word-break:break-all}
+.art-k{display:inline-block;min-width:64px;font-size:11px;text-transform:uppercase;color:var(--muted)}
