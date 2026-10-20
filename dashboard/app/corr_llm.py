@@ -241,9 +241,9 @@ def limits():
             pass
     pm = {str(k): v for k, v in (c.get("pair_modes") or {}).items() if v in PAIR_MODES}
     pm.pop("seg-seg", None)  # folded into host-seg (pair_type)
-    for old in [k for k in pm if k.endswith("-seg")]:  # settings saved before segmentation was split by severity apply to all three levels
+    for old in [k for k in pm if "seg" in k.split("-")]:  # settings saved before segmentation was split by severity apply to all three levels
         for n in SEG_CLASSES:
-            pm.setdefault(old[:-3] + n, pm[old])
+            pm.setdefault(pair_type(*[n if t == "seg" else t for t in old.split("-")]), pm[old])
         pm.pop(old)
     for x in c.get("skip_pairs") or []:  # settings saved before test mode
         pm.setdefault(str(x), "skip")
