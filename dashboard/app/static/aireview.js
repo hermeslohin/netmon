@@ -513,7 +513,7 @@
         : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
     const web = c.querySelector('input[name="web_research"]');
     const pdfc = c.querySelector('input[name="pdf_report"]');
-    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research !== false; pdfc.checked = v.pdf_report !== false;
+    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research === true; pdfc.checked = v.pdf_report === true;
       for (const b of modeSel()) b.value = (v.modes || {})[b.dataset.cat] || "research"; warn(); };
     fill({ ...L, modes: R.modes, web_research: R.web_research, pdf_report: R.pdf_report });
     for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }

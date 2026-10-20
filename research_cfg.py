@@ -10,8 +10,8 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
   max_searches          web searches allowed per event in event research (a batch of 8 events shares 8x this; 0 = no cap)
-  web_research          True/False: let the job search and read web pages (and cite them). Off = local data only; the daily news briefing is skipped
-  pdf_report            True/False: render the daily PDF report on the 05:00 UTC run. Off = that run still collects 24 h, triages and writes the briefing, but no PDF
+  web_research          True/False (new deployments: False): let the job search and read web pages (and cite them). Off = local data only; the daily news briefing is skipped
+  pdf_report            True/False (new deployments: False): render the daily PDF report on the 05:00 UTC run. Off = that run still collects 24 h, triages and writes the briefing, but no PDF
   max_batches           event-research conversations per run (8 work items each)
   modes                 per event category what the job does: "test" (queued and tagged "testing" but never sent: shows what a mode would send, filters apply; the default on new deployments), "research" (send to the model; events that already have
                          a note are only rewritten if the new run contradicts it), "review" (never sent to the model:
@@ -45,7 +45,7 @@ LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg"
                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
 DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": True, "pdf_report": True, "severities": ["high", "medium"],
+            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": False, "pdf_report": False, "severities": ["high", "medium"],
             "modes": DEFAULT_MODES}
 LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40), "max_searches": (0, 20)}
@@ -73,6 +73,8 @@ def _meta_put(k, v):
 def get():
     v = _meta(KEY)
     out = {k: v.get(k, d) for k, d in DEFAULTS.items()}
+    if v:  # a deployment that already has settings keeps its behaviour: web research and the PDF were on before they became options
+        out.update({k: v.get(k, True) for k in ("web_research", "pdf_report")})
     for k, (lo, hi) in LIMITS.items():
         try:
             out[k] = type(DEFAULTS[k])(out[k])
