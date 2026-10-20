@@ -130,5 +130,14 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
   }, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
   addEventListener("hashchange", close);
+  // Kibana Discover link for an AI search artifact (esk.py descriptor: kql, from, to) - used by the Related / Research popovers
+  const tm = (t, d) => { const v = String(t || ""); return /^now/.test(v) ? v : isNaN(Date.parse(v)) ? d : iso(Date.parse(v)); };
+  window.kibanaQueryUrl = (d) => {
+    if (!SITE.kibana_url || !d || typeof d.kql !== "string") return "";
+    const base = String(SITE.kibana_url).replace(/\/?$/, "/"), dv = SITE.kibana_data_view || "logs-*";
+    const g = `(time:(from:${rison(tm(d.from, "now-24h"))},to:${rison(tm(d.to, "now"))}))`;
+    const a = `(dataSource:(dataViewId:${rison(dv)},type:dataView),query:(language:kuery,query:${rison(d.kql)}),sort:!(!('@timestamp',desc)))`;
+    return `${base}app/discover#/?_g=${encodeURIComponent(g)}&_a=${encodeURIComponent(a)}`;
+  };
   window.__pivotLinks = (kind, item) => (B[kind] || B.alarm)(item);  // for tests
 })();

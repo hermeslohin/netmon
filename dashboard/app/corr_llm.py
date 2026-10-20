@@ -26,6 +26,7 @@ import json, os, sqlite3, sys, threading, time, urllib.error, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 import audit
+import esk
 import llm_providers
 from datetime import datetime, timezone
 
@@ -536,6 +537,10 @@ def _db():
     c.execute("CREATE TABLE IF NOT EXISTS cleared_events (eid TEXT PRIMARY KEY)")
     c.execute("""CREATE TABLE IF NOT EXISTS pair_artifacts (pair TEXT, kind TEXT, value TEXT, relation TEXT, decision TEXT,
                  model TEXT, ts REAL, PRIMARY KEY (pair, kind, value))""")
+    try:  # kind "query" artifacts (AI Elasticsearch searches) keep their Kibana descriptor here
+        c.execute("ALTER TABLE pair_artifacts ADD COLUMN meta TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute("CREATE TABLE IF NOT EXISTS verdicts (pair TEXT PRIMARY KEY, related INTEGER, confidence REAL, reason TEXT, model TEXT, ts REAL)")
     c.execute("""CREATE TABLE IF NOT EXISTS es_queries (id INTEGER PRIMARY KEY, ts REAL, anchor TEXT, candidates TEXT, model TEXT,
                  query TEXT, total INTEGER, seconds REAL, error TEXT)""")
@@ -584,11 +589,29 @@ def clean_artifacts(arts):
     return out[:12]
 
 
+def query_artifacts(descs):
+    """Kibana descriptors (esk.py) of AI Elasticsearch searches -> artifact dicts of kind "query" (max 12, deduped)."""
+    out, seen = [], set()
+    for d in descs or []:
+        d = esk.clean(d)
+        if d and d["kql"] and d["kql"] not in seen:
+            seen.add(d["kql"])
+            out.append({"kind": "query", "value": esk.label(d), "relation": str(d.get("why") or "")[:200], "decision": "info", "meta": esk.dumps(d)})
+    return out[:12]
+
+
+def set_query_artifacts(c, p, descs, model, now):
+    """Replace only the Elasticsearch-search artifacts of a link (the research job's searches; keeps the reviewer's file/process/... artifacts)."""
+    c.execute("DELETE FROM pair_artifacts WHERE pair=? AND kind='query'", (p,))
+    c.executemany("INSERT OR REPLACE INTO pair_artifacts (pair, kind, value, relation, decision, model, ts, meta) VALUES (?,?,?,?,?,?,?,?)",
+                  [(p, a["kind"], a["value"], a["relation"], a["decision"], model, now, a["meta"]) for a in query_artifacts(descs)])
+
+
 def store_artifacts(c, p, arts, model, now):
-    """Replace the artifacts of one link (same connection as its verdict)."""
+    """Replace the artifacts of one link (same connection as its verdict). Query artifacts carry a `meta` descriptor."""
     c.execute("DELETE FROM pair_artifacts WHERE pair=?", (p,))
-    c.executemany("INSERT OR REPLACE INTO pair_artifacts VALUES (?,?,?,?,?,?,?)",
-                  [(p, a["kind"], a["value"], a["relation"], a["decision"], model, now) for a in arts])
+    c.executemany("INSERT OR REPLACE INTO pair_artifacts (pair, kind, value, relation, decision, model, ts, meta) VALUES (?,?,?,?,?,?,?,?)",
+                  [(p, a["kind"], a["value"], a["relation"], a["decision"], model, now, a.get("meta")) for a in arts])
 
 
 def artifacts(keys):
@@ -596,9 +619,15 @@ def artifacts(keys):
     with _db() as c:
         for i in range(0, len(keys), 500):
             ch = keys[i:i + 500]
-            for p, k, v, rel, dec, m, ts in c.execute(f"SELECT pair, kind, value, relation, decision, model, ts FROM pair_artifacts "
-                                                      f"WHERE pair IN ({','.join('?' * len(ch))}) ORDER BY rowid", ch):
-                out.setdefault(p, []).append({"kind": k, "value": v, "relation": rel, "decision": dec, "model": m, "at": ts})
+            for p, k, v, rel, dec, m, ts, meta in c.execute(f"SELECT pair, kind, value, relation, decision, model, ts, meta FROM pair_artifacts "
+                                                            f"WHERE pair IN ({','.join('?' * len(ch))}) ORDER BY rowid", ch):
+                a = {"kind": k, "value": v, "relation": rel, "decision": dec, "model": m, "at": ts}
+                if k == "query":
+                    try:
+                        a["query"] = esk.clean(json.loads(meta or "{}"))
+                    except ValueError:
+                        a["query"] = None
+                out.setdefault(p, []).append(a)
     return out
 
 
@@ -924,6 +953,8 @@ def _ai_notes(aid, ids, E):
 
 def _es_logger(aid, ids, mname):
     def logq(q, res, err):  # every reviewer look-up: corr_llm.db (AI review page) + audit log
+        if res and not err and isinstance(res.get("query"), dict):  # kept as a Kibana artifact of the links reviewed
+            logq.found.append(esk.from_norm(res["query"], res.get("total")))
         STATUS["es_queries_this_run"] = STATUS.get("es_queries_this_run", 0) + 1
         with _lock, _db() as c:
             c.execute("INSERT INTO es_queries (ts, anchor, candidates, model, query, total, seconds, error) VALUES (?,?,?,?,?,?,?,?)",
@@ -931,6 +962,7 @@ def _es_logger(aid, ids, mname):
                        (res or {}).get("total"), (res or {}).get("seconds"), err))
         audit.action("netmon (background reviewer)", "aireview.esquery", outcome="failure" if err else "success", category="database",
                      params={"query": q, "total": (res or {}).get("total"), "error": err}, target=aid, message=f"correlation reviewer searched Elasticsearch ({mname})")
+    logq.found = []
     return logq
 
 
@@ -958,7 +990,7 @@ def _review(model, aid, base, todo):
             d = dec.get(f"c{i}")
             if d is not None:
                 k = pair(aid, r["id"])
-                store_artifacts(c, k, clean_artifacts(d.get("artifacts")) if d.get("related") else [], mname, time.time())
+                store_artifacts(c, k, (clean_artifacts(d.get("artifacts")) + query_artifacts(logq.found)) if d.get("related") else [], mname, time.time())
     return len(rows)
 
 

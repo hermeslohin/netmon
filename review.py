@@ -18,6 +18,7 @@ NM = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, NM)
 sys.path.insert(1, os.path.join(NM, "dashboard", "app"))
 import agent  # noqa: E402
+import esk  # noqa: E402  (dashboard/app) Elasticsearch search -> Kibana artifact
 import llm_providers as LP  # noqa: E402
 import research_cfg as RC  # noqa: E402
 import site_cfg as SITE  # noqa: E402
@@ -168,6 +169,7 @@ class Run:
         self.web = bool(cfg.get("web_research", True))
         self.max_batches = args.max_batches if args.max_batches is not None else cfg["max_batches"]
         self.fetched, self.notes_out, self.errors, self.counts = set(), [], [], {}
+        self.es_found = []  # Elasticsearch searches of the current research batch (esk descriptors)
         self.snap = self.stem = None
         self.raw, self.ana = {}, {}
         os.makedirs(LOGDIR, mode=0o700, exist_ok=True)
@@ -197,6 +199,7 @@ class Run:
         body = a.get("body") if isinstance(a.get("body"), dict) else json.loads(a.get("body") or "{}")
         if re.search(r'"(script|script_fields|runtime_mappings)"', json.dumps(body)):
             raise ValueError("scripts are not allowed in searches")
+        for_ids = [str(x) for x in (a.get("for_ids") or []) if isinstance(x, (str, int))][:20] if isinstance(a.get("for_ids"), list) else []
         body["size"] = max(0, min(int(body.get("size", 10)), 50))
         body.setdefault("timeout", "60s")
         t0, err, r = time.time(), None, {}
@@ -208,7 +211,14 @@ class Run:
         finally:
             self.log_es(idx, body, r, time.time() - t0, err)
         hits = r.get("hits") or {}
-        out = {"total": (hits.get("total") or {}).get("value") if isinstance(hits.get("total"), dict) else hits.get("total"),
+        tot = (hits.get("total") or {}).get("value") if isinstance(hits.get("total"), dict) else hits.get("total")
+        try:  # kept as a Kibana-openable artifact of the notes/links of this batch (dashboard: esk.py)
+            d = esk.from_dsl(idx, body, tot)
+            d["for_ids"] = for_ids
+            self.es_found.append(d)
+        except Exception as e:  # noqa: BLE001 - artifacts are a convenience, never fail the search
+            print(f"es artifact failed: {e}", file=sys.stderr)
+        out = {"total": tot,
                "hits": [json.dumps(h.get("_source"), ensure_ascii=False)[:1500] for h in hits.get("hits") or []]}
         if r.get("aggregations"):
             out["aggregations"] = r["aggregations"]
@@ -345,7 +355,14 @@ class Run:
         self.counts["briefing_items"] = len(items)
         return {"ok": True, "stored": len(items)}
 
+    def queries_for(self, *item_ids):
+        """Searches of this batch that concern one of the items (tagged with for_ids) or were not tagged at all."""
+        want = set(item_ids)
+        out = [{k: v for k, v in d.items() if k != "for_ids"} for d in self.es_found if not d.get("for_ids") or want & set(d["for_ids"])]
+        return out[:12]
+
     def t_notes_factory(self, batch):
+        self.es_found = []  # a new batch starts here
         ids = set()
         for it in batch:
             ids.add(it["id"])
@@ -360,8 +377,9 @@ class Run:
                 if n.get("verdict") not in VERDICTS or n.get("priority") not in PRIOS:
                     raise ValueError(f"notes[{i}]: verdict {VERDICTS} and priority {PRIOS} are required")
                 notes.append({"id": n["id"], "verdict": n["verdict"], "priority": n["priority"], "summary": str(n.get("summary") or "")[:600],
-                              "research": str(n.get("research") or "")[:4000], "links": self._links(n.get("links"), f"notes[{i}]")})
-            links = [l for l in a.get("links") or [] if isinstance(l, dict) and l.get("a") and l.get("b")]
+                              "research": str(n.get("research") or "")[:4000], "links": self._links(n.get("links"), f"notes[{i}]"),
+                              "queries": self.queries_for(n["id"])})
+            links = [{**l, "queries": self.queries_for(l["a"], l["b"])} for l in a.get("links") or [] if isinstance(l, dict) and l.get("a") and l.get("b")]
             doc = {"model": self.target["model"], "via": VIA, "snapshot": os.path.basename(self.stem), "notes": notes, "links": links,
                    "host_notes": [h for h in a.get("host_notes") or [] if isinstance(h, dict)],
                    "host_notes_delete": [x for x in a.get("host_notes_delete") or [] if isinstance(x, (int, str))]}
@@ -390,7 +408,8 @@ class Run:
         T = {
             "es_search": (self.t_es, "Read-only Elasticsearch search (query DSL). Keep size small (<= 50) and use aggregations for counts.",
                           {"index": {"type": "string", "description": "index or pattern, e.g. logs-zeek-so"},
-                           "body": {"type": "object", "description": "search body: query, aggs, size, sort, _source"}}, ["index", "body"]),
+                           "body": {"type": "object", "description": "search body: query, aggs, size, sort, _source"},
+                           "for_ids": {"type": "array", "items": {"type": "string"}, "description": "ids of the work items this search is about; each search is attached to those notes as a Kibana link"}}, ["index", "body"]),
             "read_data": (self.t_read, "Read netmon data by path. Files: snapshot (full collected data), analysis (findings vs baseline), "
                           "previous_triage, day_ago_triage, known_benign, policy. path uses '/' between keys, e.g. devices/192.168.1.20 or "
                           "alerts/signatures/0. Big objects come back as a key list with sizes.",

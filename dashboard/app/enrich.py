@@ -21,6 +21,8 @@ internal hosts involved (`host_notes`, {ip: [...]}) so the run decides with what
 """
 import json, os, re, sqlite3, sys, time
 
+import esk
+
 DB = os.path.join(os.environ.get("STATE_DIR", "/state"), "enrich.db")
 VERDICTS = ("malicious", "suspicious", "needs-review", "benign", "expected")
 PRIORITIES = ("Investigate", "Review", "Info")
@@ -32,6 +34,7 @@ def _db():
     c = sqlite3.connect(DB, timeout=10)
     c.execute("""CREATE TABLE IF NOT EXISTS notes (skey TEXT PRIMARY KEY, eid TEXT, label TEXT, verdict TEXT, priority TEXT,
                  summary TEXT, research TEXT, links TEXT, model TEXT, via TEXT, ts REAL, snapshot TEXT)""")
+    c.execute("CREATE TABLE IF NOT EXISTS note_queries (skey TEXT, kql TEXT, meta TEXT, ts REAL, PRIMARY KEY (skey, kql))")  # Elasticsearch searches behind a note (esk.py descriptors)
     c.execute("""CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, snapshot TEXT, started REAL, listed INTEGER, todo INTEGER,
                  note_keys INTEGER, stored REAL, notes INTEGER, links INTEGER, rejected INTEGER, model TEXT)""")
     c.execute("PRAGMA temp_store=MEMORY")
@@ -74,6 +77,18 @@ def load(eids):
                 for eid in keys[r[0]]:
                     out[eid] = {"verdict": r[2], "priority": r[3], "summary": r[4], "research": r[5], "links": json.loads(r[6] or "[]"),
                                 "model": r[7], "via": r[8], "at": r[9], "snapshot": r[10], "same_event": r[1] == eid}
+            qs = {}
+            for sk, meta in c.execute(f"SELECT skey, meta FROM note_queries WHERE skey IN ({','.join('?' * len(ch))}) ORDER BY ts", ch):
+                try:
+                    d = esk.clean(json.loads(meta))
+                except ValueError:
+                    d = None
+                if d:
+                    qs.setdefault(sk, []).append(d)
+            for sk, eids_ in keys.items():
+                for eid in eids_:
+                    if eid in out and qs.get(sk):
+                        out[eid]["queries"] = qs[sk]
     return out
 
 
@@ -130,6 +145,12 @@ def put(doc, events=None):
                      str(n.get("research") or "")[:4000], json.dumps(_clean_links(n.get("links"))), model, via, now, sid))
     with _db() as c:
         c.executemany("INSERT OR REPLACE INTO notes VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        for n in doc.get("notes") or []:  # the Elasticsearch searches the research AI ran for this note: Kibana artifacts of the note
+            if str(n.get("id") or "") and isinstance(n.get("queries"), list):
+                sk = skey(str(n["id"]), ak)
+                c.execute("DELETE FROM note_queries WHERE skey=?", (sk,))
+                c.executemany("INSERT OR REPLACE INTO note_queries VALUES (?,?,?,?)",
+                              [(sk, d["kql"], esk.dumps(d), now) for d in map(esk.clean, n["queries"][:12]) if d and d["kql"]])
     import corr_llm
     lrows, kept = [], 0
     with corr_llm._db() as c:
@@ -144,6 +165,10 @@ def put(doc, events=None):
             lrows.append((p, 1 if l.get("related") else 0, max(0.0, min(1.0, float(l.get("confidence") or 0))),
                           str(l.get("reason") or "")[:300], model, now))
         c.executemany("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)", lrows)
+        for l in doc.get("links") or []:  # searches behind a related link become its Kibana artifacts
+            a, b = str(l.get("a") or ""), str(l.get("b") or "")
+            if l.get("related") and isinstance(l.get("queries"), list) and corr_llm.pair(a, b) not in manual and a and b and a != b and (events is None or (a in events and b in events)):
+                corr_llm.set_query_artifacts(c, corr_llm.pair(a, b), l["queries"], model, now)
     with _db() as c:  # close the newest open run of this snapshot (opened by `events`), else log a standalone one
         r = c.execute("SELECT id FROM runs WHERE snapshot=? AND stored IS NULL ORDER BY id DESC LIMIT 1", (sid,)).fetchone()
         if r:

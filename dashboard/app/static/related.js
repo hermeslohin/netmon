@@ -52,12 +52,27 @@
   let pop = null;
   const close = () => { pop?.remove(); pop = null; };
   const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎" };
-  function artifactsHtml(arts) {
+  // an AI Elasticsearch search kept as an artifact: click to open the same search in Kibana Discover
+  function queryArtHtml(a) {
+    const d = a.query || {}, url = window.kibanaQueryUrl?.(d) || "";
+    const hits = d.total != null ? `${Number(d.total).toLocaleString()} hits` : "";
+    const tip = `${d.by === "research" ? "Research AI" : "Reviewer"} search${d.index ? " of " + d.index : ""}${d.from ? ` · ${String(d.from).slice(0, 16)} → ${String(d.to || "").slice(0, 16)}` : ""}${d.approx ? " · opens an approximation (aggregations / complex clauses are not in the link)" : ""}`;
+    return `<li><span class="art-k" title="${esc(tip)}">🔭 query</span> ${url ? `<button type="button" class="kib-btn" data-kib="${esc(url)}" title="${esc(tip)}: open in Kibana Discover"><code>${esc(a.value)}</code> ↗</button>` : `<code title="${esc(tip)}">${esc(a.value)}</code>`}
+      ${hits ? `<span class="small muted">${esc(hits)}</span>` : ""}${d.approx ? ` <span class="small muted" title="${esc(tip)}">≈</span>` : ""} ${a.model ? aiFlare({ model: a.model, via: "Elasticsearch search", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}
+      ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`;
+  }
+  function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";
-    return `<div class="note-arts"><b class="small">Correlated artifacts</b><ul>${arts.map((a) => `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
+    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
       <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
   }
+  document.addEventListener("click", (e) => {  // capture phase: the artifact sits inside a link row, so stop that navigation
+    const b = e.target.closest?.(".kib-btn");
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    window.open(b.dataset.kib, "_blank", "noopener,noreferrer");
+  }, true);
   // event time: epoch seconds (t0, optional t1 span end); vulnerabilities are timeless (open until fixed)
   const evTime = (e) => {
     const f = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -101,6 +116,7 @@
           ${n.same_event ? "" : `<span class="small muted">written for an earlier run of this finding (${esc(n.snapshot || "")}); numbers may differ</span>`}</div>
         ${n.summary ? `<p><b>${esc(n.summary)}</b></p>` : ""}
         ${n.research ? `<div class="note-research">${esc(n.research)}</div>` : ""}
+        ${artifactsHtml((n.queries || []).map((d) => ({ kind: "query", value: d.kql || d.index || "search", relation: d.why, model: n.model, at: n.at, query: d })), "Elasticsearch searches (open in Kibana)")}
         ${links.length ? `<div class="small"><b>Sources</b><ol class="note-links">${links.map((l) => `<li><a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a></li>`).join("")}</ol></div>` : ""}
         <div class="small muted">AI research from the scheduled research job. Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
       </div>`;

@@ -107,7 +107,9 @@ def build(req, anchor=None):
         body["_source"] = list(KEEP)
     norm = {"source": src, "match": match, "text": text, "start": start.isoformat(timespec="seconds"),
             "end": end.isoformat(timespec="seconds"), "group_by": gb, "size": body.get("size", 0), "why": str(req.get("why") or "")[:200]}
-    return INTEG.map_index(SOURCES[src][0]), body, norm
+    index = INTEG.map_index(SOURCES[src][0])
+    norm["es_index"] = index  # lets the dashboard turn the search into a Kibana Discover link (esk.py)
+    return index, body, norm
 
 
 def run(req, anchor=None):

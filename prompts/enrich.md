@@ -27,6 +27,9 @@ Type-specific guidance:
   with a package install, update, cron job or admin session; what the vendor docs say. Findings with one shared cause
   may share research text, but each gets its own note with its own id.
 
+Every es_search is kept as a clickable Kibana artifact of the notes and links of its batch. Pass `for_ids` (the work item ids the
+search is about) so it is attached only to those notes.
+
 Also review each item's `related` candidates: is each pair genuinely the same activity or incident? Give
 {a, b, related: true|false, confidence 0-1, reason} - prioritise pairs the local model has not reviewed or that you
 disagree with.
