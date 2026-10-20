@@ -260,19 +260,23 @@
     r.title = "When on, the correlation reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
     return r;
   }
-  function esCard(D) {
-    const E = D.es_queries || { total: 0, last_day: 0, recent: [] }, on = D.config?.es_queries?.enabled;
-    const fq = (q) => { if (!q || typeof q !== "object") return esc(String(q || ""));
+  // Elasticsearch searches of one AI: the correlation reviewer (structured requests) or the research AI (raw query DSL)
+  function esCard(D, who) {
+    const R = who === "research", E = (R ? D.es_queries?.research : D.es_queries) || { total: 0, last_day: 0, recent: [] };
+    const on = R ? true : D.config?.es_queries?.enabled;
+    const fq = (q) => { if (!q || typeof q !== "object") return `<span class="mono small">${esc(String(q || ""))}</span>`;
+      if (q.index) return `<span class="mono">${esc(q.index)}</span><pre class="mono small" style="margin:2px 0;white-space:pre-wrap;max-width:60em">${esc(JSON.stringify(q.body || {}, null, 1).slice(0, 1500))}</pre>`;
       const m = Object.entries(q.match || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(" ");
       return `<span class="mono">${esc(q.source || "?")}</span> ${esc(m)}${q.text ? ` "${esc(q.text)}"` : ""}${q.group_by ? ` <span class="muted">top ${esc(q.group_by)}</span>` : ""}` +
         `${q.start ? ` <span class="muted small">${esc(String(q.start).slice(5, 16))}→${esc(String(q.end || "").slice(5, 16))}</span>` : ""}${q.why ? `<div class="small muted">${esc(q.why)}</div>` : ""}`; };
-    const c = card(`Reviewer searches (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
-      `<div class="small muted">${on ? "The reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the reviewer search the logs for more context."}</div>`);
-    c.id = "ai-es";
+    const title = R ? "Research AI Elasticsearch queries" : "Reviewer Elasticsearch queries";
+    const c = card(`${title} (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
+      `<div class="small muted">${R ? "The research AI has not searched Elasticsearch yet (it can run es_search while researching events)." : on ? "The reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the reviewer search the logs for more context."}</div>`);
+    c.id = R ? "ai-es-research" : "ai-es";
     if (E.recent.length) c.appendChild(table(null, [
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
-      { k: "anchor_label", t: "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(v)}</a>` : esc(v)) },
-      { k: "query", t: "Search", fmt: (v) => fq(v) },
+      { k: "anchor_label", t: R ? "Run" : "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(v)}</a>` : esc(v)) },
+      { k: "query", t: "Query", fmt: (v) => fq(v) },
       { k: "total", t: "Hits", num: true, fmt: (v, r) => (r.error ? `<span class="bad small">${esc(r.error)}</span>` : fn(v)) },
       { k: "model", t: "Model", cls: "small mono" },
     ], E.recent, { sort: "ts", limit: 20 }));
@@ -753,7 +757,8 @@
     el.appendChild(costCard(D));
     el.appendChild(limitsCard(D));
     el.appendChild(lookbackCard(D));
-    el.appendChild(esCard(D));
+    el.appendChild(esCard(D, "reviewer"));
+    el.appendChild(esCard(D, "research"));
     el.append(...researchCard(D.research_status || {}, D));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
@@ -761,7 +766,8 @@
         <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local (LM Studio)")} · <a href="#/aireview?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
-        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} searches in 24 h</a>` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
+        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
+        <span class="k">Research AI Elasticsearch</span><span><a href="#/aireview?at=ai-es-research">${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h</a> · ${fn(D.es_queries?.research?.total || 0)} total</span>
         <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>
         ${st.error ? `<span class="k">Last error</span><span class="bad">${esc(st.error)}</span>` : ""}

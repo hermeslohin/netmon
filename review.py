@@ -199,13 +199,39 @@ class Run:
             raise ValueError("scripts are not allowed in searches")
         body["size"] = max(0, min(int(body.get("size", 10)), 50))
         body.setdefault("timeout", "60s")
-        r = esq.q(idx, body)
+        t0, err, r = time.time(), None, {}
+        try:
+            r = esq.q(idx, body)
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"[:300]
+            raise
+        finally:
+            self.log_es(idx, body, r, time.time() - t0, err)
         hits = r.get("hits") or {}
         out = {"total": (hits.get("total") or {}).get("value") if isinstance(hits.get("total"), dict) else hits.get("total"),
                "hits": [json.dumps(h.get("_source"), ensure_ascii=False)[:1500] for h in hits.get("hits") or []]}
         if r.get("aggregations"):
             out["aggregations"] = r["aggregations"]
         return out
+
+    def log_es(self, idx, body, r, secs, err):
+        """Keep every research-side Elasticsearch search in corr_llm.db (shown on AI review > Research AI searches)."""
+        try:
+            import sqlite3
+            h = r.get("hits") or {}
+            tot = (h.get("total") or {}).get("value") if isinstance(h.get("total"), dict) else h.get("total")
+            c = sqlite3.connect(os.path.join(RC.STATE, "corr_llm.db"), timeout=10)
+            try:
+                c.execute("ALTER TABLE es_queries ADD COLUMN source TEXT DEFAULT 'reviewer'")
+            except sqlite3.OperationalError:
+                pass
+            with c:
+                c.execute("INSERT INTO es_queries (ts, anchor, candidates, model, query, total, seconds, error, source) VALUES (?,?,?,?,?,?,?,?,?)",
+                          (time.time(), "Research run " + os.path.basename(self.stem or ""), "[]", self.target.get("model"),
+                           json.dumps({"index": idx, "body": body}, default=str)[:4000], tot, round(secs, 2), err, "research"))
+            c.close()
+        except Exception as e:
+            print(f"es log failed: {e}", file=sys.stderr)
 
     def files(self):
         prev, day = triage_files(self.stem)

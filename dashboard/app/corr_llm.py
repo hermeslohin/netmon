@@ -468,6 +468,10 @@ def _db():
     c.execute("CREATE TABLE IF NOT EXISTS verdicts (pair TEXT PRIMARY KEY, related INTEGER, confidence REAL, reason TEXT, model TEXT, ts REAL)")
     c.execute("""CREATE TABLE IF NOT EXISTS es_queries (id INTEGER PRIMARY KEY, ts REAL, anchor TEXT, candidates TEXT, model TEXT,
                  query TEXT, total INTEGER, seconds REAL, error TEXT)""")
+    try:  # which AI ran the search: reviewer (default) or research (written by review.py on the host)
+        c.execute("ALTER TABLE es_queries ADD COLUMN source TEXT DEFAULT 'reviewer'")
+    except sqlite3.OperationalError:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
                  related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
@@ -1025,21 +1029,27 @@ def overview(events, applied):
 
 
 def es_overview(events, limit=50):
-    """Reviewer Elasticsearch look-ups: counts (24 h / total, per event review) and the newest ones."""
+    """Elasticsearch look-ups by the reviewer and by the research AI: counts (24 h / total) and the newest ones of each."""
     now = time.time()
+    out = {}
     with _db() as c:
-        total, day = c.execute("SELECT COUNT(*), SUM(ts > ?) FROM es_queries", (now - 86400,)).fetchone()
-        rows = c.execute("SELECT ts, anchor, model, query, total, seconds, error FROM es_queries ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-    recent = []
-    for ts, a, m, q, tot, s, err in rows:
-        try:
-            q = json.loads(q)
-        except ValueError:
-            pass
-        e = events.get(a) or {}
-        recent.append({"ts": ts, "anchor": a, "anchor_label": e.get("label") or a, "anchor_link": e.get("link") or "", "model": m,
-                       "query": q, "total": tot, "seconds": s, "error": err})
-    return {"total": total or 0, "last_day": day or 0, "recent": recent}
+        for src in ("reviewer", "research"):
+            total, day = c.execute("SELECT COUNT(*), SUM(ts > ?) FROM es_queries WHERE COALESCE(source,'reviewer')=?", (now - 86400, src)).fetchone()
+            rows = c.execute("SELECT ts, anchor, model, query, total, seconds, error FROM es_queries WHERE COALESCE(source,'reviewer')=? ORDER BY ts DESC LIMIT ?",
+                             (src, limit)).fetchall()
+            recent = []
+            for ts, a, m, q, tot, s, err in rows:
+                try:
+                    q = json.loads(q)
+                except ValueError:
+                    pass
+                e = events.get(a) or {}
+                recent.append({"ts": ts, "anchor": a, "anchor_label": e.get("label") or a, "anchor_link": e.get("link") or "", "model": m,
+                               "query": q, "total": tot, "seconds": s, "error": err})
+            out[src] = {"total": total or 0, "last_day": day or 0, "recent": recent}
+    r = dict(out["reviewer"])  # old shape stays for the reviewer
+    r["research"] = out["research"]
+    return r
 
 
 def override(p, related, user):
