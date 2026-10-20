@@ -33,6 +33,22 @@
       const uns = S.corr.unotes?.[b.dataset.rel] || [], un = uns.length, ut = un ? `📝 ${un}${uns.some((x) => x.status === "pending") ? " ⏳" : ""}` : "📝";
       if (ub.textContent !== ut) ub.textContent = ut;
       ub.classList.toggle("has", un > 0);
+      // artifacts the correlation reviewer listed for this event's links: one 💎 flair each (click = related popup)
+      const seen = new Map();
+      for (const r of S.corr.related?.[b.dataset.rel] || []) for (const a of r.llm_artifacts || []) {
+        const k = a.kind + "\u0001" + a.value, o = seen.get(k);
+        if (!o || (a.decision === "suspicious" && o.decision !== "suspicious")) seen.set(k, a);
+      }
+      const arts = [...seen.values()], sig = arts.map((a) => a.kind + a.value + a.decision).join("|");
+      let aw = ub.nextElementSibling?.classList.contains("art-flairs") ? ub.nextElementSibling : null;
+      if (!arts.length) { aw?.remove(); return; }
+      if (!aw) { aw = document.createElement("span"); aw.className = "art-flairs"; ub.after(aw); }
+      if (aw.dataset.sig !== sig) { aw.dataset.sig = sig; aw.dataset.rel = b.dataset.rel;
+        const MAX = 6, shown = arts.slice(0, MAX);
+        aw.innerHTML = shown.map((a) => { const v = String(a.value), t = v.length > 28 ? v.slice(0, 26) + "…" : v;
+          return `<span class="art-flair v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}" title="${esc(`${a.kind}: ${v} · ${a.decision}${a.relation ? " · " + a.relation : ""} (artifact from the correlation reviewer)`)}">💎 ${esc(a.kind)} ${esc(t)}</span>`; }).join("")
+          + (arts.length > MAX ? `<span class="art-flair" title="${arts.length - MAX} more artifacts: open Related">💎 +${arts.length - MAX}</span>` : "");
+      }
     });
   }
   function relabelChips() {  // drill-down chip shows the event's label once correlations are loaded
@@ -104,6 +120,9 @@
     const nbt = e.target.closest(".note-btn");
     if (nbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === nbt) return close(); openNote(nbt); if (pop) pop._for = nbt; return; }
     if (pop && pop.classList.contains("note-pop") && e.target.closest(".note-pop a")) return;
+    const af = e.target.closest(".art-flair");
+    if (af) { const rb = af.closest(".art-flairs")?.dataset.rel; const bb = rb && [...main.querySelectorAll(".rel-btn")].find((x) => x.dataset.rel === rb);
+      if (bb && !bb.disabled) { e.stopPropagation(); e.preventDefault(); close(); open(bb); if (pop) pop._for = bb; } return; }
     const b = e.target.closest(".rel-btn");
     if (b) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === b) return close(); open(b); if (pop) pop._for = b; return; }
     if (pop && !e.target.closest(".rel-pop")) close();

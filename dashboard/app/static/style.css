@@ -472,3 +472,6 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .note-arts{margin:6px 0;font-size:12.5px}.note-arts ul{list-style:none;margin:4px 0 0;padding:0}
 .note-arts li{padding:3px 0;border-top:1px solid var(--border)}.note-arts code{word-break:break-all}
 .art-k{display:inline-block;min-width:64px;font-size:11px;text-transform:uppercase;color:var(--muted)}
+
+.art-flairs{display:inline}.art-flair{display:inline-block;margin-left:4px;padding:0 7px;font-size:10.5px;font-weight:600;line-height:1.5;border-radius:9px;white-space:nowrap;vertical-align:middle;cursor:pointer;background:var(--panel2);border:1px solid #4aa3d8;color:#4aa3d8}
+.art-flair.v-suspicious{border-color:var(--bad);color:var(--bad)}.art-flair.v-benign,.art-flair.v-expected{border-color:var(--good);color:var(--good)}
