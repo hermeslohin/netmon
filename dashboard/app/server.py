@@ -905,10 +905,10 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "research": review_job()})
             if u.path == "/api/llm/review-limits":  # which candidate links the reviewer never sees (admin)
                 try:
-                    corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"))
+                    corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"))
                 except ValueError as e:
                     return self._json({"error": str(e)[:300]}, 400)
-                print(f"review limits: {user} set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes') if k in body})[:300]}", file=sys.stderr)
+                print(f"review limits: {user} set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes', 'classify') if k in body})[:300]}", file=sys.stderr)
                 return self._json({"ok": True, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
             if u.path in ("/api/aireview/clear-review", "/api/aireview/clear-research"):  # admin: empty a queue (see ADMIN_POST)
                 try:

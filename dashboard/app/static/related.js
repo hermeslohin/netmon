@@ -27,8 +27,13 @@
       if (!note && nb) nb.remove();
       if (note && nb) { const t = "✨ " + (note.verdict || "notes"); if (nb.textContent !== t) nb.textContent = t;
         nb.className = "note-btn v-" + String(note.verdict || "").replace(/[^a-z-]/g, ""); nb.title = (note.summary || "Research notes").slice(0, 200); }
+      // AI classification (suspicious / benign / expected): flair after the notes button, once the event's correlation review is done
+      const cl = S.corr.classes?.[b.dataset.rel]; const pre = nb || b; let cb = pre.nextElementSibling?.classList.contains("cls-btn") ? pre.nextElementSibling : null;
+      if (cl && !cb) { cb = document.createElement("button"); cb.type = "button"; cb.className = "cls-btn"; cb.dataset.cls = b.dataset.rel; pre.after(cb); }
+      if (!cl && cb) cb.remove();
+      if (cl && cb) { const t = "🏷 " + cl.label; if (cb.textContent !== t) cb.textContent = t; cb.className = "cls-btn v-" + String(cl.label).replace(/[^a-z-]/g, ""); cb.title = (cl.reason || "AI classification").slice(0, 200); }
       // people's notes on this event (kbnotes.js opens them): a 📝 button after the AI note, on every event row
-      const after = nb || b; let ub = after.nextElementSibling?.classList.contains("unote-btn") ? after.nextElementSibling : null;
+      const after = (b.parentNode.querySelector(`.cls-btn[data-cls="${CSS.escape(b.dataset.rel)}"]`)) || nb || b; let ub = after.nextElementSibling?.classList.contains("unote-btn") ? after.nextElementSibling : null;
       if (!ub) { ub = document.createElement("button"); ub.type = "button"; ub.className = "unote-btn"; ub.dataset.unote = b.dataset.rel; ub.title = "Your notes on this event (the AI reads them)"; after.after(ub); }
       const uns = S.corr.unotes?.[b.dataset.rel] || [], un = uns.length, ut = un ? `📝 ${un}${uns.some((x) => x.status === "pending") ? " ⏳" : ""}` : "📝";
       if (ub.textContent !== ut) ub.textContent = ut;
@@ -100,7 +105,27 @@
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
   }
+  function openClass(btn) {
+    close();
+    const id = btn.dataset.cls, c = S.corr?.classes?.[id], me = S.corr?.events?.[id];
+    if (!c) return;
+    pop = document.createElement("div"); pop.className = "rel-pop note-pop"; pop.setAttribute("role", "dialog");
+    pop.innerHTML = `<div class="rel-head"><b>AI classification</b> ${aiFlare({ model: c.model, via: "event classification", at: c.at ? new Date(c.at * 1000).toISOString() : "" })}
+        <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
+      <div class="note-body"><div><span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span></div>
+        <p>${esc(c.reason || "")}</p>
+        <div class="small muted">Decided by the reviewer after all of this event's correlations were reviewed (AI review > Review limits > Classify events). Verify before acting.</div></div>`;
+    document.body.appendChild(pop);
+    const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
+    pop.style.width = w + "px";
+    pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
+    const below = r.bottom + 6, h = pop.offsetHeight;
+    pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
+    pop.querySelector(".rel-x").onclick = close;
+  }
   document.addEventListener("click", (e) => {
+    const cbt = e.target.closest(".cls-btn");
+    if (cbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === cbt) return close(); openClass(cbt); if (pop) pop._for = cbt; return; }
     const nbt = e.target.closest(".note-btn");
     if (nbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === nbt) return close(); openNote(nbt); if (pop) pop._for = nbt; return; }
     if (pop && pop.classList.contains("note-pop") && e.target.closest(".note-pop a")) return;

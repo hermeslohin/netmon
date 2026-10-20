@@ -325,6 +325,9 @@
     const c = card(`Review limits (${fn(Lm.total || 0)} candidate links)`, `
       <div class="small muted">Links that are skipped or excluded here (or set to <b>test</b>, which only lists them as <i>testing</i>) are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
         Changes apply from the next review round.</div>
+      <div class="rl-class" style="margin:10px 0 4px"><label><input type="checkbox" class="rl-cls"> <b>Classify events</b></label>
+        <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the reviewer model.</span>
+        <div class="small rl-clsinfo" style="margin-top:3px"></div></div>
       <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
         <button type="button" class="rl-maxsave">Save</button>
         <span class="small muted">Each event is reviewed against at most this many links, best-scoring first (0 = no cap). Applies to links without a verdict; a link needs room at both of its events.</span></div>
@@ -345,6 +348,20 @@
     const post = async (b) => { msg.textContent = "saving…";
       try { await apiPost("/api/llm/review-limits", b); location.reload(); }
       catch (e) { msg.textContent = "error: " + e.message; } };
+    const cls = c.querySelector(".rl-cls"), clsi = c.querySelector(".rl-clsinfo"), esCfg = D.config?.es_queries || {};
+    cls.checked = !!Lm.classify; cls.disabled = !D.can_limit;
+    const cc = Lm.class_counts || {}, ccn = ["suspicious", "benign", "expected"].map((k) => `<span class="note-v v-${k}">${k}</span> ${fn(cc[k] || 0)}`).join(" ");
+    clsi.innerHTML = `${Lm.classify ? "<b>On</b>" : "Off"} · classified so far: ${ccn}` +
+      ` · Elasticsearch for the reviewer: ${esCfg.enabled ? `<b>on</b> (up to ${esCfg.max} look-ups per event, used for classification too)` : `off${D.admin ? ' <button type="button" class="rl-es">Let the reviewer use Elasticsearch</button>' : " (an admin can turn it on in the Models box)"}`}`;
+    const esb = clsi.querySelector(".rl-es");
+    const enableEs = async () => { await apiPost("/api/llm/esqueries", { enabled: true, max: esCfg.max || 3 }); };
+    if (esb) esb.onclick = async () => { try { await enableEs(); location.reload(); } catch (e) { msg.textContent = "error: " + e.message; } };
+    cls.onchange = async () => {
+      try {
+        if (cls.checked && !esCfg.enabled && D.admin && confirm("Also let the reviewer search Elasticsearch (read-only Security Onion logs) for more context when it classifies events and reviews links?")) await enableEs();
+        await post({ classify: cls.checked });
+      } catch (e) { msg.textContent = "error: " + e.message; }
+    };
     const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });

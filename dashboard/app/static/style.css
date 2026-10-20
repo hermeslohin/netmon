@@ -337,6 +337,10 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .note-btn:hover{background:var(--violet);color:#0d1117}
 .note-btn.v-malicious,.note-btn.v-suspicious{border-color:var(--bad);color:var(--bad)}
 .note-btn.v-benign,.note-btn.v-expected{border-color:var(--good);color:var(--good)}
+.cls-btn{margin-left:4px;padding:1px 7px;font-size:11px;border-radius:10px;background:var(--panel2);border:1px solid var(--border);color:var(--muted);cursor:pointer;white-space:nowrap}
+.cls-btn.v-suspicious{border-color:var(--bad);color:var(--bad)}
+.cls-btn.v-benign,.cls-btn.v-expected{border-color:var(--good);color:var(--good)}
+.cls-btn:hover{filter:brightness(1.3)}
 .note-body{padding:8px 12px;display:flex;flex-direction:column;gap:6px}
 .note-body p{margin:0}
 .note-research{white-space:pre-wrap;font-size:12.5px;line-height:1.45}
