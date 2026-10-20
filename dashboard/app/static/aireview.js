@@ -328,6 +328,12 @@
       <div class="rl-class" style="margin:10px 0 4px"><label><input type="checkbox" class="rl-cls"> <b>Classify events</b></label>
         <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the reviewer model.</span>
         <div class="small rl-clsinfo" style="margin-top:3px"></div></div>
+      <div class="rl-win" style="margin:10px 0 4px"><b>Time window for the reviewer</b>
+        ignore events older than <input type="number" class="rl-wmax" min="0" step="any" style="width:6em"> hours
+        and newer than <input type="number" class="rl-wmin" min="0" step="any" style="width:6em"> minutes
+        <button type="button" class="rl-wsave">Save</button>
+        <span class="small muted">0 = no limit. A link is never considered (no model call, no classification) when either of its events falls outside the window; events without a time, such as open vulnerabilities, always count. Links that already have a verdict are kept.</span>
+        <div class="small rl-winfo" style="margin-top:3px"></div></div>
       <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
         <button type="button" class="rl-maxsave">Save</button>
         <span class="small muted">Each event is reviewed against at most this many links, best-scoring first (0 = no cap). Applies to links without a verdict; a link needs room at both of its events.</span></div>
@@ -362,6 +368,10 @@
         await post({ classify: cls.checked });
       } catch (e) { msg.textContent = "error: " + e.message; }
     };
+    const wmax = c.querySelector(".rl-wmax"), wmin = c.querySelector(".rl-wmin"), wsv = c.querySelector(".rl-wsave"), wo = Lm.window_out || {};
+    wmax.value = Lm.window_max_h || 0; wmin.value = Lm.window_min_min || 0; wmax.disabled = wmin.disabled = wsv.disabled = !D.can_limit;
+    c.querySelector(".rl-winfo").textContent = Lm.window_max_h || Lm.window_min_min ? `Now outside the window: ${fn(wo.events || 0)} events, ${fn(wo.links || 0)} candidate links.` : "No window set: events of any age are reviewed.";
+    wsv.onclick = () => post({ window: { max_hours: +wmax.value || 0, min_minutes: +wmin.value || 0 } });
     const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });
