@@ -172,6 +172,17 @@ def alerts_recent(limit=100, c=None):
     return [_arow(r) for r in c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,))]
 
 
+def alerts_delete(ids, c=None):
+    """Remove these watcher alerts (used when an analyst mutes an alert class and clears what already fired)."""
+    c = c or connect()
+    ids = [int(i) for i in ids]
+    if not ids:
+        return 0
+    with tx(c):
+        c.executemany("DELETE FROM alerts WHERE id=?", [(i,) for i in ids])
+    return len(ids)
+
+
 def alerts_unpushed(c=None):
     c = c or connect()
     return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE pushed=0 ORDER BY id")]

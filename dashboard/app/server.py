@@ -946,8 +946,18 @@ class H(BaseHTTPRequestHandler):
                     corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"))
                 except ValueError as e:
                     return self._json({"error": str(e)[:300]}, 400)
-                print(f"review limits: {user} set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes', 'classify', 'window') if k in body})[:300]}", file=sys.stderr)
-                return self._json({"ok": True, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
+                cleared = 0
+                if body.get("rule") and body.get("clear_alerts"):  # muting an alert class also removes the alerts that already fired
+                    try:
+                        rl = {k: str(body["rule"].get(k) or "").strip() for k in ("name", "host", "id")}
+                        hit = [a["id"] for a in store.alerts_recent(100000)
+                               if corr_llm.rule_match(rl, f"alert|{a['id']}", {"label": a["text"], "ips": list(a.get("targets") or [])})]
+                        cleared = store.alerts_delete(hit)
+                        _CORR.clear()
+                    except Exception as e:  # noqa: BLE001
+                        print(f"clear alerts failed: {e}", file=sys.stderr)
+                print(f"review limits: {user} cleared {cleared} alerts; set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes', 'classify', 'window') if k in body})[:300]}", file=sys.stderr)
+                return self._json({"ok": True, "cleared_alerts": cleared, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
             if u.path in ("/api/aireview/clear-review", "/api/aireview/clear-research"):  # admin: empty a queue (see ADMIN_POST)
                 try:
                     if u.path.endswith("review"):

@@ -138,16 +138,33 @@
   const alertName = (label) => { const g = String(label || "").replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "*").replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "*").replace(/\d+(?:[.,:]\d+)*/g, "*").replace(/\*(?:[\s,/()-]*\*)+/g, "*"); return "*" + g.replace(/…$/, "").trim().replace(/^\*+|\*+$/g, "") + "*"; };
   const alertHost = (label) => (String(label || "").match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/) || String(label || "").match(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/i) || [""])[0];
   window.alertMuteHtml = (label) => { if (!canMute()) return ""; const h = alertHost(label);
-    return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Never send alerts named like this to the AI (Review limits > Never send): ${esc(alertName(label))}">mute name</button>`
-      + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host</button></span>`; };
+    return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Never send alerts like this to the AI and clear the ones already raised. You can edit the pattern.">mute name…</button>`
+      + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host…</button></span>`; };
+  // Mute: opens an editable pattern (wildcards * ?, no wildcard = "contains"); saving also clears alerts already raised
   document.addEventListener("click", async (e) => {
-    const b = e.target.closest(".mute-btn"); if (!b) return;
+    const b = e.target.closest(".mute-btn"), cancel = e.target.closest(".mute-cancel"), ok = e.target.closest(".mute-ok");
+    if (!b && !cancel && !ok) return;
     e.preventDefault(); e.stopPropagation();
-    const wrap = b.closest(".mute-btns"), label = wrap.dataset.label, rule = { name: alertName(label), scope: "both" };
-    if (b.dataset.mute === "host") rule.host = alertHost(label);
-    b.disabled = true;
-    try { await apiPost("/api/llm/review-limits", { rule }); wrap.innerHTML = `<span class="muted" title="${esc(JSON.stringify(rule))}">muted ✓ (${rule.host ? "name + " + esc(rule.host) : "name"})</span>`; S.corr = null; }
-    catch (err) { b.disabled = false; alert(String(err.message || err)); }
+    const wrap = (b || cancel || ok).closest(".mute-btns"), label = wrap.dataset.label;
+    if (b) {
+      const host = b.dataset.mute === "host" ? alertHost(label) : "";
+      wrap.dataset.orig = wrap.innerHTML; wrap.dataset.host = host;
+      wrap.style.cssText = "display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center";
+      wrap.innerHTML = `<input class="mute-pat" value="${esc(alertName(label))}" size="46" title="Part of the alert text. Use * for any text, ? for one character."> ${host ? `<span class="small">only host <b>${esc(host)}</b></span>` : ""}
+        <button type="button" class="mute-ok">Mute &amp; clear existing</button><button type="button" class="mute-cancel">Cancel</button>
+        <span class="muted small" style="flex-basis:100%">Edit the pattern to match less or more (e.g. <span class="mono">*New device*</span>). Saving also removes every alert already raised that matches.</span>`;
+      wrap.querySelector(".mute-pat").focus(); return;
+    }
+    if (cancel) { wrap.innerHTML = wrap.dataset.orig; return; }
+    const pat = wrap.querySelector(".mute-pat").value.trim();
+    if (!pat.replace(/[*?]/g, "").trim()) { alert("Enter some text that is not just wildcards."); return; }
+    const rule = { name: pat, scope: "both" }; if (wrap.dataset.host) rule.host = wrap.dataset.host;
+    ok.disabled = true;
+    try {
+      const r = await apiPost("/api/llm/review-limits", { rule, clear_alerts: true });
+      wrap.innerHTML = `<span class="muted">muted ✓ ${esc(pat)}${rule.host ? " @ " + esc(rule.host) : ""} · cleared ${r.cleared_alerts || 0} alert(s)</span>`; S.corr = null;
+      if (/^#\/(alerts|aireview)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
+    } catch (err) { ok.disabled = false; alert(String(err.message || err)); }
   }, true);
   // Triage alarm title -> the best-matching underlying event (host finding, new device, IDS, gateway, TI, admin ...)
   const GO_RANK = { host: 3, finding: 3, admin: 3, gw: 2, ti: 2, alert: 2, ids: 1, vuln: 0 };
