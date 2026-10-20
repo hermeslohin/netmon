@@ -247,10 +247,15 @@ function kvTable(obj, keyTitle, valTitle, valFmt = fn, keyFmt = esc, opts = {}) 
 // stray top-level text/button sitting directly in a card - e.g. an inline note icon 📝 next to an IP in prose - would
 // become its own flex item and get stretched to the full card width (align-items:stretch) instead of flowing inline.
 function card(title, body, cls = "") { const c = document.createElement("div"); c.className = "card " + cls; c.innerHTML = title ? `<h2>${title}</h2>` : "";
-  if (typeof body === "string") { const w = document.createElement("div"); w.innerHTML = body; c.appendChild(w); } else if (body) c.appendChild(body); return c; }
+  if (typeof body === "string") { const w = document.createElement("div"); w.innerHTML = body; c.appendChild(w); } else if (body) c.appendChild(body);
+  return markWaiting(c); }
+// Time ranges load section by section (sections.js): the sections a card's data read while it was being built that have not
+// arrived yet (recorded by the S.snap proxies) put a "loading" overlay on that card until they do.
+function takeWaiting() { if (!S._t || !S._t.size) return null; const w = [...S._t]; S._t.clear(); return w; }
+function markWaiting(c) { const w = takeWaiting(); if (w) { c.classList.add("sec-loading"); c.dataset.wait = w.join(","); } return c; }
 function grid(cls, ...cards) { const g = document.createElement("div"); g.className = "grid " + cls; cards.filter(Boolean).forEach((c) => g.appendChild(c)); return g; }
-function kpis(list) { return `<div class="kpis">${list.map(([l, v, c]) => `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>`; }
-function chartCard(title, cfg, cls = "", h = "") { const c = card(title, `<div class="chart ${h}"><canvas></canvas></div>`, cls); queueChart(c.querySelector("canvas"), cfg); return c; }
+function kpis(list) { const w = takeWaiting(); return `<div class="kpis${w ? " sec-loading-kpis" : ""}">${list.map(([l, v, c]) => `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>`; }
+function chartCard(title, cfg, cls = "", h = "") { const c = card(title, `<div class="chart ${h}"><canvas></canvas></div>`, cls); if (!c.classList.contains("sec-loading")) queueChart(c.querySelector("canvas"), cfg); return c; }
 const _pending = [];
 function queueChart(canvas, cfg) { _pending.push([canvas, cfg]); }
 function flushCharts() { while (_pending.length) { const [cv, cfg] = _pending.shift(); if (cv.isConnected) S.charts.push(new Chart(cv, cfg)); } }
@@ -1137,6 +1142,7 @@ function auditView(h) { if (h === _lastView) return; _lastView = h;
   fetch("/api/audit/view", { method: "POST", headers: { "Content-Type": "application/json", "X-Netmon": "1" }, body: JSON.stringify({ route: String(h).slice(0, 200) }) }).catch(() => {}); }
 async function route(keep) {
   S.charts.forEach((c) => c.destroy()); S.charts = []; S._scrolled = false; S._noScroll = !!keep;
+  if (S.pending?.size) { S._t = new Set(); S._order = []; }  // sections.js: record which not-yet-loaded sections each card reads
   let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
   if (isUserRole() && !USER_VIEWS.has(view)) { view = "my"; rest = []; }
   const arg = decodeURIComponent(rest.join("/"));
@@ -1145,7 +1151,7 @@ async function route(keep) {
   const el = $("#main"); el.innerHTML = "";
   if (!keep) auditView(location.hash || "#/" + view);
   let p;
-  try { p = (V[view] || V.overview)(el, arg); if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
+  try { p = (V[view] || V.overview)(el, arg); S._t = null; if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
   catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
   flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
   const at = !keep && hq().get("at"); if (at) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 0);
@@ -1157,6 +1163,7 @@ async function loadSnap(id) {
   const [snap, hist, reg, iss, rsk, acks] = await Promise.all([api("/api/snapshot?id=" + encodeURIComponent(id)), api("/api/history"), api("/api/registry"), api("/api/issues").catch(() => null), api("/api/risk?id=" + encodeURIComponent(id)).catch(() => null), api("/api/acks").catch(() => ({}))]);
   S.acks = acks || {};
   S.snap = snap; S.reg = reg; S.issues = iss; S.risk = rsk;
+  window.sectionsSetup?.(snap);  // a time range still being collected: placeholders + proxies, sections arrive after the first render
   // the time range: a collected range carries its own; a nightly snapshot covers generated - hours .. generated
   const gen = Date.parse(snap.raw.generated);
   S.range = snap.range ? { start: snap.range.start, end: snap.range.end } : { start: new Date(gen - (+snap.raw.hours || 24) * 36e5).toISOString(), end: new Date(gen).toISOString() };
@@ -1165,11 +1172,12 @@ async function loadSnap(id) {
   S.hist = inR.length >= 2 ? inR : hist; S.histInRange = inR.length >= 2;
   window.rangeLabel?.();
   const ic = $("#issueCount"); const nrec = (iss?.open || []).filter((x) => x.recurring).length;
-  if (ic) { ic.textContent = nrec; ic.style.display = nrec ? "" : "none"; } _hnbi = null; buildIndex();
+  if (ic) { ic.textContent = nrec; ic.style.display = nrec ? "" : "none"; } _hnbi = null; window.sectionsBuildIndex ? window.sectionsBuildIndex() : buildIndex();
   $("#foot").textContent = snap.range
     ? `time range ${new Date(snap.range.start).toLocaleString()} – ${new Date(snap.range.end).toLocaleString()} (collected for this range) · alarms and AI triage from nightly report ${snap.base || "—"}`
     : `snapshot ${snap.id} · generated ${new Date(snap.raw.generated).toLocaleString()} · companions: ${["analysis", "triage", "briefing", "sources"].filter((c) => snap[c]).join(", ") || "none"}`;
   route();
+  window.sectionsStart?.();
 }
 async function init() {
   try {  // site-specific names/IPs come from the server after login

@@ -7,6 +7,9 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
   POST /range     {start, end} (UTC ISO, whole minutes) -> background `collect.py --start --end --out` +
                   `analyze.py --readonly` into dashboard/state/ranges/<id>.json (the dashboard's time range picker).
                   Progress: <id>.status.json.
+  POST /section   {id, name} -> one section of a time range (collect.py --section: queries Elasticsearch/UniFi cache directly, a
+                  second or two each) into dashboard/state/ranges/<id>.sec.<name>.json; name "analysis" assembles every
+                  section into <id>.json and runs analyze.py --readonly. The page loads sections one by one.
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the correlation reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
@@ -51,10 +54,6 @@ def esquery(b):
 
 
 
-_range_lock = threading.Lock()
-_range_running = {}
-
-
 def _utc(s):
     import datetime as dt
     t = dt.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
@@ -93,30 +92,6 @@ def _prune():
             os.remove(f)
 
 
-def _range_job(rid, s, e):
-    out = os.path.join(RANGES, rid + ".json")
-    t = time.time()
-    try:
-        _rstatus(rid, status="collecting", started=t, start=s.isoformat(), end=e.isoformat(), step="Querying Security Onion and UniFi")
-        p = subprocess.run([PY, os.path.join(NM, "collect.py"), "--start", s.isoformat(), "--end", e.isoformat(), "--out", out],  # noqa: S603 - fixed argv, validated times
-                           capture_output=True, text=True, timeout=3600, cwd=NM)
-        if p.returncode or not os.path.exists(out):
-            raise RuntimeError((p.stderr or p.stdout or "collect failed")[-400:])
-        _rstatus(rid, status="analyzing", step="Comparing with the baseline")
-        p = subprocess.run([PY, os.path.join(NM, "analyze.py"), out, "--readonly"],  # noqa: S603 - fixed argv
-                           capture_output=True, text=True, timeout=900, cwd=NM)
-        if p.returncode:
-            raise RuntimeError((p.stderr or p.stdout or "analyze failed")[-400:])
-        _rstatus(rid, status="done", step="", seconds=round(time.time() - t, 1))
-        _prune()
-    except Exception as ex:  # noqa: BLE001 - reported to the dashboard through the status file
-        print(f"range {rid} failed: {ex}", file=sys.stderr)
-        _rstatus(rid, status="failed", error=str(ex)[-400:], seconds=round(time.time() - t, 1))
-    finally:
-        with _range_lock:
-            _range_running.pop(rid, None)
-
-
 def range_start(b):
     import datetime as dt
     s, e = _utc(b.get("start")), _utc(b.get("end"))
@@ -134,15 +109,74 @@ def range_start(b):
     rid = range_id(s, e)
     if os.path.exists(os.path.join(RANGES, rid + ".analysis.json")):
         return {"id": rid, "status": "done"}
-    with _range_lock:
-        if rid in _range_running:
-            return {"id": rid, "status": "running"}
-        if _range_running:
-            raise ValueError("another time range is being collected - try again in a minute")
-        _range_running[rid] = time.time()
-    _rstatus(rid, status="queued", start=s.isoformat(), end=e.isoformat(), error="")
-    threading.Thread(target=_range_job, args=(rid, s, e), daemon=True).start()
-    return {"id": rid, "status": "running"}
+    # sections are collected on demand (POST /section) as the page asks for them: just record the window
+    meta = {"id": rid, "start": s.isoformat(), "end": e.isoformat(), "generated": e.isoformat(),
+            "hours": round((e - s).total_seconds() / 3600, 3)}
+    mp = os.path.join(RANGES, rid + ".meta.json")
+    with open(mp + ".tmp", "w") as f:
+        json.dump(meta, f)
+    os.replace(mp + ".tmp", mp)
+    _rstatus(rid, status="sections", start=s.isoformat(), end=e.isoformat(), error="")
+    _prune()
+    return {"id": rid, "status": "sections"}
+
+
+SECTIONS = ["unifi", "totals", "devices", "alerts", "detections", "notices", "dns_tunnel", "threat_intel", "beacons", "internal",
+            "admin_access", "iot_dest", "files", "tls", "hosts", "mitre_ids"]
+_sec_sem = threading.Semaphore(3)
+_sec_locks, _sec_locks_guard = {}, threading.Lock()
+
+
+def _sec_path(rid, name):
+    return os.path.join(RANGES, f"{rid}.sec.{name}.json")
+
+
+def _run_section(rid, name):
+    out = _sec_path(rid, name)
+    if os.path.exists(out):
+        return
+    meta = json.load(open(os.path.join(RANGES, rid + ".meta.json")))
+    with _sec_sem:
+        p = subprocess.run([PY, os.path.join(NM, "collect.py"), "--start", meta["start"], "--end", meta["end"], "--section", name, "--out", out],  # noqa: S603 - fixed argv, validated names/times
+                           capture_output=True, text=True, timeout=900, cwd=NM)
+    if p.returncode or not os.path.exists(out):
+        raise RuntimeError(f"{name}: " + (p.stderr or p.stdout or "collect failed")[-300:])
+
+
+def section(b):
+    import re
+    rid, name = str(b.get("id") or ""), str(b.get("name") or "")
+    if not re.match(r"^r\d{8}T\d{4}Z-\d{8}T\d{4}Z$", rid) or not os.path.exists(os.path.join(RANGES, rid + ".meta.json")):
+        raise ValueError("unknown time range")
+    if name != "analysis" and name not in SECTIONS:
+        raise ValueError("unknown section")
+    with _sec_locks_guard:
+        lk = _sec_locks.setdefault((rid, name), threading.Lock())
+    t = time.time()
+    with lk:  # two requests for the same piece share one run
+        if name != "analysis":
+            _run_section(rid, name)
+        elif not os.path.exists(os.path.join(RANGES, rid + ".analysis.json")):
+            meta = json.load(open(os.path.join(RANGES, rid + ".meta.json")))
+            raw = {"generated": meta["generated"], "hours": meta["hours"], "range": {"start": meta["start"], "end": meta["end"]}}
+            for n in SECTIONS:
+                _run_section(rid, n)  # normally all done already; computes any the page has not asked for yet
+                raw.update(json.load(open(_sec_path(rid, n))))
+            out = os.path.join(RANGES, rid + ".json")
+            with open(out + ".tmp", "w") as f:
+                json.dump(raw, f, indent=1, default=str)
+            os.replace(out + ".tmp", out)
+            p = subprocess.run([PY, os.path.join(NM, "analyze.py"), out, "--readonly"],  # noqa: S603 - fixed argv
+                               capture_output=True, text=True, timeout=900, cwd=NM)
+            if p.returncode:
+                raise RuntimeError((p.stderr or p.stdout or "analyze failed")[-300:])
+            for n in SECTIONS:  # the assembled files now hold everything
+                try:
+                    os.remove(_sec_path(rid, n))
+                except OSError:
+                    pass
+            _rstatus(rid, status="done", step="")
+    return {"ok": True, "seconds": round(time.time() - t, 2)}
 
 
 _ev_proc = [None]
@@ -194,6 +228,8 @@ class H(BaseHTTPRequestHandler):
             b = json.loads(self.rfile.read(n) or b"{}")
             if self.path == "/range":
                 return self._send(200, range_start(b))
+            if self.path == "/section":
+                return self._send(200, section(b))
             if self.path == "/research-event":
                 return self._send(200, research_event(b))
             if self.path == "/esquery":

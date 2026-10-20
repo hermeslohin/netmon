@@ -199,6 +199,56 @@ def range_status(rid):
     return load_json(os.path.join(RANGES, rid + ".status.json"), None) if RANGE_RE.match(rid or "") else None
 
 
+# Sections of a time range that the page loads one by one (collect.py --section); until each arrives the snapshot holds
+# an empty placeholder of the right shape so every view still renders.
+SECTION_DEFAULTS = {"unifi": {}, "totals": {}, "devices": {}, "alerts": {}, "detections": [], "notices": [], "weird": [], "unknown_dhcp": [],
+                    "dns_tunnel": [], "threat_intel": {}, "beacons": {}, "internal": {}, "admin_access": {}, "iot_dest": {}, "files": {},
+                    "tls": {}, "hosts": {}, "mitre_ids": {}, "inventory_ips": {}, "zeek_retention_start": None, "inventory_file": "", "self_ip": ""}
+SECTION_KEYS = {"unifi": ["unifi"], "totals": ["totals"], "devices": ["devices", "unknown_dhcp", "zeek_retention_start", "inventory_file", "self_ip", "inventory_ips"],
+                "alerts": ["alerts"], "detections": ["detections"], "notices": ["notices", "weird"], "dns_tunnel": ["dns_tunnel"], "threat_intel": ["threat_intel"],
+                "beacons": ["beacons"], "internal": ["internal"], "admin_access": ["admin_access"], "iot_dest": ["iot_dest"], "files": ["files"], "tls": ["tls"],
+                "hosts": ["hosts"], "mitre_ids": ["mitre_ids"]}
+SECTION_NAMES = list(SECTION_KEYS) + ["analysis"]
+
+
+def range_meta(rid):
+    return load_json(os.path.join(RANGES, rid + ".meta.json"), None) if RANGE_RE.match(rid or "") else None
+
+
+def range_skeleton(rid):
+    """A time range that is still being collected: the window, UniFi-independent placeholders, the nightly companions.
+    The page then asks /api/section for each piece."""
+    m = range_meta(rid)
+    if not m:
+        return None
+    base = base_snapshot(m["generated"])
+    b = snapshot(base) if base else None
+    raw = {"generated": m["generated"], "hours": m["hours"], "range": {"start": m["start"], "end": m["end"]}}
+    for keys in SECTION_KEYS.values():
+        for k in keys:
+            raw[k] = json.loads(json.dumps(SECTION_DEFAULTS.get(k, {})))
+    res = {"id": rid, "raw": raw, "analysis": {}, "range": raw["range"], "base": base, "pending": SECTION_NAMES, "section_keys": SECTION_KEYS}
+    for c in ("triage", "briefing", "sources"):
+        res[c] = (b or {}).get(c)
+    return res
+
+
+def range_section(rid, name):
+    """One piece of a time range, queried from Elasticsearch on the host when first asked (then cached on disk)."""
+    if name not in SECTION_NAMES or not range_meta(rid):
+        return None
+    if name == "analysis":
+        r = corr_llm.broker("/section", {"id": rid, "name": name}, timeout=300)
+        return {"analysis": load_json(os.path.join(RANGES, rid + ".analysis.json"), {}), "seconds": r.get("seconds")}
+    done = load_json(os.path.join(RANGES, rid + ".json"), None)  # fully assembled earlier: slice it
+    if done is not None:
+        return {k: done.get(k, SECTION_DEFAULTS.get(k, {})) for k in SECTION_KEYS[name]}
+    p = os.path.join(RANGES, f"{rid}.sec.{name}.json")
+    if not os.path.exists(p):
+        corr_llm.broker("/section", {"id": rid, "name": name}, timeout=300)
+    return load_json(p, None)
+
+
 def range_snapshot(rid):
     raw = load_json(os.path.join(RANGES, rid + ".json"))
     an = load_json(os.path.join(RANGES, rid + ".analysis.json"))
@@ -215,7 +265,7 @@ def range_snapshot(rid):
 def resolve_sid(sid):
     """A time-range id -> the nightly snapshot whose alarms / correlation belong to it."""
     if RANGE_RE.match(sid or ""):
-        r = load_json(os.path.join(RANGES, sid + ".json")) or {}
+        r = load_json(os.path.join(RANGES, sid + ".json")) or range_meta(sid) or {}
         return base_snapshot(r.get("generated") or "") or sid
     return sid
 
@@ -1074,8 +1124,14 @@ class H(BaseHTTPRequestHandler):
                 if sid == "latest":
                     s = snapshots()
                     sid = s[-1]["id"] if s else ""
-                res = snapshot(sid)
+                res = snapshot(sid) or range_skeleton(sid)
                 return self._json(res) if res else self._json({"error": "not found"}, 404)
+            if path == "/api/section":  # one piece of a time range (the page loads them two at a time, top to bottom)
+                try:
+                    res = range_section((q.get("id") or [""])[0], (q.get("name") or [""])[0])
+                except Exception as ex:  # noqa: BLE001 - broker down / collector failed
+                    return self._json({"error": str(ex).replace("broker: ", "")[:300]}, 502)
+                return self._json(res) if res is not None else self._json({"error": "not found"}, 404)
             if path == "/api/acks":
                 return self._json(read_acks())
             if path == "/api/llm/providers":

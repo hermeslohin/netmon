@@ -29,6 +29,7 @@ JOBS = {
     "watch": [PY, os.path.join(NM, "watch.py")],
     "research": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
+    "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
 running = {}
 
@@ -83,6 +84,10 @@ def tick(now=None):
     if s.get("watch") != q:
         if start("watch", why="(15-min slot)"):
             s["watch"] = q
+    # UniFi pre-warm: every 5-minute slot (a still-running one is not doubled)
+    uq = int(now // 300)
+    if s.get("unifi") != uq and start("unifi", why="(5-min slot)"):
+        s["unifi"] = uq
     # weekly rebuild: Sunday 03:00-03:59 UTC, once per week
     wk = t.strftime("%G-W%V")
     if t.weekday() == 6 and t.hour == 3 and s.get("weekly") != wk:

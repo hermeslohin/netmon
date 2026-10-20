@@ -170,12 +170,14 @@ def rdap_bootstrap():
     return m
 
 
-def rdap_ages(domains, budget=1500, workers=6):
+def rdap_ages(domains, budget=None, workers=6):
     """Registration date per registered domain, straight from the registry's RDAP server (IANA bootstrap),
     cached forever once known. Failures are retried on later runs; TLDs without RDAP are cached as 'no-rdap'."""
     path = os.path.join(INTEL, "rdap_cache.json")
     cache = json.load(open(path)) if os.path.exists(path) else {}
-    boot = rdap_bootstrap()
+    if budget is None:  # a dashboard section (NETMON_RDAP_BUDGET=0) answers from the cache only: no per-domain internet look-ups
+        budget = int(os.environ.get("NETMON_RDAP_BUDGET", "1500"))
+    boot = rdap_bootstrap() if budget else {}
     todo = [d for d in domains if cache.get(d) in (None, "unavailable")][:budget]
 
     def look(d):

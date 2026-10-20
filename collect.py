@@ -474,5 +474,84 @@ def main():
     print(path)
 
 
+# ---- one section at a time (dashboard time range: the host broker runs `collect.py --start --end --section NAME`) ----
+SECTIONS = ["unifi", "totals", "devices", "alerts", "detections", "notices", "dns_tunnel", "threat_intel", "beacons", "internal",
+            "admin_access", "iot_dest", "files", "tls", "hosts", "mitre_ids"]
+
+
+def _devices_section():
+    inv, inv_file = inventory()
+    dmap = dhcp_map()
+    ip_to_mac = {v["ip"]: m for m, v in inv.items()}
+    for ip, v in dmap.items():
+        if v["macs"]:
+            ip_to_mac[ip] = v["macs"][0]
+    devs, dns = device_traffic(), dns_profile()
+    for ip, d in devs.items():
+        mac = ip_to_mac.get(ip)
+        d["mac"] = mac
+        d["name"] = inv[mac]["name"] if mac in inv else (dmap.get(ip, {}).get("hostname") or None)
+        d["known"] = mac in inv
+        d["dns"] = dns.get(ip, {})
+        d["hostname"] = dmap.get(ip, {}).get("hostname") or ""
+    ret_start, fs = first_seen()
+    for ip, d in devs.items():
+        d["zeek_first_seen"] = (fs.get(ip) or {}).get("first")
+    unknown_dhcp = [{"ip": ip, "macs": v["macs"], "hostname": v["hostname"]} for ip, v in dmap.items()
+                    if not any(m in inv for m in v["macs"])]
+    return {"devices": devs, "unknown_dhcp": unknown_dhcp, "zeek_retention_start": ret_start, "inventory_file": inv_file,
+            "self_ip": SELF_IP, "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
+
+
+def section(name):
+    import extras
+    if name == "devices":
+        return _devices_section()
+    if name == "notices":
+        nts, weird = notices()
+        return {"notices": nts, "weird": weird}
+    simple = {"totals": totals, "alerts": alerts, "detections": detections, "dns_tunnel": dns_tunnel_candidates}
+    if name in simple:
+        return {name: simple[name]()}
+    if name == "iot_dest":
+        devs = _devices_section()["devices"]
+        pol = extras.load_policy()
+        cls = pol.get("device_classes", {})
+        iot_ips = [ip for ip, d in devs.items() if SITE.is_internal(ip)
+                   and cls.get(d.get("mac") or "", cls.get(ip)) in ("iot", "camera", "media", "game")]
+        return {name: extras.iot_destinations(iot_ips, HOURS)}
+    jobs = {"threat_intel": lambda: extras.threat_intel(HOURS), "beacons": lambda: extras.beacons(HOURS),
+            "internal": lambda: extras.internal_traffic(HOURS), "admin_access": lambda: extras.admin_access(HOURS),
+            "files": lambda: extras.files_software(HOURS), "tls": lambda: extras.tls_profile(HOURS)}
+    if name in jobs:
+        return {name: jobs[name]()}
+    if name == "unifi":
+        import unifi
+        return {name: unifi.collect(HOURS)}
+    if name == "hosts":
+        import hosts
+        return {name: hosts.collect(HOURS, update=False)}  # a section never changes the host baseline
+    if name == "mitre_ids":
+        import mitre
+        return {name: mitre.collect_ids(HOURS)}
+    raise SystemExit(f"unknown section {name}")
+
+
+def main_section(name):
+    os.environ.setdefault("NETMON_RDAP_BUDGET", "0")
+    out = section(name)
+    path = OUT
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = path + ".tmp"
+    json.dump(out, open(tmp, "w"), indent=1, default=str)
+    os.replace(tmp, path)
+    print(path)
+
+
 if __name__ == "__main__":
-    main()
+    if _arg("--section"):
+        if not (OUT and RANGE_END):
+            raise SystemExit("--section needs --start, --end and --out")
+        main_section(_arg("--section"))
+    else:
+        main()

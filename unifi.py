@@ -50,8 +50,11 @@ def _req(url, body=None, timeout=40):
 def base():
     global _BASE
     if not _BASE:
-        hosts = [h for h in _req(API + "/v1/hosts")["data"] if h.get("type") == "console"]
-        _BASE = f"{API}/v1/connector/consoles/{hosts[0]['id']}/proxy/network"
+        cid = _cload("console").get("id") if CACHE_ON else None
+        if not cid:
+            cid = [h for h in _req(API + "/v1/hosts")["data"] if h.get("type") == "console"][0]["id"]
+            _csave("console", {"id": cid})
+        _BASE = f"{API}/v1/connector/consoles/{cid}/proxy/network"
     return _BASE
 
 
@@ -63,7 +66,7 @@ def v2(path, body=None):
     return _req(f"{base()}/v2/api/site/default/{path}", body)
 
 
-def syslog(cat, t0, t1):
+def _syslog_raw(cat, t0, t1):
     out, p = [], 0
     while True:
         d = v2(f"system-log/{cat}", {"timestampFrom": t0, "timestampTo": t1, "pageSize": 500, "pageNumber": p})
@@ -73,7 +76,7 @@ def syslog(cat, t0, t1):
             return out
 
 
-def flows(t0, t1, max_pages=40):
+def _flows_raw(t0, t1, max_pages=40):
     out, p = [], 0
     while p < max_pages:
         d = v2("traffic-flows", {"timestampFrom": t0, "timestampTo": t1, "pageSize": 500, "pageNumber": p})
@@ -82,6 +85,128 @@ def flows(t0, t1, max_pages=40):
         if not d.get("has_next"):
             return out, False
     return out, True
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Pre-warmed cache. The cloud connector needs ~0.7 s per call, so a collection used to spend ~10 s waiting on UniFi.
+# `unifi.py --prewarm` (scheduler job, every few minutes) keeps the system log, admin log and traffic flows as
+# time-indexed rows in data/unifi_cache/ and the small "current state" calls (clients, settings, health) for a few
+# minutes; syslog()/flows()/legacy() then answer from disk whenever the request lies inside what is cached and fall
+# back to the live API otherwise. Results are identical to a live fetch, only up to ~PREWARM_SLACK_MS older at the end.
+# ---------------------------------------------------------------------------------------------------------------
+CACHE_DIR = os.environ.get("NETMON_UNIFI_CACHE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "unifi_cache")
+CACHE_ON = not os.environ.get("NETMON_UNIFI_NOCACHE")
+SLACK_MS = 12 * 60_000          # a request may end this far past the cached tail and still be served from cache
+MAX_ROWS = 30000
+LEGACY_TTL = 15 * 60            # current-state calls (clients, settings, health, networks)
+RETAIN_MS = {"syslog-all": 33 * 86400_000, "syslog-admin-activity": 33 * 86400_000, "flows": 72 * 3600_000}
+
+
+def _cpath(name):
+    return os.path.join(CACHE_DIR, name.replace("/", "_") + ".json")
+
+
+def _cload(name):
+    try:
+        return json.load(open(_cpath(name)))
+    except (OSError, ValueError):
+        return {}
+
+
+def _csave(name, d):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    tmp = _cpath(name) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f)
+    os.replace(tmp, _cpath(name))
+
+
+def _merge(old, new, tkey):
+    seen = {r.get("id") or json.dumps(r, sort_keys=True, default=str): r for r in old}
+    for r in new:
+        seen[r.get("id") or json.dumps(r, sort_keys=True, default=str)] = r
+    return sorted(seen.values(), key=lambda r: r.get(tkey) or 0, reverse=True)
+
+
+def _refresh(name, tkey, fetch, retain_ms, now_ms):
+    """Extend the cache of one stream to `now_ms` (first call or too old: full backfill; else only the tail)."""
+    c = _cload(name)
+    want0 = now_ms - retain_ms
+    if not c or c.get("from", 1 << 62) > want0 + 86400_000 or c.get("to", 0) < now_ms - retain_ms // 2:
+        rows, trunc = fetch(want0, now_ms)
+        c = {"from": min([r.get(tkey) or now_ms for r in rows], default=want0) if trunc else want0, "to": now_ms, "rows": rows}
+    else:
+        rows, _ = fetch(c["to"] - 180_000, now_ms)
+        c["rows"] = _merge(c["rows"], rows, tkey)
+        c["to"] = now_ms
+    c["rows"] = [r for r in c["rows"] if (r.get(tkey) or 0) >= want0]
+    if len(c["rows"]) > MAX_ROWS:  # keep the newest MAX_ROWS (a live call is capped the same way); `from` follows
+        c["rows"] = c["rows"][:MAX_ROWS]
+        c["from"] = max(c["from"], c["rows"][-1].get(tkey) or 0)
+    c["from"] = max(c["from"], want0)
+    c["fetched"] = now_ms
+    _csave(name, c)
+    return c
+
+
+def _from_cache(name, tkey, t0, t1):
+    if not CACHE_ON:
+        return None
+    c = _cload(name)
+    if not c or t0 < c.get("from", 1 << 62) or t1 > c.get("to", 0) + SLACK_MS:
+        return None
+    return [r for r in c["rows"] if t0 <= (r.get(tkey) or 0) <= t1]
+
+
+def syslog(cat, t0, t1):
+    hit = _from_cache("syslog-" + cat, "timestamp", t0, t1)
+    return hit if hit is not None else _syslog_raw(cat, t0, t1)
+
+
+def flows(t0, t1, max_pages=40):
+    """Newest-first flows of [t0, t1], capped like the live call. Cached rows cover [from, now]; a window reaching back
+    past `from` gets the cached rows (the same newest ones a live call would return) flagged truncated."""
+    c = _cload("flows") if CACHE_ON else {}
+    if c and c.get("from", 1 << 62) < t1 <= c.get("to", 0) + SLACK_MS and t0 >= c["to"] - RETAIN_MS["flows"] - SLACK_MS:
+        return [r for r in c["rows"] if t0 <= (r.get("time") or 0) <= t1], t0 < c["from"]
+    return _flows_raw(t0, t1, max_pages)
+
+
+_legacy_raw = legacy
+
+
+def legacy(path, body=None):  # noqa: F811 - cached wrapper around the live call (GET-style reads only)
+    if body is not None or not CACHE_ON:
+        return _legacy_raw(path, body)
+    c = _cload("legacy-" + path)
+    if c and time.time() - c.get("at", 0) < LEGACY_TTL:
+        return c["data"]
+    d = _legacy_raw(path)
+    _csave("legacy-" + path, {"at": time.time(), "data": d})
+    return d
+
+
+def prewarm():
+    """Refresh every cached stream (scheduler job). Returns seconds per piece."""
+    now_ms = int(time.time() * 1000)
+    t, out = time.time(), {}
+    for name, tkey, fetch in (("syslog-all", "timestamp", lambda a, b: (_syslog_raw("all", a, b), False)),
+                              ("syslog-admin-activity", "timestamp", lambda a, b: (_syslog_raw("admin-activity", a, b), False)),
+                              ("flows", "time", _flows_raw)):
+        try:
+            c = _refresh(name, tkey, fetch, RETAIN_MS[name], now_ms)
+            out[name] = {"rows": len(c["rows"]), "s": round(time.time() - t, 1)}
+        except Exception as e:  # noqa: BLE001 - one stream failing must not stop the others
+            out[name] = {"error": f"{type(e).__name__}: {e}"}
+        t = time.time()
+    for path in ("stat/sta", "rest/user", "get/setting", "rest/networkconf", "stat/health"):
+        try:
+            _csave("legacy-" + path, {"at": time.time(), "data": _legacy_raw(path)})
+            out[path] = {"s": round(time.time() - t, 1)}
+        except Exception as e:  # noqa: BLE001
+            out[path] = {"error": f"{type(e).__name__}: {e}"}
+        t = time.time()
+    return out
 
 
 def iso(ms):
@@ -286,4 +411,7 @@ def collect(hours=24):
 
 
 if __name__ == "__main__":
+    if "--prewarm" in sys.argv:
+        print(json.dumps(prewarm(), indent=1))
+        sys.exit(0)
     print(json.dumps(collect(int(sys.argv[1]) if len(sys.argv) > 1 else 24), indent=1, default=str))

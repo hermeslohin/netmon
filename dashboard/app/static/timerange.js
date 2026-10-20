@@ -79,7 +79,7 @@
     const m = window.rangeMsg || (() => {});
     let R;
     try { R = await apiPost("/api/range", r); } catch (e) { m(String(e.message || e), true); return false; }
-    if (R.status !== "done") {
+    if (R.status !== "done" && R.status !== "sections") {  // "sections": the page loads the pieces itself, one by one
       m("Collecting this time range…");
       $("#main").innerHTML = `<div class="loading">Collecting ${label(r)} from Security Onion and UniFi… <span id="rgProg"></span></div>`;
       for (let i = 0; i < 400; i++) {
