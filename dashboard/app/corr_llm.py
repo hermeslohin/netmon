@@ -337,6 +337,7 @@ def set_correlation(provider, model, user):
     c = _raw_config()
     c["correlation"] = {"provider": provider, "model": model, "by": user, "at": time.time()}
     _save_config(c)
+    STATUS.update(provider=provider, model=model)  # shown at once; the worker re-reads the choice before every review
 
 
 def set_chat(provider, model, user):
@@ -827,6 +828,8 @@ def run_once(get_base, latest_sid):
 
 def _safe_review(model, aid, base, todo):
     try:
+        model = _target()  # re-read the admin's choice for every review so a change on AI review > Models applies mid-pass
+        STATUS.update(model=model["model"], provider=model["provider"])
         n = _review(model, aid, base, todo)
         STATUS["error"] = ""
         return n
