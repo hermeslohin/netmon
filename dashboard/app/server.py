@@ -78,7 +78,7 @@ def llm_models():
     except Exception as e:  # noqa: BLE001 - a broken providers file must not hide the local models
         print(f"llm providers unreadable: {e}", file=sys.stderr)
         cu = []
-    return {"local": llm_providers.local_models() if llm_providers.local_enabled() else [], "custom": cu}
+    return {"local": llm_providers.offered_local_models() if llm_providers.local_enabled() else [], "custom": cu}
 
 
 def llm_allowed(provider, model, M=None):

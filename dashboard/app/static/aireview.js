@@ -389,9 +389,38 @@
     };
     const load = async () => { try { const d = await api("/api/llm/providers"); P = d.providers || []; TYPES = d.types || {}; draw(); } catch (e) { list.textContent = "error: " + e.message; } };
     const reloadModels = () => { MODELS = null; msg.textContent += " · reload the page to see the change in the model menus"; };
+    // model rows: drop-down per model + separate price boxes; avail = ids offered in the drop-downs. Used by both forms.
+    function modelPicker(p, avail) {
+      const AVAIL = new Set(avail), mbox = formBox.querySelector(".pf-models");
+      const optHtml = (cur) => [...new Set([...AVAIL, ...(cur ? [cur] : [])])].map((m) => `<option value="${esc(m)}"${m === cur ? " selected" : ""}>${esc(m)}</option>`).join("") +
+        `<option value="__custom">Custom…</option>`;
+      const addRow = (id, pr) => { const r = mbox.appendChild(document.createElement("div")); r.className = "pf-mrow"; r.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:5px";
+        r.innerHTML = `<select class="m-sel mono" style="min-width:16em"><option value="">- choose a model -</option>${optHtml(id)}</select>
+          <input class="m-custom mono" placeholder="model id" spellcheck="false" style="display:none;width:14em">
+          <input class="m-in" type="number" min="0" step="any" placeholder="input $/M" title="Input price, $ per million tokens" style="width:8em" value="${esc((pr || [])[0] ?? "")}">
+          <input class="m-out" type="number" min="0" step="any" placeholder="output $/M" title="Output price, $ per million tokens" style="width:8em" value="${esc((pr || [])[1] ?? "")}">
+          <input class="m-cache" type="number" min="0" step="any" placeholder="cached $/M" title="Cached input price, $ per million tokens (optional)" style="width:8em" value="${esc((pr || [])[2] ?? "")}">
+          <button type="button" class="m-del" title="Remove">✕</button>`;
+        const sel = r.querySelector(".m-sel"), cu = r.querySelector(".m-custom");
+        sel.onchange = () => { cu.style.display = sel.value === "__custom" ? "" : "none"; if (sel.value === "__custom") cu.focus(); };
+        r.querySelector(".m-del").onclick = () => r.remove(); };
+      (p.models || []).forEach((m) => addRow(m, (p.prices || {})[m]));
+      if (!(p.models || []).length) addRow("", null);
+      formBox.querySelector(".pf-add").onclick = () => addRow("", null);
+      const modelsText = () => [...mbox.querySelectorAll(".pf-mrow")].map((r) => { const sv = r.querySelector(".m-sel").value, id = (sv === "__custom" ? r.querySelector(".m-custom").value : sv).trim().replace(/\s+/g, "");
+        if (!id) return ""; const pr = [".m-in", ".m-out", ".m-cache"].map((q) => r.querySelector(q).value.trim());
+        if (!pr[0] && !pr[1]) return id; return [id, pr[0] || "0", pr[1] || "0", ...(pr[2] ? [pr[2]] : [])].join("  "); }).filter(Boolean).join("\n");
+      const refreshOpts = () => { for (const r2 of mbox.querySelectorAll(".pf-mrow")) { const sel = r2.querySelector(".m-sel"), cur = sel.value;
+        sel.innerHTML = `<option value="">- choose a model -</option>${optHtml(cur === "__custom" ? "" : cur)}`; sel.value = cur; } };
+      return { AVAIL, mbox, modelsText, refreshOpts };
+    }
     function localForm(p) {
       formBox.innerHTML = `<div class="llm-grid" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-        <div class="llm-row"><span class="k">Local (LM Studio)</span><span class="small muted">${esc(p.base_url)} - ${p.models.length} model(s) visible${p.models.length ? ": " + esc(p.models.slice(0, 3).join(", ")) + (p.models.length > 3 ? "…" : "") : ""}</span></div>
+        <div class="llm-row"><span class="k">Local (LM Studio)</span><span class="small muted">${esc(p.base_url)} - ${(p.available || []).length} model(s) installed</span></div>
+        <div class="llm-row" style="align-items:flex-start"><span class="k">Models</span>
+          <span style="flex:1 1 520px"><div class="pf-models"></div>
+            <button type="button" class="pf-add">+ Add model</button>
+            <div class="small muted">Pick the LM Studio models that can be used, from the drop-down of what is installed. Prices are optional, $ per million tokens (empty = free).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
           <span class="small muted">cap on single calls (correlation reviewer + comparisons) - limits cost/load if something loops</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
@@ -399,11 +428,12 @@
           <span class="small muted pf-msg"></span></div></div>`;
       const f = (n) => formBox.querySelector(`[name="${n}"]`), fm = formBox.querySelector(".pf-msg");
       f("rate_per_hour").value = p.rate_per_hour; f("enabled").checked = p.enabled !== false;
+      const { modelsText } = modelPicker(p, p.available || p.models || []);
       formBox.querySelector(".pf-cancel").onclick = () => { formBox.innerHTML = ""; };
       formBox.querySelector(".pf-save").onclick = async (ev) => {
         ev.target.disabled = true; fm.textContent = "saving…";
         try {
-          const r = await apiPost("/api/llm/providers", { action: "save", id: p.id, rate_per_hour: f("rate_per_hour").value, enabled: f("enabled").checked });
+          const r = await apiPost("/api/llm/providers", { action: "save", id: p.id, rate_per_hour: f("rate_per_hour").value, models: modelsText(), enabled: f("enabled").checked });
           P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = "saved Local (LM Studio)"; reloadModels();
         } catch (e) { fm.textContent = "error: " + e.message; ev.target.disabled = false; }
       };
@@ -429,25 +459,7 @@
           <span class="small muted pf-msg"></span></div></div>`;
       const f = (n) => formBox.querySelector(`[name="${n}"]`), fm = formBox.querySelector(".pf-msg");
       f("name").value = p.name || ""; f("type").value = p.type; f("base_url").value = p.base_url || "";
-      const AVAIL = new Set(p.models || []), mbox = formBox.querySelector(".pf-models");
-      const optHtml = (cur) => [...new Set([...AVAIL, ...(cur ? [cur] : [])])].map((m) => `<option value="${esc(m)}"${m === cur ? " selected" : ""}>${esc(m)}</option>`).join("") +
-        `<option value="__custom">Custom…</option>`;
-      const addRow = (id, pr) => { const r = mbox.appendChild(document.createElement("div")); r.className = "pf-mrow"; r.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:5px";
-        r.innerHTML = `<select class="m-sel mono" style="min-width:16em"><option value="">- choose a model -</option>${optHtml(id)}</select>
-          <input class="m-custom mono" placeholder="model id" spellcheck="false" style="display:none;width:14em">
-          <input class="m-in" type="number" min="0" step="any" placeholder="input $/M" title="Input price, $ per million tokens" style="width:8em" value="${esc((pr || [])[0] ?? "")}">
-          <input class="m-out" type="number" min="0" step="any" placeholder="output $/M" title="Output price, $ per million tokens" style="width:8em" value="${esc((pr || [])[1] ?? "")}">
-          <input class="m-cache" type="number" min="0" step="any" placeholder="cached $/M" title="Cached input price, $ per million tokens (optional)" style="width:8em" value="${esc((pr || [])[2] ?? "")}">
-          <button type="button" class="m-del" title="Remove">✕</button>`;
-        const sel = r.querySelector(".m-sel"), cu = r.querySelector(".m-custom");
-        sel.onchange = () => { cu.style.display = sel.value === "__custom" ? "" : "none"; if (sel.value === "__custom") cu.focus(); };
-        r.querySelector(".m-del").onclick = () => r.remove(); };
-      (p.models || []).forEach((m) => addRow(m, (p.prices || {})[m]));
-      if (!(p.models || []).length) addRow("", null);
-      formBox.querySelector(".pf-add").onclick = () => addRow("", null);
-      const modelsText = () => [...mbox.querySelectorAll(".pf-mrow")].map((r) => { const sv = r.querySelector(".m-sel").value, id = (sv === "__custom" ? r.querySelector(".m-custom").value : sv).trim().replace(/\s+/g, "");
-        if (!id) return ""; const pr = [".m-in", ".m-out", ".m-cache"].map((q) => r.querySelector(q).value.trim());
-        if (!pr[0] && !pr[1]) return id; return [id, pr[0] || "0", pr[1] || "0", ...(pr[2] ? [pr[2]] : [])].join("  "); }).filter(Boolean).join("\n");
+      const { AVAIL, mbox, modelsText, refreshOpts } = modelPicker(p, p.models || []);
       f("rate_per_hour").value = p.rate_per_hour; f("reasoning_tokens").value = p.reasoning_tokens; f("enabled").checked = p.enabled !== false;
       const ph = () => { f("base_url").placeholder = (TYPES[f("type").value] || {}).base_url || "";
         f("api_key").placeholder = p.key_set ? `saved (${p.key_hint}) - leave empty to keep it` : f("type").value === "anthropic" ? "sk-ant-..." : "sk-..."; };
@@ -459,9 +471,7 @@
       formBox.querySelector(".pf-cancel").onclick = () => { formBox.innerHTML = ""; };
       formBox.querySelector(".pf-test").onclick = (ev) => run(ev.target, { ...val(), action: "test" }, "checking the key…", (r) => { fm.textContent = "✓ " + r.message; });
       formBox.querySelector(".pf-fetch").onclick = (ev) => run(ev.target, { ...val(), action: "models" }, "asking the provider for its models…", (r) => {
-        r.models.forEach((m) => AVAIL.add(m));
-        for (const r2 of mbox.querySelectorAll(".pf-mrow")) { const sel = r2.querySelector(".m-sel"), cur = sel.value;
-          sel.innerHTML = `<option value="">- choose a model -</option>${optHtml(cur === "__custom" ? "" : cur)}`; sel.value = cur; }
+        r.models.forEach((m) => AVAIL.add(m)); refreshOpts();
         fm.textContent = `${r.models.length} chat models available (of ${r.all}) - pick them in the drop-downs.`; });
       formBox.querySelector(".pf-save").onclick = (ev) => run(ev.target, { ...val(), action: "save" }, "saving…", (r) => {
         P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = `saved ${r.provider.name}`; reloadModels(); });

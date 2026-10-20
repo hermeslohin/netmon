@@ -84,7 +84,7 @@ def local_enabled():
 def _local():
     lc = _load_local_cfg()
     return {"id": LOCAL, "name": "Local (LM Studio)", "type": "openai", "base_url": LMS_URL, "api_key": "lm-studio",
-            "models": [m["id"] for m in local_models()], "enabled": bool(lc.get("enabled", True)),
+            "models": [m["id"] for m in offered_local_models()], "enabled": bool(lc.get("enabled", True)),
             "rate_per_hour": int(lc.get("rate_per_hour") or RATE_MAX), "reasoning_tokens": 0,
             "by": lc.get("by"), "at": lc.get("at")}
 
@@ -96,6 +96,12 @@ def local_models():
         return [{"id": m["id"], "loaded": m.get("state") == "loaded"} for m in d.get("data", []) if m.get("type") in ("llm", "vlm")]
     except Exception:  # noqa: BLE001
         return []
+
+
+def offered_local_models():
+    """local_models() narrowed to the ones an admin picked (AI providers > Local (LM Studio)); none picked = all."""
+    allm, pick = local_models(), _load_local_cfg().get("models") or []
+    return [m for m in allm if m["id"] in pick] if pick else allm
 
 
 def get(pid):
@@ -123,6 +129,9 @@ def allowed(provider, model):
 def price(provider, model):
     """{in, out, cache_read} $ per million tokens, {0,0,0} for the local server, None when the admin entered no price."""
     if provider == LOCAL:
+        v = (_load_local_cfg().get("prices") or {}).get(model)
+        if v:
+            return {"in": float(v[0]), "out": float(v[1]), "cache_read": float(v[2] if len(v) > 2 and v[2] is not None else v[0])}
         return {"in": 0.0, "out": 0.0, "cache_read": 0.0}
     p = get(provider) if is_custom(provider) else None
     v = ((p or {}).get("prices") or {}).get(model)
@@ -158,7 +167,7 @@ def public():
     loc = _local()
     local_row = {"id": LOCAL, "provider": LOCAL, "name": loc["name"], "type": "local", "type_label": "Local (LM Studio)",
                  "base_url": loc["base_url"], "key_set": True, "key_hint": "not needed", "models": list(loc["models"]),
-                 "prices": {}, "rate_per_hour": loc["rate_per_hour"], "reasoning_tokens": 0, "enabled": loc["enabled"],
+                 "available": [m["id"] for m in local_models()], "prices": dict(_load_local_cfg().get("prices") or {}), "rate_per_hour": loc["rate_per_hour"], "reasoning_tokens": 0, "enabled": loc["enabled"],
                  "by": loc.get("by"), "at": loc.get("at"), "local": True,
                  "calls_last_hour": len([t for t in _sent.get(LOCAL, []) if time.time() - t < 3600])}
     return [local_row] + [{"id": p["id"], "provider": PREFIX + p["id"], "name": p.get("name") or p["id"], "type": p.get("type"),
@@ -175,8 +184,9 @@ def save_local(body, user):
     live from LM Studio / NETMON_LLM_URL)."""
     rate = _int(body.get("rate_per_hour"), 1, RATE_MAX, RATE_DEFAULT, "calls per hour")
     enabled = bool(body.get("enabled", True))
+    models, prices = _models(body.get("models"))
     with _lock:
-        _save(_load(), {"enabled": enabled, "rate_per_hour": rate, "by": user, "at": time.time()})
+        _save(_load(), {"enabled": enabled, "rate_per_hour": rate, "models": models, "prices": prices, "by": user, "at": time.time()})
     return next(p for p in public() if p["id"] == LOCAL)
 
 
