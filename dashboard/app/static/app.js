@@ -820,7 +820,6 @@ V.issues = (el) => {
   el.appendChild(card(`Recurring: fix these (${rec.length})${RA.toggle}`, issueTable(RA.show, uf))).id = "iss-rec";
   el.appendChild(card(`New / seen once (${watch.length}) <span class="muted small">— these move to the list above if they show up again</span>${WA.toggle}`, issueTable(WA.show, { short: true, ...uf }))).id = "iss-new";
   el.appendChild(card(`Fixed (${I.fixed.length})`, issueTable(I.fixed, { fixed: true, short: true, sort: "fixed_at", dir: -1, ...uf }))).id = "iss-fixed";
-  { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
 };
 
 /* ----- Users ----- */
@@ -964,7 +963,6 @@ V.security = (el) => {
   const BF = ackSplit("finding", an.findings || [], "sec-find");
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
-  { const sc = segClearedCard(); if (sc) el.appendChild(sc); }
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
@@ -983,7 +981,7 @@ V.security = (el) => {
   el.appendChild(grid("g2",
     card(`Segmentation violations (${SV.open.length} open)${SV.toggle}`, SV.show.length ? table(null, [{ k: "_ack", t: "Clear", sort: (x) => (acked("violation", x) ? 1 : 0),
       fmt: (v, x) => `<label class="seg-clr${acked("violation", x) ? " on" : ""}">${ackBox("violation", x, "")}<span>${acked("violation", x) ? "Cleared" : "Clear"}</span></label>` },
-      askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], SV.show, { sort: "severity", dir: 1, rowClass: ackRowCls("violation") }) : `<div class="empty">All segmentation violations cleared. Cleared flows are listed under Cleared segmentation.</div>`),
+      askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], SV.show, { sort: "severity", dir: 1, rowClass: ackRowCls("violation") }) : `<div class="empty">All segmentation violations cleared. Use “show checked” in the card title to bring them back.</div>`),
     card(`Beacon candidates (${(raw.beacons?.candidates || []).length} of ${fn(raw.beacons?.pairs_scored)} pairs)`, table(null, [askPivCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`, "beacon"), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], raw.beacons?.candidates || [], { sort: "score" }))));
   el.appendChild(grid("g3",
     (() => { const c = card("Threat-intel feeds", table(null, [{ k: "f", t: "Feed" }, { k: "s", t: "Status", cls: "small" }], entries(ti.feed_status).map(([f, s]) => ({ f, s })), { search: false }));
