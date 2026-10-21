@@ -32,7 +32,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/notes", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -922,6 +922,13 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:200]}, 400)
                 print(f"llm esqueries: {user} set enabled={res['enabled']} max={res['max']}", file=sys.stderr)
                 return self._json({"ok": True, "es_queries": res})
+            if u.path == "/api/llm/notes":  # most host / user notes the reviewer gets per event
+                try:
+                    res = corr_llm.set_notes_limit(body.get("max"), user)
+                except (TypeError, ValueError) as e:
+                    return self._json({"error": str(e)[:200]}, 400)
+                print(f"llm notes: {user} set max notes per event={res['max']}", file=sys.stderr)
+                return self._json({"ok": True, "context_notes": res})
             if u.path == "/api/llm/research":  # research job: cost caps, on/off, run now (admin)
                 if body.get("action") == "run":
                     research_cfg.request(user)

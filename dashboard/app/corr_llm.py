@@ -60,6 +60,7 @@ def cloud_complete(target, system, user, max_tokens):
     return llm_providers.complete(target["provider"], target["model"], system, user, max_tokens)
 
 
+NOTES_DEFAULT, NOTES_LIMIT = 7, 40  # host / user notes fed to the reviewer per event: default and the most an admin can set
 ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review: default and the most an admin can set
 
 
@@ -77,6 +78,24 @@ def _save_config(c):
     os.replace(tmp, CONFIG)
 
 
+def notes_limit():
+    """Most host / user notes the reviewer is given for one event (admin setting AI review > Models)."""
+    try:
+        return max(1, min(int((_raw_config().get("context_notes") or {}).get("max") or NOTES_DEFAULT), NOTES_LIMIT))
+    except (TypeError, ValueError):
+        return NOTES_DEFAULT
+
+
+def set_notes_limit(mx, user):
+    mx = int(mx)
+    if not 1 <= mx <= NOTES_LIMIT:
+        raise ValueError(f"notes per event must be 1-{NOTES_LIMIT}")
+    c = _raw_config()
+    c["context_notes"] = {"max": mx, "by": user, "at": time.time()}
+    _save_config(c)
+    return config()["context_notes"]
+
+
 def config():
     c = _raw_config()
     cor, es = c.get("correlation") or {}, c.get("es_queries") or {}
@@ -90,7 +109,8 @@ def config():
         prov, model = llm_providers.default_target()
     return {"correlation": {"provider": prov, "model": model or MODEL},
             "chat": {"provider": ch.get("provider") or "", "model": ch.get("model") or "", "by": ch.get("by"), "at": ch.get("at")},
-            "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")}}
+            "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")},
+            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
 
 
 # ---------------------------------------------------------------- review limits (admin): what is never sent to the reviewer
@@ -594,6 +614,7 @@ def _db():
                  related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
+    c.execute("CREATE TABLE IF NOT EXISTS review_events (ts REAL, prompt INTEGER, completion INTEGER, cands INTEGER)")
     for col in ("completion INTEGER", "secs REAL"):  # output tokens + call time, for the tokens / sec card
         try:
             c.execute("ALTER TABLE review_tokens ADD COLUMN " + col)
@@ -946,10 +967,11 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correla
     results appended to the prompt as <es_result> data); once they are used up it must decide. on_query(norm, result
     or None, error) is called for every look-up (logging). Usage and seconds are summed over all rounds."""
     notes, ai_notes = notes or {}, ai_notes or {}
+    NL = notes_limit()
     def ev(tag, e, extra=""):
-        on = "".join(f"\n  <owner_note>{str(t)[:300]}</owner_note>" for t in (notes.get(tag) or [])[:3])
+        on = "".join(f"\n  <owner_note>{str(t)[:300]}</owner_note>" for t in (notes.get(tag) or [])[:NL])
         ips = f' hosts="{", ".join(map(str, (e.get("ips") or [])[:6]))}"' if es_max and e.get("ips") else ""
-        on += "".join(f"\n  <ai_note>{str(t)[:700]}</ai_note>" for t in (ai_notes.get(tag) or [])[:7])
+        on += "".join(f"\n  <ai_note>{str(t)[:700]}</ai_note>" for t in (ai_notes.get(tag) or [])[:NL])
         kn = "; ".join(f"{a[0]}={str(a[1])[:90]}" for a in (e.get("arts") or [])[:8])  # artifacts the script read from the event itself
         kn = f"\n  known artifacts: {kn}" if kn else ""
         return f'<event id="{tag}" type="{e["type"]} - {TYPE_DESC.get(e["type"], "")}" when="{_when(e.get("t0"), e["type"])}" severity="{e.get("sev", "")}"{ips}>{e["label"][:400]}{kn}</event>{on}{extra}'
@@ -1008,9 +1030,12 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correla
     return _json(txt)["decisions"], usage, round(secs, 2)
 
 
-def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None):
+def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None, usage_out=None):
     t = model if isinstance(model, dict) else {"provider": "lmstudio", "model": model}
-    return _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query)[0]
+    dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query)
+    if usage_out is not None:
+        usage_out.update(usage or {})
+    return dec
 
 
 _PRIO = {"decision": 0, "role": 1, "baseline": 2, "behavior": 3, "config": 4, "risk": 5, "watch": 6, "other": 7}
@@ -1041,7 +1066,7 @@ def _context_notes(tags, E):
     The reviewer bases its benign / expected calls on these."""
     owner, ai = {}, {}
     import kb
-    prof = _user_profiles()
+    prof, lim = _user_profiles(), notes_limit()
     for tag, eid in tags.items():
         ev = E.get(eid, {})
         o, a = [], []
@@ -1064,9 +1089,9 @@ def _context_notes(tags, E):
             line = f"host note [{n['category']}] {n['label'] or n['subject']}: {_TAG.sub('', str(n['text']))[:240]}"
             (o if _human(n) else a).append(line)
         if o:
-            owner[tag] = o[:5]
+            owner[tag] = o[:lim]
         if a:
-            ai[tag] = a[:6]
+            ai[tag] = a[:lim]
     return owner, ai
 
 
@@ -1107,7 +1132,7 @@ def _ai_notes(aid, ids, E):
                 lines.append(f"research verdict {n.get('verdict') or '?'}: {str(n.get('summary') or '')[:200]} {str(n.get('research') or '')[:300]}".strip())
             lines += ctx.get(tag, [])
             if lines:
-                out[tag] = lines[:7]
+                out[tag] = lines[:notes_limit()]
     except Exception as e:  # noqa: BLE001 - reviews work without them
         print(f"corr_llm: AI notes unavailable: {e}", file=sys.stderr)
     return out
@@ -1138,7 +1163,14 @@ def _review(model, aid, base, todo):
     mname = model["model"] if isinstance(model, dict) else model
 
     logq = _es_logger(aid, ids, mname)
-    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, _owner_notes(aid, ids, E), es["max"] if es["enabled"] else 0, logq, ai_notes=_ai_notes(aid, ids, E))}
+    used = {}
+    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, _owner_notes(aid, ids, E), es["max"] if es["enabled"] else 0, logq, ai_notes=_ai_notes(aid, ids, E), usage_out=used)}
+    try:  # tokens this one event review used (all its model rounds), for the AI review page's average in / out per event
+        with _lock, _db() as c:
+            c.execute("INSERT INTO review_events (ts, prompt, completion, cands) VALUES (?,?,?,?)", (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands)))
+            c.execute("DELETE FROM review_events WHERE ts < ?", (time.time() - 30 * 86400,))
+    except Exception as e:  # noqa: BLE001
+        print(f"corr_llm: review token log failed: {e}", file=sys.stderr)
     rows = []
     for i, (e, r) in enumerate(cands, 1):
         d = dec.get(f"c{i}")
@@ -1421,6 +1453,11 @@ def overview(events, applied):
     with _db() as c:
         tok5 = c.execute("SELECT COALESCE(SUM(tokens),0) FROM review_tokens WHERE ts > ?", (now - 300,)).fetchone()[0]
         tc, ts_ = c.execute("SELECT COALESCE(SUM(completion),0), COALESCE(SUM(secs),0) FROM review_tokens WHERE ts > ? AND secs > 0", (now - 3600,)).fetchone()
+    with _db() as c:
+        ev_stats = {}
+        for lab, since in (("day", now - 86400), ("all", 0)):
+            n_, pi, po = c.execute("SELECT COUNT(*), COALESCE(AVG(prompt),0), COALESCE(AVG(completion),0) FROM review_events WHERE ts > ? AND prompt + completion > 0", (since,)).fetchone()
+            ev_stats[lab] = {"n": n_, "in": round(pi), "out": round(po)}
     tps = round(tc / ts_, 1) if ts_ > 0 and tc > 0 else None  # average output tokens per second of model time, last hour
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)
@@ -1444,7 +1481,7 @@ def overview(events, applied):
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
             "totals": {"verdicts": len(out), "related": sum(r["related"] for r in out), "rejected": sum(not r["related"] for r in out),
-                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps,
+                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats,
                        "avg_conf": round(sum(r["confidence"] or 0 for r in out) / len(out), 2) if out else None},
             "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out[:3000]}
 

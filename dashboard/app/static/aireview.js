@@ -254,6 +254,7 @@
         };
       }
       body.appendChild(esQueriesRow(D));
+      body.appendChild(notesLimitRow(D));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
@@ -283,6 +284,31 @@
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     r.title = "When on, the correlation reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
+    return r;
+  }
+  // Host / user notes given to the reviewer with each event (admin sets the cap; more notes = more tokens in)
+  function notesLimitRow(D) {
+    const cfg = D.config?.context_notes || { max: 7, limit: 40, default: 7 };
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Notes per event" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    lab.append("host + user notes the reviewer sees for each event, max ");
+    const num = lab.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: cfg.limit, step: 1, value: cfg.max }));
+    num.style.width = "4.5em"; num.setAttribute("aria-label", "Maximum host and user notes per event");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (c) => `now: up to ${c.max} per event (default ${c.default}, limit ${c.limit})` + (c.by ? ` (${c.by})` : "");
+    msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
+    num.disabled = !D.admin;
+    autoApply(btn, [num]);
+    btn.onclick = async () => {
+      const mx = Math.round(+num.value);
+      if (!(mx >= 1 && mx <= cfg.limit)) { msg.textContent = `Enter 1-${cfg.limit} notes per event.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/notes", { max: mx }); Object.assign(cfg, r2.context_notes || {}); msg.textContent = "saved · " + show(cfg) + " (from the next review)"; }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    r.title = "Host notes about the hosts an event involves and notes / profiles of the accounts it names are added to each event the reviewer sees. Raising this gives it more context (and more input tokens: see Avg tokens in / event); lowering it makes reviews cheaper.";
     return r;
   }
   // Elasticsearch searches of one AI: the correlation reviewer (structured requests) or the research AI (raw query DSL)
@@ -785,7 +811,7 @@
       ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>` + (q.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode: listed, never sent">+${fn(q.testing)} testing</span>` : ""), q.pending ? "warn" : "good"],
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
-      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
+      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     if (D.admin) {
       const bar = document.createElement("div"); bar.style.cssText = "margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center";
