@@ -2,7 +2,7 @@
 window.CARD_INFO = {
 "audit|Audit log storage": {
 "source": "Dashboard settings (integrations.json, section audit) and a live count from the Security Onion Elasticsearch index logs-netmon.",
-"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the background reviewer's and the review job's entries on or off independently.",
+"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the background reviewer's and the correlation review job's entries on or off independently.",
 "what": "Where the audit log is stored and whether the dashboard can write to it."
 },
 "audit|Filters": {
@@ -35,48 +35,48 @@ window.CARD_INFO = {
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
-"aireview|AI review job": {
-"source": "The review job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
+"aireview|Correlation review job": {
+"source": "The correlation review job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing job means notes and verdicts are out of date. Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
-"what": "Status of the scheduled review job (collect, analyze, reviewer): health, model, schedule, last run, note counts by verdict, coverage, and recent runs. Events are researched only on request (Send to research), not on the schedule."
+"what": "Status of the scheduled correlation review job (collect, analyze, reviewer): health, model, schedule, last run, note counts by verdict, coverage, and recent runs. Events are researched only on request (Send to research), not on the schedule."
 },
-"aireview|Time and tokens per research run": {
-"source": "Token counts reported by the AI provider for every call of each run, recorded by review.py; cost estimated from the prices entered for the model under AI providers.",
+"aireview|Time and tokens per research job": {
+"source": "Token counts reported by the AI provider for every call of each run, recorded by review.py (per event: the tokens of its research batch divided over the batch's events); cost estimated from the prices entered for the model under AI providers.",
 "use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
-"what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines."
+"what": "Stacked bars of the research job's tokens per day (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines, plus a list of each researched event with its tokens and cost (a batch of events shares one conversation, so its use is split evenly)."
 },
 "aireview|Research job limits": {
-"source": "Review job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
+"source": "Correlation review job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
 "use": "Set a $ cap per run a bit above the usual run cost and a daily cap as a backstop. The token cap works even when no price is entered. Fewer research batches make runs cheaper; left-over events are picked up by the next run.",
-"what": "Cost and size limits of the scheduled review job: $ per run, $ per day, tokens per run and event-research batches per run."
+"what": "Cost and size limits of the scheduled correlation review job: $ per run, $ per day, tokens per run and event-research batches per run."
 },
 "aireview|Research lookback window": {
-"what": "How many hours of logs each run of the review job collects and reviews. The daily PDF run always covers 24 hours.",
-"source": "Saved in the netmon store and read by the collector when the review job starts (collect.py auto).",
+"what": "How many hours of logs each run of the correlation review job collects and reviews. The daily PDF run always covers 24 hours.",
+"source": "Saved in the netmon store and read by the collector when the correlation review job starts (collect.py auto).",
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
 },
 "aireview|Decisions": {
-"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or the review job, plus manual overrides; stored in the netmon store.",
+"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or the correlation review job, plus manual overrides; stored in the netmon store.",
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗, ↻ to ask the model again, or ⇄ to compare up to 4 models on one decision and adopt the best answer.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
 "source": "Dashboard AI configuration: local models are listed from LM Studio, cloud models from the AI providers box. Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
-"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled review job (reviewer, daily briefing) and on-request event research and the Ask AI chat."
+"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled correlation review job (reviewer, daily briefing) and on-request event research and the Ask AI chat."
 },
 "aireview|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
 "use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use; add prices after a model id for cost estimates). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps single calls if something loops.",
-"what": "AI services reached with an API key, any number of them. Their models can be picked for the correlation reviewer, the review job, the chat and in every Compare dialog."
+"what": "AI services reached with an API key, any number of them. Their models can be picked for the correlation reviewer, the correlation review job, the chat and in every Compare dialog."
 },
 "aireview|Reviewer": {
-"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). The review job's verdicts override it.",
+"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). The correlation review job's verdicts override it.",
 "use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check LM Studio is running or switch model in the Models card.",
 "what": "Status of the correlation reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
 },
 "aireview|Verdicts per hour": {
-"source": "Stored correlation verdicts from the corr_llm.py reviewer (and review job re-reviews) in the netmon store.",
+"source": "Stored correlation verdicts from the corr_llm.py reviewer (and correlation review job re-reviews) in the netmon store.",
 "use": "Bursts after each snapshot (twice a day) are normal; long gaps while links are awaiting review suggest the model is down or stalled.",
 "what": "Bar chart of how many link decisions the reviewer made in each of the last 24 hours."
 },
@@ -146,12 +146,12 @@ window.CARD_INFO = {
 "what": "Devices with traffic in this snapshot whose MAC address is not in the device inventory, with their byte total and number of external peers."
 },
 "device|Notes": {
-"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the scheduled AI review job; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
+"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the scheduled Correlation review job; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
 "use": "Read what earlier AI runs learned about this device (its role, what is normal for it, decisions made). Add a note to tell the AI something it cannot see, e.g. 'media server, large uploads to B2 at night are expected'. Delete notes that are wrong; the AI also corrects stale ones.",
-"what": "Running notes about this host or device that every AI job reads before judging it: the scheduled review job, the correlation reviewer's work list and Ask AI."
+"what": "Running notes about this host or device that every AI job reads before judging it: the scheduled correlation review job, the correlation reviewer's work list and Ask AI."
 },
 "notes|Host notes": {
-"source": "The notes knowledge base (kb.py). Written by the scheduled AI review job (✨) and by people on the host and endpoint pages (👤).",
+"source": "The notes knowledge base (kb.py). Written by the scheduled Correlation review job (✨) and by people on the host and endpoint pages (👤).",
 "use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
 "what": "Every note about every host and device, newest first."
 },

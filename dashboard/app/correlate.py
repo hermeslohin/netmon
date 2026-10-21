@@ -46,6 +46,79 @@ TOPIC_NAME = {"threat-intel": "threat-listed IPs", "ssh-auth": "SSH logins", "au
               "tls-legacy": "old TLS", "new-device": "unknown device", "beacon": "beaconing", "dns-tunnel": "DNS tunnelling"}
 
 
+# --- artifacts known before any review: users, processes, files and DNS names pulled straight from the event's own fields/text
+_PATH = re.compile(r"(?<![\w/.:-])((?:/(?:usr|bin|sbin|opt|etc|var|tmp|home|lib|lib64|root|srv|run|snap|Applications|System|Library|Users|private)/[^\s,;()'\"\[\]<>]+)|(?:[A-Za-z]:\\[^\s,;()'\"\[\]<>]+))")
+_USER = re.compile(r"\buser ([A-Za-z_][\w.-]{0,31})\b")
+_ACCTS = re.compile(r"\baccounts? ([A-Za-z_][^\[\]]*)")
+_SHA = re.compile(r"\bsha256 ([0-9a-f]{8,64})\b")
+_PARENT = re.compile(r"\bparent (\S+)")
+_CMD = re.compile(r"\bcmd: (.+)$")
+_PROC_KEYS = ("proc", "exec", "hnet", "net-new", "net-", "persist", "lolbin")
+_FILE_KEYS = ("file", "fim", "ransom")
+_BIN_DIRS = ("/bin/", "/sbin/", "/usr/bin/", "/usr/sbin/", "/usr/local/bin/", "/usr/libexec/", "/opt/")
+_STOP_USERS = {"and", "the", "from", "with", "that", "this", "has", "was", "were", "for", "failed", "ok", "none", "unknown", "id", "agent", "name", "names"}
+MAX_ARTS = 10
+
+
+def artifacts_of(text, key="", users=(), extra=(), host_label=""):
+    """Concrete artifacts an event already carries: [kind, value, relation] with kind file|process|user|dns.
+    Pure text/field extraction (no lookups), so it works the moment the event exists - before correlation or any review."""
+    text = text or ""
+    out, seen = [], set()
+
+    def put(kind, value, rel):
+        value = str(value).strip().rstrip(".,;:)")
+        if not value or len(value) > 200 or (kind, value.lower() if kind in ("user", "dns") else value) in seen:
+            return
+        seen.add((kind, value.lower() if kind in ("user", "dns") else value))
+        out.append([kind, value, rel[:90]])
+
+    k0 = key.split("|")[0] if key else ""
+    proc_ctx = k0.startswith(_PROC_KEYS) or k0 == "host" and any(x in key for x in ("hnet", "proc", "exec")) \
+        or bool(re.search(r"\b(process|executable|interpreter|accepted an? |contacted|spawned|binary|command)\b", text, re.I))
+    file_ctx = k0.startswith(_FILE_KEYS) or bool(re.search(r"\b(file|written|created|modified|dropped|deleted)\b", text, re.I))
+    par = _PARENT.search(text)
+    parent = par.group(1).rstrip(".,;)") if par else ""
+    sha = _SHA.search(text)
+    on = f" on {host_label}" if host_label else ""
+    for m in _PATH.finditer(text):
+        path = m.group(1).rstrip(".,;:)")
+        if path == parent:
+            continue
+        is_proc = proc_ctx and (path.startswith(_BIN_DIRS) or "/bin/" in path or k0.startswith(_PROC_KEYS)) and not (file_ctx and not k0.startswith(_PROC_KEYS))
+        if is_proc:
+            put("process", path, ("new executable" if k0.startswith("exec-new") else "process") + on)
+        else:
+            put("file", path, "file mentioned" + on)
+        if sha and (("process", path) in [(a[0], a[1]) for a in out] or ("file", path) in [(a[0], a[1]) for a in out]):
+            for a in out:
+                if a[1] == path:
+                    a[2] = (a[2] + f" · sha256 {sha.group(1)[:16]}")[:90]
+    if parent.startswith("/") or (parent and re.fullmatch(r"[\w.+-]{2,40}", parent)):
+        put("process", parent, "parent process")
+    c = _CMD.search(text)
+    if c:
+        cmd = c.group(1).strip()
+        if cmd and not any(a[1] == cmd for a in out):
+            put("process", cmd[:160], "command line")
+    for m in _USER.finditer(text):
+        if m.group(1).lower() not in _STOP_USERS:
+            put("user", m.group(1), "account that ran it")
+    for m in _ACCTS.finditer(text):  # "accounts alice (1 failed, 2 ok), root (1 failed)"
+        for tok in re.split(r",\s*(?![^()]*\))", m.group(1)):
+            mm = re.match(r"([A-Za-z_][\w.-]{0,31})\b", tok.strip())
+            if mm and mm.group(1).lower() not in _STOP_USERS:
+                put("user", mm.group(1), "account in login attempts")
+    for u in users:
+        put("user", u, "account in login attempts")
+    for d in _DOM.findall(text):
+        if not d.lower().endswith((".lan", ".local", ".hades")):
+            put("dns", d.lower(), "domain in event")
+    for kind, value, rel in extra:
+        put(kind, value, rel)
+    return out[:MAX_ARTS]
+
+
 def _topics_finding(kind):
     return {t for rx, t in _FINDING_TOPIC if re.search(rx, kind)}
 
@@ -115,12 +188,14 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
                 e.add(("dom", d.lower()))
         return e
 
-    def add(eid, typ, label, t0, t1, ents, tech=(), link="", sev="", vuln=False, topics=(), host=None, dst=None):
+    def add(eid, typ, label, t0, t1, ents, tech=(), link="", sev="", vuln=False, topics=(), host=None, dst=None, text=None, users=(), extra=(), hlabel="", akey=""):
         ents = {(k, v) for k, v in ents if v and not (k == "ip" and str(v).endswith(".1"))}  # gateway interfaces link everything
         ev[eid] = {"id": eid, "type": typ, "label": label[:160], "t0": t0, "t1": t1 if t1 is not None else t0, "ents": ents,
                    "tech": set(tech), "link": link, "sev": sev, "vuln": vuln, "topics": set(topics),
                    # host_ips / dst_ips feed the artifacts of a related event; default: internal IPs are hosts, external ones destinations
-                   "host": None if host is None else set(host), "dst": None if dst is None else set(dst)}
+                   "host": None if host is None else set(host), "dst": None if dst is None else set(dst),
+                   # users / processes / files / DNS names read from the event itself, known before any review runs
+                   "arts": artifacts_of(label if text is None else text, akey, users, extra, hlabel)}
 
     def host_ents(h):
         ip = resolve(h or "")
@@ -160,7 +235,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             if kp[1] in ("agent-off", "agent-deg", "defend-pol"):
                 top.add("edr")
         add(f"alert|{a['id']}", "alert", a.get("text", ""), ts, ts, e, _TECH.findall(a.get("text", "")) + techniques("alert", k),
-            f"#/alerts?ev=alert|{a['id']}", a.get("severity", ""), topics=top)
+            f"#/alerts?ev=alert|{a['id']}", a.get("severity", ""), topics=top, akey=k)
 
     # --- behaviour findings (whole window)
     from risk import seg_key_finding
@@ -175,7 +250,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         eid = f"f|{f['kind']}|{dev}|{f.get('detail', '')}"
         add(eid, "finding", f"{f['kind']}: {names.get(dev, dev)} - {f.get('detail', '')}", w0, w1, e, techniques("analysis", f["kind"]),
             "#/security?ev=" + eid, f.get("severity", ""), topics=_topics_finding(f["kind"]),
-            host=hips, dst={v for k, v in e if k in ("ip", "ext") and v not in hips})
+            host=hips, dst={v for k, v in e if k in ("ip", "ext") and v not in hips}, text=f.get("detail", ""), akey=f["kind"])
 
     # --- IDS signatures
     for s in (raw.get("alerts") or {}).get("signatures") or []:
@@ -186,7 +261,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             e.add(("ip" if internal(ip) else "ext", ip))
         add(f"ids|{s['name']}", "ids", f"IDS: {s['name']} x{s.get('count', 0)}", _ts(s.get("first")) or w0, _ts(s.get("last")) or w1, e,
             _TECH.findall(" ".join(map(str, s.get("mitre") or []))), "#/security?ev=" + f"ids|{s['name']}", {1: "high", 2: "medium"}.get(s.get("severity"), "low"),
-            host=list((s.get("src") or {}))[:6], dst=list((s.get("dst") or {}))[:6],
+            host=list((s.get("src") or {}))[:6], dst=list((s.get("dst") or {}))[:6], text=re.sub(r"\s+\.", ".", s["name"]),
             topics={t for rx, t in ((r"SCAN", "scan"), (r"CINS|Poor Reputation|DROP|Compromised|Dshield", "threat-intel"), (r"\bSSH\b", "ssh-auth"),
                                     (r"TLS|SSL", "tls-legacy" if re.search(r"SSLv|TLSv1\.[01]", s["name"]) else "_")) if re.search(rx, s["name"])} - {"_"})
 
@@ -197,7 +272,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         add(eid, "admin", f"{a['protocol']} {names.get(a['src'], a['src'])} -> {names.get(a['dst'], a['dst'])}: {a['why']}",
             _ts(a.get("first")) or w0, _ts(a.get("last")) or w1, e, techniques("admin", f"{a['protocol']} | {a['why']}"),
             "#/lateral?at=admin-list&ev=" + eid, a["level"],
-            host=[a["src"]], dst=[a["dst"]],
+            host=[a["src"]], dst=[a["dst"]], users=list(a.get("users") or {}), text="",
             topics=({"ssh-auth"} if a["protocol"] == "SSH" else set()) | ({"auth-fail"} if a["auth_fail"] else set()) | ({"scan"} if a["conn_failed"] >= 5 else set())
             | ({"segmentation"} if a.get("src_zone") != a.get("dst_zone") else set()))
 
@@ -211,7 +286,8 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         top = _topics_key(key) | ({"ssh-auth"} if parts[0].startswith("login") and "ssh" in key.lower() else set()) \
             | ({"edr"} if parts[0] in ("agent-off", "agent-deg", "defend-pol", "silent") else set())
         add(f"hf|{key}", "host", text, w0, w1, e, techniques("host", f"{key}|{text}"), "#/security?ev=hf|" + key,
-            "high" if f.get("priority") == "Investigate" else "medium", topics=top)
+            "high" if f.get("priority") == "Investigate" else "medium", topics=top, akey=key,
+            hlabel=parts[1] if len(parts) > 1 and parts[0] not in ("login",) else "")
 
     # --- threat intel
     ti = raw.get("threat_intel") or {}
@@ -225,7 +301,8 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             ["T1071"], "#/threatintel?ev=ti|out|" + str(h.get("ip")), "high", topics={"threat-intel"})
     for h in ti.get("domain_hits") or []:
         e = ents_from_text(str(h), {("dom", str(h.get("domain", "")).lower())})
-        add(f"ti|dom|{h.get('domain')}", "ti", f"Listed domain {h.get('domain')}", w0, w1, e, ["T1071"], "#/threatintel?ev=ti|dom|" + str(h.get("domain")), "high", topics={"threat-intel"})
+        add(f"ti|dom|{h.get('domain')}", "ti", f"Listed domain {h.get('domain')}", w0, w1, e, ["T1071"], "#/threatintel?ev=ti|dom|" + str(h.get("domain")), "high", topics={"threat-intel"},
+            extra=[("dns", str(h.get("domain", "")).lower(), "listed domain")] if h.get("domain") else [])
 
     # --- UniFi gateway events (the Posture "Gateway events" card; ids match gwId() in app.js)
     uev = ((raw.get("unifi") or {}).get("events") or {})
@@ -257,7 +334,8 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             if h and not _IP.fullmatch(str(h)):
                 e |= host_ents(h)
         add(f"iss|{i['key']}", "vuln", f"{i.get('title', '')} - {i.get('target', '')}", None, None, e, techniques("issue", i["key"]),
-            "#/issues?ev=iss|" + i["key"], i.get("severity", ""), vuln=True, topics=_topics_key(i["key"]))
+            "#/issues?ev=iss|" + i["key"], i.get("severity", ""), vuln=True, topics=_topics_key(i["key"]),
+            text=" ".join(str(i.get(k) or "") for k in ("title", "evidence")), akey=i["key"])
 
     # --- AI triage alarms (rollup over the events above): id matches app.js's fnv(`${title}|${who}`)
     for a in (triage or {}).get("alarms") or []:
@@ -328,6 +406,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
                 break
         out[eid] = keep
     events = {eid: {**{k: x[k] for k in ("type", "label", "link", "sev", "t0", "t1")},  # ips: internal hosts involved (host notes lookup)
+                    "arts": x["arts"],
                     "ips": sorted(v for k, v in x["ents"] if k == "ip")[:8],
                     "host_ips": sorted(x["host"] if x["host"] is not None else {v for k, v in x["ents"] if k == "ip"})[:8],
                     "dst_ips": sorted(x["dst"] if x["dst"] is not None else {v for k, v in x["ents"] if k == "ext"})[:8]} for eid, x in ev.items()}

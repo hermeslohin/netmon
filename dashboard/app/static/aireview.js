@@ -25,7 +25,7 @@
   const every = (_, mins) => { const n = mins;
     return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
   function researchCard(C, D) {  // returns [status box, time/token box (only when usage exists)]
-    if (C.error) return [card("AI review job", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
+    if (C.error) return [card("Correlation review job", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
@@ -33,18 +33,18 @@
       : J.requested ? ["Starting (requested)", "sev-medium"]
       : lastRun && lastRun.status === "failed" ? ["Last run failed", "sev-high"] : J.failure_streak ? ["Failing", "sev-high"] : ["Idle · scheduled", "sev-good"];
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
-    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "review job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
+    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "correlation review job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
-    const c = card(`AI review job (${every(null, J && J.interval_minutes)})`, `
+    const c = card(`Correlation review job (${every(null, J && J.interval_minutes)})`, `
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
         ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no model chosen - pick one in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)}</span>` : ""}</span>
         <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
           ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested || !J.model ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
         <span class="k">Last run</span><span>${lastRun ? `${esc(ago(lastRun.finished || lastRun.started))} · ${esc(lastRun.status)}${lastRun.duration_s ? ` in ${esc(dur(lastRun.duration_s))}` : ""}` : "never"}${J.failure_streak ? ` · <span class="bad">${fn(J.failure_streak)} failure(s) in a row</span>` : ""}</span>
-        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>Review job status unavailable.</span>`}
+        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>Correlation review job status unavailable.</span>`}
         <span class="k">Research notes</span><span>${fn(N.total || 0)} stored · ${fn(N.last_24h || 0)} in the last 24 h${Object.keys(N.by_verdict || {}).length ? " · " + Object.entries(N.by_verdict).map(([k, v]) => `${esc(k)} ${fn(v)}`).join(" · ") : ""}</span>
-        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by the review job (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
+        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by the correlation review job (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
         ${stale && J && J.running ? `<span class="k">Note</span><span class="warn">No progress reported for ${esc(ago(C.exported))} - check logs/research.log on the host.</span>` : ""}
       </div>
       <div style="margin-top:12px"><div class="small muted">Current snapshot: ${cov}% of events have a research note (${fn(N.current_with_note || 0)} of ${fn(N.current_events || 0)})</div>
@@ -54,6 +54,7 @@
         <div class="cl-runs"><div class="small"><b>Recent runs</b></div></div>
       </div>`);
     c.id = "ai-research";
+    if (J) c.insertBefore(lookbackCard(D), c.querySelector(".cl-runs").parentNode);  // the lookback is a setting of this job's collect + correlate step
     if (D.admin && J) {
       const m = c.querySelector(".rj-msg");
       c.querySelector(".rj-run")?.addEventListener("click", async (ev) => { ev.target.disabled = true; m.textContent = "requesting…";
@@ -67,54 +68,81 @@
     const U = (J && J.usage) || [];
     let uc = null;
     USAGE = null;
-    if (U.length) {  // time + token use of each research run
-      const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (daily)" : ""));
+    const RE = (J && J.researched) || [];
+    if (U.length || RE.length) {  // time + token use of the research job, one bar per day, and every researched event
+      const dayKey = (t) => { const d = new Date(t * 1000); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+      const days = []; const byDay = {};
+      for (const u of U) { const k = dayKey(u.at); let d = byDay[k]; if (!d) { d = byDay[k] = { at: u.at, runs: [] }; days.push(d); } d.runs.push(u); }
+      days.sort((x, y) => x.at - y.at);
+      const split = (u) => u.cache_read != null;
+      const sumU = (rs, f) => rs.reduce((a, u) => a + (f(u) || 0), 0);
+      for (const d of days) {
+        d.fresh = sumU(d.runs.filter(split), (u) => u.fresh); d.cache_write = sumU(d.runs.filter(split), (u) => u.cache_write);
+        d.cache_read = sumU(d.runs.filter(split), (u) => u.cache_read); d.nosplit = sumU(d.runs.filter((u) => !split(u)), (u) => u.prompt);
+        d.completion = sumU(d.runs, (u) => u.completion); d.mins = sumU(d.runs, (u) => u.duration_s) / 60;
+        const priced = d.runs.filter((u) => u.cost_usd != null); d.cost = priced.length ? sumU(priced, (u) => u.cost_usd) : null;
+        d.models = [...new Set(d.runs.map((u) => u.model).filter(Boolean))].join(", ");
+      }
       // the prompt count sums the whole re-sent conversation over every API call of the run; most of it can be
       // prompt-cache reads (a fraction of the input price) when the provider caches. review.py records the split.
       const M = (v) => +((v || 0) / 1e6).toFixed(3), sum = (f) => U.reduce((a, u) => a + (f(u) || 0), 0);
-      const split = (u) => u.cache_read != null;
       const mins = sum((u) => u.duration_s) / 60, cost = sum((u) => u.cost_usd), nCost = U.filter((u) => u.cost_usd != null).length;
       const S = U.filter(split), nRaw = U.length - S.length;
       const tokAll = sum((u) => split(u) ? u.fresh + u.cache_write + u.completion : (u.prompt || 0) + (u.completion || 0)), readsAll = sum((u) => u.cache_read);
       const tpm = mins > 0 ? Math.round(tokAll / mins) : 0, tpmR = mins > 0 ? Math.round((tokAll + readsAll) / mins) : 0;
       const work = S.reduce((a, u) => a + u.fresh + u.cache_write + u.completion, 0), reads = S.reduce((a, u) => a + u.cache_read, 0);
       // own box (user request): title is the card h2, the summary line sits under it
-      uc = card("Time and tokens per research run", "");
+      uc = card("Time and tokens per research job", "");
       uc.id = "ai-usage";
       const chart = uc;  // header + .chart as direct children so cards.js marks it cc-chart (no phone height cap)
-      const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" }));
-      hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${U.length} runs · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
-          (tpm ? `avg ${tpm.toLocaleString()} tokens/min (${tpmR.toLocaleString()} incl. cache re-reads) · ` : "") +
-          (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
-          (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
-          (nCost ? ` · est. $${cost.toFixed(2)} at the prices entered for the model ($${(cost / nCost).toFixed(2)} per run)` : "") }));
-      const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
-      chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
-      const cfg = { type: "bar", data: { labels: lbl, datasets: [
-        { label: "New input (M)", data: U.map((u) => M(split(u) ? u.fresh : null)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
-        { label: "Cache writes (M)", data: U.map((u) => M(split(u) ? u.cache_write : null)), backgroundColor: "#d29922", stack: "t", yAxisID: "y" },
-        { label: "Input, no cache split (M)", data: U.map((u) => M(split(u) ? null : u.prompt)), backgroundColor: "#8b949e", stack: "t", yAxisID: "y" },
-        { label: "Output (M)", data: U.map((u) => M(u.completion)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
-        { label: "Cache re-reads (M)", data: U.map((u) => M(u.cache_read)), backgroundColor: "#58a6ff33", stack: "t", yAxisID: "y", hidden: true },
-        { label: "Run time (min)", type: "line", data: U.map((u) => +(u.duration_s / 60).toFixed(1)), borderColor: "#3fb950", backgroundColor: "#3fb950",
-          pointRadius: 3, tension: 0.2, yAxisID: "y1" },
-        { label: "Est. cost ($)", type: "line", data: U.map((u) => u.cost_usd), borderColor: "#f85149", backgroundColor: "#f85149",
-          pointRadius: 3, tension: 0.2, yAxisID: "y2" },
-        { label: "Cost with selected model ($)", type: "line", data: U.map(() => null), borderColor: "#ff7b72", backgroundColor: "#ff7b72", borderDash: [6, 4],
-          pointRadius: 2, tension: 0.2, yAxisID: "y2", hidden: true }] },
-        options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
-          y: { stacked: true, beginAtZero: true, title: { display: true, text: "tokens (millions)" } },
-          y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "minutes" } },
-          y2: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "US $" }, ticks: { callback: (v) => "$" + v } } },
-          plugins: { tooltip: { callbacks: { footer: (it) => { const u = U[it[0].dataIndex];
-            const p = USAGE && USAGE.preview, pc = p ? runCost(u, p.price) : null;
-            return `Input incl. cache re-reads: ${(u.prompt / 1e6).toFixed(2)} M` + (u.cost_usd != null ? ` · est. $${u.cost_usd.toFixed(2)}` : "") +
-              ` · ${u.model || ""}${u.error ? " · failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } };
-      queueChart(chart.querySelector("canvas"), cfg);
-      // the chart may not exist yet (queued until the page is laid out): the preview edits this dataset object directly
-      const tot = S.reduce((a, u) => a + u.fresh + u.cache_write + u.cache_read, 0);
-      const mix = tot ? { fresh: S.reduce((a, u) => a + u.fresh, 0) / tot, cache_write: S.reduce((a, u) => a + u.cache_write, 0) / tot, cache_read: reads / tot } : null;
-      USAGE = { U, mix, canvas: chart.querySelector("canvas"), pv, preview: null, ds: cfg.data.datasets[cfg.data.datasets.length - 1] };
+      if (U.length) {
+        const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" }));
+        hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${days.length} day${days.length === 1 ? "" : "s"} (${U.length} runs) · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
+            (tpm ? `avg ${tpm.toLocaleString()} tokens/min (${tpmR.toLocaleString()} incl. cache re-reads) · ` : "") +
+            (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
+            (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
+            (nCost ? ` · est. $${cost.toFixed(2)} at the prices entered for the model ($${(cost / nCost).toFixed(2)} per run)` : "") }));
+        const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
+        chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
+        const lbl = days.map((d) => new Date(d.at * 1000).toLocaleDateString([], { month: "short", day: "numeric" }));
+        const cfg = { type: "bar", data: { labels: lbl, datasets: [
+          { label: "New input (M)", data: days.map((d) => M(d.fresh)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
+          { label: "Cache writes (M)", data: days.map((d) => M(d.cache_write)), backgroundColor: "#d29922", stack: "t", yAxisID: "y" },
+          { label: "Input, no cache split (M)", data: days.map((d) => M(d.nosplit)), backgroundColor: "#8b949e", stack: "t", yAxisID: "y" },
+          { label: "Output (M)", data: days.map((d) => M(d.completion)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
+          { label: "Cache re-reads (M)", data: days.map((d) => M(d.cache_read)), backgroundColor: "#58a6ff33", stack: "t", yAxisID: "y", hidden: true },
+          { label: "Run time (min)", type: "line", data: days.map((d) => +d.mins.toFixed(1)), borderColor: "#3fb950", backgroundColor: "#3fb950",
+            pointRadius: 3, tension: 0.2, yAxisID: "y1" },
+          { label: "Est. cost ($)", type: "line", data: days.map((d) => (d.cost == null ? null : +d.cost.toFixed(2))), borderColor: "#f85149", backgroundColor: "#f85149",
+            pointRadius: 3, tension: 0.2, yAxisID: "y2" },
+          { label: "Cost with selected model ($)", type: "line", data: days.map(() => null), borderColor: "#ff7b72", backgroundColor: "#ff7b72", borderDash: [6, 4],
+            pointRadius: 2, tension: 0.2, yAxisID: "y2", hidden: true }] },
+          options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
+            y: { stacked: true, beginAtZero: true, title: { display: true, text: "tokens per day (millions)" } },
+            y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "minutes per day" } },
+            y2: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "US $ per day" }, ticks: { callback: (v) => "$" + v } } },
+            plugins: { tooltip: { callbacks: { footer: (it) => { const d = days[it[0].dataIndex];
+              const p = USAGE && USAGE.preview, pc = p ? d.runs.reduce((a, u) => a + runCost(u, p.price), 0) : null;
+              return `${d.runs.length} run${d.runs.length === 1 ? "" : "s"}` + (d.cost != null ? ` · est. $${d.cost.toFixed(2)}` : "") +
+                ` · ${d.models}${d.runs.some((u) => u.error) ? " · some failed" : ""}` + (pc != null ? `\nWith ${p.model}: ~$${pc.toFixed(2)}` : ""); } } } } } };
+        queueChart(chart.querySelector("canvas"), cfg);
+        // the chart may not exist yet (queued until the page is laid out): the preview edits this dataset object directly
+        const tot = S.reduce((a, u) => a + u.fresh + u.cache_write + u.cache_read, 0);
+        const mix = tot ? { fresh: S.reduce((a, u) => a + u.fresh, 0) / tot, cache_write: S.reduce((a, u) => a + u.cache_write, 0) / tot, cache_read: reads / tot } : null;
+        USAGE = { U, D: days, mix, canvas: chart.querySelector("canvas"), pv, preview: null, ds: cfg.data.datasets[cfg.data.datasets.length - 1] };
+      }
+      // every researched event: what it cost. A batch of events shares one conversation, so its tokens and cost are split evenly.
+      const evc = document.createElement("div"); evc.style.marginTop = "12px";
+      evc.innerHTML = `<h3 style="margin:0 0 4px">Researched events</h3>`;
+      evc.appendChild(RE.length ? table(null, [
+        { k: "at", t: "When", fmt: (v) => esc(clock(v)), sort: (r) => r.at || 0 },
+        { k: "label", t: "Event", fmt: (v, r) => `<span class="badge sev-info">${esc(TYPE[r.type] || r.type || "")}</span> ${esc(v || r.id || "")}`, sort: (r) => r.label || "" },
+        { k: "model", t: "Model", cls: "small" },
+        { k: "total", t: "Tokens", num: true, fmt: (v, r) => `${fn(v || 0)}${r.cache_read ? ` <span class="muted small" title="cache re-reads, billed at a fraction of the input price">(+${fn(r.cache_read)} cached)</span>` : ""}`, sort: (r) => r.total || 0 },
+        { k: "cost_usd", t: "Cost", num: true, fmt: (v) => (v == null ? '<span class="muted" title="no price entered for this model">n/a</span>' : "$" + v.toFixed(v < 0.1 ? 3 : 2)), sort: (r) => r.cost_usd ?? -1 },
+        { k: "batch", t: "Shared with", num: true, fmt: (v) => (v > 1 ? `${v - 1} other${v > 2 ? "s" : ""}` : "-"), sort: (r) => r.batch || 1 },
+      ], RE, { sort: "at", limit: 25 }) : Object.assign(document.createElement("div"), { className: "small muted", textContent: "No events researched yet since this was added. Each event researched with Send to research is listed here with its tokens and cost." }));
+      chart.appendChild(evc);
     }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
@@ -153,13 +181,13 @@
       const perDay = current && current.interval_minutes ? 1440 / current.interval_minutes : 2;
       const v = USAGE.U.map((u) => runCost(u, price)), avg = v.reduce((a, x) => a + x, 0) / (v.length || 1);
       const rec = USAGE.U.filter((u) => u.cost_usd != null), recAvg = rec.length ? rec.reduce((a, u) => a + u.cost_usd, 0) / rec.length : null;
-      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the review job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
+      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the correlation review job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
         (recAvg != null ? ` (the recorded runs averaged $${recAvg.toFixed(2)})` : "") +
         ` · ~$${(avg * 30 * perDay).toFixed(0)} a month at ${+perDay.toFixed(1)} run${perDay === 1 ? "" : "s"} a day. <span class="muted">Same token counts as the recorded runs re-priced at ` +
         `${esc(model)}'s price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
-        `a different model would use a different number of tokens, so treat this as a rough guide.${chosen ? "" : " Press Save to switch."}</span>`;
+        `a different model would use a different number of tokens, so treat this as a rough guide.${chosen ? "" : ""}</span>`;
     }
-    const data = same || !price ? USAGE.U.map(() => null) : USAGE.U.map((u) => runCost(u, price));
+    const data = same || !price ? USAGE.D.map(() => null) : USAGE.D.map((d) => +d.runs.reduce((a, u) => a + runCost(u, price), 0).toFixed(2));
     ds.data = data; ds.label = same || !price ? "Cost with selected model ($)" : `Cost with ${model} ($)`; ds.hidden = same || !price;
     if (ch) ch.update();
   }
@@ -170,6 +198,12 @@
   // the local server; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
   const PROV = { lmstudio: "Local (LM Studio)" };
   const optKey = (p, m) => `${p}|${m}`;
+  // Settings apply as soon as they are set: the Save button is hidden and fires when the value is committed
+  // (checkbox ticked, or number/text entry finished with Enter or by leaving the field).
+  function autoApply(btn, inputs, run) {
+    btn.style.display = "none";
+    for (const i of inputs) i.addEventListener("change", () => { run ? run() : btn.onclick && btn.onclick(); });
+  }
   function modelSelect(M, cur, placeholder) {
     const sel = document.createElement("select"); sel.className = "llm-sel";
     if (placeholder) sel.add(new Option(placeholder, ""));
@@ -187,9 +221,9 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). Review job: the scheduled triage, event research and daily report - needs a reasoning-capable model (it works through several tool calls per event and decides what to do next between them); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model (Qwen, DeepSeek-R1...) in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). Correlation review job: the scheduled triage, event research and daily report - needs a reasoning-capable model (it works through several tool calls per event and decides what to do next between them); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model (Qwen, DeepSeek-R1...) in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
       : "Only an admin can change models.";
-    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Review job (${every(null, D.research?.interval_minutes)}) · needs reasoning`, D.research && !D.research.error ? D.research : {}],
+    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Correlation review job (${every(null, D.research?.interval_minutes)}) · needs reasoning`, D.research && !D.research.error ? D.research : {}],
       ["chat", "Chat (Ask AI)", D.chat || {}]];
     loadModels().then((M) => {
       if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start LM Studio. " + note.textContent;
@@ -202,7 +236,7 @@
         const warn = sec === "research" ? r.appendChild(Object.assign(document.createElement("span"), { className: "small warn" })) : null;
         const showWarn = (provider) => { if (!warn) return; const rt = reasoningTokens(provider);
           warn.textContent = rt === 0 ? " ⚠ this provider has 0 reasoning tokens set (AI providers > edit) - research quality will suffer" : ""; };
-        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the review job does not run until a reasoning-capable model is chosen")
+        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the correlation review job does not run until a reasoning-capable model is chosen")
           : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (model loaded in LM Studio)";
         if (sec === "research") showWarn(cur.provider);
         if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
@@ -240,8 +274,7 @@
     const show = (c) => (c.enabled ? `now: on · up to ${c.max} per event` : "now: off") + (c.by ? ` (${c.by})` : "");
     msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
     chk.disabled = num.disabled = !D.admin;
-    const dirty = () => { num.disabled = !D.admin; btn.disabled = !D.admin || (chk.checked === !!cfg.enabled && +num.value === cfg.max); };
-    chk.onchange = num.oninput = dirty;
+        autoApply(btn, [chk, num]);
     btn.onclick = async () => {
       const mx = Math.round(+num.value), lim = cfg.limit || 20;
       if (!(mx >= 1 && mx <= lim)) { msg.textContent = `Enter 1-${lim} queries per event.`; return; }
@@ -315,7 +348,7 @@
   function limitsCard(D) {
     const Lm = D.limits || { pairs: [], top_events: [], excluded: [] };
     const c = card(`Review limits (${fn(Lm.total || 0)} candidate links)`, `
-      <div class="small muted">Links that are skipped or excluded here (or set to <b>test</b>, which only lists them as <i>testing</i>) are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
+      <div class="small muted">Links that are skipped or excluded here are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
         Changes apply from the next review round.</div>
       <div class="rl-class" style="margin:10px 0 4px"><label><input type="checkbox" class="rl-cls"> <b>Classify events</b></label>
         <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the reviewer model.</span>
@@ -329,8 +362,9 @@
       <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
         <button type="button" class="rl-maxsave">Save</button>
         <span class="small muted">Each event is reviewed against at most this many links, best-scoring first (0 = no cap). Applies to links without a verdict; a link needs room at both of its events.</span></div>
-      <h3 style="margin:10px 0 4px">Event types</h3>
-      <div class="rl-pairs" style="display:grid;grid-template-columns:auto auto auto;gap:4px 14px;justify-content:start"></div>
+      <h3 style="margin:10px 0 4px">Correlation Event Type Pairs</h3>
+      <div class="small muted">Each cell is the pair of its row and column type (the matrix is symmetric, so only the upper triangle is shown). Click a cell to switch it between <b>review</b> (on) and <b>skip</b> (off). The number is the candidate links.</div>
+      <div class="rl-pairs" style="overflow-x:auto;margin-top:6px"></div>
       <h3 style="margin:12px 0 4px">Events with the most links</h3><div class="rl-top"></div>
       <h3 style="margin:12px 0 4px">Never send (${(Lm.rules || []).length} rules)</h3>
       <div class="small muted">Stop sending a class of events to the AI by name, or by host and ID. Fill in one field or several (all must match). Name: part of the event text, or a pattern with * ?.
@@ -343,8 +377,8 @@
       <div class="small muted rl-msg" style="margin-top:6px">${D.can_limit ? "" : "Only an admin or network defender can change these limits."}</div>`);
     c.id = "ai-limits";
     const msg = c.querySelector(".rl-msg");
-    const post = async (b) => { msg.textContent = "saving…";
-      try { await apiPost("/api/llm/review-limits", b); location.reload(); }
+    const post = async (b, quiet) => { msg.textContent = "saving…";
+      try { await apiPost("/api/llm/review-limits", b); msg.textContent = "saved"; if (!quiet) refresh(); }
       catch (e) { msg.textContent = "error: " + e.message; } };
     const cls = c.querySelector(".rl-cls"), clsi = c.querySelector(".rl-clsinfo"), esCfg = D.config?.es_queries || {};
     cls.checked = !!Lm.classify; cls.disabled = !D.can_limit;
@@ -353,7 +387,7 @@
       ` · Elasticsearch for the reviewer: ${esCfg.enabled ? `<b>on</b> (up to ${esCfg.max} look-ups per event, used for classification too)` : `off${D.admin ? ' <button type="button" class="rl-es">Let the reviewer use Elasticsearch</button>' : " (an admin can turn it on in the Models box)"}`}`;
     const esb = clsi.querySelector(".rl-es");
     const enableEs = async () => { await apiPost("/api/llm/esqueries", { enabled: true, max: esCfg.max || 3 }); };
-    if (esb) esb.onclick = async () => { try { await enableEs(); location.reload(); } catch (e) { msg.textContent = "error: " + e.message; } };
+    if (esb) esb.onclick = async () => { try { await enableEs(); refresh(); } catch (e) { msg.textContent = "error: " + e.message; } };
     cls.onchange = async () => {
       try {
         if (cls.checked && !esCfg.enabled && D.admin && confirm("Also let the reviewer search Elasticsearch (read-only Security Onion logs) for more context when it classifies events and reviews links?")) await enableEs();
@@ -364,16 +398,44 @@
     wmax.value = Lm.window_minutes || 0; wmax.disabled = wsv.disabled = !D.can_limit;
     c.querySelector(".rl-winfo").textContent = Lm.window_minutes ? `Now outside the window: ${fn(wo.links || 0)} candidate links.` : "No window set: events of any age gap are correlated.";
     wsv.onclick = async () => { const wm = c.querySelector(".rl-wmsg"); wm.textContent = "saving…";
-      try { await apiPost("/api/llm/review-limits", { window: { minutes: +wmax.value || 0 } }); location.reload(); }
+      try { await apiPost("/api/llm/review-limits", { window: { minutes: +wmax.value || 0 } }); wm.textContent = "saved"; refresh(); }
       catch (e) { wm.textContent = "error: " + e.message; } };
+    autoApply(wsv, [wmax]);
     const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });
+    autoApply(mxb, [mx]);
     const pairs = c.querySelector(".rl-pairs");
-    pairs.innerHTML = (Lm.pairs || []).map((p) => `<span>${pairTip(p.pair)}</span><span class="small">${fn(p.links)} links</span>
-      <select data-pair="${esc(p.pair)}">${["review", "skip", "test"].map((m) => `<option value="${m}"${p.mode === m ? " selected" : ""}>${m}</option>`).join("")}</select>`).join("");
-    for (const s of pairs.querySelectorAll("select")) { s.disabled = !D.can_limit;
-      s.onchange = () => post({ pair_modes: Object.fromEntries([...pairs.querySelectorAll("select")].map((x) => [x.dataset.pair, x.value])) }); }
+    {
+      const pm = {}, pl = {}, MODES = ["review", "skip"], MC = { review: "#1f7a3a", skip: "#8a2a2a" };
+      const ts = new Set();
+      for (const p of Lm.pairs || []) { pm[p.pair] = p.mode; pl[p.pair] = p.links; for (const t of p.pair.split("-")) ts.add(t); }
+      // every type is split by severity (ids_high ...); columns are grouped by type, then low / medium / high
+      const ORDER = ["ids", "alert", "alarm", "admin", "ti", "gw", "host", "finding", "vuln", "seg"], SV = ["high", "medium", "low"];
+      const SVC = { high: "#c0392b", medium: "#b8860b", low: "#4a7c59" };
+      const parse = (t) => { const m = /^(.+)_(low|medium|high)$/.exec(t); return m ? [m[1], m[2]] : [t, ""]; };
+      const oi = (b) => { const i = ORDER.indexOf(b); return i < 0 ? 99 : i; };
+      const types = [...ts].sort((a, b) => { const [ba, sa] = parse(a), [bb, sb] = parse(b); return oi(ba) - oi(bb) || ba.localeCompare(bb) || SV.indexOf(sa) - SV.indexOf(sb); });
+      const bases = [...new Set(types.map((t) => parse(t)[0]))];
+      const cell = (k, x) => { if (!(k in pm)) return `<td style="text-align:center;color:#666;${x}">·</td>`;
+        return `<td style="padding:2px;${x}"><button type="button" data-pair="${esc(k)}" class="rl-cell" ${D.can_limit ? "" : "disabled"} title="${esc(k)}: ${pm[k]}" style="width:100%;min-width:5.5em;border:1px solid ${MC[pm[k]]};background:${MC[pm[k]]}33;border-radius:4px;padding:2px 6px;cursor:pointer;color:inherit"><b>${esc(pm[k])}</b><br><span class="small muted">${fn(pl[k] || 0)}</span></button></td>`; };
+      const sevTag = (t) => { const s = parse(t)[1]; return `<span class="small" style="color:${SVC[s] || "inherit"}">${esc(s || "-")}</span>`; };
+      const gstyle = (i) => (i === 0 || parse(types[i])[0] !== parse(types[i - 1])[0]) ? "border-left:2px solid #555;" : "";
+      const head1 = `<tr><th></th><th></th>${bases.map((b) => `<th colspan="${types.filter((t) => parse(t)[0] === b).length}" style="text-align:center;border-left:2px solid #555;padding:2px 8px"><span class="mono small">${esc(b)}</span>${tip(b)}</th>`).join("")}</tr>`;
+      const head2 = `<tr><th></th><th></th>${types.map((t, i) => `<th style="text-align:center;${gstyle(i)}">${sevTag(t)}</th>`).join("")}</tr>`;
+      pairs.innerHTML = `<table style="border-collapse:separate;border-spacing:3px"><thead>${head1}${head2}</thead><tbody>` +
+        types.map((r, i) => { const [rb] = parse(r), first = i === 0 || parse(types[i - 1])[0] !== rb;
+          return `<tr${first ? ' style="border-top:2px solid #555"' : ""}>` +
+            (first ? `<th rowspan="${types.filter((t) => parse(t)[0] === rb).length}" style="text-align:right;padding-right:8px;vertical-align:middle"><span class="mono small">${esc(rb)}</span>${tip(rb)}</th>` : "") +
+            `<th style="text-align:right;padding-right:6px">${sevTag(r)}</th>` +
+            types.map((c, j) => j < i ? "<td></td>" : cell(pairKey(r, c), gstyle(j))).join("") + "</tr>"; }).join("") + "</tbody></table>";
+      for (const b of pairs.querySelectorAll(".rl-cell")) b.onclick = () => {
+        const k = b.dataset.pair; pm[k] = MODES[(MODES.indexOf(pm[k]) + 1) % MODES.length];
+        b.querySelector("b").textContent = pm[k]; b.style.borderColor = MC[pm[k]]; b.style.background = MC[pm[k]] + "33"; b.title = `${k}: ${pm[k]}`;
+        (pairs._chg = pairs._chg || {})[k] = pm[k];  // only the cells you touched are saved; the rest keep inheriting
+        clearTimeout(pairs._t); pairs._t = setTimeout(() => { const c = pairs._chg; pairs._chg = {}; post({ pair_modes: c }, true); }, 250);  // saved at once (rapid clicks share one request); no page reload
+      };
+    }
     const top = c.querySelector(".rl-top");
     top.innerHTML = (Lm.top_events || []).map((e, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
       <span style="width:3.5em;text-align:right"><b>${fn(e.links)}</b></span><span class="mono muted" style="width:6em">${esc(e.type)}${tip(e.type)}</span><span style="flex:1">${esc(e.label)}</span>
@@ -397,7 +459,7 @@
     const c = card("AI providers", `<div class="small muted"><b>Local (LM Studio)</b> is the LM Studio server on this host (no key; its enabled flag and rate limit can be set here;
       the model list comes live from LM Studio). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
       OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
-      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, the review job and the chat,
+      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, the correlation review job and the chat,
       and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
       <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
       <div style="margin-top:8px"><button type="button" class="prov-add">Add provider</button> <span class="small muted prov-msg"></span></div>`);
@@ -479,7 +541,7 @@
         <div class="llm-row" style="align-items:flex-start"><span class="k">Models</span>
           <span style="flex:1 1 520px"><div class="pf-models"></div>
             <button type="button" class="pf-add">+ Add model</button> <button type="button" class="pf-fetch">Fetch available models from provider</button>
-            <div class="small muted">Pick each model from the drop-down (use Fetch to fill it, or choose "Custom…" to type an id). Prices are optional, in $ per million tokens; with them the dashboard estimates costs and enforces the review job's $ caps (token caps work without).</div></span></div>
+            <div class="small muted">Pick each model from the drop-down (use Fetch to fill it, or choose "Custom…" to type an id). Prices are optional, in $ per million tokens; with them the dashboard estimates costs and enforces the correlation review job's $ caps (token caps work without).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
           <span class="small muted">cap on this provider's single calls (correlation reviewer + comparisons) - limits cost if something loops</span></div>
         <div class="llm-row"><span class="k">Extra reasoning tokens</span><input name="reasoning_tokens" type="number" min="0" max="32000" step="500" style="width:7em">
@@ -531,7 +593,7 @@
     const avg = U.length ? U.reduce((a, v) => a + v, 0) / U.length : null, max = U.length ? Math.max(...U) : null;
     const usd = (v) => `$${(+v).toFixed(2)}`;
     const c = card(T, `
-      <div class="small muted">The review job adds up the tokens of every model call and, when the model has a price (AI providers > Models), the
+      <div class="small muted">The correlation review job adds up the tokens of every model call and, when the model has a price (AI providers > Models), the
         estimated cost. A run stops at the next model call once a limit below is passed; what it found until then is kept. <b>0 = no limit.</b></div>
       <div class="llm-grid" style="margin-top:10px">
         <div class="llm-row"><span class="k">$ per run</span><span>$ <input type="number" name="max_run_usd" min="0" max="1000" step="0.5" style="width:7em"></span>
@@ -560,18 +622,19 @@
     const web = c.querySelector('input[name="web_research"]');
     const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research === true; warn(); };
     fill({ ...L, web_research: R.web_research });
-    for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
-    web.disabled = !D.admin; web.onchange = () => { btn.disabled = !D.admin; };
+    for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = warn; }
+    web.disabled = !D.admin;
     btn.disabled = true;
     if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
       for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
       body.web_research = web.checked;
-      btn.disabled = true; msg.textContent = "saving…";
+      msg.textContent = "saving…";
       try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), web_research: r.research.web_research }); msg.textContent = "saved (applies from the next run)"; }
-      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+      catch (e) { msg.textContent = "error: " + e.message; }
     };
+    autoApply(btn, [...K.map(inp), web]);
     return c;
   }
 
@@ -580,9 +643,10 @@
     const L = D.lookback || { hours: 24, min: 1, max: 24, pdf_hour: 5 };
     const iv = D.research?.interval_minutes, ivH = iv ? iv / 60 : null;
     const rec = ivH ? Math.min(L.max, Math.ceil(ivH) + 1) : null;
-    const T = "Research lookback window";
-    const c = card(T, `
-      <div class="small muted">How many hours of logs each research run collects and reviews. Shorter windows mean fewer events and fewer
+    const c = document.createElement("div");  // a section inside the Correlation review job card
+    c.style.cssText = "margin-top:14px;padding-top:10px;border-top:1px solid #2a323d";
+    c.innerHTML = `<h3 style="margin:0 0 4px">Lookback window</h3>
+      <div class="small muted">How many hours of logs each run of the correlation review job collects and correlates. Shorter windows mean fewer events and fewer
         tool calls per run, so each run costs less. Every run looks back from the moment it starts.</div>
       <div class="llm-grid" style="margin-top:10px">
         <div class="llm-row"><span class="k">Look back</span>
@@ -597,7 +661,7 @@
         <li>The dashboard's newest snapshot covers only this window between PDF runs. A short run can open a Fix-list item but never mark it fixed.</li>
       </ul>
       <div style="margin-top:8px"><button type="button" class="lb-save">Save</button> <span class="small muted lb-msg"></span></div>
-      <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${L.default ?? 24} h.`} Applies from the next run.</div>`);
+      <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${L.default ?? 24} h.`} Applies from the next run.</div>`;
     c.id = "ai-lookback";
     const inp = c.querySelector('input[name="lb_hours"]'), btn = c.querySelector(".lb-save"), msg = c.querySelector(".lb-msg"), wr = c.querySelector(".lb-warn");
     const warn = () => { const h = +inp.value;
@@ -606,16 +670,17 @@
         : ivH && h >= 2 * ivH && h > rec ? ` Each run re-reviews about ${+(h - ivH).toFixed(1)} h that the previous run already covered.` : ""; };
     inp.value = L.hours; warn();
     inp.disabled = !D.admin; btn.disabled = true;
-    inp.oninput = () => { btn.disabled = !D.admin; warn(); };
+    inp.oninput = warn;
     if (!D.admin) msg.textContent = "Only an admin can change the lookback window.";
     btn.onclick = async () => {
       const h = inp.value.trim();
       if (!/^\d+$/.test(h) || +h < L.min || +h > L.max) { msg.textContent = `Enter a whole number of hours from ${L.min} to ${L.max}.`; return; }
-      btn.disabled = true; msg.textContent = "saving…";
+      msg.textContent = "saving…";
       try { const r = await apiPost("/api/config/lookback", { hours: +h }); inp.value = r.lookback.hours; warn();
         msg.textContent = `saved: ${r.lookback.hours} h per run (from the next run; the PDF run stays 24 h)`; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
+    autoApply(btn, [inp]);
     return c;
   }
 
@@ -692,8 +757,8 @@
     };
   }
 
-  V.aireview = async (el) => {
-    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real, and on the research schedule the review job's model researches the important events and re-reviews their links (its verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+  const build = async (el, bg) => {
+    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real, and on the research schedule the correlation review job's model researches the important events and re-reviews their links (its verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});
@@ -763,7 +828,6 @@
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
     el.appendChild(limitsCard(D));
-    el.appendChild(lookbackCard(D));
     el.appendChild(esCard(D, "reviewer"));
     el.appendChild(esCard(D, "research"));
     el.append(...researchCard(D.research_status || {}, D));
@@ -821,7 +885,24 @@
       if (document.querySelector(".rel-pop")) return true;
       return [...document.querySelectorAll("button.cost-save, button.pf-save")].some((b) => !b.disabled);
     };
-    if (st.busy || q.pending) { const t = setTimeout(() => { if (location.hash.startsWith("#/aireview") && !document.hidden && !midEdit()) rerender(); }, 60000);
+    if (st.busy || q.pending) { const t = setTimeout(() => { if (location.hash.startsWith("#/aireview") && !document.hidden && !midEdit()) refresh(); }, 60000);
       addEventListener("hashchange", () => clearTimeout(t), { once: true }); }
   };
+  // Page entry: build inside a wrapper so a background refresh can swap the whole page in one step.
+  V.aireview = async (el) => { const w = document.createElement("div"); el.appendChild(w); await build(w); };
+  // Background refresh: build the new page off-screen, then replace the old one in a single step. No blank page, no flash,
+  // and the scroll position is kept (route()/rerender() would empty #main first, collapse the page and jump to the top).
+  let _busy = false;
+  async function refresh() {
+    const main = document.getElementById("main"); if (_busy || !main) return; _busy = true;
+    try {
+      const w = document.createElement("div"); await build(w, true);
+      if (!location.hash.startsWith("#/aireview") || main !== document.getElementById("main")) return;
+      const y = window.scrollY, anim = Chart.defaults.animation;
+      S.charts.forEach((c) => c.destroy()); S.charts = [];
+      main.replaceChildren(w);
+      Chart.defaults.animation = false; try { flushCharts(); } finally { Chart.defaults.animation = anim; }
+      window.scrollTo(0, y);
+    } catch (e) { console.error(e); } finally { _busy = false; }
+  }
 })();

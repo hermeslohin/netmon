@@ -58,7 +58,7 @@
     return ip && S.snap?.raw?.devices?.[ip] ? `<a href="#/device/${encodeURIComponent(ip)}">${name}</a> <span class="muted small mono">${esc(ip)}</span>` : `${name} <span class="muted small mono">${esc(v)}</span>`;
   };
   V.notes = async (el) => {
-    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). Event research, the review job, the correlation reviewer and Ask AI read these before deciding.</div>`;
+    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). Event research, the correlation review job, the correlation reviewer and Ask AI read these before deciding.</div>`;
     const d = await api("/api/kb/all");
     const hn = d.host_notes || [], en = d.event_notes || [], pend = en.filter((n) => n.status === "pending");
     el.insertAdjacentHTML("beforeend", kpis([["Host notes", hn.length], ["Devices with notes", new Set(hn.map((n) => n.subject)).size], ["By AI", hn.filter((n) => n.author === "ai").length], ["Event notes", en.length], ["Awaiting approval", pend.length]]));

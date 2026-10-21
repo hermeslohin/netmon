@@ -61,12 +61,13 @@
       ${hits ? `<span class="small muted">${esc(hits)}</span>` : ""}${d.approx ? ` <span class="small muted" title="${esc(tip)}">≈</span>` : ""} ${a.model ? aiFlare({ model: a.model, via: "Elasticsearch search", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`;
   }
-  // host / destination IPs of a related event, always listed as ip artifacts (before the reviewer's own, deduped)
+  // artifacts of a related event, known before any review: host / destination IPs plus the users, processes, files and
+  // DNS names the correlation script read from the event itself (e.arts); the reviewer's own artifacts replace same kind:value
   function ipArts(e, arts) {
-    const have = new Set((arts || []).filter((a) => a.kind === "ip").map((a) => a.value)), out = [];
-    for (const [list, rel] of [[e.host_ips, "host IP"], [e.dst_ips, "destination IP"]]) {
-      for (const ip of list || []) { if (!have.has(ip)) { have.add(ip); out.push({ kind: "ip", value: ip, relation: rel, decision: "info" }); } }
-    }
+    const have = new Set((arts || []).map((a) => a.kind + ":" + a.value)), out = [];
+    const add = (kind, value, relation) => { const k = kind + ":" + value; if (!have.has(k)) { have.add(k); out.push({ kind, value, relation, decision: "info" }); } };
+    for (const [list, rel] of [[e.host_ips, "host IP"], [e.dst_ips, "destination IP"]]) for (const ip of list || []) add("ip", ip, rel);
+    for (const [kind, value, relation] of e.arts || []) add(kind, value, relation);
     return [...out, ...(arts || [])];
   }
   function artifactsHtml(arts, title = "Correlated artifacts") {

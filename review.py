@@ -53,7 +53,8 @@ class EventStatus:
                                                   "duration_s": round(time.time() - self.t0), "model": self.target["model"], "provider": self.target["provider"],
                                                   "error": status != "completed", "pdf_run": False, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
                                                   "cache_read": u["cache_read"], "cache_write": u["cache_write"], "cost_usd": u["cost_usd"], "calls": u["calls"],
-                                                  "event_run": True}])[-60:]
+                                                  "event_run": True}])[-600:]
+        d["researched"] = ((d.get("researched") or []) + (getattr(self, "researched", None) or []))[-500:]
         RC.write_status(d)
 
 
@@ -82,7 +83,8 @@ class Status:
                                                 "duration_s": self.run["duration_s"], "model": self.run["model"], "provider": self.run["provider"],
                                                 "error": status != "completed", "pdf_run": pdf, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
                                                 "cache_read": u["cache_read"], "cache_write": u["cache_write"], "cost_usd": u["cost_usd"],
-                                                "calls": u["calls"]}])[-60:]
+                                                "calls": u["calls"]}])[-600:]
+        self.d["researched"] = ((self.d.get("researched") or []) + (getattr(self, "researched", None) or []))[-500:]
         self.d["summary"] = {"at": now, "text": summary, "model": self.run["model"]}
         self.d["last_status"] = "ok" if status == "completed" else status
         self.d["last_error"] = self.run["error"]
@@ -154,6 +156,7 @@ class Run:
         self.max_batches = args.max_batches if args.max_batches is not None else cfg["max_batches"]
         self.fetched, self.notes_out, self.errors, self.counts = set(), [], [], {}
         self.es_found = []  # Elasticsearch searches of the current research batch (esk descriptors)
+        self.researched = []  # one record per researched event (tokens + cost; a batch's use is split evenly over its events)
         self.snap = self.stem = None
         self.raw, self.ana = {}, {}
         os.makedirs(LOGDIR, mode=0o700, exist_ok=True)
@@ -471,6 +474,7 @@ class Run:
             user = (f"Snapshot {os.path.basename(self.stem)}. Batch of {len(batch)} work items"
                     f"{' (these already have notes: only rewrite a note if this run contradicts it)' if all(x.get('note') for x in batch) else ''}:\n"
                     f"<work_items>\n{json.dumps(batch, ensure_ascii=False)[:60000]}\n</work_items>{self.NOWEB if not self.web else ''}")
+            before = self.budget.summary()
             try:
                 self.converse(f"enrich{b // BATCH + 1}", sysmsg, user, self.tools("enrich", batch), ("submit_notes",), max_turns=40, max_tokens=8000)
                 self.counts["batches"] = self.counts.get("batches", 0) + 1
@@ -478,6 +482,21 @@ class Run:
                 raise
             except Exception as e:  # noqa: BLE001 - one bad batch must not stop the others
                 self.errors.append(f"event research batch {b // BATCH + 1}: {str(e)[:200]}")
+            finally:
+                self.record_batch(batch, before)
+
+    def record_batch(self, batch, before):
+        """Tokens and cost of one research batch, split evenly over its events (exact when one event is researched)."""
+        after, n = self.budget.summary(), max(1, len(batch))
+        d = {k: after[k] - before[k] for k in ("prompt", "completion", "cache_read", "cache_write")}
+        usd = None if after["cost_usd"] is None else round(after["cost_usd"] - (before["cost_usd"] or 0), 4)
+        now = time.time()
+        for it in batch:
+            self.researched.append({"at": now, "id": it.get("id"), "label": str(it.get("label") or it.get("id") or "")[:200], "type": it.get("type"),
+                                    "model": self.target["model"], "provider": self.target["provider"], "batch": n,
+                                    "prompt": round(d["prompt"] / n), "completion": round(d["completion"] / n),
+                                    "cache_read": round(d["cache_read"] / n), "cache_write": round(d["cache_write"] / n),
+                                    "total": round((d["prompt"] + d["completion"]) / n), "cost_usd": None if usd is None else round(usd / n, 4)})
 
     def review_items(self, review):
         """Reviewer: for each review-mode item without a note, copy the most similar prior note (marked as copied) or send it back
@@ -633,6 +652,7 @@ def main():
         raise
     finally:
         s = run.summary()
+        st.researched = run.researched
         failed = fatal
         st.finish("failed" if failed else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, pdf)
         print(s)

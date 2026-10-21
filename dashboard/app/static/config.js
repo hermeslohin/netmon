@@ -22,16 +22,16 @@
     const s = D.settings || {};
     const R = D.review || {}, iv = R.interval_minutes, L = D.last_run || null;
     const ivTxt = (m) => m ? `${Math.floor(m / 60) ? Math.floor(m / 60) + " h" : ""}${m % 60 ? " " + (m % 60) + " min" : ""}`.trim() : "";
-    const sched = R.error ? `<div class="muted small">Review job schedule unavailable: ${esc(R.error)}</div>`
+    const sched = R.error ? `<div class="muted small">Correlation review job schedule unavailable: ${esc(R.error)}</div>`
       : `<div class="cfg-sched" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px">
-          <b class="small">Review job runs every</b>
+          <b class="small">Correlation review job runs every</b>
           <input id="rv-h" type="number" min="0" max="24" step="1" value="${iv ? Math.floor(iv / 60) : ""}" style="width:4.5em" ${D.admin ? "" : "disabled"}> <span class="small">hours</span>
           <input id="rv-m" type="number" min="0" max="59" step="5" value="${iv ? iv % 60 : ""}" style="width:4.5em" ${D.admin ? "" : "disabled"}> <span class="small">minutes</span>
           ${D.admin ? `<button id="rv-save" disabled>Save schedule</button>` : ""}
           <span class="muted small">next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
           <span id="rv-msg" class="small"></span></div>
         <div class="muted small">30 min to 24 h. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h and writes the news briefing.
-          Each run is a review job pass (events are not researched on the schedule), so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
+          Each run is a correlation review job pass (events are not researched on the schedule), so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
     const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">AI event research (run when someone clicks <b>Send to research</b>${iv ? `; the scheduled job runs every ${ivTxt(iv)}` : ""}) writes a note with a verdict for an event
       (malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event). These options check off the events whose verdict is
       “expected” or “benign”, moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span>.
@@ -64,7 +64,7 @@
       rh.oninput = rm.oninput = chk;
       rs.onclick = async () => {
         const t = tot();
-        if (!confirm(`Run the review job every ${ivTxt(t)}${t < iv ? " (more often = more AI tokens)" : ""}?`)) return;
+        if (!confirm(`Run the correlation review job every ${ivTxt(t)}${t < iv ? " (more often = more AI tokens)" : ""}?`)) return;
         rmsg.className = "small"; rmsg.textContent = "Saving…";
         try { const N = await apiPost("/api/config/review-schedule", { hours: Math.floor(t / 60), minutes: t % 60 }); paint(el, N); }
         catch (e) { rmsg.className = "small sev-high"; rmsg.textContent = String(e); }
@@ -135,7 +135,7 @@
       fld("unifi-url", "URL", U.url, U.url_fallback, `Default <span class="mono">${esc(U.url_fallback)}</span> (Ubiquiti cloud). Use your console's address only if you run a local API proxy that speaks the same paths.`)
       + fld("unifi-key", "API key", "", U.key_set ? U.key_hint : "UniFi Site Manager API key", keyHelp(U), "password"), U);
     const Wb = D.web || { provider: "duckduckgo", providers: { duckduckgo: "DuckDuckGo (no key)" } };
-    const cw = intCard("web", "Web search (AI research and chat)", "Used by the review job and the Ask AI chat to look things up and read web pages. DuckDuckGo needs no key; Firecrawl, Brave Search and Tavily need an API key from their sites (Firecrawl is also used to read pages).",
+    const cw = intCard("web", "Web search (AI research and chat)", "Used by the correlation review job and the Ask AI chat to look things up and read web pages. DuckDuckGo needs no key; Firecrawl, Brave Search and Tavily need an API key from their sites (Firecrawl is also used to read pages).",
       `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Provider</b></span><br><select id="web-provider">${Object.entries(Wb.providers).map(([k, l]) =>
         `<option value="${esc(k)}"${k === Wb.provider ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`
       + fld("web-key", "API key", "", Wb.key_set ? Wb.key_hint : "API key (not needed for DuckDuckGo)", keyHelp(Wb), "password"), Wb);

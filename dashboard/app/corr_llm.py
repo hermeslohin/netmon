@@ -122,20 +122,41 @@ def etype(eid, ev):
 SEG_CLASSES = ("seg_high", "seg_medium", "seg_low")  # segmentation split by port severity (high = admin ports, medium = odd ports, low = standard)
 
 
+SEVS = ("low", "medium", "high")
+_SEV_MAP = {"high": "high", "critical": "high", "severe": "high", "investigate": "high",
+            "medium": "medium", "moderate": "medium", "warning": "medium", "review": "medium"}
+_SEVRE = _re.compile(r"^(.+)_(low|medium|high)$")
+
+
+def sev_of(ev):
+    """Severity of an event normalised to low / medium / high (unknown or missing counts as low)."""
+    return _SEV_MAP.get(str((ev or {}).get("sev") or "").strip().lower(), "low")
+
+
 def pclass(eid, ev):
-    """Event class for review limits: like etype, but segmentation is split by its severity."""
-    t = etype(eid, ev)
-    if t != "seg":
-        return t
-    sev = (ev or {}).get("sev")
-    return "seg_" + (sev if sev in ("high", "medium") else "low")
+    """Event class for review limits: the event type split by severity (ids_high, alert_low, seg_medium, ...)."""
+    return f"{etype(eid, ev)}_{sev_of(ev)}"
+
+
+def split_class(c):
+    m = _SEVRE.match(str(c))
+    return (m.group(1), m.group(2)) if m else (str(c), "")
 
 
 def pair_type(ta, tb):
-    ta, tb = str(ta), str(tb)
-    if ta in SEG_CLASSES and tb in SEG_CLASSES:  # segmentation-to-segmentation links are part of host-seg_<worse severity>, not a type of their own
-        return "host-" + SEG_CLASSES[min(SEG_CLASSES.index(ta), SEG_CLASSES.index(tb))]
-    return "-".join(sorted((ta, tb)))
+    return "-".join(sorted((str(ta), str(tb))))
+
+
+def pair_mode(pm, pd, ca, cb):
+    """Mode of the pair of two severity classes. Settings saved before every type was split by severity still apply:
+    host-seg_high (only segmentation split), then plain alert-vuln (no severities), then the default."""
+    (ba, _), (bb, _) = split_class(ca), split_class(cb)
+    keep = lambda c: c if split_class(c)[0] == "seg" else split_class(c)[0]  # noqa: E731
+    cands = [pair_type(ca, cb), pair_type(keep(ca), keep(cb))]
+    if ba == bb == "seg":  # seg-to-seg links used to be part of host-seg_<worse severity>
+        cands.append("host-" + SEG_CLASSES[min(SEG_CLASSES.index(ca), SEG_CLASSES.index(cb))])
+    cands.append(pair_type(ba, bb))
+    return next((pm[k] for k in cands if k in pm), pd)
 
 
 RULE_SCOPES = ("both", "research", "review")
@@ -219,7 +240,7 @@ def sig_cleared(sigs, ev):
 MAX_LINKS_LIMIT = 200  # per-event cap setting range (0 = no cap)
 
 
-PAIR_MODES = ("review", "skip", "test")
+PAIR_MODES = ("review", "skip")  # "test" was retired: stored test values load as skip (same effect, never sent)
 
 
 def _is_new_deployment():
@@ -259,18 +280,16 @@ def limits():
     raw = _raw_config()
     c = (raw.get("review_limits") or {})
     if "pair_default" not in c:  # decided once: a new deployment starts in test mode, an existing one keeps reviewing everything
-        c = dict(c, pair_default="test" if ("review_limits" not in raw and _is_new_deployment()) else "review")
+        c = dict(c, pair_default="skip" if ("review_limits" not in raw and _is_new_deployment()) else "review")
         raw["review_limits"] = c
         try:
             _save_config(raw)
         except OSError:
             pass
-    pm = {str(k): v for k, v in (c.get("pair_modes") or {}).items() if v in PAIR_MODES}
-    pm.pop("seg-seg", None)  # folded into host-seg (pair_type)
-    for old in [k for k in pm if "seg" in k.split("-")]:  # settings saved before segmentation was split by severity apply to all three levels
-        for n in SEG_CLASSES:
-            pm.setdefault(pair_type(*[n if t == "seg" else t for t in old.split("-")]), pm[old])
-        pm.pop(old)
+    _old = lambda v: "skip" if v == "test" else v  # noqa: E731
+    c = dict(c, pair_default=_old(c["pair_default"]))
+    pm = {str(k): _old(v) for k, v in (c.get("pair_modes") or {}).items() if _old(v) in PAIR_MODES}
+    pm.pop("seg-seg", None)  # legacy, folded into host-seg_<severity>
     for x in c.get("skip_pairs") or []:  # settings saved before test mode
         pm.setdefault(str(x), "skip")
     return {"skip_pairs": sorted(k for k, v in pm.items() if v == "skip"), "pair_modes": pm, "pair_default": c["pair_default"],
@@ -360,25 +379,38 @@ def _limit_fn(base):
             famcache[i] = "family|" + _fam(i)
         return famcache[i] in ex
     skipped_bad = bad
-    mode = lambda a, b: pm.get(pair_type(pclass(a, E.get(a)), pclass(b, E.get(b))), pd)  # noqa: E731
+    mode = lambda a, b: pair_mode(pm, pd, pclass(a, E.get(a)), pclass(b, E.get(b)))  # noqa: E731
     skipped = lambda a, b: mode(a, b) == "skip" or bad(a) or bad(b) or apart(E.get(a), E.get(b))  # noqa: E731
     skipped.bad = skipped_bad
     skipped.testing = lambda a, b: mode(a, b) == "test"  # links that pass every filter but are only tested, never sent
     return skipped
 
 
+EVENT_TYPES = ("ids", "alert", "alarm", "admin", "ti", "gw", "host", "finding", "vuln", "seg")
+
+
+def _all_pairs():
+    """Every type-by-severity pair, so any of them can be switched whether or not a link exists right now."""
+    cl = [f"{t}_{s}" for t in EVENT_TYPES for s in SEVS]
+    return {pair_type(a, b) for i, a in enumerate(cl) for b in cl[i:]}
+
+
 def limits_view(base, applied=None):
     """For the AI review page: the settings, candidate links per type pair and the events with the most links."""
     E = (base or {}).get("events") or {}
-    seen, tp, ev = set(), {}, {}
+    seen, tp, tm, ev = set(), {}, {}, {}
+    L0 = limits()
+    pm0, pd0 = L0["pair_modes"], L0["pair_default"]
     for a, lst in ((base or {}).get("related") or {}).items():
         for r in lst:
             k = pair(a, r["id"])
             if k in seen or a not in E or r["id"] not in E:
                 continue
             seen.add(k)
-            t = pair_type(pclass(a, E[a]), pclass(r["id"], E[r["id"]]))
+            ca, cb = pclass(a, E[a]), pclass(r["id"], E[r["id"]])
+            t = pair_type(ca, cb)
             tp[t] = tp.get(t, 0) + 1
+            tm[t] = pair_mode(pm0, pd0, ca, cb)
             ev[a] = ev.get(a, 0) + 1
             ev[r["id"]] = ev.get(r["id"], 0) + 1
     L = limits()
@@ -389,8 +421,7 @@ def limits_view(base, applied=None):
                      if a in E and r["id"] in E and apart(E[a], E[r["id"]])})
     top = sorted(ev.items(), key=lambda x: -x[1])[:15]
     return {**L, "total": len(seen), "limit_range": MAX_LINKS_LIMIT,
-            "pairs": [{"pair": t, "links": n, "mode": pm.get(t, pd)} for t, n in sorted(tp.items(), key=lambda x: -x[1])] +
-                     [{"pair": t, "links": 0, "mode": pm[t]} for t in sorted(set(pm) - set(tp))],
+            "pairs": [{"pair": t, "links": tp.get(t, 0), "mode": tm.get(t) or pair_mode(pm, pd, *t.split("-"))} for t in _all_pairs() | set(tp)],
             "class_counts": class_counts(), "window_out": {"links": out_links},
             "window_range": WINDOW_MAX_MIN,
             "top_events": [{"id": e, "type": E[e]["type"], "label": E[e]["label"][:140], "links": n, "excluded": "event|" + e in ex,
@@ -846,7 +877,9 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correla
         on = "".join(f"\n  <owner_note>{str(t)[:300]}</owner_note>" for t in (notes.get(tag) or [])[:3])
         ips = f' hosts="{", ".join(map(str, (e.get("ips") or [])[:6]))}"' if es_max and e.get("ips") else ""
         on += "".join(f"\n  <ai_note>{str(t)[:700]}</ai_note>" for t in (ai_notes.get(tag) or [])[:4])
-        return f'<event id="{tag}" type="{e["type"]} - {TYPE_DESC.get(e["type"], "")}" when="{_when(e.get("t0"), e["type"])}" severity="{e.get("sev", "")}"{ips}>{e["label"][:400]}</event>{on}{extra}'
+        kn = "; ".join(f"{a[0]}={str(a[1])[:90]}" for a in (e.get("arts") or [])[:8])  # artifacts the script read from the event itself
+        kn = f"\n  known artifacts: {kn}" if kn else ""
+        return f'<event id="{tag}" type="{e["type"]} - {TYPE_DESC.get(e["type"], "")}" when="{_when(e.get("t0"), e["type"])}" severity="{e.get("sev", "")}"{ips}>{e["label"][:400]}{kn}</event>{on}{extra}'
     lines = ["ANCHOR:", ev("anchor", anchor), "", "CANDIDATES (with the correlation script's evidence):"]
     for i, (e, r) in enumerate(cands, 1):
         lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))

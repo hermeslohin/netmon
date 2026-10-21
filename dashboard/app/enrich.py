@@ -195,7 +195,7 @@ def job():
             "severities": cfg.get("severities"), "severity_options": cfg.get("severity_options"),
             "requested": RC.pending_request(), "last_run": st.get("last_run"), "last_status": st.get("last_status"),
             "last_error": st.get("last_error"), "failure_streak": st.get("failure_streak") or 0,
-            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "summary": st.get("summary"),
+            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "researched": st.get("researched") or [], "summary": st.get("summary"),
             "last": last, "exported": st.get("exported")}
 
 
