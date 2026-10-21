@@ -324,6 +324,7 @@
         ignore events older than <input type="number" class="rl-wmax" min="0" step="any" style="width:6em"> minutes
         and newer than <input type="number" class="rl-wmin" min="0" step="any" style="width:6em"> minutes
         <button type="button" class="rl-wsave">Save</button>
+        <span class="small rl-wmsg"></span>
         <span class="small muted">0 = no limit. A link is never considered (no model call, no classification) when either of its events falls outside the window; events without a time, such as open vulnerabilities, always count. Links that already have a verdict are kept.</span>
         <div class="small rl-winfo" style="margin-top:3px"></div></div>
       <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
@@ -334,7 +335,7 @@
       <h3 style="margin:12px 0 4px">Events with the most links</h3><div class="rl-top"></div>
       <h3 style="margin:12px 0 4px">Never send (${(Lm.rules || []).length} rules)</h3>
       <div class="small muted">Stop sending a class of events to the AI by name, or by host and ID. Fill in one field or several (all must match). Name: part of the event text, or a pattern with * ?.
-        Host: an IP, or text that appears in the event. ID: the event id, e.g. <span class="mono">ids|ET DNS*</span> or <span class="mono">iss|seg|*</span>. Scope: the review job, the correlation reviewer, or both.</div>
+        Host: an IP, or text that appears in the event. ID: the event id, e.g. <span class="mono">ids|ET DNS*</span> or <span class="mono">iss|seg|*</span>. Scope: the research job, the correlation reviewer, or both.</div>
       <div class="rl-form" style="display:${D.can_limit ? "flex" : "none"};gap:6px;flex-wrap:wrap;margin:6px 0"><input name="name" placeholder="name contains…" style="width:14em"><input name="host" placeholder="host / IP" style="width:11em">
         <input name="id" placeholder="event ID pattern" style="width:16em"><select name="scope"><option value="both">research + review</option><option value="research">research only</option><option value="review">review only</option></select>
         <button type="button" class="rl-add">Add rule</button></div>
@@ -363,7 +364,9 @@
     const wmax = c.querySelector(".rl-wmax"), wmin = c.querySelector(".rl-wmin"), wsv = c.querySelector(".rl-wsave"), wo = Lm.window_out || {};
     wmax.value = Lm.window_max_min || 0; wmin.value = Lm.window_min_min || 0; wmax.disabled = wmin.disabled = wsv.disabled = !D.can_limit;
     c.querySelector(".rl-winfo").textContent = Lm.window_max_min || Lm.window_min_min ? `Now outside the window: ${fn(wo.events || 0)} events, ${fn(wo.links || 0)} candidate links.` : "No window set: events of any age are reviewed.";
-    wsv.onclick = () => post({ window: { max_minutes: +wmax.value || 0, min_minutes: +wmin.value || 0 } });
+    wsv.onclick = async () => { const wm = c.querySelector(".rl-wmsg"); wm.textContent = "saving…";
+      try { await apiPost("/api/llm/review-limits", { window: { max_minutes: +wmax.value || 0, min_minutes: +wmin.value || 0 } }); location.reload(); }
+      catch (e) { wm.textContent = "error: " + e.message; } };
     const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });

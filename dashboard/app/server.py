@@ -928,6 +928,7 @@ class H(BaseHTTPRequestHandler):
                 try:
                     corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"))
                 except ValueError as e:
+                    print(f"review-limits: {user}: rejected: {e}", file=sys.stderr)
                     return self._json({"error": str(e)[:300]}, 400)
                 cleared = 0
                 if body.get("rule") and body.get("clear_alerts"):  # muting an alert class also removes the alerts that already fired
