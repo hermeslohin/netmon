@@ -168,7 +168,7 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and reviewer look-ups go through host_broker.py.",
-         "Correlation: the script proposes links; the admin's chosen model confirms or rejects each one - Local LM Studio is optional, any configured provider works (AI review > Models).",
+         "Correlation: the script proposes links; review limits filter them; the chosen model confirms or rejects each and keeps artifacts (Elasticsearch searches open in Kibana).",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')

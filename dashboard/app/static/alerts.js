@@ -114,10 +114,44 @@
     };
     render();
     inner.appendChild(await myPicker()); paintBar();
+    const canMute = ["admin", "defender"].includes(S.me?.role);
+    let mutes = [];
+    if (canMute) { try { mutes = (await api("/api/alerts/mutes")).mutes || []; } catch (_) { /* older server */ } }
+    const nCleared = mutes.reduce((a, m) => a + (m.cleared || 0), 0);
+    if (canMute && (mutes.length || A.showCleared)) {
+      const mc = card(`Alert mute rules (${mutes.length})`, `<div class="small muted">Alerts matching a rule are cleared automatically as they arrive: no push, no notification, not sent to the AI. They are kept, so you can still look at them with <b>Show cleared</b>. Remove a rule to bring its alerts back.</div>`);
+      const mt = (mutes.length ? table(null, [
+          { k: "name", t: "Alert text pattern", fmt: (v) => `<span class="mono">${esc(v)}</span>` },
+          { k: "host", t: "Host", fmt: (v) => (v ? `<span class="mono">${esc(v)}</span>` : '<span class="muted">any</span>') },
+          { k: "by", t: "Muted by", fmt: (v) => esc(v || "") },
+          { k: "at", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.at },
+          { k: "cleared", t: "Cleared", num: true },
+          { k: "id", t: "", fmt: (v) => `<button type="button" class="mute-rm" data-id="${esc(v)}">Remove rule</button>` }], mutes, { sort: "at", search: false })
+        : null);
+      if (mt) mc.appendChild(mt); else mc.insertAdjacentHTML("beforeend", `<div class="empty">No mute rules yet. Use <b>mute name…</b> on an alert to create one.</div>`);
+      mc.addEventListener("click", async (e) => { const b = e.target.closest(".mute-rm"); if (!b) return;
+        if (!confirm("Remove this mute rule? The alerts it cleared come back into the feed and new matching alerts are no longer cleared.")) return;
+        b.disabled = true; try { await apiPost("/api/alerts/mutes", { action: "remove", id: +b.dataset.id }); S.corr = null; poll(); V.alerts(el); } catch (er) { b.disabled = false; alert(er.message); } });
+      el.appendChild(mc);
+    }
+    if (A.showCleared && canMute) {
+      let CL = []; try { CL = (await api("/api/alerts?cleared=1&limit=500")).alerts || []; } catch (_) { /* ignore */ }
+      const cc = card(`Cleared alerts (${CL.length}) <a href="javascript:void 0" id="clTog" class="ack-toggle small">back to recent alerts</a>`,
+        CL.length ? table(null, [
+          { k: "ts", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
+          { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
+          { k: "text", t: "Alert", fmt: (v) => linkifyIps(v) },
+          { k: "rule", t: "Cleared by rule", fmt: (v) => `<span class="mono small">${esc(v || "")}</span>` }], CL, { sort: "ts", filter: true })
+          : `<div class="empty">No cleared alerts in the last 30 days.</div>`);
+      el.appendChild(cc);
+      cc.querySelector("#clTog").addEventListener("click", () => { A.showCleared = false; V.alerts(el); });
+      return;
+    }
     const filt = A.mode === "some" && !A.showAll && !hq().has("ev");  // a drill-down to one alert must find it
     const rows = A.list.filter((a) => !filt || a.mine).map((a) => ({ ...a, _t: a.ts }));
+    const clTog = canMute && mutes.length ? ` <a href="javascript:void 0" id="clTog" class="ack-toggle small">show cleared (${nCleared})</a>` : "";
     const tog = A.mode === "some" && !isUserRole() ? `<a href="javascript:void 0" id="fTog" class="ack-toggle small">${filt ? `show all ${A.list.length}` : "only my devices"}</a>` : "";
-    const ac = card(`${filt ? "Alerts for my devices" : "Recent alerts"} (${rows.length}${A.unread ? `, ${A.unread} new` : ""}) ${tog} ${A.unread ? `<button id="markRead" class="ack-toggle">Mark all read</button>` : ""}`,
+    const ac = card(`${filt ? "Alerts for my devices" : "Recent alerts"} (${rows.length}${A.unread ? `, ${A.unread} new` : ""}) ${tog}${clTog} ${A.unread ? `<button id="markRead" class="ack-toggle">Mark all read</button>` : ""}`,
       rows.length ? table(null, [
         ...(isUserRole() ? [] : [askCol("alert", (x) => x.text)]), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
@@ -125,6 +159,7 @@
         ...(["admin", "defender"].includes(S.me?.role) ? [{ k: "_m", t: "Never send to AI", fmt: (v, x) => alertMuteHtml(x.text) }] : [])],
         rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(isUserRole() ? {} : { evId: (x) => `alert|${x.id}` }) }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
     el.appendChild(ac);
+    ac.querySelector("#clTog")?.addEventListener("click", () => { A.showCleared = true; V.alerts(el); });
     ac.querySelector("#fTog")?.addEventListener("click", () => { A.showAll = !A.showAll; V.alerts(el); });
     ac.querySelector("#markRead")?.addEventListener("click", async () => { await apiPost("/api/alerts/read", {}); A.unread = 0; A.list.forEach((a) => (a.read = 1)); paintCount(); V.alerts(el); });
   };

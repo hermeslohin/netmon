@@ -515,7 +515,7 @@ def review_job():
             "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": research_cfg.next_run(),
             "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
             "requested": research_cfg.pending_request(),
-            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches")}, "web_research": cfg["web_research"],
+            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches")}, "web_research": cfg["web_research"], "es_search": cfg["es_search"],
             "severities": cfg["severities"], "severity_options": cfg["severity_options"],
             "modes": cfg["modes"], "mode_options": cfg["mode_options"], "mode_cats": cfg["mode_cats"],
             "spent_today_usd": round(research_cfg.spent_today(), 2), "limit_ranges": cfg["limits"]}
@@ -924,23 +924,37 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "es_queries": res})
             if u.path == "/api/llm/notes":  # most host / user notes the reviewer gets per event
                 try:
-                    res = corr_llm.set_notes_limit(body.get("max"), user)
+                    res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"))
                 except (TypeError, ValueError) as e:
                     return self._json({"error": str(e)[:200]}, 400)
-                print(f"llm notes: {user} set max notes per event={res['max']}", file=sys.stderr)
+                print(f"llm notes: {user} set max notes per event={res['max']}, note characters={res['chars']}", file=sys.stderr)
                 return self._json({"ok": True, "context_notes": res})
             if u.path == "/api/llm/research":  # research job: cost caps, on/off, run now (admin)
                 if body.get("action") == "run":
                     research_cfg.request(user)
                     print(f"research job: {user} requested a run", file=sys.stderr)
                     return self._json({"ok": True, "research": review_job()})
-                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches", "enabled", "web_research", "severities", "modes") if k in body}
+                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches", "enabled", "web_research", "es_search", "severities", "modes") if k in body}
                 try:
                     research_cfg.put(fields, user)
                 except ValueError as e:
                     return self._json({"error": str(e)[:300]}, 400)
                 print(f"research job: {user} set {fields}", file=sys.stderr)
                 return self._json({"ok": True, "research": review_job()})
+            if u.path == "/api/alerts/mutes":  # remove a saved mute rule: its cleared alerts return to the feed
+                if body.get("action") != "remove":
+                    return self._json({"error": "action must be remove"}, 400)
+                lk, n = store.mute_remove(int(body.get("id") or 0))
+                if lk is None:
+                    return self._json({"error": "no such mute rule"}, 404)
+                try:
+                    if lk:
+                        corr_llm.set_limits(user, None, None, None, None, None, lk, None)
+                except Exception as e:  # noqa: BLE001 - the matching never-send rule may already be gone
+                    print(f"mute remove: limits rule: {e}", file=sys.stderr)
+                _CORR.clear()
+                print(f"alert mute: {user} removed rule {body.get('id')}; {n} alerts restored", file=sys.stderr)
+                return self._json({"ok": True, "restored": n})
             if u.path == "/api/llm/review-limits":  # which candidate links the reviewer never sees (admin)
                 try:
                     corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"), discard_days=body.get("discard_days"))
@@ -948,12 +962,11 @@ class H(BaseHTTPRequestHandler):
                     print(f"review-limits: {user}: rejected: {e}", file=sys.stderr)
                     return self._json({"error": str(e)[:300]}, 400)
                 cleared = 0
-                if body.get("rule") and body.get("clear_alerts"):  # muting an alert class also removes the alerts that already fired
+                if body.get("rule") and body.get("clear_alerts"):  # muting an alert class: save the mute rule (applied to every future alert) and clear the alerts that already fired
                     try:
-                        rl = {k: str(body["rule"].get(k) or "").strip() for k in ("name", "host", "id")}
-                        hit = [a["id"] for a in store.alerts_recent(100000)
-                               if corr_llm.rule_match(rl, f"alert|{a['id']}", {"label": a["text"], "ips": list(a.get("targets") or [])})]
-                        cleared = store.alerts_delete(hit)
+                        rl = {k: str(body["rule"].get(k) or "").strip() for k in ("name", "host")}
+                        lk = "rule|" + "|".join([rl["name"].lower()[:200], rl["host"].lower()[:200], "", str(body["rule"].get("scope") or "both")])
+                        _mid, cleared = store.mute_add(rl["name"], rl["host"], user, lk)
                         _CORR.clear()
                     except Exception as e:  # noqa: BLE001
                         print(f"clear alerts failed: {e}", file=sys.stderr)
@@ -1303,6 +1316,8 @@ class H(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"subject": s_, "label": label})
+            if path == "/api/kb/internet":  # Network > Internet notes: every external IP that has notes
+                return self._json({"ips": kb.internet_notes((q.get("q") or [""])[0])})
             if path == "/api/kb/all":  # the Notes page
                 return self._json({"host_notes": kb.host_notes(), "event_notes": kb.all_event_notes()})
             if path == "/api/mitre":
@@ -1321,6 +1336,11 @@ class H(BaseHTTPRequestHandler):
                 return self._json(registry())
             if path == "/api/push/key":
                 return self._json({"key": pushsvc.public_key(), "status": pushsvc.status()})
+            if path == "/api/alerts/mutes":  # saved alert mute rules + how many alerts each has cleared (admin / defender)
+                if role == "user":
+                    return self._json({"error": "forbidden"}, 403)
+                cnt = store.mute_counts()
+                return self._json({"mutes": [{**m, "cleared": cnt.get(m["id"], 0)} for m in store.mute_list()]})
             if path == "/api/alerts":
                 lim = max(1, min(int((q.get("limit") or ["100"])[0]), 2000))
                 ids = watch_ids(user, role)
@@ -1329,6 +1349,13 @@ class H(BaseHTTPRequestHandler):
                     rows = [dict(r, mine=True, read=1 if r["id"] <= upto else 0) for r in store.alerts_recent(2000) if store.alert_for(r, ids)][:lim]
                     n = sum(1 for r in rows if not r["read"])
                     return self._json({"alerts": rows, "unread": n, "unread_mine": n, "mode": "some"})
+                if (q.get("cleared") or [""])[0] and role != "user":  # alerts a mute rule cleared (Show cleared)
+                    mn = {m["id"]: m for m in store.mute_list()}
+                    rows = store.alerts_recent(lim, cleared=True)
+                    for r in rows:
+                        m = mn.get(r.get("cleared_rule")) or {}
+                        r["mine"], r["rule"] = store.alert_for(r, ids), (m.get("name", "") + (" @ " + m["host"] if m.get("host") else "")) if m else "(rule removed)"
+                    return self._json({"alerts": rows, "cleared": True})
                 rows = store.alerts_recent(lim)
                 for r in rows:
                     r["mine"] = store.alert_for(r, ids)

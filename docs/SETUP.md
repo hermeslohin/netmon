@@ -1,6 +1,6 @@
 # Setting up netmon
 
-This guide takes you from a fresh clone to a working install: a scheduled review job with a daily news briefing, a 15-minute urgent watcher, the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
+This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review, and an optional daily news briefing), a 15-minute urgent watcher, the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
 
 netmon is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
 
@@ -21,7 +21,7 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 | UniFi DHCP export CSV | optional | friendly device names. Without it, names come from DHCP/DNS. |
 | Cloudflare Tunnel (or any reverse proxy) | optional | reach the dashboard and receive push notifications away from home |
 
-Python packages on the host: `reportlab` (`sudo apt install python3-reportlab` or `pip install --user reportlab`). Everything else is the standard library. The dashboard image installs its own dependencies.
+The host needs no extra Python packages: everything is the standard library. The dashboard image installs its own dependencies.
 
 ## 1. Clone and run setup
 
@@ -35,7 +35,7 @@ cd ~/netmon
 
 `setup.sh` is safe to re-run. It never overwrites existing files. It:
 
-- checks prerequisites (`python3`, `docker`, `git`, `openssl`, `systemctl`, `/usr/bin/python3` with `reportlab`)
+- checks prerequisites (`python3`, `docker`, `git`, `openssl`, `systemctl`, `/usr/bin/python3`)
 - copies the `*.example.json` templates to your local config files
 - creates the data folders (including `logs/`)
 - creates the host secrets file `~/.config/netmon/secrets.env` (mode 600) for your API keys
@@ -83,7 +83,7 @@ In Kibana **Fleet**, give your endpoint agent policies these integrations:
 
 Hosts then appear on the dashboard's **Endpoints** page after the next collection.
 
-## 5. First collection and report (manual)
+## 5. First collection (manual)
 
 ```bash
 cd ~/netmon
@@ -100,8 +100,8 @@ Behaviour rules (traffic spikes, new destinations and so on) need **3 days** of 
 cd ~/netmon/dashboard && ./deploy.sh
 ```
 
-- It listens on **https://<host>:8443**. Sign in with the `admin` password `setup.sh` printed, then change it on the **My account** page. Add family accounts on the **Users** page.
-- The container runs read-only, as your user, with all capabilities dropped. It mounts the repo read-only, `dashboard/state` (SQLite, users, push subscriptions) read-write, and `~/network_reports` read-only.
+- It listens on **https://<host>:8443**. Sign in with the `admin` password `setup.sh` printed, then change it on the **My account** page. Add family accounts on the **More → Dashboard users** page.
+- The container runs read-only, as your user, with all capabilities dropped. It mounts the repo read-only, `dashboard/state` (SQLite, users, push subscriptions) read-write.
 - **Phone push notifications** need HTTPS with a certificate the phone trusts. A Cloudflare Tunnel (`cloudflared`) pointing at `https://127.0.0.1:8443` with "No TLS Verify" works well. On iPhone, add the site to the Home Screen first, then enable notifications on the Alerts page.
 - The login lockout trusts `CF-Connecting-IP` only from loopback, which is how cloudflared connects.
 
@@ -119,9 +119,9 @@ Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 M
 
 ### Time ranges
 
-Dashboard **time ranges** other than a research-run window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
+Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
 
-The correlation reviewer's optional Elasticsearch look-ups (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason.
+The optional Elasticsearch look-ups of the correlation reviewer and of the research AI (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
 
 ### Local LLM for correlation review (optional, recommended)
 
@@ -149,12 +149,12 @@ systemctl --user status netmon-scheduler   # or: /usr/bin/python3 scheduler.py s
 | Job | When | What |
 |---|---|---|
 | watcher | every 15 minutes | `watch.py`: urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
-| review job | every N minutes, set on **Configuration → Review job runs every** (30 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, the reviewer (reuses earlier research notes), and once a day the news briefing and PDF report. |
+| review job | every N minutes, set on **Configuration → AI Research job runs every** (30 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, the reviewer (reuses earlier research notes), and once a day the news briefing (only with web research on). |
 | weekly rebuild | Sundays 03:00 UTC | `weekly_rebuild.sh`: dashboard image rebuild with updated libraries + security scan. |
 
 Jobs never overlap with themselves. A slot missed while the host was down is not made up, except the review job, which starts late within its own slot. The review job only runs once a model is chosen for it (step 7b) and it isn't paused.
 
-**`netmon-broker`** (`host_broker.py`) listens on `127.0.0.1:8650` only and needs the bearer key `NETMON_BROKER_KEY` from `dashboard/.env` (with `NETMON_BROKER_URL=http://127.0.0.1:8650`). The dashboard container has no Elasticsearch key, so it asks the broker for exactly two things: `POST /range` (time-range collection for the dashboard's picker) and `POST /esquery` (bounded read-only Elasticsearch look-ups for the correlation reviewer, at most 600 an hour). It handles no models, keys or schedules.
+**`netmon-broker`** (`host_broker.py`) listens on `127.0.0.1:8650` only and needs the bearer key `NETMON_BROKER_KEY` from `dashboard/.env` (with `NETMON_BROKER_URL=http://127.0.0.1:8650`). The dashboard container has no Elasticsearch key, so it asks the broker for exactly three things: `POST /range` (time-range collection for the dashboard's picker), `POST /research-event` (start a one-event research run when someone clicks Send to research) and `POST /esquery` (bounded read-only Elasticsearch look-ups for the correlation reviewer, at most 600 an hour). It handles no models, keys or schedules.
 
 ### The review job
 
@@ -162,13 +162,13 @@ Each run of `review.py`:
 
 1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI review page (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. **Reviewer, then research on request only.** A scheduled run does not research events (to keep token cost down): the reviewer copies earlier notes for repeat events and everything else waits in the queue. Event research happens when someone clicks **Send to research** on an event (`review.py --event ID`). The events go to the model in batches of 8 (`prompts/enrich.md`, at most *research batches* per run). `enrich.sh events` lists them; every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events. The model's `submit_notes` results are stored with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the local LLM's and replace them; manual verdicts are kept. Gateway events (`gw|...`) are also correlation events, so the local LLM reviews their links.
-3. On the daily run only: a **news briefing** conversation (`prompts/briefing.md`). The briefing's categories come from `briefing_topics` in `site.json`, a list of `{"category", "count", "about"}`; the default is 3 high-impact security stories.
+3. On the daily run only, and only when **Web research** is on: a **news briefing** conversation (`prompts/briefing.md`). The briefing's categories come from `briefing_topics` in `site.json`, a list of `{"category", "count", "about"}`; the default is 3 high-impact security stories.
 
 Run state, tokens and estimated cost are in `dashboard/state/research_job.json` and on the AI review page. The full conversations, tool calls included, are saved in `logs/research/` (the newest 60 are kept). Manual runs:
 
 ```bash
 /usr/bin/python3 review.py                 # like a scheduled run (with the briefing if it's the first run after 05:00 UTC)
-/usr/bin/python3 review.py --pdf           # force the 24 h daily run (flag name kept); --no-pdf to skip the briefing
+/usr/bin/python3 review.py --pdf           # force the 24 h daily run with the briefing (flag name kept); --no-pdf to skip it
 /usr/bin/python3 review.py --skip-collect --max-batches 2   # reuse the newest snapshot, fewer research batches
 ```
 
@@ -189,8 +189,11 @@ reviewer and comparisons) and an optional number of extra reasoning tokens. Keys
 from error messages. Changing a provider's type or base URL requires entering the key again. Model choices are
 stored as `api:<provider id>` or `lmstudio` plus the model name.
 
-**Models.** Three choices: the **correlation reviewer**, the **review job** and the **chat (Ask AI)**. The
-review job and the chat are off until you choose a model. A provider that is in use can't be deleted (Local
+**Models.** Three choices: the **correlation reviewer**, the **AI Research job** and the **chat (Ask AI)**. The
+research job and the chat are off until you choose a model. Under the model menus an admin can also switch the
+reviewer's and the research AI's read-only Elasticsearch searches on or off (**Elasticsearch queries · correlation
+review** with a per-event maximum, **Elasticsearch queries · AI research**) and set **Notes per event**, the most host and
+account notes the reviewer is given with each event. A provider that is in use can't be deleted (Local
 (LM Studio) can only be disabled, never deleted). On any current correlation decision, the ⇄ button asks up to 4
 models the same question side by side and can store one model's answer as the decision.
 
@@ -203,13 +206,13 @@ and will hurt research quality even on a model that supports it. The correlation
 this: the reviewer only ever answers one fixed-format question per call, and the chat still works, just more
 superficially, on a non-reasoning model.
 
-**Research job limits** (also on AI review): $ per run (default 5), $ per day (default 20), tokens per run (input + output, works without prices; default 25,000,000) and research batches per run (default 10). A run stops when it passes its caps, and no new run starts once today's runs (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **AI review job** card shows the job's status, schedule and next run, **Run now** / **Pause**, recent runs, and the *Time and tokens per run* chart with a cost preview for another model.
+**Research job limits** (also on AI review): $ per run (default 5), $ per day (default 20), tokens per run (input + output, works without prices; default 25,000,000) and research batches per run (default 10), web searches per event (default 3) and the **Web research** switch (off on a new install: no web search and no news briefing until an admin turns it on). A run stops when it passes its caps, and no new run starts once today's runs (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **AI Research job** card shows the job's status, schedule and next run, **Run now** / **Pause**, recent runs, and the *Time and tokens per research job* chart with a cost preview for another model.
 
-Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`research_cfg.py`) and `dashboard/state/llm_config.json`. The correlation reviewer's model is remembered once chosen; if none has ever been chosen, it defaults to the first enabled, configured provider with a model (an API provider before Local (LM Studio), since the reviewer calls far more often than a typical API rate cap allows) - it no longer requires Local (LM Studio) to be running.
+Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`research_cfg.py`) and `dashboard/state/llm_config.json`. The correlation reviewer's model is remembered once chosen; if none has ever been chosen, it defaults to the first enabled, configured provider with a model (an API provider before Local (LM Studio), since the reviewer calls far more often than a typical API rate cap allows) - it no longer requires Local (LM Studio) to be running.
 
-## 7c. Web search (review job and chat)
+## 7c. Web search (research and chat)
 
-The review job and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in `dashboard/state/integrations.json`, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Without a working key, search falls back to DuckDuckGo.
+The AI Research job (event research and the briefing) and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in `dashboard/state/integrations.json`, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Without a working key, search falls back to DuckDuckGo.
 
 ## 8. Ask AI chat (optional)
 

@@ -498,3 +498,9 @@ html,body,.rel-pop,.rel-pop *{-webkit-text-size-adjust:100%;text-size-adjust:100
 .kib-btn{background:none;border:0;padding:0;cursor:pointer;color:var(--accent,#58a6ff);text-align:left;font:inherit}.kib-btn:hover code{text-decoration:underline}.kib-btn code{word-break:break-all}
 @media (max-width:900px){ .tbltools input[type=search]{flex:1 1 100%;width:100%;min-width:100%} }
 @media (max-width:900px){ .tbltools{flex-wrap:wrap} .tbltools > input[type=search]{flex:0 0 100% !important;width:100% !important;min-width:100% !important;box-sizing:border-box;order:-10} .tbltools > .lm-sort{order:-5} }
+
+.pend-flair{display:inline-block;font-size:10.5px;font-weight:600;line-height:1.5;padding:0 7px;margin-left:4px;border-radius:9px;white-space:nowrap;vertical-align:middle;color:var(--warn,#d9a400);border:1px solid var(--warn,#d9a400)}
+
+.note-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.art-chip{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:1px 6px;border-radius:10px;background:rgba(127,127,127,.15);border:1px solid rgba(127,127,127,.3)}
+.art-chip code{font-size:11px;background:none;padding:0}

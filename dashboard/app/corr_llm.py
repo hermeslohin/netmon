@@ -60,7 +60,9 @@ def cloud_complete(target, system, user, max_tokens):
     return llm_providers.complete(target["provider"], target["model"], system, user, max_tokens)
 
 
-NOTES_DEFAULT, NOTES_LIMIT = 7, 40  # host / user notes fed to the reviewer per event: default and the most an admin can set
+NOTE_BUDGET = 6000  # characters of host / user notes in one review prompt (a note already shown is not repeated)
+CHARS_MIN, CHARS_LIMIT = 1000, 100000  # total characters of notes per review prompt: the most / least an admin can set (default NOTE_BUDGET)
+NOTES_DEFAULT, NOTES_LIMIT = 7, 100  # host / user notes fed to the reviewer per event: default and the most an admin can set
 ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review: default and the most an admin can set
 
 
@@ -86,12 +88,32 @@ def notes_limit():
         return NOTES_DEFAULT
 
 
-def set_notes_limit(mx, user):
-    mx = int(mx)
-    if not 1 <= mx <= NOTES_LIMIT:
-        raise ValueError(f"notes per event must be 1-{NOTES_LIMIT}")
+def notes_chars():
+    """Total characters of host / user notes in one review prompt (admin setting AI review > Models, below Notes per event)."""
+    try:
+        return max(CHARS_MIN, min(int((_raw_config().get("context_notes") or {}).get("chars") or NOTE_BUDGET), CHARS_LIMIT))
+    except (TypeError, ValueError):
+        return NOTE_BUDGET
+
+
+def set_notes_limit(mx, user, chars=None):
+    """Set notes per event and / or the total note characters per prompt (each optional, the other is kept)."""
     c = _raw_config()
-    c["context_notes"] = {"max": mx, "by": user, "at": time.time()}
+    cur = dict(c.get("context_notes") or {})
+    if mx is not None:
+        mx = int(mx)
+        if not 1 <= mx <= NOTES_LIMIT:
+            raise ValueError(f"notes per event must be 1-{NOTES_LIMIT}")
+        cur["max"] = mx
+    if chars is not None:
+        chars = int(chars)
+        if not CHARS_MIN <= chars <= CHARS_LIMIT:
+            raise ValueError(f"note characters must be {CHARS_MIN}-{CHARS_LIMIT}")
+        cur["chars"] = chars
+    if mx is None and chars is None:
+        raise ValueError("nothing to set")
+    cur.update(by=user, at=time.time())
+    c["context_notes"] = cur
     _save_config(c)
     return config()["context_notes"]
 
@@ -110,7 +132,7 @@ def config():
     return {"correlation": {"provider": prov, "model": model or MODEL},
             "chat": {"provider": ch.get("provider") or "", "model": ch.get("model") or "", "by": ch.get("by"), "at": ch.get("at")},
             "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")},
-            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
+            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
 
 
 # ---------------------------------------------------------------- review limits (admin): what is never sent to the reviewer
@@ -521,15 +543,16 @@ events) and decision: benign (looks odd, harmless), expected (normal for this de
 (research verdict benign/expected, a host note describing this role, baseline or behaviour, or a user profile showing the account normally
 does this - its usual hosts, sources, methods and hours) that explains it, justifies benign or expected. Host notes and user profiles are
 attached to each event: compare what the event shows with them (right account, right source, usual hours, usual process) and name the note;
-activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Without such support, or when notes conflict
+activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Internet notes (\"internet note [ip]\") describe external addresses (who runs them, what they are normally contacted for): count them as notes when judging an ip artifact benign or expected. Without such support, or when notes conflict
 with the evidence, do not guess benign or expected: choose suspicious when it needs a person's eye. Use [] for candidates that are NOT RELATED.
+When an artifact is an EXTERNAL ip (public address) and the evidence tells you something durable about it (owner/ASN, service such as a CDN or update server, why this network talks to it, or why it is a concern), add a \"note\" (under 40 words, facts only) to that artifact; omit it when you have nothing specific to say.
 Answer with JSON only. Keep each reason under 25 words and specific (name the shared thing and why it matters)."""
 
 SCHEMA = {"type": "object", "properties": {"decisions": {"type": "array", "items": {"type": "object", "properties": {
     "id": {"type": "string"}, "related": {"type": "boolean"}, "confidence": {"type": "number"}, "reason": {"type": "string"},
     "artifacts": {"type": "array", "items": {"type": "object", "properties": {
         "kind": {"type": "string", "enum": ["file", "process", "user", "ip", "dns"]}, "value": {"type": "string"},
-        "relation": {"type": "string"}, "decision": {"type": "string", "enum": ["benign", "expected", "suspicious"]}},
+        "relation": {"type": "string"}, "decision": {"type": "string", "enum": ["benign", "expected", "suspicious"]}, "note": {"type": "string"}},
         "required": ["kind", "value", "relation", "decision"]}}},
     "required": ["id", "related", "confidence", "reason", "artifacts"]}}}, "required": ["decisions"]}
 
@@ -615,6 +638,10 @@ def _db():
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
     c.execute("CREATE TABLE IF NOT EXISTS review_events (ts REAL, prompt INTEGER, completion INTEGER, cands INTEGER)")
+    try:
+        c.execute("ALTER TABLE review_events ADD COLUMN notes INTEGER")  # notes passed in with the review (owner + AI)
+    except sqlite3.OperationalError:
+        pass
     for col in ("completion INTEGER", "secs REAL"):  # output tokens + call time, for the tokens / sec card
         try:
             c.execute("ALTER TABLE review_tokens ADD COLUMN " + col)
@@ -648,7 +675,7 @@ def clean_artifacts(arts):
         val, dec = str(a.get("value") or "").strip()[:300], str(a.get("decision") or "").lower().strip()
         if kind in ART_KINDS and val and dec in ART_DECISIONS and (kind, val) not in seen:
             seen.add((kind, val))
-            out.append({"kind": kind, "value": val, "relation": str(a.get("relation") or "")[:200], "decision": dec})
+            out.append({"kind": kind, "value": val, "relation": str(a.get("relation") or "")[:200], "decision": dec, "note": str(a.get("note") or "").strip()[:400]})
     return out[:12]
 
 
@@ -961,17 +988,31 @@ def _json(txt):
     return json.JSONDecoder().raw_decode(txt[i:] if i >= 0 else txt)[0]
 
 
-def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correlation-review", actor="netmon (background reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120):
+def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, purpose="correlation-review", actor="netmon (background reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120):
     """notes: {"anchor" | "c<i>": [owner note text, ...]} from kb.event_notes (optional).
     es_max > 0: the model may first ask for up to es_max Elasticsearch look-ups in total (run through the broker,
     results appended to the prompt as <es_result> data); once they are used up it must decide. on_query(norm, result
     or None, error) is called for every look-up (logging). Usage and seconds are summed over all rounds."""
     notes, ai_notes = notes or {}, ai_notes or {}
-    NL = notes_limit()
+    NL = min(notes_limit(), note_cap or 999)
+    shown, left_chars = set(), [notes_chars() if not note_cap else notes_chars() // 3]
+
+    def pick(tag_notes, cap, tagname):
+        """Notes for one event: each text only once in the whole prompt (hosts and accounts repeat across the events), within the budget."""
+        out = []
+        for t in tag_notes[:NL]:
+            t = str(t)[:cap]
+            k = t[:120]
+            if k in shown or left_chars[0] < len(t):
+                continue
+            shown.add(k); left_chars[0] -= len(t)
+            out.append(f"\n  <{tagname}>{t}</{tagname}>")
+        return "".join(out)
+
     def ev(tag, e, extra=""):
-        on = "".join(f"\n  <owner_note>{str(t)[:300]}</owner_note>" for t in (notes.get(tag) or [])[:NL])
+        on = pick(notes.get(tag) or [], 300, "owner_note")
         ips = f' hosts="{", ".join(map(str, (e.get("ips") or [])[:6]))}"' if es_max and e.get("ips") else ""
-        on += "".join(f"\n  <ai_note>{str(t)[:700]}</ai_note>" for t in (ai_notes.get(tag) or [])[:NL])
+        on += pick(ai_notes.get(tag) or [], 400, "ai_note")
         kn = "; ".join(f"{a[0]}={str(a[1])[:90]}" for a in (e.get("arts") or [])[:8])  # artifacts the script read from the event itself
         kn = f"\n  known artifacts: {kn}" if kn else ""
         return f'<event id="{tag}" type="{e["type"]} - {TYPE_DESC.get(e["type"], "")}" when="{_when(e.get("t0"), e["type"])}" severity="{e.get("sev", "")}"{ips}>{e["label"][:400]}{kn}</event>{on}{extra}'
@@ -1032,7 +1073,13 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correla
 
 def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None, usage_out=None):
     t = model if isinstance(model, dict) else {"provider": "lmstudio", "model": model}
-    dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query)
+    try:
+        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query)
+    except urllib.error.HTTPError as e:  # 400 from LM Studio = prompt + answer did not fit its context window: retry with far fewer notes
+        if e.code != 400:
+            raise
+        print("corr_llm: context exceeded, retrying with fewer notes", file=sys.stderr)
+        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, note_cap=2, es_max=es_max, on_query=on_query)
     if usage_out is not None:
         usage_out.update(usage or {})
     return dec
@@ -1073,7 +1120,16 @@ def _context_notes(tags, E):
         subs = set()
         for ip in (ev.get("ips") or [])[:4]:
             subs |= set(kb.subjects_for_ip(ip))
-        hn = sorted(kb.host_notes(sorted(subs)) if subs else [], key=lambda n: (_PRIO.get(n.get("category"), 9), -float(n.get("updated") or 0)))
+        hn = kb.host_notes(sorted(subs)) if subs else []
+        earts = kb.event_artifact_keys(ev)  # look the event's artifacts up in the notes' artifact index BEFORE choosing which notes to send
+        na = kb.note_artifacts([n["id"] for n in hn])
+        have = {n["id"] for n in hn}
+        pool = []  # (artifact score, matched keys, note)
+        for n in hn:
+            sc, hit = kb.art_score(na.get(n["id"], []), earts)
+            pool.append((sc, hit, n))
+        pool += kb.notes_by_artifacts(earts, exclude_ids=have, limit=lim)  # notes on OTHER hosts / subjects that name the same IP, port, process, DNS name or account
+        pool.sort(key=lambda t: (-t[0], _PRIO.get(t[2].get("category"), 9), -float(t[2].get("updated") or 0)))
         users = []
         for kind, value, _rel in ev.get("arts") or []:
             if kind == "user" and value.lower() not in [u.lower() for u in users]:
@@ -1085,9 +1141,18 @@ def _context_notes(tags, E):
             if prof.get(u.lower()):
                 ua.append(f"user profile: {prof[u.lower()][:300]}")
         a += ua
-        for n in hn:
-            line = f"host note [{n['category']}] {n['label'] or n['subject']}: {_TAG.sub('', str(n['text']))[:240]}"
-            (o if _human(n) else a).append(line)
+        in_pool = {n["id"] for _sc, _hit, n in pool}
+        for ip in kb.external_ips(ev)[:6]:  # what is known about the internet addresses involved (Network > Internet notes); the ones the index already ranked come below
+            for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"])[:3]:
+                if n["id"] not in in_pool:
+                    (o if _human(n) else a).append(f"internet note [{ip}]: {_TAG.sub('', str(n['text']))[:240]}")
+        homes = {x["id"] for x in hn}
+        for sc, hit, n in pool:
+            where = "" if n["id"] in homes or not hit else f" (matches {', '.join(hit[:3])})"
+            subj = str(n["subject"])
+            ext = subj[3:] if subj.startswith("ip:") else subj[7:] if subj.startswith("art:ip:") else ""
+            head = f"internet note [{ext}]" if ext and kb.is_external(ext) else f"host note [{n['category']}] {n['label'] or subj}"
+            (o if _human(n) else a).append(f"{head}{where}: {_TAG.sub('', str(n['text']))[:240]}")
         if o:
             owner[tag] = o[:lim]
         if a:
@@ -1164,10 +1229,12 @@ def _review(model, aid, base, todo):
 
     logq = _es_logger(aid, ids, mname)
     used = {}
-    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, _owner_notes(aid, ids, E), es["max"] if es["enabled"] else 0, logq, ai_notes=_ai_notes(aid, ids, E), usage_out=used)}
+    own_n, ai_n = _owner_notes(aid, ids, E), _ai_notes(aid, ids, E)
+    n_notes = sum(len(v) for v in own_n.values()) + sum(len(v) for v in ai_n.values())
+    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, own_n, es["max"] if es["enabled"] else 0, logq, ai_notes=ai_n, usage_out=used)}
     try:  # tokens this one event review used (all its model rounds), for the AI review page's average in / out per event
         with _lock, _db() as c:
-            c.execute("INSERT INTO review_events (ts, prompt, completion, cands) VALUES (?,?,?,?)", (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands)))
+            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes) VALUES (?,?,?,?,?)", (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands), n_notes))
             c.execute("DELETE FROM review_events WHERE ts < ?", (time.time() - 30 * 86400,))
     except Exception as e:  # noqa: BLE001
         print(f"corr_llm: review token log failed: {e}", file=sys.stderr)
@@ -1187,6 +1254,7 @@ def _review(model, aid, base, todo):
                 store_artifacts(c, k, (clean_artifacts(d.get("artifacts")) + query_artifacts(logq.found)) if d.get("related") else [], mname, time.time())
     try:
         _note_expected(model, aid, E, cands, dec)
+        _note_internet(model, aid, E, cands, dec)
     except Exception as e:  # noqa: BLE001 - host notes are a by-product, never fail a review for them
         print(f"corr_llm: host notes skipped: {e}", file=sys.stderr)
     return len(rows)
@@ -1195,6 +1263,37 @@ def _review(model, aid, base, todo):
 HOST_NOTES = os.environ.get("NETMON_REVIEW_HOST_NOTES", "on").lower() != "off"
 NOTE_MIN_CONF = 0.8
 NOTE_TAG = "[reviewer:{kind}:{value}]"
+
+
+def _note_internet(model, aid, E, cands, dec):
+    """External-IP artifacts the reviewer wrote a `note` for -> an internet note (host note on ip:<ip>), one per IP and reviewer
+    (found by its tag and updated in place). The IP must appear in one of the two events; unverified, deletable on Network > Internet notes."""
+    if not HOST_NOTES:
+        return 0
+    import kb
+    mname = model["model"] if isinstance(model, dict) else model
+    n = 0
+    for i, (e, r) in enumerate(cands, 1):
+        d = dec.get(f"c{i}")
+        if not d or not d.get("related"):
+            continue
+        for art in clean_artifacts(d.get("artifacts")):
+            ip = art["value"].strip()
+            if art["kind"] != "ip" or not art.get("note") or not kb.is_external(ip):
+                continue
+            seen = set(kb.external_ips(E[aid])) | set(kb.external_ips(e))
+            if ip not in seen:
+                continue
+            tag = f"[reviewer:ip:{ip}]"
+            text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Reviewer judgement ({mname}), unverified.)"
+            try:
+                old = [x for x in kb.host_notes([f"ip:{ip}"]) if x["text"].startswith(tag)]
+                kb.add_host_note({"ip": ip}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="correlation reviewer",
+                                 note_id=old[0]["id"] if old else None)
+                n += 1
+            except ValueError as ex:
+                print(f"corr_llm: internet note not added for {ip}: {ex}", file=sys.stderr)
+    return n
 
 
 def _note_expected(model, aid, E, cands, dec):
@@ -1457,7 +1556,8 @@ def overview(events, applied):
         ev_stats = {}
         for lab, since in (("day", now - 86400), ("all", 0)):
             n_, pi, po = c.execute("SELECT COUNT(*), COALESCE(AVG(prompt),0), COALESCE(AVG(completion),0) FROM review_events WHERE ts > ? AND prompt + completion > 0", (since,)).fetchone()
-            ev_stats[lab] = {"n": n_, "in": round(pi), "out": round(po)}
+            nn, = c.execute("SELECT AVG(notes) FROM review_events WHERE ts > ? AND prompt + completion > 0 AND notes IS NOT NULL", (since,)).fetchone()
+            ev_stats[lab] = {"n": n_, "in": round(pi), "out": round(po), "notes": None if nn is None else round(nn, 1)}
     tps = round(tc / ts_, 1) if ts_ > 0 and tc > 0 else None  # average output tokens per second of model time, last hour
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)

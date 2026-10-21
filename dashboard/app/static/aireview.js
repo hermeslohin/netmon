@@ -25,7 +25,7 @@
   const every = (_, mins) => { const n = mins;
     return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
   function researchCard(C, D) {  // returns [status box, time/token box (only when usage exists)]
-    if (C.error) return [card("Correlation review job", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
+    if (C.error) return [card("AI Research job", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
@@ -33,18 +33,18 @@
       : J.requested ? ["Starting (requested)", "sev-medium"]
       : lastRun && lastRun.status === "failed" ? ["Last run failed", "sev-high"] : J.failure_streak ? ["Failing", "sev-high"] : ["Idle · scheduled", "sev-good"];
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
-    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "correlation review job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
+    const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "AI Research job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
-    const c = card(`Correlation review job (${every(null, J && J.interval_minutes)})`, `
+    const c = card(`AI Research job (${every(null, J && J.interval_minutes)})`, `
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
         ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no model chosen - pick one in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)}</span>` : ""}</span>
         <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
           ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested || !J.model ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
         <span class="k">Last run</span><span>${lastRun ? `${esc(ago(lastRun.finished || lastRun.started))} · ${esc(lastRun.status)}${lastRun.duration_s ? ` in ${esc(dur(lastRun.duration_s))}` : ""}` : "never"}${J.failure_streak ? ` · <span class="bad">${fn(J.failure_streak)} failure(s) in a row</span>` : ""}</span>
-        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>Correlation review job status unavailable.</span>`}
+        ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>AI Research job status unavailable.</span>`}
         <span class="k">Research notes</span><span>${fn(N.total || 0)} stored · ${fn(N.last_24h || 0)} in the last 24 h${Object.keys(N.by_verdict || {}).length ? " · " + Object.entries(N.by_verdict).map(([k, v]) => `${esc(k)} ${fn(v)}`).join(" · ") : ""}</span>
-        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by the correlation review job (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
+        <span class="k">Correlation</span><span>${fn(L.total || 0)} link verdicts by the AI Research job (${fn(L.related || 0)} related) · ${fn(L.last_24h || 0)} in the last 24 h${L.last ? ` · last ${esc(ago(L.last))}` : ""}</span>
         ${stale && J && J.running ? `<span class="k">Note</span><span class="warn">No progress reported for ${esc(ago(C.exported))} - check logs/research.log on the host.</span>` : ""}
       </div>
       <div style="margin-top:12px"><div class="small muted">Current snapshot: ${cov}% of events have a research note (${fn(N.current_with_note || 0)} of ${fn(N.current_events || 0)})</div>
@@ -54,7 +54,7 @@
         <div class="cl-runs"><div class="small"><b>Recent runs</b></div></div>
       </div>`);
     c.id = "ai-research";
-    if (J) c.insertBefore(lookbackCard(D), c.querySelector(".cl-runs").parentNode);  // the lookback is a setting of this job's collect + correlate step
+    if (J) { const g = c.querySelector(".cl-runs").parentNode; g.parentNode.insertBefore(lookbackCard(D), g); }  // the lookback is a setting of this job's collect + correlate step
     if (D.admin && J) {
       const m = c.querySelector(".rj-msg");
       c.querySelector(".rj-run")?.addEventListener("click", async (ev) => { ev.target.disabled = true; m.textContent = "requesting…";
@@ -181,7 +181,7 @@
       const perDay = current && current.interval_minutes ? 1440 / current.interval_minutes : 2;
       const v = USAGE.U.map((u) => runCost(u, price)), avg = v.reduce((a, x) => a + x, 0) / (v.length || 1);
       const rec = USAGE.U.filter((u) => u.cost_usd != null), recAvg = rec.length ? rec.reduce((a, u) => a + u.cost_usd, 0) / rec.length : null;
-      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the correlation review job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
+      USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the AI Research job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
         (recAvg != null ? ` (the recorded runs averaged $${recAvg.toFixed(2)})` : "") +
         ` · ~$${(avg * 30 * perDay).toFixed(0)} a month at ${+perDay.toFixed(1)} run${perDay === 1 ? "" : "s"} a day. <span class="muted">Same token counts as the recorded runs re-priced at ` +
         `${esc(model)}'s price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
@@ -221,9 +221,9 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). Correlation review job: the scheduled triage, event research and daily report - needs a reasoning-capable model (it works through several tool calls per event and decides what to do next between them); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model (Qwen, DeepSeek-R1...) in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
+    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously (cloud models are billed per decision batch; local models are free but need LM Studio). AI Research job: the scheduled triage, event research and daily report - needs a reasoning-capable model (it works through several tool calls per event and decides what to do next between them); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model (Qwen, DeepSeek-R1...) in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
       : "Only an admin can change models.";
-    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `Correlation review job (${every(null, D.research?.interval_minutes)}) · needs reasoning`, D.research && !D.research.error ? D.research : {}],
+    const rows = [["correlation", "Correlation reviewer", D.config?.correlation || {}], ["research", `AI Research job (${every(null, D.research?.interval_minutes)}) · needs reasoning`, D.research && !D.research.error ? D.research : {}],
       ["chat", "Chat (Ask AI)", D.chat || {}]];
     loadModels().then((M) => {
       if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start LM Studio. " + note.textContent;
@@ -236,7 +236,7 @@
         const warn = sec === "research" ? r.appendChild(Object.assign(document.createElement("span"), { className: "small warn" })) : null;
         const showWarn = (provider) => { if (!warn) return; const rt = reasoningTokens(provider);
           warn.textContent = rt === 0 ? " ⚠ this provider has 0 reasoning tokens set (AI providers > edit) - research quality will suffer" : ""; };
-        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the correlation review job does not run until a reasoning-capable model is chosen")
+        msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: the AI Research job does not run until a reasoning-capable model is chosen")
           : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (model loaded in LM Studio)";
         if (sec === "research") showWarn(cur.provider);
         if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
@@ -254,7 +254,9 @@
         };
       }
       body.appendChild(esQueriesRow(D));
+      body.appendChild(esResearchRow(D));
       body.appendChild(notesLimitRow(D));
+      body.appendChild(notesCharsRow(D));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
@@ -262,10 +264,10 @@
   function esQueriesRow(D) {
     const cfg = D.config?.es_queries || { enabled: false, max: 3, limit: 20 };
     const r = document.createElement("div"); r.className = "llm-row";
-    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries" }));
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries · correlation review" }));
     const lab = r.appendChild(document.createElement("label")); lab.className = "small";
     const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: !!cfg.enabled }));
-    lab.append(" reviewer may search the logs for more context");
+    lab.append(" correlation reviewer may search the logs for more context");
     const lab2 = r.appendChild(document.createElement("label")); lab2.className = "small";
     lab2.append("max per event ");
     const num = lab2.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: cfg.limit || 20, step: 1, value: cfg.max || 3 }));
@@ -286,9 +288,30 @@
     r.title = "When on, the correlation reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
     return r;
   }
+  // Elasticsearch searches by the AI Research job (separate from the correlation reviewer's setting above)
+  function esResearchRow(D) {
+    const R = D.research && !D.research.error ? D.research : {};
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries · AI research" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: R.es_search !== false }));
+    lab.append(" research AI may search the logs while researching events");
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (on) => on ? "now: on" : "now: off";
+    msg.textContent = D.admin ? show(chk.checked) : show(chk.checked) + " · only an admin can change this";
+    chk.disabled = !D.admin || !D.research || !!D.research.error;
+    chk.addEventListener("change", async () => {
+      chk.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/research", { es_search: chk.checked }); chk.checked = r2.research.es_search !== false; msg.textContent = "saved · " + show(chk.checked) + " (from the next run)"; }
+      catch (e) { msg.textContent = "error: " + e.message; chk.checked = !chk.checked; }
+      chk.disabled = !D.admin;
+    });
+    r.title = "When on, the AI Research job may run read-only Elasticsearch searches (es_search tool) while researching an event. Independent of the correlation reviewer's setting.";
+    return r;
+  }
   // Host / user notes given to the reviewer with each event (admin sets the cap; more notes = more tokens in)
   function notesLimitRow(D) {
-    const cfg = D.config?.context_notes || { max: 7, limit: 40, default: 7 };
+    const cfg = D.config?.context_notes || { max: 7, limit: 100, default: 7 };
     const r = document.createElement("div"); r.className = "llm-row";
     r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Notes per event" }));
     const lab = r.appendChild(document.createElement("label")); lab.className = "small";
@@ -309,6 +332,31 @@
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     r.title = "Host notes about the hosts an event involves and notes / profiles of the accounts it names are added to each event the reviewer sees. Raising this gives it more context (and more input tokens: see Avg tokens in / event); lowering it makes reviews cheaper.";
+    return r;
+  }
+  // Total characters of notes in one review prompt (below Notes per event)
+  function notesCharsRow(D) {
+    const cfg = D.config?.context_notes || {}, lo = cfg.chars_min || 1000, hi = cfg.chars_limit || 100000, def = cfg.chars_default || 6000;
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Note characters" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    lab.append("total characters of notes in one review request, max ");
+    const num = lab.appendChild(Object.assign(document.createElement("input"), { type: "number", min: lo, max: hi, step: 500, value: cfg.chars || def }));
+    num.style.width = "6.5em"; num.setAttribute("aria-label", "Total note characters per review request");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (c) => `now: ${c.chars} characters (default ${c.chars_default}, ${c.chars_min}-${c.chars_limit}; about ${Math.round(c.chars / 4)} tokens)` + (c.by ? ` (${c.by})` : "");
+    msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
+    num.disabled = !D.admin;
+    autoApply(btn, [num]);
+    btn.onclick = async () => {
+      const n = Math.round(+num.value);
+      if (!(n >= lo && n <= hi)) { msg.textContent = `Enter ${lo}-${hi} characters.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/notes", { chars: n }); Object.assign(cfg, r2.context_notes || {}); msg.textContent = "saved · " + show(cfg) + " (from the next review)"; }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    r.title = "The notes picked for each event are cut off once this many characters are in the request, whatever Notes per event allows (one note is at most 300-400 characters). A request that also has several candidate events shares the budget. More characters = more input tokens and slower reviews; the single-link re-check uses a third of it.";
     return r;
   }
   // Elasticsearch searches of one AI: the correlation reviewer (structured requests) or the research AI (raw query DSL)
@@ -499,7 +547,7 @@
     const c = card("AI providers", `<div class="small muted"><b>Local (LM Studio)</b> is the LM Studio server on this host (no key; its enabled flag and rate limit can be set here;
       the model list comes live from LM Studio). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
       OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
-      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, the correlation review job and the chat,
+      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, the AI Research job and the chat,
       and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
       <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
       <div style="margin-top:8px"><button type="button" class="prov-add">Add provider</button> <span class="small muted prov-msg"></span></div>`);
@@ -581,7 +629,7 @@
         <div class="llm-row" style="align-items:flex-start"><span class="k">Models</span>
           <span style="flex:1 1 520px"><div class="pf-models"></div>
             <button type="button" class="pf-add">+ Add model</button> <button type="button" class="pf-fetch">Fetch available models from provider</button>
-            <div class="small muted">Pick each model from the drop-down (use Fetch to fill it, or choose "Custom…" to type an id). Prices are optional, in $ per million tokens; with them the dashboard estimates costs and enforces the correlation review job's $ caps (token caps work without).</div></span></div>
+            <div class="small muted">Pick each model from the drop-down (use Fetch to fill it, or choose "Custom…" to type an id). Prices are optional, in $ per million tokens; with them the dashboard estimates costs and enforces the AI Research job's $ caps (token caps work without).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
           <span class="small muted">cap on this provider's single calls (correlation reviewer + comparisons) - limits cost if something loops</span></div>
         <div class="llm-row"><span class="k">Extra reasoning tokens</span><input name="reasoning_tokens" type="number" min="0" max="32000" step="500" style="width:7em">
@@ -633,7 +681,7 @@
     const avg = U.length ? U.reduce((a, v) => a + v, 0) / U.length : null, max = U.length ? Math.max(...U) : null;
     const usd = (v) => `$${(+v).toFixed(2)}`;
     const c = card(T, `
-      <div class="small muted">The correlation review job adds up the tokens of every model call and, when the model has a price (AI providers > Models), the
+      <div class="small muted">The AI Research job adds up the tokens of every model call and, when the model has a price (AI providers > Models), the
         estimated cost. A run stops at the next model call once a limit below is passed; what it found until then is kept. <b>0 = no limit.</b></div>
       <div class="llm-grid" style="margin-top:10px">
         <div class="llm-row"><span class="k">$ per run</span><span>$ <input type="number" name="max_run_usd" min="0" max="1000" step="0.5" style="width:7em"></span>
@@ -683,10 +731,10 @@
     const L = D.lookback || { hours: 24, min: 1, max: 24, pdf_hour: 5 };
     const iv = D.research?.interval_minutes, ivH = iv ? iv / 60 : null;
     const rec = ivH ? Math.min(L.max, Math.ceil(ivH) + 1) : null;
-    const c = document.createElement("div");  // a section inside the Correlation review job card
+    const c = document.createElement("div");  // a section inside the AI Research job card
     c.style.cssText = "margin-top:14px;padding-top:10px;border-top:1px solid #2a323d";
     c.innerHTML = `<h3 style="margin:0 0 4px">Lookback window</h3>
-      <div class="small muted">How many hours of logs each run of the correlation review job collects and correlates. Shorter windows mean fewer events and fewer
+      <div class="small muted">How many hours of logs each run of the AI Research job collects and correlates. Shorter windows mean fewer events and fewer
         tool calls per run, so each run costs less. Every run looks back from the moment it starts.</div>
       <div class="llm-grid" style="margin-top:10px">
         <div class="llm-row"><span class="k">Look back</span>
@@ -798,7 +846,7 @@
   }
 
   const build = async (el, bg) => {
-    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real, and on the research schedule the correlation review job's model researches the important events and re-reviews their links (its verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real, and on the research schedule the AI Research job's model researches the important events and re-reviews their links (its verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});
@@ -811,7 +859,7 @@
       ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>` + (q.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode: listed, never sent">+${fn(q.testing)} testing</span>` : ""), q.pending ? "warn" : "good"],
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
-      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
+      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Avg notes in / event", `<span title="notes (owner + AI: event, host, account, internet) passed to the model per event review, last 24 h. All time: ${T.event_tokens?.all?.notes ?? "—"}">${T.event_tokens?.day?.notes != null ? T.event_tokens.day.notes : "—"}</span>`], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     if (D.admin) {
       const bar = document.createElement("div"); bar.style.cssText = "margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center";

@@ -12,8 +12,10 @@
     if (loading === sid) return;
     loading = sid;
     api("/api/correlate?id=" + encodeURIComponent(sid)).then((d) => { d._snap = sid; S.corr = d; }).catch(() => { S.corr = { _snap: sid, related: {}, events: {}, error: true }; })
-      .finally(() => { loading = null; fill(); relabelChips(); });
+      .finally(() => { loading = null; fill(); relabelChips(); main.querySelectorAll('.tfrow input').forEach((i) => i.value && i.dispatchEvent(new Event('input'))); });
   }
+  const pendingEv = (id) => (S.corr?.related?.[id] || []).some((r) => r.llm === "pending");
+  window.netmonPendingReview = pendingEv;
   function fill() {
     if (!S.corr || S.corr._snap !== S.snap?.id) return;
     main.querySelectorAll(".rel-btn").forEach((b) => {
@@ -38,6 +40,10 @@
       const uns = S.corr.unotes?.[b.dataset.rel] || [], un = uns.length, ut = un ? `📝 ${un}${uns.some((x) => x.status === "pending") ? " ⏳" : ""}` : "📝";
       if (ub.textContent !== ut) ub.textContent = ut;
       ub.classList.toggle("has", un > 0);
+      // "pending review": the correlation job has not finished this event yet (at least one candidate link still undecided)
+      const isP = pendingEv(b.dataset.rel); let pf = ub.nextElementSibling?.classList.contains("pend-flair") ? ub.nextElementSibling : null;
+      if (isP && !pf) { pf = document.createElement("span"); pf.className = "pend-flair"; pf.textContent = "⏳ pending review"; pf.title = "The correlation job has not reviewed this event's candidate links yet"; ub.after(pf); }
+      if (!isP && pf) pf.remove();
     });
   }
   function relabelChips() {  // drill-down chip shows the event's label once correlations are loaded
@@ -163,7 +169,7 @@
   const alertName = (label) => { const g = String(label || "").replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "*").replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "*").replace(/\d+(?:[.,:]\d+)*/g, "*").replace(/\*(?:[\s,/()-]*\*)+/g, "*"); return "*" + g.replace(/…$/, "").trim().replace(/^\*+|\*+$/g, "") + "*"; };
   const alertHost = (label) => (String(label || "").match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/) || String(label || "").match(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/i) || [""])[0];
   window.alertMuteHtml = (label) => { if (!canMute()) return ""; const h = alertHost(label);
-    return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Never send alerts like this to the AI and clear the ones already raised. You can edit the pattern.">mute name…</button>`
+    return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Mute alerts like this: never send them to the AI, clear the ones already raised and clear future ones automatically. You can edit the pattern.">mute name…</button>`
       + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host…</button></span>`; };
   // Mute: opens an editable pattern (wildcards * ?, no wildcard = "contains"); saving also clears alerts already raised
   document.addEventListener("click", async (e) => {
@@ -177,7 +183,7 @@
       wrap.style.cssText = "display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center";
       wrap.innerHTML = `<input class="mute-pat" value="${esc(alertName(label))}" size="46" title="Part of the alert text. Use * for any text, ? for one character."> ${host ? `<span class="small">only host <b>${esc(host)}</b></span>` : ""}
         <button type="button" class="mute-ok">Mute &amp; clear existing</button><button type="button" class="mute-cancel">Cancel</button>
-        <span class="muted small" style="flex-basis:100%">Edit the pattern to match less or more (e.g. <span class="mono">*New device*</span>). Saving also removes every alert already raised that matches.</span>`;
+        <span class="muted small" style="flex-basis:100%">Edit the pattern to match less or more (e.g. <span class="mono">*New device*</span>). Saving keeps this as a mute rule (see Alerts › Alert mute rules): matching alerts are cleared now and automatically whenever they arrive; Show cleared lists them.</span>`;
       wrap.querySelector(".mute-pat").focus(); return;
     }
     if (cancel) { wrap.innerHTML = wrap.dataset.orig; return; }

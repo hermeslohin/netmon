@@ -235,11 +235,30 @@ Only **high** and **medium** sessions feed host risk: the destination's *threat*
 Clearing a segmentation flow never hides failed logins on it, because failures are checked before the allow
 list.
 
+### Segmentation severity (by port)
+
+A flow that breaks the segmentation policy (`policy.json`) becomes a *violation*, a Fix-list `seg` issue and a
+behaviour finding. The reason says why it is flagged (a DMZ host initiating inward, an IoT or camera device reaching
+servers, an admin port between internal hosts, cross-zone access to a server zone); its **severity comes from the port
+alone**, so one noisy zone pair cannot flood the high bucket:
+
+| Severity | Ports |
+|---|---|
+| **high** | admin / remote-control ports: the policy's `sensitive_ports` plus the admin catalog (SSH, RDP, SMB, WinRM, databases, Docker and Kubernetes APIs…, the same set as Admin access) |
+| **low** | standard service ports: the policy's `standard_ports` (default 20, 21, 25, 53, 80, 110, 123, 143, 389, 443, 465, 587, 636, 993, 995, 3000, 5000, 8000, 8080, 8443, 8888) plus `discovery_ports` |
+| **medium** | any other (odd) port |
+
+Unanswered flows with fewer than 5 attempts, gateway services and flows covered by `allow` are not flagged. The
+severity sets the base of the `seg` Fix-list issue (high 45, medium 28, low 14) and the points the violation gives in
+the source host's *reach* (1 each, max 4). The correlation reviewer's segmentation categories use the same three
+severities ([CORRELATION.md](CORRELATION.md)).
+
 ### Link (edge) score
 
 Each internal host-to-host edge on the Lateral movement page takes the worst level of its ports and admin
-sessions. Port levels come from policy violations (their own severity), ≥ 5 unanswered attempts at a sensitive
+sessions. Port levels come from policy violations (their port-based severity, above), ≥ 5 unanswered attempts at a sensitive
 port (medium), being part of an internal scan (medium), or an answered sensitive port that isn't allowed (low).
+A flow whose segmentation finding a person cleared is shown as *allowed-admin*.
 The edge is then scored for sorting and line weight:
 
 ```
@@ -250,6 +269,13 @@ edge score = level weight × (0.6 + 0.2 × destination impact)
 Level weights are high 3, medium 2, low 1, allowed-admin 0.5 and normal 0. Destination impact is the host-risk
 impact (3 if unknown). As a result, a medium link into a crown jewel with repeated failures can outrank a high
 link between two IoT devices.
+
+**Several periods.** With the time picker the Lateral movement page can show more than one period at once
+(up to three are collected in parallel, each straight from Elasticsearch through the host broker). They are merged
+before scoring, as if they were one longer window: flows, connection counts and bytes are summed per
+*(source, destination, port, protocol)*, admin logins and tools are concatenated (so failures add up and can cross a
+threshold), violations are summed per flow keeping the worst severity, and internal scans keep the worst per source.
+Host risk bubbles use the newest nightly snapshot, not the picked periods.
 
 ![Lateral movement graph: internal links coloured by level, host bubbles sized and coloured by host risk, with the score inside](img/lateral-movement.png)
 

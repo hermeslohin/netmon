@@ -14,6 +14,10 @@
     `<button type="button" class="kb-rev" data-act="approve" data-id="${esc(n.id)}" data-eid="${esc(n.eid)}" title="Let the AI read this note">Approve</button>`
     + (n.status === "pending" ? `<button type="button" class="kb-rev" data-act="reject" data-id="${esc(n.id)}" data-eid="${esc(n.eid)}" title="Keep this note away from the AI">Reject</button>` : ""));
   window.kbStBadge = stBadge;
+  /* artifact chips under a note: the things the AI matches events against when it picks notes (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port) */
+  const AK = { proc: ["⚙️", "process / file"], ip: ["🌐", "IP address"], dns: ["🔎", "DNS name"], user: ["👤", "account"], port: ["🔌", "port"] };
+  const artChips = (n) => { const a = (n.artifacts || []).slice(0, 12); return a.length ? `<div class="note-chips" title="Artifacts in this note. The correlation reviewer matches an event's artifacts against these to choose which notes to read.">${a.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
+    return `<span class="art-chip" title="${esc(nm)}">${ic} <code>${esc(k.slice(i + 1))}</code></span>`; }).join("")}</div>` : ""; };
   const by = (n) => (n.author === "ai" ? aiFlare({ model: n.model, via: n.via || "AI host notes", at: n.updated ? new Date(n.updated * 1000).toISOString() : "" })
     : `<span class="kb-user" title="Written by a person">👤 ${esc(String(n.author || "").replace(/^user:/, ""))}</span>`);
 
@@ -32,7 +36,7 @@
       list.innerHTML = ns.length ? ns.map((n) => `<div class="kb-note"><div class="kb-meta"><span class="badge">${esc(n.category)}</span> ${by(n)}
           <span class="muted small">${esc(when(n.updated))}${subjects.length > 1 && n.subject !== primary ? " · " + esc(n.subject) : ""}</span>
           <button type="button" class="kb-del" data-id="${esc(n.id)}" title="Delete this note" aria-label="Delete note">✕</button></div>
-          <div class="kb-text-v">${esc(n.text)}</div></div>`).join("")
+          <div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`).join("")
         : `<div class="empty">No notes yet. The AI adds notes as it learns about this device; you can add your own below.</div>`;
     }).catch((e) => { list.innerHTML = `<div class="empty">Notes unavailable: ${esc(e.message)}</div>`; });
     c.addEventListener("click", (e) => {
@@ -58,7 +62,7 @@
     return ip && S.snap?.raw?.devices?.[ip] ? `<a href="#/device/${encodeURIComponent(ip)}">${name}</a> <span class="muted small mono">${esc(ip)}</span>` : `${name} <span class="muted small mono">${esc(v)}</span>`;
   };
   V.notes = async (el) => {
-    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). Event research, the correlation review job, the correlation reviewer and Ask AI read these before deciding.</div>`;
+    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). Event research, the AI Research job, the correlation reviewer and Ask AI read these before deciding.</div>`;
     const d = await api("/api/kb/all");
     const hn = d.host_notes || [], en = d.event_notes || [], pend = en.filter((n) => n.status === "pending");
     el.insertAdjacentHTML("beforeend", kpis([["Host notes", hn.length], ["Devices with notes", new Set(hn.map((n) => n.subject)).size], ["By AI", hn.filter((n) => n.author === "ai").length], ["Event notes", en.length], ["Awaiting approval", pend.length]]));
@@ -71,11 +75,35 @@
       el.appendChild(pc);
     }
     el.appendChild(card(`Host notes (${hn.length})`, hn.length ? table(null, [{ k: "subject", t: "Device / host", fmt: (v, n) => subjLink(v, n.label) }, { k: "category", t: "Category", fmt: (v) => `<span class="badge">${esc(v)}</span>` },
-      { k: "text", t: "Note", fmt: (v) => `<div class="kb-text-v">${esc(v)}</div>` }, { k: "author", t: "By", fmt: (v, n) => by(n) }, { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }],
+      { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` }, { k: "author", t: "By", fmt: (v, n) => by(n) }, { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }],
       hn, { sort: "updated" }) : `<div class="empty">No host notes yet. The AI writes them during its twice-daily research; you can add notes on any host or endpoint page.</div>`));
-    el.appendChild(card(`Event notes (${en.length})`, en.length ? table(null, [{ k: "label", t: "Event", fmt: (v, n) => esc(v || n.eid) }, { k: "text", t: "Note", fmt: (v) => `<div class="kb-text-v">${esc(v)}</div>` },
+    el.appendChild(card(`Event notes (${en.length})`, en.length ? table(null, [{ k: "label", t: "Event", fmt: (v, n) => esc(v || n.eid) }, { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` },
       { k: "author", t: "By", fmt: (v, n) => `👤 ${esc(v)} ${stBadge(n)}` }, { k: "ts", t: "When", fmt: (v) => esc(when(v)) }],
       en, { sort: "ts" }) : `<div class="empty">No event notes yet. Click 📝 next to any event's Related count to add one.</div>`));
+  };
+
+  /* ---------- Network > Internet notes: every external IP that has notes ---------- */
+  V.netnotes = async (el, arg) => {
+    const ip = decodeURIComponent(arg || "");
+    if (ip) {
+      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this external address. The AI reviewers read them when judging whether traffic to it is benign or expected.</div>`;
+      el.appendChild(kbCard([`ip:${ip}`, `art:ip:${ip}`], `ip:${ip}`));
+      return;
+    }
+    el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address that has a note: what it is, who runs it and why this network talks to it. The correlation reviewer and the research job write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
+    const d = await api("/api/kb/internet"), rows = d.ips || [];
+    el.insertAdjacentHTML("beforeend", kpis([["IPs with notes", rows.length], ["Notes", rows.reduce((a, r) => a + r.n, 0)], ["By AI", rows.filter((r) => r.notes.some((n) => n.author === "ai")).length], ["With a person's note", rows.filter((r) => r.notes.some((n) => n.author !== "ai")).length]]));
+    el.appendChild(card("Add a note about an external IP", `<form class="kb-form" id="inForm"><input class="kb-ip mono" placeholder="8.8.8.8" aria-label="External IP" size="16"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this address, who runs it, why do we talk to it?"></textarea><button type="submit">Add note</button></form>`));
+    el.querySelector("#inForm").addEventListener("submit", (e) => { e.preventDefault();
+      const f = e.target, i = f.querySelector(".kb-ip").value.trim(), t = f.querySelector(".kb-text").value.trim(); if (!i || !t) return;
+      apiPost("/api/kb/host", { action: "add", subject: "ip:" + i, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
+    el.appendChild(card(`External IPs (${rows.length})`, rows.length ? table(null, [
+      { k: "ip", t: "IP", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent(v)}"><b class="mono">${esc(v)}</b></a>` },
+      { k: "n", t: "Notes", num: true },
+      { k: "notes", t: "Latest note", fmt: (v) => `<div class="kb-text-v small">${esc(String(v[0]?.text || "").replace(/^\[\w+:[^\]]*\]\s*/, "").slice(0, 260))}</div>`, sort: (r) => r.n },
+      { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "" , sort: (r) => r.notes[0]?.author || "" },
+      { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], rows, { sort: "updated", filter: true, onclick: (r) => go("netnotes/" + encodeURIComponent(r.ip)) })
+      : `<div class="empty">No external IP has a note yet. The reviewers add them as they investigate; you can add one above.</div>`));
   };
 
   /* ---------- event notes popover (📝) ---------- */
@@ -90,7 +118,7 @@
     pop.innerHTML = `<div class="rel-head"><b>Your notes</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : eid)}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body">
         ${ns.map((n) => `<div class="kb-note kb-st-${esc(n.status || "approved")}"><div class="kb-meta">👤 <b>${esc(n.author)}</b> ${stBadge(n)} <span class="muted small">${esc(when(n.ts))}${n.same_event ? "" : " · written on an earlier run of this event"}</span>
-          ${reviewBtns(n)}<button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div></div>`).join("") || `<div class="muted small">No notes on this event yet.</div>`}
+          ${reviewBtns(n)}<button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`).join("") || `<div class="muted small">No notes on this event yet.</div>`}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Expected: this is my nightly backup. / Escalate if seen again from this host."></textarea>
         <div><button type="button" class="kb-save">Save note</button></div>
         <div class="small muted">${U ? "Tell the network defenders what this event is (e.g. 'that was me installing an app'). Your note goes to them for review; the AI only reads it after a defender or admin approves it."
@@ -153,7 +181,7 @@
       const ns = d.notes || [];
       epop.querySelector(".note-body").innerHTML = `
         ${ns.map((n) => `<div class="kb-note"><div class="kb-meta">${by(n)} <span class="muted small">${esc(when(n.updated))}</span>
-          <button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div></div>`).join("")
+          <button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`).join("")
           || `<div class="muted small">No notes on this ${esc(what)} yet.</div>`}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Known CDN / expected contact. / Flag if seen talking to other hosts."></textarea>
         <div><button type="button" class="kb-save">Add note</button></div>

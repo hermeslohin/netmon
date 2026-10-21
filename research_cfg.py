@@ -10,6 +10,7 @@ from the AI review / Configuration pages) and the host scheduler read the same v
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
   max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
   max_searches          web searches allowed per event in event research (a batch of 8 events shares 8x this; 0 = no cap)
+  es_search             True/False (default True): let the research AI search Elasticsearch (es_search tool); separate from the correlation reviewer's own setting (llm_config.json es_queries)
   web_research          True/False (new deployments: False): let the job search and read web pages (and cite them). Off = local data only; the daily news briefing is skipped
   max_batches           event-research conversations per run (8 work items each)
   modes                 per event category what the job does: "test" (queued and tagged "testing" but never sent: shows what a mode would send, filters apply; the default on new deployments), "research" (send to the model; events that already have
@@ -45,7 +46,7 @@ LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg_
                 "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
 DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": False, "severities": ["high", "medium"],
+            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": False, "es_search": True, "severities": ["high", "medium"],
             "modes": DEFAULT_MODES}
 LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40), "max_searches": (0, 20)}
@@ -106,7 +107,7 @@ def put(fields, user, check_model=None):
             continue
         if k in ("provider", "model"):
             cur[k] = str(v or "")[:120]
-        elif k in ("enabled", "web_research"):
+        elif k in ("enabled", "web_research", "es_search"):
             cur[k] = bool(v)
         elif k == "modes":
             if not isinstance(v, dict) or any(a not in DEFAULT_MODES or b not in MODES for a, b in v.items()):

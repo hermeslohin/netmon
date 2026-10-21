@@ -153,6 +153,7 @@ class Run:
         self.budget = agent.Budget(target["provider"], target["model"], cfg["max_run_tokens"] or None, cfg["max_run_usd"] or None)
         self.max_searches = cfg.get("max_searches", 3)
         self.web = bool(cfg.get("web_research", True))
+        self.es = bool(cfg.get("es_search", True))  # AI Research job may search Elasticsearch (AI review > Models)
         self.max_batches = args.max_batches if args.max_batches is not None else cfg["max_batches"]
         self.fetched, self.notes_out, self.errors, self.counts = set(), [], [], {}
         self.es_found = []  # Elasticsearch searches of the current research batch (esk descriptors)
@@ -384,6 +385,8 @@ class Run:
             "cite": (self.t_cite, "Register a page you fetched as a source; returns its id for [n] citations.",
                      {"url": {"type": "string"}, "title": {"type": "string"}}, ["url", "title"]),
         }
+        if not self.es:
+            T.pop("es_search")
         if kind == "enrich":
             T["submit_notes"] = (self.t_notes_factory(batch), "Store research notes, link verdicts and host notes for this batch.",
                                  {"notes": {"type": "array", "items": {"type": "object"}}, "links": {"type": "array", "items": {"type": "object"}},
@@ -532,7 +535,7 @@ class Run:
             user = (f"Snapshot {os.path.basename(self.stem)}. {len(cand)} items to review against earlier research:\n"
                     f"<work_items>\n{json.dumps(cand, ensure_ascii=False)[:60000]}\n</work_items>")
             T = self.tools("enrich", cand)
-            T = {k: T[k] for k in ("es_search", "device_lookup", "notes_kb")}
+            T = {k: T[k] for k in ("es_search", "device_lookup", "notes_kb") if k in T}
             T["submit_review"] = (submit, "Store the copy / research decision for every item (call once).",
                                   {"decisions": {"type": "array", "items": {"type": "object"}}}, ["decisions"])
             try:

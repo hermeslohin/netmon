@@ -210,6 +210,11 @@ if fresh:  # queue for the dashboard's in-app feed + browser/phone push notifica
                           for k, t in fresh])
     except Exception as e:
         print(f"(alert feed write failed: {e})", file=sys.stderr)
+    try:  # alerts a saved mute rule clears are in the feed as "cleared" only: no Discord / chat message for them
+        _mm = store.mute_list()
+        fresh = [(k, t) for k, t in fresh if not any(store.mute_match(m, t.replace("**", ""), store.alert_targets(k, t.replace("**", ""))) for m in _mm)]
+    except Exception as e:
+        print(f"(mute rules unavailable: {e})", file=sys.stderr)
 if fresh:
     print(f"🚨 **Urgent network alert** ({time.strftime('%H:%M', time.gmtime())} UTC)")
     for _, t in fresh[:15]:

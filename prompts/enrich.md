@@ -2,7 +2,7 @@
 
 Below is a batch of work items from the dashboard (alerts, findings, IDS signatures, endpoint host findings, gateway
 events...). Each has an `id`, its evidence, the existing research `note` (if any), `user_notes` (the owner's notes on
-that event - authoritative), `host_notes` for the internal hosts involved, and `related` candidate links between events
+that event - authoritative), `host_notes` for the internal hosts involved, `internet_notes` for external IPs, and `related` candidate links between events
 (proposed by a script; the local model's verdict may be included).
 
 For each item WITHOUT a note, and for items whose existing note is now contradicted by the evidence, write a research
@@ -39,6 +39,12 @@ Record durable facts about devices as host_notes so later runs and the chat do n
 device is and does, what is normal for it and why, decisions about recurring behaviour, weaknesses, things to watch.
 Never per-run numbers. Update an existing AI note (pass its id) instead of adding a near-duplicate; never edit or delete
 notes whose author starts with `user:`. host_notes_delete: ids of AI notes that are now wrong.
+
+External (public) IPs: items carry `internet_notes` ({ip: [...]}) - what is already known about those addresses; weigh them
+when deciding benign / expected. When you learn something durable about an external IP (owner / ASN, what service it is, why
+this network talks to it, or why it is a concern), record it as a host_note with `ip` set to that public address (same
+fields, one short factual note per IP; update the existing one by id rather than adding another). They are listed on the
+dashboard's Network > Internet notes page.
 
 Finish by calling submit_notes once with notes, links, host_notes and host_notes_delete (use the exact id strings from
 the batch). If it reports rejected ids, fix them and call it again.

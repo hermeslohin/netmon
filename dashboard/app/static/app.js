@@ -182,10 +182,13 @@ function table(id, cols, rows, opts = {}) {
   cols.forEach((c) => { lc[c.k] = c === tcol ? "lc-title" : !c.t || c.k === "_rel" || c.k === "_ack" ? "lc-act" : BADGE.includes(c.k) ? "lc-badge" : ""; });
   // search text per row: raw values (object keys for maps such as sources/destinations) plus the visible text of formatted cells
   const hayC = new Map(), txt = document.createElement("template");
+  const corrOk = () => S.corr && S.corr._snap === S.snap?.id;
+  // AI verdict / classification (expected, benign, suspicious…) are drawn as buttons by related.js, so add them to the searchable text
+  const aiTxt = (x) => { if (!opts.evId || !corrOk()) return ""; let id = ""; try { id = opts.evId(x) || ""; } catch (e) { /* ignore */ } return id ? ` \n${S.corr.notes?.[id]?.verdict || ""} ${S.corr.classes?.[id]?.label || ""} ${window.netmonPendingReview?.(id) ? "pending review" : ""}` : ""; };
   const hay = (x) => { let h = hayC.get(x); if (h != null) return h;
     h = cols.filter((c) => c.k !== "_rel" && c.k !== "_ack").map((c) => { const v = c.sort ? c.sort(x) : x[c.k]; let o = v != null && typeof v === "object" ? Object.keys(v).join(" ") : String(v ?? "");
       if (c.fmt) { try { txt.innerHTML = String(c.fmt(x[c.k], x) ?? ""); o += " " + txt.content.textContent; } catch (e) { /* ignore */ } } return o; }).join(" \n").toLowerCase();
-    hayC.set(x, h); return h; };
+    h += aiTxt(x).toLowerCase(); if (!opts.evId || corrOk()) hayC.set(x, h); return h; };
   const render = () => {
     let r = rows;
     if (st.q) { const qs = st.q.toLowerCase().split(/\s+/).filter(Boolean); r = r.filter((x) => { const h = hay(x); return qs.every((q) => h.includes(q)); }); }

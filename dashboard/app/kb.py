@@ -44,11 +44,151 @@ def _db():
     c.execute("CREATE INDEX IF NOT EXISTS host_notes_subject ON host_notes(subject)")
     c.execute("""CREATE TABLE IF NOT EXISTS event_notes (id INTEGER PRIMARY KEY, skey TEXT, eid TEXT, label TEXT, author TEXT, text TEXT, ts REAL)""")
     c.execute("CREATE INDEX IF NOT EXISTS event_notes_skey ON event_notes(skey)")
+    c.execute("CREATE TABLE IF NOT EXISTS note_artifacts (note_id INTEGER, art TEXT, PRIMARY KEY (note_id, art))")
+    c.execute("CREATE INDEX IF NOT EXISTS note_artifacts_art ON note_artifacts(art)")
+    if c.execute("PRAGMA user_version").fetchone()[0] < 1:  # first start with artifact indexing: index the notes written before
+        for nid, subj, text in c.execute("SELECT id, subject, text FROM host_notes").fetchall():
+            _index(c, nid, subj, text)
+        c.execute("PRAGMA user_version=1")
     have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
     for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL")):
         if col not in have:  # older kb.db: every existing note was written by an admin/defender, so it stays approved
             c.execute(f"ALTER TABLE event_notes ADD COLUMN {col} {decl}")
     return c
+
+
+# ---------------------------------------------------------------- artifact index
+# Every host note carries the artifacts it is about (IPs, internet IPs, DNS names, ports, processes/files, accounts), read from its
+# subject, its [reviewer:<kind>:<value>] tag and its text. The correlation reviewer looks an event's artifacts up in this index
+# BEFORE it chooses which notes to hand to the model (corr_llm._context_notes), so a note about a process, port or internet
+# address reaches the events that show it even when it hangs on a different host.
+_A_IP = re.compile(r"(?<![\d.])((?:\d{1,3}\.){3}\d{1,3})(?![\d.]*\d)")
+_A_PORT = re.compile(r"(?:\bports?\s+(\d{1,5})\b|(?<=[\d\]]):(\d{2,5})\b|\b(\d{1,5})/(?:tcp|udp)\b)", re.I)
+_A_DNS = re.compile(r"\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})\b", re.I)
+_A_PATH = re.compile(r"(?<![\w.])(/(?:[\w.+@-]+/)*[\w.+@-]+)")
+_A_PROC = re.compile(r"\b(?:process|binary|executable|daemon|service|command)\s+[`'\"]?([\w.+-]{2,40})\b", re.I)
+_A_TAG = re.compile(r"\[reviewer:(file|process|user|ip|dns):([^\]]{1,200})\]")
+_A_STOP_PROC = {"is", "as", "was", "that", "which", "and", "the", "for", "from", "with", "this", "runs", "ran", "named", "called", "on", "in", "to", "of", "or", "by", "at", "an", "a"}
+_A_FILE_EXT = {"py", "sh", "so", "txt", "log", "conf", "cfg", "json", "yml", "yaml", "md", "html", "js", "css", "png", "jpg", "pdf", "zip", "gz", "tar", "xml", "ini", "db", "exe", "dll", "sys", "bin", "deb", "rpm", "pem", "crt", "key", "service", "local", "lan", "home", "internal", "arpa"}
+ART_WEIGHT = {"ip": 3, "dns": 3, "proc": 3, "user": 2, "port": 1}  # a port alone never selects a note (needs >= MIN_ART_SCORE)
+MIN_ART_SCORE = 2
+
+
+def _proc_key(v):
+    v = str(v).strip().rstrip(".,;:)")
+    return "proc:" + v.rsplit("/", 1)[-1].lower() if v else ""
+
+
+def artifact_keys(text="", subject="", kinds=None):
+    """Normalised artifact keys of a note / text: ip:1.2.3.4, dns:example.com, port:443, proc:sshd (process or file base name), user:alice."""
+    out = set()
+    text = str(text or "")
+    k, _, v = str(subject or "").partition(":")
+    if k == "ip" and _IP.match(v):
+        out.add("ip:" + v)
+    elif k == "dom" and v:
+        out.add("dns:" + v.lower().strip("."))
+    elif k == "art":
+        kind, _, val = v.partition(":")
+        if kind == "ip":
+            out.add("ip:" + val)
+        elif kind == "dns":
+            out.add("dns:" + val.lower().strip("."))
+        elif kind in ("file", "process"):
+            out.add(_proc_key(val))
+        elif kind == "user" and val:
+            out.add("user:" + val.lower())
+    for kind, val in _A_TAG.findall(text):
+        out |= artifact_keys(subject=f"art:{kind}:{val}")
+    for m in _A_IP.finditer(text):
+        ip = m.group(1)
+        if all(int(x) <= 255 for x in ip.split(".")) and not ip.startswith(("0.", "127.", "255.")) and not ip.endswith(".255"):
+            out.add("ip:" + ip)
+    for m in _A_PORT.finditer(text):
+        p = next(g for g in m.groups() if g)
+        if 0 < int(p) < 65536:
+            out.add("port:" + str(int(p)))
+    for m in _A_DNS.finditer(text):
+        d = m.group(1).lower()
+        if d.rsplit(".", 1)[-1] not in _A_FILE_EXT and not _IP.match(d) and len(d) > 4:
+            out.add("dns:" + d)
+    for m in _A_PATH.finditer(text):
+        if m.group(1).count("/") >= 2:
+            out.add(_proc_key(m.group(1)))
+    for m in _A_PROC.finditer(text):
+        if m.group(1).lower() not in _A_STOP_PROC:
+            out.add("proc:" + m.group(1).lower())
+    out.discard("")
+    return {x for x in out if not kinds or x.split(":", 1)[0] in kinds}
+
+
+def event_artifact_keys(ev):
+    """The artifact keys one event shows: its IPs (internal and internet), the artifacts the script read from it (files, processes,
+    users, DNS, IPs) and the ports / addresses / names mentioned in its label."""
+    out = set()
+    for ip in [*(ev.get("ips") or []), *(ev.get("host_ips") or []), *(ev.get("dst_ips") or [])]:
+        if _IP.match(str(ip)):
+            out.add("ip:" + str(ip))
+    for a in ev.get("arts") or []:
+        if not a or len(a) < 2:
+            continue
+        kind, val = a[0], str(a[1])
+        if kind in ("file", "process"):
+            out.add(_proc_key(val))
+        elif kind == "user":
+            out.add("user:" + val.lower())
+        elif kind == "dns":
+            out.add("dns:" + val.lower().strip("."))
+        elif kind == "ip":
+            out.add("ip:" + val)
+    out |= artifact_keys(ev.get("label") or "")
+    out.discard("")
+    return out
+
+
+def _index(c, nid, subject, text):
+    c.execute("DELETE FROM note_artifacts WHERE note_id=?", (nid,))
+    c.executemany("INSERT OR IGNORE INTO note_artifacts VALUES (?,?)", [(nid, a) for a in sorted(artifact_keys(text, subject))[:60]])
+
+
+def note_artifacts(ids):
+    """{note_id: [artifact key, ...]} for host notes."""
+    ids = [int(i) for i in ids][:2000]
+    out = {}
+    if ids:
+        with _db() as c:
+            for nid, a in c.execute(f"SELECT note_id, art FROM note_artifacts WHERE note_id IN ({','.join('?' * len(ids))}) ORDER BY art", ids):
+                out.setdefault(nid, []).append(a)
+    return out
+
+
+def art_score(note_arts, ev_arts):
+    """(score, matched keys) of one note against an event's artifact keys."""
+    hit = sorted(set(note_arts) & set(ev_arts))
+    return sum(ART_WEIGHT.get(h.split(":", 1)[0], 1) for h in hit), hit
+
+
+def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12):
+    """Host notes (any subject) that carry at least one of the event's artifacts: [(score, matched, note)], best first.
+    Notes scoring under MIN_ART_SCORE (a shared port only) are left out."""
+    ev_arts = sorted(ev_arts)[:200]
+    if not ev_arts:
+        return []
+    with _db() as c:
+        ids = [r[0] for r in c.execute(f"SELECT DISTINCT note_id FROM note_artifacts WHERE art IN ({','.join('?' * len(ev_arts))})", ev_arts)]
+    ids = [i for i in ids if i not in set(exclude_ids)]
+    if not ids:
+        return []
+    na = note_artifacts(ids)
+    with _db() as c:
+        rows = [dict(zip(_COLS, r)) for r in c.execute(f"SELECT {','.join(_COLS)} FROM host_notes WHERE id IN ({','.join('?' * len(ids))})", ids)]
+    out = []
+    for n in rows:
+        sc, hit = art_score(na.get(n["id"], []), ev_arts)
+        if sc >= MIN_ART_SCORE and not str(n["text"]).startswith("[profile:"):  # generated per-host profiles list many peers: they stay with their own host
+            out.append((sc, hit, n))
+    out.sort(key=lambda t: (-t[0], -float(t[2].get("updated") or 0)))
+    return out[:limit]
 
 
 # ---------------------------------------------------------------- subjects
@@ -139,6 +279,10 @@ def host_notes(subjects=None, q=""):
         else:
             rows = c.execute(f"SELECT {','.join(_COLS)} FROM host_notes ORDER BY subject, updated DESC").fetchall()
     out = [dict(zip(_COLS, r)) for r in rows]
+    if out:
+        na = note_artifacts([n["id"] for n in out])
+        for n in out:
+            n["artifacts"] = na.get(n["id"], [])
     if q:
         ql = q.lower()
         out = [n for n in out if ql in (n["subject"] + " " + (n["label"] or "") + " " + n["text"]).lower()]
@@ -161,18 +305,59 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
                 raise ValueError(f"note {note_id} not found")
             c.execute("UPDATE host_notes SET subject=?, label=?, category=?, text=?, author=?, model=?, via=?, updated=? WHERE id=?",
                       (subj, label, cat, text, author, model, via, now, int(note_id)))
+            _index(c, int(note_id), subj, text)
             return int(note_id)
         n = c.execute("SELECT count(*) FROM host_notes WHERE subject=?", (subj,)).fetchone()[0]
         if n >= MAX_PER_SUBJECT:
             raise ValueError(f"{subj} already has {n} notes - update or delete old ones instead of adding")
         cur = c.execute("INSERT INTO host_notes (subject, label, category, text, author, model, via, ts, updated) VALUES (?,?,?,?,?,?,?,?,?)",
                         (subj, label, cat, text, author, model, via, now, now))
+        _index(c, cur.lastrowid, subj, text)
         return cur.lastrowid
 
 
 def delete_host_note(note_id):
     with _db() as c:
+        c.execute("DELETE FROM note_artifacts WHERE note_id=?", (int(note_id),))
         return c.execute("DELETE FROM host_notes WHERE id=?", (int(note_id),)).rowcount
+
+
+def is_external(ip):
+    """A public address: not private / loopback / link-local / CGNAT and not in the site's internal prefixes."""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(str(ip).strip())
+    except ValueError:
+        return False
+    if a.version != 4 or a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved or a in ipaddress.ip_network("100.64.0.0/10"):
+        return False
+    try:
+        import site_cfg
+        return not site_cfg.is_internal(str(ip))
+    except Exception:  # noqa: BLE001 - without the site config the standard private ranges are enough
+        return True
+
+
+def external_ips(ev):
+    """External IPs an event involves (its destinations, artifacts and non-internal hosts), max 8."""
+    out = []
+    for ip in [*(ev.get("dst_ips") or []), *(ev.get("ips") or []), *(a[1] for a in ev.get("arts") or [] if a and a[0] == "ip")]:
+        ip = str(ip).strip()
+        if ip not in out and is_external(ip):
+            out.append(ip)
+    return out[:8]
+
+
+def internet_notes(q=""):
+    """Notes about external IPs (subject ip:<public ip> or art:ip:<public ip>), grouped per IP: [{ip, notes: [...], n, updated}]."""
+    by = {}
+    for n in host_notes(q=q):
+        s = str(n["subject"])
+        ip = s[3:] if s.startswith("ip:") else s[7:] if s.startswith("art:ip:") else None
+        if ip and is_external(ip):
+            by.setdefault(ip, []).append(n)
+    out = [{"ip": ip, "n": len(ns), "updated": max(float(x.get("updated") or 0) for x in ns), "notes": ns} for ip, ns in by.items()]
+    return sorted(out, key=lambda r: -r["updated"])
 
 
 def put(doc):
@@ -243,6 +428,7 @@ def event_notes(eids, ai=False, author=None):
             ch = ks[i:i + 500]
             for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE skey IN ({','.join('?' * len(ch))}){extra} ORDER BY ts", ch + xargs):
                 n = dict(zip(_ECOLS, r))
+                n["artifacts"] = sorted(artifact_keys(n["text"]))
                 for eid in keys[n["skey"]]:
                     out.setdefault(eid, []).append({**n, "same_event": n["eid"] == eid})
     return out
@@ -256,6 +442,8 @@ def all_event_notes(limit=500, ai=False):
             seen = {n["id"] for n in rows}
             rows += [dict(zip(_ECOLS, r)) for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE status='pending' ORDER BY ts DESC")
                      if r[0] not in seen]
+        for n in rows:
+            n["artifacts"] = sorted(artifact_keys(n["text"]))
         return rows
 
 

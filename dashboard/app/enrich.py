@@ -340,6 +340,15 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
                     hn[ip] = hn_cache[ip]
             if hn:
                 x["host_notes"] = hn
+            inn = {}  # notes on the external IPs the event involves (Network > Internet notes)
+            for ip in kb.external_ips(E.get(x["id"]) or {}):
+                if ip not in hn_cache:
+                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "text": n["text"]}
+                                    for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"])]
+                if hn_cache[ip]:
+                    inn[ip] = hn_cache[ip]
+            if inn:
+                x["internet_notes"] = inn
         hn_count = sum(1 for v in hn_cache.values() if v)
     except Exception as e:  # noqa: BLE001 - the work list must not depend on the notes store
         print(f"kb notes unavailable: {e}", file=sys.stderr)

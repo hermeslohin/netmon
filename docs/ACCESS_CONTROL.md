@@ -17,8 +17,8 @@ what a role can't use. Hiding a button is never the protection.
 | Push notifications on own browsers/phones | ✓ | ✓ | ✓ (assigned devices only) |
 | Urgent alerts (Alerts page, 🔔) | all | all | assigned devices only |
 | Security events for a device (correlated findings, IDS, gateway, endpoint, vulns) | all pages | all pages | **My devices** page, assigned devices only |
-| Every other page: Overview, Security, Network, Devices, Notes, AI review, Checked | ✓ | ✓ | ✗ |
-| Configuration and Users pages | view + change | view only | ✗ |
+| Every other page: Overview, Security, Network (including Network → Users, the accounts seen in the logs), Devices, Notes, AI review, Checked | ✓ | ✓ | ✗ |
+| Configuration and Dashboard users pages | view + change | view only | ✗ |
 | Check off events, write 📝 event notes and host notes, confirm/reject AI correlation verdicts | ✓ | ✓ | ✗ |
 | 📝 notes on events of own devices (pending until approved; sees only own notes) | ✓ | ✓ | ✓ (assigned devices only) |
 | Send an event to research (📝 popover; Users: own devices' events only) | ✓ | ✓ | ✓ |
@@ -26,12 +26,13 @@ what a role can't use. Hiding a button is never the protection.
 | Ask AI (chat) | ✓ (and can pick the model per message) | ✓ (the configured chat model) | ✗ |
 | Choose own alert devices (Alerts → Notification settings) | ✓ | ✓ | ✗ (an admin assigns them) |
 | Mark alerts read | shared 🔔 for everyone | shared 🔔 for everyone | private marker, doesn't change anyone else's 🔔 |
-| AI review > Review limits: skip event-type pairs, exclude noisy events, "Never send" rules by name / host / ID, cap links per event | ✓ | ✓ | ✗ |
+| AI review > Review limits: skip event-type pairs, set the reviewer's time window, switch event classification, exclude noisy events, "Never send" rules by name / host / ID, cap links per event | ✓ | ✓ | ✗ |
+| Mute an alert from the Alerts page (**mute name…** / **mute name + host…**, a "Never send" rule that also clears matching alerts) | ✓ | ✓ | ✗ |
 | Add / delete users, reset passwords, change roles, assign devices | ✓ | ✗ | ✗ |
 | Integrations (Elasticsearch, UniFi, web search): view and change | ✓ | ✗ | ✗ |
 | Audit log (More → Audit log): read, set its Elasticsearch key | ✓ | ✗ | ✗ |
 | Auto-close settings, research-job schedule and limits, "Run now" / Pause, reopen auto-closed | ✓ | ✗ | ✗ |
-| AI providers and API keys, AI models (correlation reviewer, review job, chat), model comparisons, "Use this" | ✓ | ✗ | ✗ |
+| AI providers and API keys, AI models (correlation reviewer, research job, chat), Elasticsearch-search switches, notes per event, model comparisons, "Use this" | ✓ | ✗ | ✗ |
 
 **"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
 roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items
@@ -40,7 +41,7 @@ off, writing notes, confirming or rejecting an AI link, limiting which links the
 ## The User role in detail
 
 - A User sees **only** the devices an admin assigned to them. A new User sees nothing until an admin assigns at least one
-  device (the Users page marks such accounts with **no devices**). "All devices" can't be assigned to a User.
+  device (the Dashboard users page marks such accounts with **no devices**). "All devices" can't be assigned to a User.
 - The dashboard shows a User two pages: **My devices** (their devices and the security events from the latest snapshot
   that involve one of the devices' IP addresses) and **Alerts** (urgent alerts whose targets include one of their
   devices: IP, MAC or endpoint host name). Their account page and push notifications also work.
@@ -62,7 +63,7 @@ off, writing notes, confirming or rejecting an AI link, limiting which links the
 
 ## Managing access (admins)
 
-**More → Users**:
+**More → Dashboard users**:
 
 - **Role** column: pick Admin, Network defender or User. The change takes effect on the user's next request. Nobody has
   to sign out.
@@ -109,4 +110,4 @@ and every conversation between the dashboard and an AI model (prompt, answer, mo
 Before roles existed, every account could see and check off everything, and `NETMON_ADMINS` in `dashboard/.env` named
 the accounts allowed to change AI models. On the first start with roles, **every existing account was made an Admin**
 (log line `access control: existing accounts made admins: …`), so nobody lost access. Lower accounts to Network defender or
-User on the Users page as needed. `NETMON_ADMINS` is no longer read and can be removed from `.env`.
+User on the Dashboard users page as needed. `NETMON_ADMINS` is no longer read and can be removed from `.env`.

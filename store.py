@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, key TEXT NOT NULL, text TEXT NOT NULL,
   severity TEXT DEFAULT 'urgent', source TEXT DEFAULT 'watcher', pushed INTEGER DEFAULT 0, read INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS alerts_pushed ON alerts(pushed);
+CREATE TABLE IF NOT EXISTS alert_mutes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', by TEXT, at REAL NOT NULL,
+  limit_key TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS sec_findings (
   key TEXT PRIMARY KEY, tool TEXT, severity TEXT, title TEXT, location TEXT, fix TEXT, detail TEXT,
   first_seen TEXT, last_seen TEXT, status TEXT NOT NULL DEFAULT 'open', fixed_at TEXT, notified INTEGER DEFAULT 0);
@@ -83,6 +86,10 @@ def connect(path=None):
     c.executescript(SCHEMA)
     if "targets" not in {r[1] for r in c.execute("PRAGMA table_info(alerts)")}:  # schema v2: devices an alert is about
         c.execute("ALTER TABLE alerts ADD COLUMN targets TEXT NOT NULL DEFAULT '[]'")
+    have = {r[1] for r in c.execute("PRAGMA table_info(alerts)")}
+    for col, decl in (("cleared", "INTEGER NOT NULL DEFAULT 0"), ("cleared_rule", "INTEGER"), ("cleared_at", "REAL")):  # alerts a mute rule cleared (kept, hidden from the feed)
+        if col not in have:
+            c.execute(f"ALTER TABLE alerts ADD COLUMN {col} {decl}")
     c.execute("INSERT OR IGNORE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
     return c
 
@@ -151,14 +158,92 @@ def mutes(c=None):
 # ------------------------------------------------------------------ urgent alerts feed + web-push subscriptions
 def alerts_add(items, source="watcher", c=None):
     """items: [(key, text, severity[, targets])]. targets = device identifiers the alert is about (IPs, MACs,
-    host names); derived from key+text when omitted. Queued for web push by the dashboard (pushed=0)."""
+    host names); derived from key+text when omitted. Queued for web push by the dashboard (pushed=0).
+    An alert that matches a saved mute rule (alert_mutes) is stored already cleared: not pushed, not read-counted, hidden
+    from the feed and the correlation, but kept so "show cleared" can list it."""
     c = c or connect()
     now = time.time()
-    rows = [(now, it[0], it[1], it[2] if len(it) > 2 else "urgent", source,
-             json.dumps(sorted(it[3] if len(it) > 3 and it[3] else alert_targets(it[0], it[1])))) for it in items]
+    mutes_ = mute_list(c)
+    rows = []
+    for it in items:
+        tg = sorted(it[3] if len(it) > 3 and it[3] else alert_targets(it[0], it[1]))
+        hit = next((m for m in mutes_ if mute_match(m, it[1], tg)), None)
+        rows.append((now, it[0], it[1], it[2] if len(it) > 2 else "urgent", source, json.dumps(tg),
+                     1 if hit else 0, hit["id"] if hit else None, now if hit else None, 1 if hit else 0, 1 if hit else 0))
     with tx(c):
-        c.executemany("INSERT INTO alerts(ts,key,text,severity,source,targets) VALUES (?,?,?,?,?,?)", rows)
+        c.executemany("INSERT INTO alerts(ts,key,text,severity,source,targets,cleared,cleared_rule,cleared_at,pushed,read) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
         c.execute("DELETE FROM alerts WHERE ts < ?", (now - 30 * 86400,))  # keep 30 days
+
+
+# ------------------------------------------------------------------ alert mute rules (kept; applied to every future alert)
+def _mglob(pat, text, sub):
+    pat, text = str(pat).lower(), str(text).lower()
+    if "*" in pat or "?" in pat:
+        import fnmatch
+        return fnmatch.fnmatchcase(text, pat)
+    return pat in text if sub else pat == text
+
+
+def mute_match(m, text, targets=()):
+    """Same semantics as corr_llm.rule_match for an alert: name = glob / contains over the text, host = one of the alert's
+    targets or the host in its text."""
+    if m.get("name") and not _mglob(m["name"], text or "", True):
+        return False
+    h = m.get("host")
+    return not h or any(_mglob(h, t, False) for t in targets or []) or _mglob(h, text or "", True)
+
+
+def mute_list(c=None):
+    c = c or connect()
+    return [dict(r) for r in c.execute("SELECT * FROM alert_mutes ORDER BY id")]
+
+
+def mute_add(name, host, by, limit_key="", c=None):
+    """Save a mute rule and clear every existing alert it matches -> (rule id, number cleared)."""
+    c = c or connect()
+    name, host = str(name or "").strip()[:200], str(host or "").strip()[:200]
+    if not name.replace("*", "").replace("?", "").strip():
+        raise ValueError("a mute rule needs some text that is not just wildcards")
+    now = time.time()
+    with tx(c):
+        r = c.execute("SELECT id FROM alert_mutes WHERE lower(name)=lower(?) AND lower(host)=lower(?)", (name, host)).fetchone()
+        if r:
+            mid = r[0]
+        else:
+            if c.execute("SELECT count(*) FROM alert_mutes").fetchone()[0] >= 200:
+                raise ValueError("too many mute rules (200)")
+            mid = c.execute("INSERT INTO alert_mutes(name,host,by,at,limit_key) VALUES (?,?,?,?,?)", (name, host, str(by)[:60], now, limit_key)).lastrowid
+    return mid, mute_apply(mid, c)
+
+
+def mute_apply(mid, c=None):
+    """Clear the not-yet-cleared alerts a saved rule matches."""
+    c = c or connect()
+    m = next((x for x in mute_list(c) if x["id"] == mid), None)
+    if not m:
+        return 0
+    now = time.time()
+    ids = [a["id"] for a in (_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=0")) if mute_match(m, a["text"], a["targets"])]
+    with tx(c):
+        c.executemany("UPDATE alerts SET cleared=1, cleared_rule=?, cleared_at=?, read=1, pushed=1 WHERE id=?", [(mid, now, i) for i in ids])
+    return len(ids)
+
+
+def mute_remove(mid, c=None):
+    """Delete a rule; the alerts it cleared come back into the feed (as read, never pushed) -> (limit_key, restored)."""
+    c = c or connect()
+    r = c.execute("SELECT limit_key FROM alert_mutes WHERE id=?", (int(mid),)).fetchone()
+    if not r:
+        return None, 0
+    with tx(c):
+        n = c.execute("UPDATE alerts SET cleared=0, cleared_rule=NULL, cleared_at=NULL WHERE cleared_rule=?", (int(mid),)).rowcount
+        c.execute("DELETE FROM alert_mutes WHERE id=?", (int(mid),))
+    return r[0], n
+
+
+def mute_counts(c=None):
+    c = c or connect()
+    return {r[0]: r[1] for r in c.execute("SELECT cleared_rule, count(*) FROM alerts WHERE cleared=1 GROUP BY cleared_rule")}
 
 
 def _arow(r):
@@ -167,9 +252,10 @@ def _arow(r):
     return d
 
 
-def alerts_recent(limit=100, c=None):
+def alerts_recent(limit=100, c=None, cleared=False):
+    """The alert feed (newest first). Alerts a mute rule cleared are left out unless cleared=True (then only those)."""
     c = c or connect()
-    return [_arow(r) for r in c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,))]
+    return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=? ORDER BY id DESC LIMIT ?", (1 if cleared else 0, limit))]
 
 
 def alerts_delete(ids, c=None):
