@@ -1579,6 +1579,9 @@ def overview(events, applied):
             n_, pi, po = c.execute("SELECT COUNT(*), COALESCE(AVG(prompt),0), COALESCE(AVG(completion),0) FROM review_events WHERE ts > ? AND prompt + completion > 0", (since,)).fetchone()
             nn, = c.execute("SELECT AVG(notes) FROM review_events WHERE ts > ? AND prompt + completion > 0 AND notes IS NOT NULL", (since,)).fetchone()
             ev_stats[lab] = {"n": n_, "in": round(pi), "out": round(po), "notes": None if nn is None else round(nn, 1)}
+    with _db() as c:  # events sent through the review phase per local day (one row per event review), newest first
+        daily = [{"day": d, "events": n, "links": int(l or 0)} for d, n, l in c.execute(
+            "SELECT date(ts,'unixepoch','localtime') d, COUNT(*), SUM(cands) FROM review_events GROUP BY d ORDER BY d DESC LIMIT 30").fetchall()]
     tps = round(tc / ts_, 1) if ts_ > 0 and tc > 0 else None  # average output tokens per second of model time, last hour
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)
@@ -1602,7 +1605,7 @@ def overview(events, applied):
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
             "totals": {"verdicts": len(out), "related": sum(r["related"] for r in out), "rejected": sum(not r["related"] for r in out),
-                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats,
+                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats, "events_per_day": daily,
                        "avg_conf": round(sum(r["confidence"] or 0 for r in out) / len(out), 2) if out else None},
             "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out[:3000]}
 

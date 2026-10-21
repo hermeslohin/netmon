@@ -715,6 +715,23 @@
   }
 
   // ---- review job cost caps (research_cfg.py): $ per run / per day, tokens per run, research batches per run
+  // events sent through the review phase per day (review_events: one row per event review, kept 30 days)
+  function reviewVolumeCard(D) {
+    const days = ((D.totals || {}).events_per_day || []), today = new Date().toLocaleDateString("sv");
+    const full = days.filter((d) => d.day !== today);  // today is partial: left out of the averages
+    const avg = (rows, k) => (rows.length ? rows.reduce((a, r) => a + r[k], 0) / rows.length : null);
+    const f1 = (v) => (v == null ? "—" : fn(Math.round(v * 10) / 10));
+    const w7 = full.slice(0, 7);
+    const c = card("Events per day through review", `<div class="small muted">Events sent to the reviewer model, per day (a day is counted once it has ended; today is shown but not averaged). Kept for 30 days.</div>`);
+    const sums = [["Average / day (last 7 full days)", w7], ["Average / day (all " + full.length + " full days)", full]];
+    c.insertAdjacentHTML("beforeend", kpis(sums.map(([t, r]) => [t, f1(avg(r, "events"))])));
+    c.appendChild(days.length ? table(null, [
+      { k: "day", t: "Day", fmt: (v) => esc(v) + (v === today ? ' <span class="muted small">(so far)</span>' : "") },
+      { k: "events", t: "Events reviewed", num: true, fmt: (v) => fn(v) },
+      { k: "links", t: "Candidate links", num: true, fmt: (v) => fn(v) },
+    ], days, { sort: "day", limit: 30 }) : Object.assign(document.createElement("div"), { className: "small muted", textContent: "No event reviews recorded yet." }));
+    return c;
+  }
   function costCard(D) {
     const R = D.research || {}, L = R.limits || {}, T = "Research job limits";
     if (R.error) { const e = card(T, `<div class="bad">Limits unavailable: ${esc(R.error)}</div>`); e.id = "ai-cost"; return e; }
@@ -953,6 +970,7 @@
           Q.items, { sort: "score", limit: 50 }));
       } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
+    el.appendChild(reviewVolumeCard(D));
     el.appendChild(modelsCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
