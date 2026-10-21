@@ -17,7 +17,7 @@
 
   const aiColors = (cfg) => { const C = { Confirmed: "#3fb950", Rejected: "#f85149", "Set by a person": "#58a6ff" };
     cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => C[l] || "#8b949e"); return cfg; };
-  // research job (review.py) triage + enrichment: settings + run state from research_cfg / research_job.json, run log + coverage from enrich.py
+  // research job (review.py) triage + reviewer: settings + run state from research_cfg / research_job.json, run log + coverage from enrich.py
   const until = (ts) => { if (!ts) return "—"; const s = ts - Date.now() / 1000; return s < 0 ? "due now" : s < 5400 ? `in ${Math.round(s / 60)} min` : `in ${(s / 3600).toFixed(1)} h`; };
   const dur = (s) => (s == null ? "" : s < 90 ? `${s} s` : `${Math.round(s / 60)} min`);
   const clock = (ts) => (ts ? new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
@@ -25,7 +25,7 @@
   const every = (_, mins) => { const n = mins;
     return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
   function researchCard(C, D) {  // returns [status box, time/token box (only when usage exists)]
-    if (C.error) return [card("AI event research", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
+    if (C.error) return [card("AI triage & reviewer", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
@@ -35,7 +35,7 @@
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
     const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "research job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
-    const c = card(`AI event research (${every(null, J && J.interval_minutes)})`, `
+    const c = card(`AI triage & reviewer (${every(null, J && J.interval_minutes)})`, `
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
         ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no model chosen - pick one in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)}</span>` : ""}</span>
@@ -52,7 +52,6 @@
       ${sum}
       <div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">
         <div class="cl-runs"><div class="small"><b>Recent runs</b></div></div>
-        <div class="cl-enr"><div class="small"><b>Enrichment passes</b></div></div>
       </div>`);
     c.id = "ai-research";
     if (D.admin && J) {
@@ -121,17 +120,9 @@
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
       { k: "started", t: "Started", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },
       { k: "status", t: "Result", fmt: (v, r) => `<span class="badge ${v === "completed" ? "sev-good" : v === "running" || v === "claimed" ? "sev-medium" : "sev-high"}">${esc(v === "claimed" ? "starting" : v)}</span>${r.error ? ` <span class="small bad">${esc(r.error)}</span>` : ""}` },
-      { k: "pdf_run", t: "Type", fmt: (v, r) => `${v ? "Daily run (24 h)" : "Enrichment"}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
+      { k: "pdf_run", t: "Type", fmt: (v, r) => `${v ? "Daily run (24 h)" : "Triage + reviewer"}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
       { k: "duration_s", t: "Took", num: true, fmt: (v, r) => esc(r.status === "running" ? `${dur(Math.round(now - r.started))} so far` : dur(v)) },
     ], runs, { sort: "started", limit: 12 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No runs recorded yet." }));
-    c.querySelector(".cl-enr").appendChild(R.length ? table(null, [
-      { k: "started", t: "When", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },
-      { k: "snapshot", t: "Snapshot", fmt: (v) => `<span class="mono small">${esc(v || "")}</span>` },
-      { k: "todo", t: "Needed notes", num: true, fmt: (v, r) => (v == null ? "" : `${fn(v)} of ${fn(r.note_keys)}`) },
-      { k: "notes", t: "Notes written", num: true, fmt: (v, r) => (r.stored ? fn(v) : `<span class="muted">${r.started && now - r.started > 7200 ? "not stored" : "researching…"}</span>`) },
-      { k: "links", t: "Links reviewed", num: true, fmt: (v, r) => (r.stored ? fn(v) : "") },
-      { k: "rejected", t: "Rejected ids", num: true, fmt: (v) => (v ? `<span class="bad">${fn(v)}</span>` : v === 0 ? "0" : "") },
-    ], R, { sort: "started", limit: 10 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No enrichment passes logged yet (the log starts with the next run)." }));
     return uc ? [c, uc] : [c];
   }
 
@@ -330,7 +321,7 @@
         <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the reviewer model.</span>
         <div class="small rl-clsinfo" style="margin-top:3px"></div></div>
       <div class="rl-win" style="margin:10px 0 4px"><b>Time window for the reviewer</b>
-        ignore events older than <input type="number" class="rl-wmax" min="0" step="any" style="width:6em"> hours
+        ignore events older than <input type="number" class="rl-wmax" min="0" step="any" style="width:6em"> minutes
         and newer than <input type="number" class="rl-wmin" min="0" step="any" style="width:6em"> minutes
         <button type="button" class="rl-wsave">Save</button>
         <span class="small muted">0 = no limit. A link is never considered (no model call, no classification) when either of its events falls outside the window; events without a time, such as open vulnerabilities, always count. Links that already have a verdict are kept.</span>
@@ -370,9 +361,9 @@
       } catch (e) { msg.textContent = "error: " + e.message; }
     };
     const wmax = c.querySelector(".rl-wmax"), wmin = c.querySelector(".rl-wmin"), wsv = c.querySelector(".rl-wsave"), wo = Lm.window_out || {};
-    wmax.value = Lm.window_max_h || 0; wmin.value = Lm.window_min_min || 0; wmax.disabled = wmin.disabled = wsv.disabled = !D.can_limit;
-    c.querySelector(".rl-winfo").textContent = Lm.window_max_h || Lm.window_min_min ? `Now outside the window: ${fn(wo.events || 0)} events, ${fn(wo.links || 0)} candidate links.` : "No window set: events of any age are reviewed.";
-    wsv.onclick = () => post({ window: { max_hours: +wmax.value || 0, min_minutes: +wmin.value || 0 } });
+    wmax.value = Lm.window_max_min || 0; wmin.value = Lm.window_min_min || 0; wmax.disabled = wmin.disabled = wsv.disabled = !D.can_limit;
+    c.querySelector(".rl-winfo").textContent = Lm.window_max_min || Lm.window_min_min ? `Now outside the window: ${fn(wo.events || 0)} events, ${fn(wo.links || 0)} candidate links.` : "No window set: events of any age are reviewed.";
+    wsv.onclick = () => post({ window: { max_minutes: +wmax.value || 0, min_minutes: +wmin.value || 0 } });
     const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });
@@ -557,8 +548,8 @@
         <div class="llm-row" style="align-items:flex-start"><span class="k">Events to research</span>
           <span class="rj-modes" style="display:grid;grid-template-columns:auto auto;gap:4px 14px">${(R.mode_cats || []).map((m) => `<span class="small">${esc(m.label)}</span>
             <select name="mode_${esc(m.key)}" data-cat="${esc(m.key)}">${(R.mode_options || ["research", "review", "skip"]).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>`).join("")}</span>
-          <span class="small muted" style="flex:1 1 380px"><b>research</b>: sent to the model (a repeat that already has a note is only rewritten if the new run contradicts it).
-            <b>review</b>: never sent to the model; matched against earlier research (the event's own note and the notes of correlated events) and left alone if it was researched before.
+          <span class="small muted" style="flex:1 1 380px"><b>research</b>: waits in the queue until someone clicks <b>Send to research</b> on the event; scheduled runs never send it to the model.
+            <b>review</b>: the reviewer matches it against earlier research (the event's own note and the notes of correlated events) and copies a prior note when it fits; otherwise it joins the queue.
             <b>skip</b>: ignored. <b>test</b>: queued and tagged <i>testing</i> in the lists above, but never sent to the model; use it to see what a setting would send (filters still apply). New deployments start in test. Changes apply from the next run.</span></div>
       </div>
       <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;

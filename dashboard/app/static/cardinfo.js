@@ -35,10 +35,10 @@ window.CARD_INFO = {
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
-"aireview|AI triage & enrichment": {
+"aireview|AI triage & reviewer": {
 "source": "The research job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing job means notes and verdicts are out of date. Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
-"what": "Status of the scheduled AI job that triages each snapshot and writes research notes with verdicts for events: health, model, schedule, last run, note counts by verdict, coverage, recent runs and enrichment passes."
+"what": "Status of the scheduled AI job that triages each snapshot and writes research notes with verdicts for events: health, model, schedule, last run, note counts by verdict, coverage, and recent runs. Events are researched only on request (Send to research), not on the schedule."
 },
 "aireview|Time and tokens per research run": {
 "source": "Token counts reported by the AI provider for every call of each run, recorded by review.py; cost estimated from the prices entered for the model under AI providers.",

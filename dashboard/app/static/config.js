@@ -31,11 +31,11 @@
           <span class="muted small">next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
           <span id="rv-msg" class="small"></span></div>
         <div class="muted small">30 min to 24 h. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h and writes the news briefing.
-          Each run is a full AI research pass, so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
-    const c = card("Security Triage", `<div class="sub" style="margin:0 0 6px">The research job (AI event research${iv ? `, every ${ivTxt(iv)}` : ""}) writes a note with a verdict for each event
+          Each run is an AI triage + reviewer pass (events are not researched on the schedule), so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
+    const c = card("Security Triage", `<div class="sub" style="margin:0 0 6px">AI event research (run when someone clicks <b>Send to research</b>${iv ? `; the scheduled job runs every ${ivTxt(iv)}` : ""}) writes a note with a verdict for an event
       (malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event). These options check off the events whose verdict is
       “expected” or “benign”, moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span>.
-      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after each review job finishes</b> (when the new verdicts are in), and when you press “Run now”.
+      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after a research note is stored</b> (a Send to research click), and when you press “Run now”.
       Items you have already checked off are untouched; if you uncheck an auto-closed item it stays open; if a later review changes the verdict to something
       else (e.g. suspicious) the item reopens on that run. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
       ${sched}

@@ -189,7 +189,7 @@ def job():
     cfg, st = RC.get(), RC.status()
     runs = st.get("runs") or []
     last = next((r for r in runs if r.get("status") != "running"), {})
-    return {"id": "research", "name": "Research job: triage + event research (PDF on the first run after 05 UTC)",
+    return {"id": "research", "name": "Research job: triage + reviewer (PDF on the first run after 05 UTC)",
             "model": cfg.get("model"), "provider": cfg.get("provider"), "enabled": cfg.get("enabled"),
             "interval_minutes": cfg.get("interval_minutes"), "next_run": RC.next_run(),
             "severities": cfg.get("severities"), "severity_options": cfg.get("severity_options"),
@@ -548,10 +548,6 @@ def main(argv):
         iq = int(argv[argv.index("--ids") + 1]) if "--ids" in argv else 40
         gq = int(argv[argv.index("--gw") + 1]) if "--gw" in argv else 30
         res = _events(sid, "--all" in argv, lim, hq, iq, gq, argv[argv.index("--only") + 1] if "--only" in argv else None)
-        if not res.get("error"):
-            with _db() as c:
-                c.execute("INSERT INTO runs (snapshot, started, listed, todo, note_keys) VALUES (?,?,?,?,?)",
-                          (res["snapshot"], time.time(), res["listed"], res["without_note"], res["note_keys"]))
         _audit("research-input", "", f"research job: work list handed to the LLM ({res.get('listed')} events, snapshot {res.get('snapshot')})",
                prompt=json.dumps(res, default=str), error=res.get("error"))
         print(json.dumps(res, indent=1, default=str))

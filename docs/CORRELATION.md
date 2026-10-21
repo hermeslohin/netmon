@@ -190,7 +190,7 @@ the model), **↻** deletes the verdict so the model reviews that link again.
 ## 5. The research step (`review.py`) — what it does and where it looks
 
 `review.py` is the scheduled (or on-demand) **research job**: it turns a raw snapshot into the triage summary,
-alarms, per-event research notes and (once a day) the news briefing + PDF. It runs as a tool-using model with a
+alarms, reviewer copies of earlier research notes and (once a day) the news briefing + PDF. It runs as a tool-using model with a
 small set of **read-only lookup tools** plus a few **validated submit tools** it must call to write anything.
 
 ```mermaid
@@ -258,11 +258,12 @@ flowchart LR
   event with `submit_review`: **copy** (naming which prior note and why) or **research**. A copy is stored by
   `enrich.sh copy` / `enrich.py copy_notes`: the earlier verdict, priority, summary, links and research are reused, with a
   first line `[Copied by the reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
-  re-researched.]`, and the note's source shows "reviewer (copied note)". Everything else goes to the research phase in
-  the same run. The reviewer is told to prefer research when unsure, when a malicious/suspicious prior doesn't clearly
-  match, or when the prior is old; events with no prior at all go to research. If the reviewer fails, its events go to
-  research too, so nothing is dropped. The run summary shows how many notes were copied and how many were sent back.
-- **Event research phase** (`enrich`) works through the same correlation candidates as section 2, in batches of 8,
+  re-researched.]`, and the note's source shows "reviewer (copied note)". Everything else stays in the research queue
+  until someone clicks **Send to research** on it. The reviewer is told to prefer research when unsure, when a malicious/suspicious prior doesn't clearly
+  match, or when the prior is old; events with no prior at all stay queued. If the reviewer fails, its events stay queued too, so nothing is dropped. The run summary shows how many notes were copied and how many were sent back.
+- **Event research** (`enrich`) is **not part of scheduled runs**: it only runs when a person clicks **Send to research**
+  on an event (`review.py --event ID`), to keep token cost down; the scheduled run stops after the reviewer phase.
+  It works through the event and its correlation candidates from section 2, in batches of 8,
   with the broadest toolset: it can query Elasticsearch, look up a device's full history, read the notes KB, and
   search/fetch the open web — but it may only *cite* a page after fetching it, and may only link pages it actually
   read. Results go through `submit_notes`, which shells out to `enrich.sh put` to store notes, link verdicts and
@@ -275,9 +276,9 @@ flowchart LR
 
 ## 6. The review phase (reviewer) — copy an earlier note or send back to research
 
-The reviewer sits between triage and event research inside `review.py` (`Review.review_items`). Its job is to avoid
+The reviewer is the last step of a scheduled run inside `review.py` (`Review.review_items`). Its job is to avoid
 paying for research twice: when an event is the same activity as one already researched, the earlier note is reused;
-everything else goes to the normal event research phase **in the same run**. Only events whose category is **review**
+everything else stays in the queue until a person sends it to research. Only events whose category is **review**
 (AI review → Events to research) and that have **no note of their own** enter this phase. Events set to *research*
 skip it; events set to *test* are only listed on the dashboard.
 
@@ -344,7 +345,7 @@ flowchart LR
 7. **Store copies.** Copy decisions go to `enrich.sh copy` (`copy_notes`), which reuses the earlier verdict,
    priority, summary, links and research, prefixed with `[Copied by the reviewer (<model>) from the note on <id>
    (<date>), researched by <model>: <reason>. Not re-researched.]`. The note's source reads "reviewer (copied note)".
-8. **Hand back the rest.** Every item not copied joins the event research phase in the same run.
+8. **Leave the rest queued.** Every item not copied waits in the research queue; only a click on **Send to research** researches it.
 
 **Failure behaviour.** Nothing is dropped. If a reviewer batch errors, its items go to research and the error is
 listed in the run's errors. If the copy step fails, no copies are stored and all items go to research. A budget

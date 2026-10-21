@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""netmon research job: collect -> analyze -> AI event research -> (daily) briefing.
+"""netmon research job: collect -> analyze -> AI triage + reviewer -> (daily) briefing; events are researched only on request (--event).
 
 Started by scheduler.py on the grid set on the dashboard (research_cfg.py), or by hand:
     review.py [--pdf | --no-pdf] [--trigger manual|schedule] [--skip-collect] [--max-batches N]
@@ -445,7 +445,8 @@ class Run:
 
     def enrich(self):
         out = self.stem + ".work.json"
-        rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out] + (["--only", self.args.event] if getattr(self.args, "event", None) else []), timeout=600)
+        one = getattr(self.args, "event", None)  # only a person's "Send to research" click researches events; scheduled runs never do
+        rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out] + (["--only", one] if one else []), timeout=600)
         if rc:
             raise RuntimeError(f"enrich.sh events failed: {(err or o)[-300:]}")
         d = jload(out, {})
@@ -458,6 +459,9 @@ class Run:
         if review:
             self.status.phase("reviewer")
             items += self.review_items([x for x in review if not x.get("note")])
+        if not one:  # scheduled run: the reviewer's copies are stored; whatever it sent back waits in the queue for a click on Send to research
+            self.counts["work_items"], self.counts["without_note"] = len(items), sum(1 for x in items if not x.get("note"))
+            return
         todo = [x for x in items if not x.get("note")] + [x for x in items if x.get("note") and str(x.get("id", "")).split("|")[0] in ("ids", "gw", "hf")]
         self.counts["work_items"], self.counts["without_note"] = len(items), sum(1 for x in items if not x.get("note"))
         sysmsg = prompt("analyst") + "\n\n" + prompt("enrich")
@@ -546,7 +550,7 @@ class Run:
     def go(self, status):
         self.status, self.started = status, time.time()
         fatal = None
-        steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
+        steps = [("collect + analyze", self.collect, True), ("reviewer", self.enrich, False)]
         if getattr(self.args, "event", None):  # one event on request: no new snapshot
             steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
         elif self.pdf:
@@ -570,7 +574,7 @@ class Run:
 
     def summary(self):
         c, u = self.counts, self.budget.summary()
-        parts = [f"{'PDF run' if self.pdf else 'Enrichment run'} on {os.path.basename(self.stem or '?')} with {self.target['model']}."]
+        parts = [f"{'PDF run' if self.pdf else 'Triage run'} on {os.path.basename(self.stem or '?')} with {self.target['model']}."]
         parts.append(f"Research notes stored: {c.get('notes', 0)}, "
                      f"link verdicts: {c.get('links', 0)}, host notes added/updated: {c.get('host_notes_added', 0)}/{c.get('host_notes_updated', 0)}, "
                      f"work items without a note at start: {c.get('without_note', 0)}. Reviewer: {c.get('review_copied', 0)} earlier notes copied, {c.get('review_to_research', 0)} sent to research.")
