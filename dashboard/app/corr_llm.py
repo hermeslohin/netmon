@@ -969,7 +969,7 @@ def _ai_notes(aid, ids, E):
             for ip in (E.get(eid, {}).get("ips") or [])[:4]:
                 subs |= set(kb.subjects_for_ip(ip))
             for hn in kb.host_notes(sorted(subs))[:30] if subs else []:
-                if hn.get("author") == "ai" and hn.get("category") in ("role", "baseline", "behavior", "decision", "config", "other"):
+                if (hn.get("author") == "ai" or hn.get("via") == "correlation profile") and hn.get("category") in ("role", "baseline", "behavior", "decision", "config", "other"):
                     lines.append(f"host note [{hn['category']}] {hn['label'] or hn['subject']}: {str(hn['text'])[:200]}")
             if lines:
                 out[tag] = lines[:4]
@@ -1048,6 +1048,10 @@ def _note_expected(model, aid, E, cands, dec):
         hosts = sorted(a_ips & b_ips) or sorted(a_ips)[:1] or sorted(b_ips)[:1]
         for art in clean_artifacts(d.get("artifacts")):
             if art["decision"] != "expected" or art["kind"] == "ip" and art["value"] in hosts:
+                continue
+            seen_txt = " ".join(str(x) for ev in (E[aid], e) for x in (ev.get("label"), *(ev.get("ips") or []), *(ev.get("host_ips") or []), *(ev.get("dst_ips") or []),
+                                                                      *(a[1] for a in ev.get("arts") or []))).lower()
+            if art["value"].lower() not in seen_txt:  # the model must not invent artifacts: the value has to appear in one of the two events
                 continue
             tag = NOTE_TAG.format(kind=art["kind"], value=art["value"][:120])
             text = (f"{tag} Expected {art['kind']} {art['value'][:160]}: {art['relation'] or str(d.get('reason') or '')[:150]}. "

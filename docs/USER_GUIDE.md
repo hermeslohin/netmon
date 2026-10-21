@@ -59,7 +59,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Overview** | The summary page. |
 | **Alerts** | Urgent alerts from the 15-minute watcher. The number is your unread count. |
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
-| **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map. |
+| **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map, **Users** (accounts seen in the logs and their usual patterns; the dashboard's own logins are under More → Dashboard users). |
 | **Devices ▾** | Hosts (everything on the network) and Endpoints (computers running the Elastic Agent). |
 | **More ▾** | Ask AI, AI review, Checked, Users. |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |

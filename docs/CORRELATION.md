@@ -73,6 +73,10 @@ for being close in time. Each candidate gets a score:
 
 Kept: score ≥ 1.5, at most 4 of any one type and 10 per event.
 
+## Profiles: accounts and frequent IPs
+
+Every correlation pass also records, without any model: the accounts seen in endpoint logins, auth failures, sudo, account changes, admin sessions and suspicious processes (**Network → Users**, `accounts.py`), and how often each IP appears in correlated events, as source or destination, with the accounts, processes and DNS names named in those events. From that it keeps host notes (category *behavior*, tagged `[profile:ip]` / `[profile:users]`, author netmon) up to date for the newest report: "frequent" is 5+ events for an internal IP and 3+ for an external one, top 25. The reviewer reads these as `ai_note`s. They are counts, not verdicts; delete a note on the Notes page and it is rewritten next pass if still true.
+
 ## 3. Correlation review (local or cloud model)
 
 The script only *proposes* links. **A model decides.** `dashboard/app/corr_llm.py` runs as a background thread

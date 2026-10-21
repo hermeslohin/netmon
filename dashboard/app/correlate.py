@@ -48,7 +48,7 @@ TOPIC_NAME = {"threat-intel": "threat-listed IPs", "ssh-auth": "SSH logins", "au
 
 # --- artifacts known before any review: users, processes, files and DNS names pulled straight from the event's own fields/text
 _PATH = re.compile(r"(?<![\w/.:-])((?:/(?:usr|bin|sbin|opt|etc|var|tmp|home|lib|lib64|root|srv|run|snap|Applications|System|Library|Users|private)/[^\s,;()'\"\[\]<>]+)|(?:[A-Za-z]:\\[^\s,;()'\"\[\]<>]+))")
-_USER = re.compile(r"\buser ([A-Za-z_][\w.-]{0,31})\b")
+_USER = re.compile(r"\buser ([A-Za-z_][\w.-]{0,31})(?=\s*(?:[,)]|parent\b|cmd\b|$))", re.M)
 _ACCTS = re.compile(r"\baccounts? ([A-Za-z_][^\[\]]*)")
 _SHA = re.compile(r"\bsha256 ([0-9a-f]{8,64})\b")
 _PARENT = re.compile(r"\bparent (\S+)")

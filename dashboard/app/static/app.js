@@ -845,7 +845,7 @@ V.issues = (el) => {
 
 /* ----- Users ----- */
 V.users = async (el) => {
-  el.innerHTML = `<h1>Users</h1><div class="sub">Every account has a role. <b>Admin</b>: everything, including users, settings and AI models. <b>Network defender</b>: sees everything and can check off, annotate and ask about events, but can't change settings, users or models. <b>User</b>: sees only the alerts and events of the devices assigned to them. ${isAdmin() ? "" : "<b>Only admins can change accounts — this page is read-only for you.</b> "}Passwords are stored as salted scrypt hashes in <span class="mono">dashboard/state/users.json</span>; changing a password signs that user out everywhere. See <span class="mono">docs/ACCESS_CONTROL.md</span>.</div><div class="loading">Loading…</div>`;
+  el.innerHTML = `<h1>Dashboard users</h1><div class="sub">Every account has a role. <b>Admin</b>: everything, including users, settings and AI models. <b>Network defender</b>: sees everything and can check off, annotate and ask about events, but can't change settings, users or models. <b>User</b>: sees only the alerts and events of the devices assigned to them. ${isAdmin() ? "" : "<b>Only admins can change accounts — this page is read-only for you.</b> "}Passwords are stored as salted scrypt hashes in <span class="mono">dashboard/state/users.json</span>; changing a password signs that user out everywhere. See <span class="mono">docs/ACCESS_CONTROL.md</span>.</div><div class="loading">Loading…</div>`;
   let U; try { U = await api("/api/users"); } catch (e) { el.querySelector(".loading").textContent = String(e); return; }
   el.querySelector(".loading").remove();
   const min = U.min_password || 10;

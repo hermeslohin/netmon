@@ -469,9 +469,19 @@ def correlation(sid):
     except Exception:  # noqa: BLE001
         tech = lambda src, text: []
     import site_cfg as SITE
-    v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, lateral.admin_sessions(res["raw"], pol),
-                        SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=bool(snapshots()) and snapshots()[-1]["id"] == sid,
+    adm = lateral.admin_sessions(res["raw"], pol)
+    latest = bool(snapshots()) and snapshots()[-1]["id"] == sid
+    v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, adm,
+                        SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=latest,
                         cleared=pol.get("_cleared_seg") or set(), triage=res.get("triage"))
+    try:  # profile what this pass knows (accounts, frequent IPs) and keep the host notes about them current
+        import accounts
+        accounts.record_users(sid, res["raw"], adm)
+        accounts.record_ips(sid, v.get("events") or {})
+        if latest:
+            accounts.write_notes(SITE.is_internal)
+    except Exception as e:  # noqa: BLE001 - profiling must never break correlation
+        print(f"accounts: profile pass failed: {e}", file=sys.stderr)
     _CORR.update(k=ck, v=v)
     return v
 
@@ -1266,6 +1276,16 @@ class H(BaseHTTPRequestHandler):
                     sid = s_[-1]["id"] if s_ else ""
                 corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
                 return self._json(kb.apply(enrich.apply(corr_llm.apply(correlation(sid)))) or {"error": "not found"}, 200)
+            if path == "/api/accounts":  # Network > Users: accounts seen and their patterns (?user= adds that account's breakdown + events)
+                import accounts
+                u = (q.get("user") or [""])[0]
+                res = accounts.overview(u or None, len(snapshots()))
+                if u:
+                    sl = snapshots()
+                    c_ = (correlation(sl[-1]["id"]) or {}).get("events") or {} if sl else {}
+                    res["events"] = [{"id": i, "type": e["type"], "label": e["label"], "link": e["link"], "t0": e["t0"], "sev": e["sev"]} for i, e in c_.items()
+                                     if any(a[0] == "user" and a[1].lower() == u.lower() for a in e.get("arts") or [])][:60]
+                return self._json(res)
             if path == "/api/kb/host":  # notes for one device / endpoint / domain: ?s=mac:..,ip:..,host:..,dom:..
                 subs = [s.strip() for s in (q.get("s") or [""])[0].split(",") if s.strip()][:20]
                 return self._json({"notes": kb.host_notes(subs)})
