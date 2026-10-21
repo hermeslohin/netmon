@@ -41,6 +41,7 @@ DB = os.path.join(os.environ.get("STATE_DIR", "/state"), "corr_llm.db")
 MAX_CAND = 10
 STATUS = {"enabled": ENABLED, "model": MODEL, "error": "", "last_run": None, "busy": False, "decided_this_run": 0, "es_queries_this_run": 0}
 _lock = threading.Lock()
+PRUNE = {"at": None, "removed": 0}
 _wanted = {}  # snapshot id -> last time a user asked for it
 CONFIG = os.path.join(os.environ.get("STATE_DIR", "/state"), "llm_config.json")
 BROKER = os.environ.get("NETMON_BROKER_URL", "").rstrip("/")
@@ -251,6 +252,7 @@ def _is_new_deployment():
         return False
 
 
+DISCARD_MAX_DAYS = 3650  # retention for old verdicts (0 = keep forever)
 WINDOW_MAX_MIN = 365 * 24 * 60  # time window for the reviewer: largest allowed gap (minutes) between the two events of a link
 
 
@@ -297,10 +299,11 @@ def limits():
             "rules": [x for x in c.get("rules") or [] if isinstance(x, dict) and x.get("key")],
             "classify": bool(c.get("classify")),
             "window_minutes": _num(c.get("window_minutes"), 0, WINDOW_MAX_MIN),
+            "discard_days": _num(c.get("discard_days"), 0, DISCARD_MAX_DAYS),
             "max_links": max(0, min(int(c.get("max_links") or 0), MAX_LINKS_LIMIT)) if str(c.get("max_links") or 0).isdigit() else 0}
 
 
-def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=None, rule=None, unrule=None, pair_modes=None, classify=None, window=None):
+def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=None, rule=None, unrule=None, pair_modes=None, classify=None, window=None, discard_days=None):
     """skip_pairs: list of "typeA-typeB" (sorted) never reviewed. exclude: {id, mode: event|family, label}. unexclude: key."""
     c = _raw_config()
     cur = limits()
@@ -354,6 +357,14 @@ def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=No
         if not 0 <= v <= WINDOW_MAX_MIN:
             raise ValueError(f"window must be 0-{WINDOW_MAX_MIN:g} minutes (0 = no limit)")
         cur["window_minutes"] = v
+    if discard_days is not None:
+        try:
+            v = float(discard_days.get("days") if isinstance(discard_days, dict) else discard_days or 0)
+        except (TypeError, ValueError):
+            raise ValueError("discard_days must be a number of days") from None
+        if not 0 <= v <= DISCARD_MAX_DAYS:
+            raise ValueError(f"discard_days must be 0-{DISCARD_MAX_DAYS:g} days (0 = keep forever)")
+        cur["discard_days"] = v
     cur.pop("skip_pairs", None)
     c["review_limits"] = cur
     _save_config(c)
@@ -423,7 +434,7 @@ def limits_view(base, applied=None):
     return {**L, "total": len(seen), "limit_range": MAX_LINKS_LIMIT,
             "pairs": [{"pair": t, "links": tp.get(t, 0), "mode": tm.get(t) or pair_mode(pm, pd, *t.split("-"))} for t in _all_pairs() | set(tp)],
             "class_counts": class_counts(), "window_out": {"links": out_links},
-            "window_range": WINDOW_MAX_MIN,
+            "window_range": WINDOW_MAX_MIN, "discard_range": DISCARD_MAX_DAYS, "discard": discard_info(L["discard_days"]),
             "top_events": [{"id": e, "type": E[e]["type"], "label": E[e]["label"][:140], "links": n, "excluded": "event|" + e in ex,
                             "family_excluded": "family|" + _fam(e) in ex} for e, n in top]}
 
@@ -567,6 +578,10 @@ def _db():
     except sqlite3.OperationalError:
         pass
     c.execute("CREATE TABLE IF NOT EXISTS verdicts (pair TEXT PRIMARY KEY, related INTEGER, confidence REAL, reason TEXT, model TEXT, ts REAL)")
+    try:  # last time the pair was a candidate link of the newest snapshot (NULL = never since it was judged: use ts)
+        c.execute("ALTER TABLE verdicts ADD COLUMN seen REAL")
+    except sqlite3.OperationalError:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS es_queries (id INTEGER PRIMARY KEY, ts REAL, anchor TEXT, candidates TEXT, model TEXT,
                  query TEXT, total INTEGER, seconds REAL, error TEXT)""")
     try:  # which AI ran the search: reviewer (default) or research (written by review.py on the host)
@@ -679,6 +694,61 @@ def _when(t, typ):
     return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
+_KEEP = "(model LIKE 'manual:%' OR model LIKE '%(chosen by %')"  # a person's decision is never discarded
+
+
+def discard_info(days):
+    """How many verdicts a retention of `days` would remove now, plus the last pass."""
+    out = {"would": 0, "total": 0, **{k: PRUNE.get(k) for k in ("at", "removed")}}
+    try:
+        with _db() as c:
+            out["total"] = c.execute("SELECT COUNT(*) FROM verdicts").fetchone()[0]
+            if days:
+                out["would"] = c.execute(f"SELECT COUNT(*) FROM verdicts WHERE COALESCE(seen, ts) < ? AND NOT {_KEEP}", (time.time() - days * 86400,)).fetchone()[0]
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def prune_verdicts(days=None):
+    """Delete verdicts (and their artifacts) whose pair has not been a candidate link for more than `days` days.
+    Verdicts set by a person are kept. Returns the number removed. days=None uses the saved setting; 0 does nothing."""
+    days = limits()["discard_days"] if days is None else days
+    if not days or not PRUNE.get("synced"):  # wait until a snapshot has refreshed the "last seen" times
+        return 0
+    cutoff = time.time() - days * 86400
+    with _lock, _db() as c:
+        old = f"SELECT pair FROM verdicts WHERE COALESCE(seen, ts) < ? AND NOT {_KEEP}"
+        c.execute(f"DELETE FROM pair_artifacts WHERE pair IN ({old})", (cutoff,))
+        n = c.execute(f"DELETE FROM verdicts WHERE COALESCE(seen, ts) < ? AND NOT {_KEEP}", (cutoff,)).rowcount
+        pages, free = c.execute("PRAGMA page_count").fetchone()[0], c.execute("PRAGMA freelist_count").fetchone()[0]
+    PRUNE.update(at=time.time(), removed=n)
+    if n and pages and free / pages > 0.25:  # give the space back to the disk
+        try:
+            v = sqlite3.connect(DB, timeout=30, isolation_level=None)
+            v.execute("PRAGMA temp_store=MEMORY")
+            v.execute("VACUUM")
+            v.close()
+        except sqlite3.Error as e:
+            print(f"verdict prune: vacuum skipped: {e}", file=sys.stderr)
+    if n:
+        print(f"verdict prune: discarded {n} verdicts not seen for more than {days:g} days", file=sys.stderr)
+    return n
+
+
+def _touch_seen(keys):
+    """Remember that these pairs are candidate links right now (at most one write per pair per hour)."""
+    keys, now = list(keys), time.time()
+    try:
+        with _lock, _db() as c:
+            for i in range(0, len(keys), 500):
+                ch = keys[i:i + 500]
+                c.execute(f"UPDATE verdicts SET seen=? WHERE pair IN ({','.join('?' * len(ch))}) AND COALESCE(seen, 0) < ?", [now, *ch, now - 3600])
+        PRUNE["synced"] = True
+    except sqlite3.Error:
+        pass
+
+
 def apply(base):
     """Merge LLM verdicts into a correlate.build() result (returns a new dict; base stays cached)."""
     if not base or base.get("error"):
@@ -686,6 +756,7 @@ def apply(base):
     rel = base.get("related") or {}
     keys = {pair(a, r["id"]) for a, lst in rel.items() for r in lst}
     V = verdicts(keys)
+    _touch_seen(V)
     AR = artifacts([k for k, v in V.items() if v["related"]])
     CL = _cleared()
     skipped = _limit_fn(base)
@@ -774,7 +845,7 @@ def clear_pending(sids, user):
         have = verdicts(keys)
         rows = [(k, 0, 0.0, "review queue cleared by an admin", f"dismissed:{user}"[:60], now) for k in keys if k not in have]
         with _lock, _db() as c:
-            c.executemany("INSERT OR IGNORE INTO verdicts VALUES (?,?,?,?,?,?)", rows)
+            c.executemany("INSERT OR IGNORE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", rows)
         out[sid] = len(rows)
         with _lock, _db() as c:
             c.executemany("INSERT OR IGNORE INTO cleared_events VALUES (?)", [(e,) for e in (base.get("events") or {})])
@@ -1012,7 +1083,7 @@ def _review(model, aid, base, todo):
         rows.append((pair(aid, r["id"]), 1 if d.get("related") else 0, float(d.get("confidence") or 0), str(d.get("reason") or "")[:300],
                      model["model"] if isinstance(model, dict) else model, time.time()))
     with _lock, _db() as c:
-        c.executemany("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)", rows)
+        c.executemany("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", rows)
         for i, (e, r) in enumerate(cands, 1):  # artifacts of the links judged related (a changed verdict replaces the old list)
             d = dec.get(f"c{i}")
             if d is not None:
@@ -1202,8 +1273,15 @@ def start(get_base, latest_sid_fn, every=60):
 
     def loop():
         time.sleep(15)
+        last_prune = 0.0
         while True:
             try:
+                if time.time() - last_prune > 3600:  # retention: once an hour, no-op when the limit is off
+                    last_prune = time.time()
+                    try:
+                        prune_verdicts()
+                    except Exception as e:  # noqa: BLE001 - never stop the reviewer for housekeeping
+                        print(f"verdict prune failed: {e}", file=sys.stderr)
                 n = run_once(get_base, latest_sid_fn())
                 time.sleep(5 if n else every)
             except Exception as e:  # noqa: BLE001 - LM Studio down / model unloading: back off and retry
@@ -1257,7 +1335,7 @@ def adopt(p, related, confidence, reason, model, user):
     if "\x1f" not in p:
         raise ValueError("bad pair")
     with _lock, _db() as c:
-        c.execute("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)",
+        c.execute("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)",
                   (p, 1 if related else 0, max(0.0, min(1.0, float(confidence or 0))), str(reason or "")[:300], f"{str(model)[:60]} (chosen by {user})", time.time()))
 
 
@@ -1340,5 +1418,5 @@ def override(p, related, user):
         if related is None:
             c.execute("DELETE FROM verdicts WHERE pair=?", (p,))
         else:
-            c.execute("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)",
+            c.execute("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)",
                       (p, 1 if related else 0, 1.0, f"Set by {user}", f"manual:{user}", time.time()))

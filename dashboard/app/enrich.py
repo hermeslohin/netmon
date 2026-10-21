@@ -164,7 +164,7 @@ def put(doc, events=None):
                 kept += 1; continue
             lrows.append((p, 1 if l.get("related") else 0, max(0.0, min(1.0, float(l.get("confidence") or 0))),
                           str(l.get("reason") or "")[:300], model, now))
-        c.executemany("INSERT OR REPLACE INTO verdicts VALUES (?,?,?,?,?,?)", lrows)
+        c.executemany("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", lrows)
         for l in doc.get("links") or []:  # searches behind a related link become its Kibana artifacts
             a, b = str(l.get("a") or ""), str(l.get("b") or "")
             if l.get("related") and isinstance(l.get("queries"), list) and corr_llm.pair(a, b) not in manual and a and b and a != b and (events is None or (a in events and b in events)):

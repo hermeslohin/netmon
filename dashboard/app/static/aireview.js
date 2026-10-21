@@ -359,6 +359,12 @@
         <span class="small rl-wmsg"></span>
         <span class="small muted">0 = no limit. A link is never considered (no model call, no classification) when its two events are further apart than this; events without a time, such as open vulnerabilities, always count. Links that already have a verdict are kept.</span>
         <div class="small rl-winfo" style="margin-top:3px"></div></div>
+      <div class="rl-disc" style="margin:10px 0 4px"><b>Discard old verdicts</b>
+        not seen for more than <input type="number" class="rl-dmax" min="0" step="any" style="width:6em"> days
+        <button type="button" class="rl-dsave">Save</button>
+        <span class="small rl-dmsg"></span>
+        <span class="small muted">0 = keep forever. A verdict is "seen" while its two events are still a candidate link in the newest snapshot. Verdicts nobody has seen for longer than this (and their evidence) are deleted, checked hourly, to keep the database small; a link that comes back is simply reviewed again. Verdicts set by a person are kept.</span>
+        <div class="small rl-dinfo" style="margin-top:3px"></div></div>
       <div style="margin:10px 0 4px"><b>Max links per event</b> <input type="number" class="rl-max" min="0" max="${Lm.limit_range || 200}" step="1" style="width:5em">
         <button type="button" class="rl-maxsave">Save</button>
         <span class="small muted">Each event is reviewed against at most this many links, best-scoring first (0 = no cap). Applies to links without a verdict; a link needs room at both of its events.</span></div>
@@ -401,6 +407,14 @@
       try { await apiPost("/api/llm/review-limits", { window: { minutes: +wmax.value || 0 } }); wm.textContent = "saved"; refresh(); }
       catch (e) { wm.textContent = "error: " + e.message; } };
     autoApply(wsv, [wmax]);
+    const dmax = c.querySelector(".rl-dmax"), dsv = c.querySelector(".rl-dsave"), di = Lm.discard || {};
+    dmax.value = Lm.discard_days || 0; dmax.disabled = dsv.disabled = !D.can_limit;
+    c.querySelector(".rl-dinfo").textContent = `${fn(di.total || 0)} verdicts stored` + (Lm.discard_days ? ` · ${fn(di.would || 0)} would be discarded now` : " · retention off") +
+      (di.at ? ` · last pass ${new Date(di.at * 1000).toLocaleString()}: removed ${fn(di.removed || 0)}` : "");
+    dsv.onclick = async () => { const dm = c.querySelector(".rl-dmsg"); dm.textContent = "saving…";
+      try { await apiPost("/api/llm/review-limits", { discard_days: +dmax.value || 0 }); dm.textContent = "saved"; refresh(); }
+      catch (e) { dm.textContent = "error: " + e.message; } };
+    autoApply(dsv, [dmax]);
     const mx = c.querySelector(".rl-max"), mxb = c.querySelector(".rl-maxsave");
     mx.value = Lm.max_links || 0; mx.disabled = mxb.disabled = !D.can_limit;
     mxb.onclick = () => post({ max_links: mx.value === "" ? 0 : +mx.value });

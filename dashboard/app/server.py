@@ -936,7 +936,7 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "research": review_job()})
             if u.path == "/api/llm/review-limits":  # which candidate links the reviewer never sees (admin)
                 try:
-                    corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"))
+                    corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"), discard_days=body.get("discard_days"))
                 except ValueError as e:
                     print(f"review-limits: {user}: rejected: {e}", file=sys.stderr)
                     return self._json({"error": str(e)[:300]}, 400)
@@ -950,7 +950,7 @@ class H(BaseHTTPRequestHandler):
                         _CORR.clear()
                     except Exception as e:  # noqa: BLE001
                         print(f"clear alerts failed: {e}", file=sys.stderr)
-                print(f"review limits: {user} cleared {cleared} alerts; set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes', 'classify', 'window') if k in body})[:300]}", file=sys.stderr)
+                print(f"review limits: {user} cleared {cleared} alerts; set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes', 'classify', 'window', 'discard_days') if k in body})[:300]}", file=sys.stderr)
                 return self._json({"ok": True, "cleared_alerts": cleared, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
             if u.path in ("/api/aireview/clear-review", "/api/aireview/clear-research"):  # admin: empty a queue (see ADMIN_POST)
                 try:
