@@ -230,7 +230,7 @@ def _is_new_deployment():
         return False
 
 
-WINDOW_MAX_MIN = WINDOW_MIN_MAX = 365 * 24 * 60  # time window for the reviewer: oldest and newest allowed age, both in minutes
+WINDOW_MAX_MIN = 365 * 24 * 60  # time window for the reviewer: largest allowed gap (minutes) between the two events of a link
 
 
 def _num(v, lo, hi):
@@ -240,18 +240,19 @@ def _num(v, lo, hi):
         return 0
 
 
-def outside_fn(max_min, min_min, now=None):
-    """outside(event) -> True when the event is older than max_min minutes or newer than min_min minutes (0 = no limit).
-    Events without a time (open vulnerabilities, ongoing state) are never outside."""
-    now = now or time.time()
-
-    def outside(ev):
-        t = (ev or {}).get("t0")
-        if t is None or not (max_min or min_min):
+def apart_fn(window_min):
+    """apart(event_a, event_b) -> True when the two events are more than window_min minutes apart (the gap between their
+    time spans; 0 = no limit). A link is only considered when its events fall within window_min minutes before/after each
+    other. Events without a time (open vulnerabilities, ongoing state) are never apart."""
+    def apart(a, b):
+        if not window_min or not a or not b:
             return False
-        age = now - t
-        return bool((max_min and age > max_min * 60) or (min_min and age < min_min * 60))
-    return outside
+        a0, b0 = a.get("t0"), b.get("t0")
+        if a0 is None or b0 is None:
+            return False
+        a1, b1 = a.get("t1") if a.get("t1") is not None else a0, b.get("t1") if b.get("t1") is not None else b0
+        return max(0.0, max(a0, b0) - min(a1, b1)) > window_min * 60
+    return apart
 
 
 def limits():
@@ -276,8 +277,7 @@ def limits():
             "excluded": [x for x in c.get("excluded") or [] if isinstance(x, dict) and x.get("key")],
             "rules": [x for x in c.get("rules") or [] if isinstance(x, dict) and x.get("key")],
             "classify": bool(c.get("classify")),
-            "window_max_min": _num(c["window_max_min"] if "window_max_min" in c else (c.get("window_max_h") or 0) * 60, 0, WINDOW_MAX_MIN),  # window_max_h: legacy setting in hours
-            "window_min_min": _num(c.get("window_min_min"), 0, WINDOW_MIN_MAX),
+            "window_minutes": _num(c.get("window_minutes"), 0, WINDOW_MAX_MIN),
             "max_links": max(0, min(int(c.get("max_links") or 0), MAX_LINKS_LIMIT)) if str(c.get("max_links") or 0).isdigit() else 0}
 
 
@@ -328,21 +328,13 @@ def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=No
     if classify is not None:
         cur["classify"] = bool(classify)
     if window is not None:
-        if not isinstance(window, dict):
-            raise ValueError("window must be {max_minutes, min_minutes}")
-        if "max_hours" in window and "max_minutes" not in window:  # legacy API field
-            window = dict(window, max_minutes=(float(window["max_hours"] or 0) * 60))
-        for k, key, hi in (("max_minutes", "window_max_min", WINDOW_MAX_MIN), ("min_minutes", "window_min_min", WINDOW_MIN_MAX)):
-            if k in window:
-                try:
-                    v = float(window[k] or 0)
-                except (TypeError, ValueError):
-                    raise ValueError(f"{k} must be a number") from None
-                if not 0 <= v <= hi:
-                    raise ValueError(f"{k} must be 0-{hi:g} (0 = no limit)")
-                cur[key] = v
-        if cur["window_max_min"] and cur["window_min_min"] and cur["window_min_min"] >= cur["window_max_min"]:
-            raise ValueError("the newest-age limit must be smaller than the oldest-age limit (nothing would be left)")
+        try:
+            v = float(window.get("minutes") if isinstance(window, dict) else window or 0)
+        except (TypeError, ValueError):
+            raise ValueError("window must be a number of minutes") from None
+        if not 0 <= v <= WINDOW_MAX_MIN:
+            raise ValueError(f"window must be 0-{WINDOW_MAX_MIN:g} minutes (0 = no limit)")
+        cur["window_minutes"] = v
     cur.pop("skip_pairs", None)
     c["review_limits"] = cur
     _save_config(c)
@@ -357,10 +349,10 @@ def _limit_fn(base):
     ex = {x["key"] for x in L["excluded"]}
     pm, pd = L["pair_modes"], L["pair_default"]
     famcache = {}
-    outside = outside_fn(L["window_max_min"], L["window_min_min"])
+    apart = apart_fn(L["window_minutes"])
 
     def bad(i):
-        if "event|" + i in ex or outside(E.get(i)) or (L["rules"] and suppressed(L["rules"], "review", i, E.get(i))) or sig_cleared(CS, E.get(i)):
+        if "event|" + i in ex or (L["rules"] and suppressed(L["rules"], "review", i, E.get(i))) or sig_cleared(CS, E.get(i)):
             return True
         if not any(k.startswith("family|") for k in ex):
             return False
@@ -369,7 +361,7 @@ def _limit_fn(base):
         return famcache[i] in ex
     skipped_bad = bad
     mode = lambda a, b: pm.get(pair_type(pclass(a, E.get(a)), pclass(b, E.get(b))), pd)  # noqa: E731
-    skipped = lambda a, b: mode(a, b) == "skip" or bad(a) or bad(b)  # noqa: E731
+    skipped = lambda a, b: mode(a, b) == "skip" or bad(a) or bad(b) or apart(E.get(a), E.get(b))  # noqa: E731
     skipped.bad = skipped_bad
     skipped.testing = lambda a, b: mode(a, b) == "test"  # links that pass every filter but are only tested, never sent
     return skipped
@@ -392,16 +384,15 @@ def limits_view(base, applied=None):
     L = limits()
     pm, pd = L["pair_modes"], L["pair_default"]
     ex = {x["key"] for x in L["excluded"]}
-    outside = outside_fn(L["window_max_min"], L["window_min_min"])
-    out_events = sum(1 for e in ev if outside(E.get(e)))
+    apart = apart_fn(L["window_minutes"])
     out_links = len({pair(a, r["id"]) for a, lst in ((base or {}).get("related") or {}).items() for r in lst
-                     if a in E and r["id"] in E and (outside(E[a]) or outside(E[r["id"]]))})
+                     if a in E and r["id"] in E and apart(E[a], E[r["id"]])})
     top = sorted(ev.items(), key=lambda x: -x[1])[:15]
     return {**L, "total": len(seen), "limit_range": MAX_LINKS_LIMIT,
             "pairs": [{"pair": t, "links": n, "mode": pm.get(t, pd)} for t, n in sorted(tp.items(), key=lambda x: -x[1])] +
                      [{"pair": t, "links": 0, "mode": pm[t]} for t in sorted(set(pm) - set(tp))],
-            "class_counts": class_counts(), "window_out": {"events": out_events, "links": out_links},
-            "window_range": {"max_minutes": WINDOW_MAX_MIN, "min_minutes": WINDOW_MIN_MAX},
+            "class_counts": class_counts(), "window_out": {"links": out_links},
+            "window_range": WINDOW_MAX_MIN,
             "top_events": [{"id": e, "type": E[e]["type"], "label": E[e]["label"][:140], "links": n, "excluded": "event|" + e in ex,
                             "family_excluded": "family|" + _fam(e) in ex} for e, n in top]}
 
