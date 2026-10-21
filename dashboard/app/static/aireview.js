@@ -172,12 +172,11 @@
     if (same) { USAGE.pv.textContent = ""; }
     else if (!price) { USAGE.pv.innerHTML = `<span class="warn">No price entered for ${esc(model)} (AI providers > edit > Models), so its cost can't be estimated.</span>`; }
     else {
-      const perDay = current && current.interval_minutes ? 1440 / current.interval_minutes : 2;
       const v = USAGE.U.map((u) => runCost(u, price)), avg = v.reduce((a, x) => a + x, 0) / (v.length || 1);
       const rec = USAGE.U.filter((u) => u.cost_usd != null), recAvg = rec.length ? rec.reduce((a, u) => a + u.cost_usd, 0) / rec.length : null;
       USAGE.pv.innerHTML = `With <b>${esc(model)}</b>${chosen ? " (the AI Research job's model)" : ""}: about <b>$${avg.toFixed(2)} per run</b>` +
         (recAvg != null ? ` (the recorded runs averaged $${recAvg.toFixed(2)})` : "") +
-        ` · ~$${(avg * 30 * perDay).toFixed(0)} a month at ${+perDay.toFixed(1)} run${perDay === 1 ? "" : "s"} a day. <span class="muted">Same token counts as the recorded runs re-priced at ` +
+        `. <span class="muted">Same token counts as the recorded runs re-priced at ` +
         `${esc(model)}'s price ($${price.in}/M in, $${price.out}/M out${price.cache_read != null ? `, $${price.cache_read}/M cache reads` : ""}); ` +
         `a different model would use a different number of tokens, so treat this as a rough guide.${chosen ? "" : ""}</span>`;
     }
