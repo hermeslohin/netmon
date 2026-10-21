@@ -545,12 +545,6 @@
           <span class="small muted" style="flex:1 1 380px">Web searches allowed per event in event research (a batch of 8 events shares 8 times this). Reading pages you already found is not counted. 0 = no limit. Ignored when web research is off.</span></div>
         <div class="llm-row"><span class="k">Web research</span><span><label><input type="checkbox" name="web_research"> on</label></span>
           <span class="small muted" style="flex:1 1 380px">Lets the model search and read web pages and cite them. Turn it off for cheaper, local-data-only runs (no web tools, no links or citations, and the daily news briefing is skipped).</span></div>
-        <div class="llm-row" style="align-items:flex-start"><span class="k">Events to research</span>
-          <span class="rj-modes" style="display:grid;grid-template-columns:auto auto;gap:4px 14px">${(R.mode_cats || []).map((m) => `<span class="small">${esc(m.label)}</span>
-            <select name="mode_${esc(m.key)}" data-cat="${esc(m.key)}">${(R.mode_options || ["research", "review", "skip"]).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>`).join("")}</span>
-          <span class="small muted" style="flex:1 1 380px"><b>research</b>: waits in the queue until someone clicks <b>Send to research</b> on the event; scheduled runs never send it to the model.
-            <b>review</b>: the reviewer matches it against earlier research (the event's own note and the notes of correlated events) and copies a prior note when it fits; otherwise it joins the queue.
-            <b>skip</b>: ignored. <b>test</b>: queued and tagged <i>testing</i> in the lists above, but never sent to the model; use it to see what a setting would send (filters still apply). New deployments start in test. Changes apply from the next run.</span></div>
       </div>
       <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
         chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
@@ -558,27 +552,22 @@
     c.id = "ai-cost";
     const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches"];
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
-    const modeSel = () => [...c.querySelectorAll(".rj-modes select")];
     const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
       c.querySelector(".cost-warn").textContent = r && avg != null && r < avg ? " Below the usual run cost: most runs would stop before finishing."
         : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
     const web = c.querySelector('input[name="web_research"]');
-    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research === true;
-      for (const b of modeSel()) b.value = (v.modes || {})[b.dataset.cat] || "research"; warn(); };
-    fill({ ...L, modes: R.modes, web_research: R.web_research });
+    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research === true; warn(); };
+    fill({ ...L, web_research: R.web_research });
     for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
     web.disabled = !D.admin; web.onchange = () => { btn.disabled = !D.admin; };
-    for (const b of modeSel()) { b.disabled = !D.admin; b.onchange = () => { btn.disabled = !D.admin; }; }
     btn.disabled = true;
     if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
       for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
       body.web_research = web.checked;
-      body.modes = Object.fromEntries(modeSel().map((b) => [b.dataset.cat, b.value]));
-      if (Object.values(body.modes).every((m) => m === "skip")) { msg.textContent = "error: pick research or review for at least one category"; return; }
       btn.disabled = true; msg.textContent = "saving…";
-      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), modes: r.research.modes || body.modes, web_research: r.research.web_research }); msg.textContent = "saved (applies from the next run)"; }
+      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), web_research: r.research.web_research }); msg.textContent = "saved (applies from the next run)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     return c;

@@ -243,7 +243,7 @@ flowchart LR
 ```
 
 - **Collect + analyze** (`collect.py`, `analyze.py`) build the snapshot and fold it into the baseline. No model is involved.
-- **Reviewer** handles events whose category is set to **review** (AI review → Events to research) and that
+- **Reviewer** handles events whose category is set to **review** (a per-category setting kept in the store; no longer on the AI review page) and that
   have no note of their own. `enrich.py` attaches the candidate prior notes to each such event: the note of the same
   event family, notes of correlated events, and notes on same-type events whose label is at least 60 % similar (numbers
   masked). The reviewer model (prompt `prompts/reviewer.md`; tools: Elasticsearch, device lookup, notes KB) answers per
@@ -269,7 +269,7 @@ flowchart LR
 The reviewer is the last model step of a scheduled run inside `review.py` (`Review.review_items`). Its job is to avoid
 paying for research twice: when an event is the same activity as one already researched, the earlier note is reused;
 everything else stays in the queue until a person sends it to research. Only events whose category is **review**
-(AI review → Events to research) and that have **no note of their own** enter this phase. Events set to *research*
+(the per-category setting kept in the store) and that have **no note of their own** enter this phase. Events set to *research*
 skip it; events set to *test* are only listed on the dashboard.
 
 ```mermaid
