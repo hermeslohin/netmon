@@ -84,16 +84,15 @@ node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio - optional", "AI r
 node("sched", 626, 100, 140, 76, "back", "scheduler.py", ["systemd user unit", "runs every job"], "JOBS")
 node("broker", 782, 100, 138, 76, "bus", "host_broker.py", ["loopback · bearer key", "/range · /esquery"], "BROKER")
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
-node("nightly", 698, 226, 222, 82, "back", "Research job (review.py)", ["collect → analyze → AI triage", "reviewer (copy or research) · research · PDF"], "EVERY N MIN")
-node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "snapshots + triage JSON"])
-node("pdf", 698, 348, 222, 76, "db", "PDF reports", ["one per day, kept locally", "served for download"])
+node("nightly", 698, 226, 222, 82, "back", "Review job (review.py)", ["collect → analyze → reviewer", "copies earlier notes · daily briefing"], "EVERY N MIN")
+node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "snapshots + briefing JSON"])
 node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed) · chart drill-down", "Web Push urgent notifications · per-user device subscriptions", "audit log: every user action + AI conversation"], "WEB APP")
 node("mcp", 460, 608, 222, 76, "bus", "netmon data tools", ["netmon_mcp.py · read-only", "also a stdio MCP server"], "READ-ONLY")
 node("chatp", 698, 608, 222, 76, "ai", "Ask AI chat", ["chat.py in the dashboard", "tools: web + netmon only"], "ASK AI")
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
 
 # ---------------- cloud
-node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "correlation · triage · research · chat"], "LLM")
+node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "correlation · reviewer · research · chat"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
 node("fc", 1000, 356, 260, 76, "cloud", "Web search", ["DuckDuckGo · Firecrawl · Brave · Tavily", "source pages for cited research"], "WEB")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
@@ -114,10 +113,10 @@ arrows.append('<path d="M210,670 L210,796 L1272,796 L1272,280 L1260,280" fill="n
 arrows.append('<rect x="222" y="689" width="132" height="13" rx="3" fill="#020617"/><text x="288" y="699" text-anchor="middle" fill="#fbbf24" font-size="9">telemetry via UniFi cloud</text>')
 arrow(anchor("uapi", "l", 0.4), (920, 259), "#fbbf24", dash="6,3")
 lab2(960, 236, "#fbbf24", "events", "flows")
-# research job <-> cloud AI provider (triage, event research, briefing)
+# review job <-> cloud AI provider (reviewer, briefing)
 arrows.append('<path d="M920,240 C955,240 950,138 1000,138" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="6,3" marker-start="url(#ah-e879f9)" marker-end="url(#ah-e879f9)"/>')
-lab2(960, 114, "#e879f9", "AI triage", "research")
-# scheduler starts the watcher and the research job
+lab2(960, 114, "#e879f9", "reviewer", "briefing")
+# scheduler starts the watcher and the review job
 arrows.append('<path d="M660,176 L660,226" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
 arrows.append('<path d="M740,176 L740,226" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
 arrows.append('<rect x="671" y="182" width="58" height="13" rx="3" fill="#020617"/><text x="700" y="192" text-anchor="middle" fill="#34d399" font-size="9">runs jobs</text>')
@@ -128,9 +127,7 @@ lab2(932, 430, "#fb923c", "range", "esquery")
 arrow(anchor("watch", "b"), anchor("db", "t"), "#34d399", "alerts", ldy=4)
 arrow((720, 308), (682, 352), "#34d399")
 arrows.append('<rect x="660" y="318" width="42" height="13" rx="3" fill="#020617"/><text x="681" y="328" text-anchor="middle" fill="#34d399" font-size="9">baseline</text>')
-arrow((830, 308), (830, 348), "#34d399", "report.py", ldy=4)
 arrow(anchor("db", "b"), (571, 464), "#a78bfa", "reads", ldy=4)
-arrow(anchor("pdf", "b"), (809, 464), "#a78bfa", "downloads", ldy=4)
 arrow(anchor("dash", "r", 0.4), anchor("users", "l", 0.6), "#22d3ee", both=True)
 lab2(947, 468, "#22d3ee", "HTTPS", "Web Push")
 arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
@@ -145,7 +142,7 @@ arrows.append('<path d="M460,410 L450,410 L450,646 L460,646" fill="none" stroke=
 lab2(450, 520, "#a78bfa", "read", "only")
 arrows.append('<path d="M920,646 L990,646 L990,160 L1000,160" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-e879f9)"/>')
 lab2(990, 194, "#e879f9", "chat", "model")
-# web research: the research job and the chat search and read pages (webtools.py)
+# web search: the review job and the chat search and read pages (webtools.py)
 arrows.append('<path d="M920,292 L958,292 L958,384 L1000,384" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
 lab2(958, 330, "#fbbf24", "web", "search")
 arrows.append('<path d="M920,624 L974,624 L974,414 L1000,414" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
@@ -167,7 +164,7 @@ for i, (c, t) in enumerate(legend):
 out_leg.append(f'<line x1="720" y1="{ly + 18}" x2="760" y2="{ly + 18}" stroke="#94a3b8" stroke-width="1.5"/><text x="768" y="{ly + 22}" fill="#94a3b8" font-size="10">request / data flow</text>')
 out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6,3"/><text x="768" y="{ly + 42}" fill="#94a3b8" font-size="10">via internet / cloud</text>')
 notes = ["Elasticsearch is queried read-only; the one write is the dashboard's append-only audit log (index logs-netmon). netmon never changes UniFi or the network.",
-         "Research job (every 30 min-24 h, set on the dashboard): AI triage, a reviewer that copies similar earlier notes (marked as copied) or sends events to research, and event research with read-only tools; needs a reasoning-capable model. First run after 05:00 UTC adds the briefing + PDF.",
+         "Review job (every 30 min-24 h, set on the dashboard): collect + analyze, and a reviewer that copies similar earlier notes (marked as copied) or leaves events queued. Events are researched by the model only when a person clicks Send to research. First run after 05:00 UTC adds the news briefing.",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and reviewer look-ups go through host_broker.py.",

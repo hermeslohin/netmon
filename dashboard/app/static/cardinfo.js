@@ -2,7 +2,7 @@
 window.CARD_INFO = {
 "audit|Audit log storage": {
 "source": "Dashboard settings (integrations.json, section audit) and a live count from the Security Onion Elasticsearch index logs-netmon.",
-"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the background reviewer's and the research job's entries on or off independently.",
+"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the background reviewer's and the review job's entries on or off independently.",
 "what": "Where the audit log is stored and whether the dashboard can write to it."
 },
 "audit|Filters": {
@@ -35,48 +35,48 @@ window.CARD_INFO = {
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
-"aireview|AI triage & reviewer": {
-"source": "The research job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
+"aireview|AI review job": {
+"source": "The review job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing job means notes and verdicts are out of date. Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
-"what": "Status of the scheduled AI job that triages each snapshot and writes research notes with verdicts for events: health, model, schedule, last run, note counts by verdict, coverage, and recent runs. Events are researched only on request (Send to research), not on the schedule."
+"what": "Status of the scheduled review job (collect, analyze, reviewer): health, model, schedule, last run, note counts by verdict, coverage, and recent runs. Events are researched only on request (Send to research), not on the schedule."
 },
 "aireview|Time and tokens per research run": {
 "source": "Token counts reported by the AI provider for every call of each run, recorded by review.py; cost estimated from the prices entered for the model under AI providers.",
 "use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
 "what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines."
 },
-"aireview|Research job limits": {
-"source": "Research job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
+"aireview|Review job limits": {
+"source": "Review job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
 "use": "Set a $ cap per run a bit above the usual run cost and a daily cap as a backstop. The token cap works even when no price is entered. Fewer research batches make runs cheaper; left-over events are picked up by the next run.",
-"what": "Cost and size limits of the scheduled research job: $ per run, $ per day, tokens per run and event-research batches per run."
+"what": "Cost and size limits of the scheduled review job: $ per run, $ per day, tokens per run and event-research batches per run."
 },
 "aireview|Research lookback window": {
-"what": "How many hours of logs each run of the research job collects and reviews. The daily PDF run always covers 24 hours.",
-"source": "Saved in the netmon store and read by the collector when the research job starts (collect.py auto).",
+"what": "How many hours of logs each run of the review job collects and reviews. The daily PDF run always covers 24 hours.",
+"source": "Saved in the netmon store and read by the collector when the review job starts (collect.py auto).",
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
 },
 "aireview|Decisions": {
-"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or the research job, plus manual overrides; stored in the netmon store.",
+"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or the review job, plus manual overrides; stored in the netmon store.",
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗, ↻ to ask the model again, or ⇄ to compare up to 4 models on one decision and adopt the best answer.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
 "source": "Dashboard AI configuration: local models are listed from LM Studio, cloud models from the AI providers box. Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
-"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled research job (triage, event research, daily report) and the Ask AI chat."
+"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled review job (reviewer, daily briefing) and on-request event research and the Ask AI chat."
 },
 "aireview|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
 "use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use; add prices after a model id for cost estimates). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps single calls if something loops.",
-"what": "AI services reached with an API key, any number of them. Their models can be picked for the correlation reviewer, the research job, the chat and in every Compare dialog."
+"what": "AI services reached with an API key, any number of them. Their models can be picked for the correlation reviewer, the review job, the chat and in every Compare dialog."
 },
 "aireview|Reviewer": {
-"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). The research job's verdicts override it.",
+"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). The review job's verdicts override it.",
 "use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check LM Studio is running or switch model in the Models card.",
 "what": "Status of the correlation reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
 },
 "aireview|Verdicts per hour": {
-"source": "Stored correlation verdicts from the corr_llm.py reviewer (and research job re-reviews) in the netmon store.",
+"source": "Stored correlation verdicts from the corr_llm.py reviewer (and review job re-reviews) in the netmon store.",
 "use": "Bursts after each snapshot (twice a day) are normal; long gaps while links are awaiting review suggest the model is down or stalled.",
 "what": "Bar chart of how many link decisions the reviewer made in each of the last 24 hours."
 },
@@ -86,12 +86,12 @@ window.CARD_INFO = {
 "what": "Urgent alerts from the last 30 days, newest first, with level and text. Unread ones are bold."
 },
 "attack|All mapped items": {
-"source": "mitre.py mapping of Suricata IDS, detections, baseline findings, endpoint findings, fix-list issues, UniFi data and triage alarms for the selected snapshot.",
+"source": "mitre.py mapping of Suricata IDS, detections, baseline findings, endpoint findings, fix-list issues and UniFi data for the selected snapshot.",
 "use": "Sort by Type to see observed items first. Checked-off items are shown struck through. Use 💬 Ask AI on a row to get an explanation of the technique in your context.",
 "what": "Every alert, finding, vulnerability or misconfiguration in this snapshot that was mapped to an ATT&CK technique, with its source, host and the reason for the mapping. When a technique is selected this card lists only its items."
 },
 "attack|Matrix": {
-"source": "mitre.py: Suricata rule metadata and Security Onion / Elastic Defend technique fields, plus a curated rule table for netmon's own findings, fix-list items, UniFi and triage alarms.",
+"source": "mitre.py: Suricata rule metadata and Security Onion / Elastic Defend technique fields, plus a curated rule table for netmon's own findings, fix-list items and UniFi.",
 "use": "Observed cells are the ones to look at first. Click a technique to filter the item list below to it and see why it was mapped; exposure cells point at hardening work.",
 "what": "The MITRE ATT&CK Enterprise matrix, one column per tactic, showing only techniques that something in this snapshot maps to. Colour shows observed (behaviour seen), exposure only (a weakness that enables it) or all items checked off."
 },
@@ -103,7 +103,7 @@ window.CARD_INFO = {
 "checked|Checked items": {
 "source": "Check-offs stored in the netmon SQLite store, including auto-closes when the AI research verdict is expected or benign (if enabled on the Configuration page).",
 "use": "Review 'still present' items now and then to make sure they really are fine, and check auto-closed ones. Uncheck an item to restore it to its original list.",
-"what": "Everything checked off elsewhere (triage alarms, baseline findings, fix-list items, endpoint findings), newest first, with whether each is still present, fixed or absent in the selected snapshot. Items closed automatically show an 'auto-closed' AI verdict badge."
+"what": "Everything checked off elsewhere (baseline findings, fix-list items, endpoint findings), newest first, with whether each is still present, fixed or absent in the selected snapshot. Items closed automatically show an 'auto-closed' AI verdict badge."
 },
 "checked|Cleared segmentation": {
 "source": "Your check-offs, saved in the netmon SQLite store on the dashboard host, matched against the violations analyze.py found using the zone rules in policy.json.",
@@ -146,12 +146,12 @@ window.CARD_INFO = {
 "what": "Devices with traffic in this snapshot whose MAC address is not in the device inventory, with their byte total and number of external peers."
 },
 "device|Notes": {
-"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the scheduled AI research job; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
+"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by the scheduled AI review job; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
 "use": "Read what earlier AI runs learned about this device (its role, what is normal for it, decisions made). Add a note to tell the AI something it cannot see, e.g. 'media server, large uploads to B2 at night are expected'. Delete notes that are wrong; the AI also corrects stale ones.",
-"what": "Running notes about this host or device that every AI job reads before judging it: the scheduled research job, the correlation reviewer's work list and Ask AI."
+"what": "Running notes about this host or device that every AI job reads before judging it: the scheduled review job, the correlation reviewer's work list and Ask AI."
 },
 "notes|Host notes": {
-"source": "The notes knowledge base (kb.py). Written by the scheduled AI research job (✨) and by people on the host and endpoint pages (👤).",
+"source": "The notes knowledge base (kb.py). Written by the scheduled AI review job (✨) and by people on the host and endpoint pages (👤).",
 "use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
 "what": "Every note about every host and device, newest first."
 },
@@ -246,9 +246,9 @@ window.CARD_INFO = {
 "what": "Potentially risky files (executables, scripts, installers, archives) this device sent or received over the network, with type, size, source host and malware-hash result."
 },
 "device|Findings": {
-"source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks, and the scheduled AI triage. Refreshed with each collection run.",
+"source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks. Refreshed with each collection run.",
 "use": "Start with high / Investigate items. Use 💬 Ask AI to have one explained, ⇄ compare with earlier snapshots, Related for linked events, and check an item off when handled (the toggle shows checked ones).",
-"what": "Anomalies tied to this host. On the network page: baseline findings (deviations from its learned normal, threat intel, beacons) plus AI triage alarms. On the endpoint page: host findings from Elastic Agent, osquery and syslog."
+"what": "Anomalies tied to this host. On the network page: baseline findings (deviations from its learned normal, threat intel, beacons). On the endpoint page: host findings from Elastic Agent, osquery and syslog."
 },
 "device|IDS alerts": {
 "source": "Suricata alerts from Security Onion, last 24 h.",
@@ -625,26 +625,6 @@ window.CARD_INFO = {
 "use": "Look for spikes at odd hours or a sudden step change. A non-zero missed line means the sensor dropped packets, so other numbers may be undercounted; the Capture loss tile turns amber above about 1 GB.",
 "what": "Total bytes seen on the network per hour across the 24-hour window, plus a second line for bytes the sensor missed (capture loss)."
 },
-"overview|Triage alarms": {
-"source": "Written by the AI research job during each triage run from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
-"use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask AI, ⇄ compare models or the Kibana button to dig into the evidence. 'All alarms' opens the full list on Posture.",
-"what": "The alarms the AI flagged in this snapshot, each with who, evidence, why it matters and what to do next. Overview shows the top six."
-},
-"overview|Triage summary": {
-"source": "Written by the AI research job during each triage run, which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
-"use": "Read this first. It points to the alarms worth your time. Proposed policy.json allow rules are suggestions only and are never applied automatically. AI text can be wrong, so check the evidence before acting.",
-"what": "The AI's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
-},
-"reports|All reports": {
-"source": "File listing of the nightly reports folder produced by report.py (one per day on the 05:00 UTC run).",
-"use": "Download or open older reports to compare days. Click 'view data' to switch the whole dashboard to that report's snapshot, then use the other pages to investigate what it described.",
-"what": "Every stored PDF report, newest first, with size and a link to the matching snapshot data. The report for the currently selected snapshot is highlighted."
-},
-"reports|Latest report": {
-"source": "report.py builds the PDF from the snapshot, baseline analysis and AI triage; it is generated once a day on the first research run after 05:00 UTC and served from the read-only reports folder.",
-"use": "Click Download to save it or Open to read it in the browser. Use it as the daily summary to read or share; the live dashboard has more detail and newer data.",
-"what": "The most recent network behaviour report as a PDF, with its date, file name and size."
-},
 "risk|Hosts ranked by risk": {
 "source": "dashboard/app/risk.py for the selected snapshot, combining fix-list issues, alerts and findings, threat intel, lateral reach and EDR/visibility data.",
 "use": "40 or more is high, 20-40 medium. Read the drivers to see why, click the host to drill down, and use 💬 Ask AI for a fix plan. Hover the impact value for its reason.",
@@ -756,9 +736,9 @@ window.CARD_INFO = {
 "what": "Your devices contacting threat-listed IPs or domains, plus domains registered in the last 90 days, with domain age, query count and the devices involved."
 },
 "security|Research notes": {
-"source": "Written by the AI research job during each triage run, using web research and read-only queries against the snapshot data.",
+"source": "Written when someone clicks Send to research (or copied by the reviewer from an earlier note), using web research and read-only queries against the snapshot data.",
 "use": "Use these as context for the alarms. ⇄ compares the note with other models' opinions. Notes can be wrong or outdated; check the sources for anything important.",
-"what": "Background notes from the triage run: what the AI looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
+"what": "Background notes on an event: what the AI looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
 },
 "security|Segmentation violations": {
 "source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal flows checked against policy.json zones, device classes, sensitive ports and allow rules. High: DMZ initiating inward, or IoT/camera reaching servers or using admin ports; medium: admin ports between hosts; low: cross-zone access.",
@@ -774,16 +754,6 @@ window.CARD_INFO = {
 "source": "Public feeds refreshed at most every 12 h: abuse.ch URLhaus, ThreatFox, Feodo Tracker and SSLBL (IPs and JA3), Emerging Threats compromised IPs, CINS Army and Spamhaus DROP.",
 "use": "Every feed should show a recent successful download. A failed or stale feed means matches from that source could be missed, so treat empty hit lists with caution.",
 "what": "Download status of each threat-intelligence feed and how many indicators are loaded (domains, IPs, network ranges, JA3 hashes)."
-},
-"security|Triage alarms": {
-"source": "Written by the AI research job during each triage run from the latest 24-hour snapshot: baseline and host findings, IDS alerts, threat intel, beacons, segmentation, UniFi events and admin sessions.",
-"use": "Investigate means look now, Review means when you can, Info means explained and benign. Tick the box once handled (it stays checked across snapshots). Use 💬 Ask AI, ⇄ compare models or the Kibana button to dig into the evidence.",
-"what": "Every alarm the AI flagged in this snapshot, sorted by priority, each with who, evidence, why it matters and next steps."
-},
-"security|Triage summary": {
-"source": "Written by the AI research job during each triage run, which reviews the latest 24-hour snapshot (Zeek, Suricata, Elastic Agent, UniFi, baseline findings) with read-only Elasticsearch queries and compares it with the previous triage.",
-"use": "Read this first. It points to the alarms worth your time. Proposed policy.json allow rules are suggestions only and are never applied automatically. AI text can be wrong, so check the evidence before acting.",
-"what": "The AI's short written assessment of the selected 24-hour snapshot: what stood out, what is benign, what is recurring, and any policy allow rules it proposes."
 },
 "security|Zeek notices": {
 "source": "Zeek notice log from Security Onion, last 24 h, grouped by notice type.",

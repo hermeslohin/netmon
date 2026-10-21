@@ -13,11 +13,10 @@ This guide covers everyday use of the netmon dashboard: what each page shows, ho
 5. [Working through findings](#5-working-through-findings)
 6. [Page by page](#6-page-by-page)
 7. [AI features](#7-ai-features)
-8. [Reports](#8-reports)
-9. [Phones and tablets](#9-phones-and-tablets)
-10. [Admin tasks](#10-admin-tasks)
-11. [FAQ and troubleshooting](#11-faq-and-troubleshooting)
-12. [Glossary](#12-glossary)
+8. [Phones and tablets](#8-phones-and-tablets)
+9. [Admin tasks](#9-admin-tasks)
+10. [FAQ and troubleshooting](#10-faq-and-troubleshooting)
+11. [Glossary](#11-glossary)
 
 ---
 
@@ -28,8 +27,8 @@ netmon watches the home network and the computers on it and tells you what chang
 | When | What runs | What you get |
 |---|---|---|
 | Every 15 minutes | **Urgent watcher.** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
-| Every few hours (the **research job**; interval set on the Configuration page, 30 min to 24 h, default every 4 h on a grid starting at 05:00 UTC) | **Collection, analysis, AI triage and the reviewer.** | A new *snapshot* (the lookback window, 24 hours by default), triage alarms, earlier research notes reused for repeat events, and correlation reviews. Events are researched only when you click **Send to research**. |
-| First run at or after 05:00 UTC (1 AM Eastern in summer) | The same run, always over 24 hours, plus the **PDF report** and a news briefing. | A downloadable PDF on the Reports page. |
+| Every few hours (the **review job**; interval set on the Configuration page, 30 min to 24 h, default every 4 h on a grid starting at 05:00 UTC) | **Collection, analysis and the reviewer.** | A new *snapshot* (the lookback window, 24 hours by default), earlier research notes reused for repeat events, and correlation reviews. Events are researched only when you click **Send to research**. |
+| First run at or after 05:00 UTC (1 AM Eastern in summer) | The same run, always over 24 hours, plus a news briefing. | The briefing on the dashboard. |
 | All the time | The **correlation reviewer**, a local AI model. | It decides which events are really related (see [AI review](#ai-review)). |
 
 The data comes from:
@@ -46,7 +45,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 
 - Open the dashboard at the address you were given (HTTPS). Your browser may warn about the certificate the first time, because it is a private certificate for the home network.
 - **More → My account** shows who you are signed in as and lets you change your password. Changing it signs out your other browsers and phones; the one you are using stays signed in.
-- If you are locked out after too many wrong passwords, wait for the lockout to expire or ask an admin (see [Users](#10-admin-tasks)).
+- If you are locked out after too many wrong passwords, wait for the lockout to expire or ask an admin (see [Users](#9-admin-tasks)).
 - The badge next to your name shows your role: **Admin** (everything), **Network defender** (sees everything, can't change settings) or **User** (only the alerts and events of the devices assigned to you; you get a **My devices** page and **Alerts**). Details: [ACCESS_CONTROL.md](ACCESS_CONTROL.md).
 
 ---
@@ -62,7 +61,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
 | **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map. |
 | **Devices ▾** | Hosts (everything on the network) and Endpoints (computers running the Elastic Agent). |
-| **More ▾** | Reports, Ask AI, AI review, Checked, Users. |
+| **More ▾** | Ask AI, AI review, Checked, Users. |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
 | **🕒 Time range** | The start and end of the time you are looking at (your local time). The newest nightly report's 24 hours are shown by default. Click it to set a **Start** and **End** date and time, use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**), or pick a **Nightly report window**. See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (and moves to a newer report if you were on the newest). |
 
@@ -82,7 +81,7 @@ Network map, **Lateral movement**, DNS & TLS, Traffic map, **Devices (including 
   are compared with the device's normal day, so a 3-day range isn't flagged just for being longer. "Went silent" is only
   checked for ranges of 24 hours or more.
 - **Trend charts** show the daily baseline records inside the range (or all of them when fewer than two fall inside).
-- **Alarms stay per report.** The Alerts page, Posture's AI triage alarms and summary, research notes, correlation and
+- **Alarms stay per report.** The Alerts page, research notes, correlation and
   AI verdicts come from the nightly report that ends inside the range (named in the footer). They are written by the
   scheduled AI review, not recomputed for arbitrary ranges.
 - A range never changes the baseline or the device registry.
@@ -159,7 +158,7 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 
 | Term | Where | Meaning |
 |---|---|---|
-| **Investigate / Review / Info** | Triage alarms, research notes | The AI's priority. *Investigate* means look at it now. *Review* means look when you can. *Info* means explained and benign. |
+| **Investigate / Review / Info** | Research notes | The AI's priority. *Investigate* means look at it now. *Review* means look when you can. *Info* means explained and benign. |
 | **high / medium / low** | Baseline and host findings, IDS | How serious the rule considers it. |
 | **malicious / suspicious / needs-review / benign / expected** | Research notes, comparisons | The AI's verdict after looking into it. |
 
@@ -180,7 +179,7 @@ The network is split into zones (for example main, IoT, servers, guest). `policy
 - If the flow is expected (for example your laptop managing a server over SSH), click the green **Clear** box on **Posture → Segmentation violations**, or the Clear box on **Lateral movement**.
 - **What clearing does:** the flow is hidden on Posture, the Fix list and Lateral movement; it stops counting toward host risk; and it is listed under **Cleared segmentation**.
 - **To bring a flow back:** uncheck it in Cleared segmentation.
-- For a permanent rule, ask the admin to add an `allow` entry to `policy.json`. The triage summary proposes such rules but never applies them itself.
+- For a permanent rule, ask the admin to add an `allow` entry to `policy.json`.
 
 ![Segmentation violation with the green Clear check box](img/posture-segmentation.png)
 
@@ -195,7 +194,7 @@ The **Related** column shows how many links an event has. Click it to see them, 
 
 ### Research notes on events
 
-The scheduled research job does **not** research events: that costs the most tokens. It triages the snapshot, and its reviewer reuses an earlier note when an event repeats one already researched. A new event is researched only when you open its 📝 and click **🔬 Send to research**; the research is then done for that one event.
+The scheduled review job does **not** research events: that costs the most tokens. Its reviewer reuses an earlier note when an event repeats one already researched. A new event is researched only when you open its 📝 and click **🔬 Send to research**; the research is then done for that one event.
 
 An event with a note shows a **✨ verdict** button next to its Related count. Click it to read:
 
@@ -221,7 +220,6 @@ The one-page summary of the selected snapshot.
 ![Overview page](img/overview.png)
 
 - **Tiles:** devices seen, traffic, IDS alerts, high findings, alarms the AI wants investigated, unhealthy endpoints, threat-intel hits, capture loss, recurring issues and the highest-risk host.
-- **Triage summary and alarms:** the AI's short write-up of the window, and the alarms to look at.
 - **Charts:** traffic per hour, top talkers, findings by severity and kind, devices by zone.
 - **Health:** the endpoint fleet and the gateway's health.
 
@@ -233,13 +231,10 @@ Urgent watcher alerts and your notification settings (see [section 4](#4-notific
 
 The main working page.
 
-![Triage alarms on Posture](img/posture-triage-alarms.png)
-*Triage alarms: each one says who, what was seen, why it matters and what to do next, with 💬 and ⇄ buttons.*
 
 | Box | What it is |
 |---|---|
-| Triage summary / Triage alarms | The AI's assessment of the window, with Investigate / Review / Info alarms. Each alarm says who, what was seen, why it matters, what to do next, and gives sources. |
-| Research notes | Background research from the triage run, with numbered sources. |
+| Research notes | Background research on an event you sent to research, with numbered sources. |
 | Baseline findings | Things a device did differently from its own normal: new ports or services, traffic spikes, new countries or ASNs, new DNS habits, new TLS fingerprints. Needs 3 days of history. |
 | Cleared segmentation | Flows you marked as expected. |
 | Host findings | Problems seen on the computers themselves: new accounts or groups, failed logins, sudo use, agent problems, Defend failures, system-log errors, new listening ports, unusual processes. |
@@ -332,10 +327,6 @@ Computers running the Elastic Agent: agent health, telemetry and auth/sudo/Defen
 
 ![Endpoints page](img/endpoints.png)
 
-### More → Reports
-
-The daily PDF reports (see [section 8](#8-reports)).
-
 ### More → Ask AI
 
 The AI assistant (see [Ask AI](#ask-ai)).
@@ -352,14 +343,14 @@ Everything checked off or cleared, with who did it and when. Uncheck to restore.
 
 ### More → Users
 
-Accounts and their roles (see [section 10](#10-admin-tasks)). Network defenders see this page read-only; Users don't see it.
+Accounts and their roles (see [section 10](#9-admin-tasks)). Network defenders see this page read-only; Users don't see it.
 
 ### More → Audit log
 
 Admins only. A record of who did what in the dashboard and of every conversation between the dashboard and an AI model.
 
 - **User actions**: sign-ins (failed ones too), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, model comparisons, settings and user changes, report downloads and every refused request. Each entry has the user, role, time, source IP, browser and the result (HTTP status).
-- **AI conversations**: Ask AI chats, the background correlation reviewer, model comparisons and the research job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
+- **AI conversations**: Ask AI chats, the background correlation reviewer, model comparisons and the review job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
 - Passwords, keys and tokens are replaced by `[redacted]` before anything is stored.
 
 Filter by type, time range (a quick range, or **From** / **To** dates and times), user, action, outcome or model, or search the text (this searches prompts and answers too). Click an entry to see all its details. Filters are kept in the address, so you can bookmark a view.
@@ -384,14 +375,14 @@ Full details (every recorded action, fields, Kibana queries, retention, troubles
 
 netmon uses two kinds of AI:
 
-- **A cloud AI provider** of your choice (any OpenAI-compatible service or Anthropic, added by an admin on **AI review → AI providers**): the research job's triage, web research and news briefing, and the Ask AI chat.
-- **A local model** (LM Studio, running on the monitoring computer): the correlation reviewer. It runs all the time and costs nothing per request. It can also be chosen for the research job or the chat.
+- **A cloud AI provider** of your choice (any OpenAI-compatible service or Anthropic, added by an admin on **AI review → AI providers**): the review job's reviewer and news briefing, on-request event research (web search), and the Ask AI chat.
+- **A local model** (LM Studio, running on the monitoring computer): the correlation reviewer. It runs all the time and costs nothing per request. It can also be chosen for the review job or the chat.
 
 Anything an AI wrote is labelled ✨ with the model name.
 
 ### Ask AI
 
-A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data, notes and reports, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI review → Models**; until one is chosen, the chat is off.
+A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data and notes, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI review → Models**; until one is chosen, the chat is off.
 
 - **Starting a chat:** open **More → Ask AI** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
 - **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What the AI will be given* shows exactly what is sent.
@@ -410,7 +401,7 @@ The purple **⇄** button asks several models for their opinion on one item, sid
 
 **Where it appears:**
 
-- triage alarms and research notes;
+- research notes;
 - baseline findings and host findings (on Posture, device pages and endpoint pages);
 - event research notes (the ✨ popup);
 - correlation decisions on the AI review page.
@@ -443,57 +434,36 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 
 | Box | What it shows |
 |---|---|
-| **Models** | The model for the **correlation reviewer**, the **research job** and the **chat (Ask AI)**: a local LM Studio model or any model of the providers in **AI providers**. The research job and the chat are off until a model is chosen. Admins change them here (see the cost notes below). Picking a different **research job** model (before pressing Save) adds a dashed "Cost with <model>" line to the **Time and tokens per research run** chart and a line under its title with the estimated cost per run and per month: the recorded runs' tokens re-priced at that model's price as entered on its provider (a rough guide, since another model would use a different number of tokens). |
+| **Models** | The model for the **correlation reviewer**, the **review job** and the **chat (Ask AI)**: a local LM Studio model or any model of the providers in **AI providers**. The review job and the chat are off until a model is chosen. Admins change them here (see the cost notes below). Picking a different **research job** model (before pressing Save) adds a dashed "Cost with <model>" line to the **Time and tokens per research run** chart and a line under its title with the estimated cost per run and per month: the recorded runs' tokens re-priced at that model's price as entered on its provider (a rough guide, since another model would use a different number of tokens). |
 | **AI providers** (admins) | The AI services netmon calls, each with its own API key. **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint or a self-hosted vLLM; **Anthropic** takes an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer, one per line (**Fetch from provider** lists the models the key can use). After a model id you can add its prices in $ per million tokens, `model input output [cached-input]`; they drive the cost estimates and the $ limits. **Calls per hour** caps each provider's single calls (the reviewer and comparisons stop with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, they are removed from error messages, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use by the reviewer, the research job or the chat can't be deleted. Its models appear in every model menu and Compare dialog. |
 | **Events to research** (admins) | One menu per category: host findings, Suricata severity 1-2, gateway events, threat-intel hits, urgent alarms, and all other events by severity (high, medium, low, info). **research** sends the event to the model (a repeat that already has a note is only rewritten if the new run contradicts it). **review** has the reviewer model compare the event with earlier research (its own note, notes of correlated events, notes on events with a similar name). If it is the same activity, the earlier note is copied to the event with a line saying it was copied and from where; otherwise (different, unsure, or nothing earlier) the event is sent to research in that run. **skip** ignores it. **test** queues the event and tags it *testing* in the lists, but never sends it: use it to see what a setting would send before it does (all filters, clears and Never-send rules still apply). The same **test** option exists for each event-type pair under Review limits. **New deployments start with every category and pair on test**, so nothing is sent until an admin switches categories to research or review; deployments that already had settings keep what they had. The **Awaiting research** number at the top counts events the next run would send; a grey **+N testing** badge counts the ones held in test mode, and the lists tag them *testing* (also in the 📝 popover). |
-| **Review limits** (admins and network defenders) | Limits what is sent to the correlation reviewer and the research job, with no model call for what is held back. **Max links per event** (0-200, 0 = no cap) keeps the best-scoring links per event. **Event types** has a review/skip/test menu per type pair (e.g. alert-vuln) with its link count; click or hover the **i** next to a type for what it is. Segmentation (`seg`, cross-zone traffic) is its own type and its own research category. **Events with the most links** has **exclude** (that event) and **exclude similar** (same kind of event; ports and alert numbers ignored). **Never send** rules stop a class of events by **name** (part of the event text, or a pattern with `*` `?`), by **host** (an IP or text in the event), by **ID** (the event id or a pattern such as `iss|seg|*`), or by a combination (all filled fields must match, so host + ID is a host/ID pair), for the research job, the reviewer or both. These are the exceptions: admins and network defenders add and remove them, every change is logged with the user, and links that already have a verdict are kept. **Reviews / min** and **Awaiting review** at the top show the reviewer's speed and queue. |
+| **Review limits** (admins and network defenders) | Limits what is sent to the correlation reviewer and to research, with no model call for what is held back. **Max links per event** (0-200, 0 = no cap) keeps the best-scoring links per event. **Event types** has a review/skip/test menu per type pair (e.g. alert-vuln) with its link count; click or hover the **i** next to a type for what it is. Segmentation (`seg`, cross-zone traffic) is its own type and its own research category. **Events with the most links** has **exclude** (that event) and **exclude similar** (same kind of event; ports and alert numbers ignored). **Never send** rules stop a class of events by **name** (part of the event text, or a pattern with `*` `?`), by **host** (an IP or text in the event), by **ID** (the event id or a pattern such as `iss|seg|*`), or by a combination (all filled fields must match, so host + ID is a host/ID pair), for the research job, the reviewer or both. These are the exceptions: admins and network defenders add and remove them, every change is logged with the user, and links that already have a verdict are kept. **Reviews / min** and **Awaiting review** at the top show the reviewer's speed and queue. |
 | **Clearing queues** (admins) | **Clear research queue** and **Clear review queue** under the top numbers empty what is waiting, after a warning you must confirm. Cleared research events are not researched even if they recur under the same ID; cleared links are marked "not related" without asking the model. Existing notes and verdicts are kept. **Awaiting research** (admins) and **Awaiting review** (admins and defenders) open a list of what is waiting when clicked. |
 | **Send to research** (everyone who sees the event) | Open the 📝 next to any event: below the notes, **🔬 Send to research** researches the event **right away** if the AI has not researched it yet, without waiting for the queue; scheduled runs never research events, so this is the only way a new event gets a note. The host starts a one-event research run (about 1-3 minutes, roughly $0.10 with a cloud model) and the note appears when it finishes. Until then the popover shows "Research started"; if another one-event run is going, or the host can't be reached, the request stays queued and you can click it again later. It ignores category modes, queue clears and Never-send rules. Users can do this only for their own devices' events; it is logged with the user's name and counts toward the daily $ cap. At most 200 requests wait at once. |
-| **Cleared events** | When an event is checked off (it moves to **More → Checked**), netmon remembers its name and IPs. Events with the same name and the same IPs are no longer sent to the research job or the correlation reviewer, even after the cleared one leaves the snapshot. The memory is permanent: unchecking an event on the Checked page does not lift it. An admin can reset it by deleting the `cleared_sigs` setting. |
-| **Research job limits** (admins) | Caps for the research job: **$ per run** (default 5), **$ per day** (UTC, default 20), **tokens per run** (input + output, works without prices) and **research batches** per run (8 events each, default 10). A run stops when it passes a cap, and no new run starts once the day's cap is reached. 0 = no limit. The $ caps need prices on the model's provider. The reviewer, comparisons and Ask AI have their own limits (calls per hour, chat limits). |
-| **Research lookback window** | Admins set how many hours of logs (1-24, default 24) each research run collects and reviews. A window a little longer than the run interval (the box suggests interval + 1 h) cuts the cost of each run without leaving gaps; a window shorter than the interval leaves hours unreviewed, and the box warns about it. The daily 05:00 UTC PDF run always covers 24 h, and only full-day snapshots go into the device baseline. Between PDF runs the newest snapshot on the dashboard covers only the window, and a short run can open a Fix-list item but never mark one fixed. |
-| **AI triage & reviewer** | Whether a research run is going on now, the schedule and next run, **Run now** and **Pause** buttons (admins), recent runs and how long they took, how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
+| **Cleared events** | When an event is checked off (it moves to **More → Checked**), netmon remembers its name and IPs. Events with the same name and the same IPs are no longer sent to research or the correlation reviewer, even after the cleared one leaves the snapshot. The memory is permanent: unchecking an event on the Checked page does not lift it. An admin can reset it by deleting the `cleared_sigs` setting. |
+| **Review job limits** (admins) | Caps for the review job: **$ per run** (default 5), **$ per day** (UTC, default 20), **tokens per run** (input + output, works without prices) and **research batches** per run (8 events each, default 10). A run stops when it passes a cap, and no new run starts once the day's cap is reached. 0 = no limit. The $ caps need prices on the model's provider. The reviewer, comparisons and Ask AI have their own limits (calls per hour, chat limits). |
+| **Lookback window** | Admins set how many hours of logs (1-24, default 24) each review job run collects and reviews. A window a little longer than the run interval (the box suggests interval + 1 h) cuts the cost of each run without leaving gaps; a window shorter than the interval leaves hours unreviewed, and the box warns about it. The daily 05:00 UTC run always covers 24 h, and only full-day snapshots go into the device baseline. Between daily runs the newest snapshot on the dashboard covers only the window, and a short run can open a Fix-list item but never mark one fixed. |
+| **AI review job** | Whether a run is going on now, the schedule and next run, **Run now** and **Pause** buttons (admins), recent runs and how long they took, how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
 | **Time and tokens per research run** | Run time plus the tokens of each research run, split into new input, cache writes and output. Cache re-reads (the conversation re-sent on every API call; ~95% of the raw input count but billed at ~10% of the input price) are hidden by default; click their legend entry to show them. The header shows the average tokens per minute (total run tokens divided by total run minutes, with and without cache re-reads). The header and tooltip give an estimated cost from the prices entered on the provider. |
 | **Reviewer** | The correlation reviewer's model, its queue and its throughput. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
 | **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), ask for a new review (↻), or **⇄ compare** models on it. Manual decisions always win and are never overwritten. |
 
-![AI triage and reviewer card with the time and tokens chart](img/aireview-research.png)
+![AI review job card with the time and tokens chart](img/aireview-research.png)
 
 ![Correlation decisions with compare, confirm, reject and re-review buttons](img/aireview-decisions.png)
 
 ### Things to know about model choices
 
 - **Cloud models** are faster and better at research, but cost money per request:
-  - **Research job:** a run uses several million tokens, and shorter intervals mean more runs. The **Research job limits** box caps it.
+  - **Review job:** a run uses tokens for the reviewer, and shorter intervals mean more runs. The **Review job limits** box caps it. Research of a single event is billed only when someone clicks Send to research.
   - **Correlation reviewer:** if it uses a cloud model, it decides every new link around the clock.
   - **Cap:** each provider's **calls per hour** (default 120) applies to comparisons and the reviewer.
 - **Local models** are free, but slower and weaker at research and tool use. A model that isn't loaded in LM Studio has to load first, which takes time and may unload the model the reviewer is using.
 
 ---
 
-## 8. Reports
-
-- **When:** one PDF a day, made by the 05:00 UTC run (1 AM Eastern in summer, midnight in winter).
-- **Turning it off:** admins can clear **AI review → Research job limits → PDF report**. The 05:00 UTC run then still covers 24 h, triages and writes the briefing, but makes no PDF; existing reports stay on the Reports page.
-- **What it covers:** the last 24 hours. It contains:
-  - the triage summary and alarms, with sources;
-  - IDS signal versus known noise;
-  - findings per device;
-  - threat intel and UniFi;
-  - ATT&CK mapping;
-  - risk;
-  - a short news briefing (security, cycling, local news).
-- **Where:** **More → Reports**. **Download** saves the PDF; **Open** views it in the browser. The report for the selected snapshot is highlighted.
-- **Notification:** when a new report is ready, a notification appears in the dashboard.
-
-The other runs of the day update the dashboard but don't make a PDF.
-
-![Reports page](img/reports.png)
-
----
-
-## 9. Phones and tablets
+## 8. Phones and tablets
 
 - **Install it:** add the dashboard to your home screen for an app-like experience and push notifications (required on iPhone and iPad).
 - **Menu:** the ☰ button opens the menu. Your name and **Sign out** are at the bottom of it.
@@ -510,11 +480,11 @@ The other runs of the day update the dashboard but don't make a PDF.
 
 ---
 
-## 10. Admin tasks
+## 9. Admin tasks
 
 Every account has a role (full table in [ACCESS_CONTROL.md](ACCESS_CONTROL.md)):
 
-- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Security Triage settings, change the correlation and research models, run model comparisons and use "Use this", manage AI providers and research-job limits, and choose the model per message in Ask AI.
+- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Auto-close settings, change the correlation and research models, run model comparisons and use "Use this", manage AI providers and research-job limits, and choose the model per message in Ask AI.
 - **Network defender:** sees every page, can check things off, write notes, confirm or reject AI links and use Ask AI (the configured chat model), but can't change settings. Configuration and Users are read-only.
 - **User:** sees only the alerts and security events of the devices assigned to them (**My devices** and **Alerts**), and gets push notifications only for those.
 
@@ -533,7 +503,7 @@ Installation, adding admins and other configuration are in [SETUP.md](SETUP.md).
 
 ---
 
-## 11. FAQ and troubleshooting
+## 10. FAQ and troubleshooting
 
 **The page looks old after an update.**
 Reload once (⟳ in the header, or the browser's reload). On a phone, close the app and open it again.
@@ -564,13 +534,12 @@ That model didn't return a usable answer, or wasn't reachable (for example LM St
 
 ---
 
-## 12. Glossary
+## 11. Glossary
 
 | Term | Meaning |
 |---|---|
 | **Snapshot** | One collection run covering the previous 24 hours. A new one is made on every research run. |
 | **Baseline** | What is normal for each device, learned from about one snapshot a day over the last 30 days. |
-| **Triage** | The AI's review of a snapshot: a summary plus Investigate / Review / Info alarms. |
 | **Finding** | Something a rule flagged: a *baseline* finding (network behaviour) or a *host* finding (on the computer itself). |
 | **IDS / Suricata** | Intrusion detection: rules that match known attack or suspicious traffic patterns. Severity 1 is highest. |
 | **Zeek** | Network sensor that logs every connection, DNS query, TLS handshake and file. |

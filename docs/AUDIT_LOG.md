@@ -31,9 +31,8 @@ Two kinds of entries, told apart by `event.dataset`:
 | `aireview.*`, `compare.item`, `compare.adopt`, `aireview.compare` | Confirming/rejecting AI correlation verdicts, running model comparisons, adopting a model's answer. |
 | `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask AI: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
 | `users.*` | Adding and deleting users, password resets, role changes, device assignment. Console changes (`docker exec ... server.py add-user / set-role / set-password`) are logged as user `console`. |
-| `config.*`, `llm.config`, `llm.research`, `llm.providers.*`, `llm.esqueries` | Integrations (Elasticsearch, UniFi, web search, audit key), Security Triage settings, research-job schedule, model choice (reviewer, research job, chat), research-job limits, "Run now" and Pause, adding / editing / testing / deleting AI providers, the reviewer's Elasticsearch look-up setting. |
+| `config.*`, `llm.config`, `llm.research`, `llm.providers.*`, `llm.esqueries` | Integrations (Elasticsearch, UniFi, web search, audit key), Auto-close settings, research-job schedule, model choice (reviewer, research job, chat), research-job limits, "Run now" and Pause, adding / editing / testing / deleting AI providers, the reviewer's Elasticsearch look-up setting. |
 | `push.*`, `alerts.read`, `account.password` | Notification subscriptions and preferences, marking alerts read, changing your own password. |
-| `report.download` / `report.view` | Downloading or opening a nightly PDF report. |
 | `ti.lookup`, `compare.item.history`, `aireview.compare.history` | Threat-intel lookups and opening comparison history. |
 | `audit.search` / `audit.open` | Reading the audit log itself (so admins' reading is audited too). |
 | `access.denied` | Any request refused with HTTP 403 (for example a User opening an admin page). |
@@ -61,8 +60,8 @@ note id, ...) and the request parameters with secrets redacted.
 Failed model calls are logged too, with `outcome: failure` and the error. Prompts and answers longer than 32,000
 characters are cut (marked `… [truncated, N chars]`); system prompts at 12,000.
 
-The research job runs on the host (`review.py`, started by `scheduler.py`), not inside the dashboard, so the audit log
-sees what goes in and what comes back (provider `research job`), not the job's internal tool calls. The full
+The review job runs on the host (`review.py`, started by `scheduler.py`), not inside the dashboard, so the audit log
+sees what goes in and what comes back (provider `research job`, the name kept in the log), not the job's internal tool calls. The full
 conversations, tool calls included, are saved on the host under `logs/research/` (the newest 60), and each run's
 tokens and estimated cost are on the AI review page.
 

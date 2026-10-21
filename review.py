@@ -574,7 +574,7 @@ class Run:
 
     def summary(self):
         c, u = self.counts, self.budget.summary()
-        parts = [f"{'PDF run' if self.pdf else 'Triage run'} on {os.path.basename(self.stem or '?')} with {self.target['model']}."]
+        parts = [f"{'PDF run' if self.pdf else 'Review run'} on {os.path.basename(self.stem or '?')} with {self.target['model']}."]
         parts.append(f"Research notes stored: {c.get('notes', 0)}, "
                      f"link verdicts: {c.get('links', 0)}, host notes added/updated: {c.get('host_notes_added', 0)}/{c.get('host_notes_updated', 0)}, "
                      f"work items without a note at start: {c.get('without_note', 0)}. Reviewer: {c.get('review_copied', 0)} earlier notes copied, {c.get('review_to_research', 0)} sent to research.")

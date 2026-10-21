@@ -39,7 +39,7 @@ the nightly report and the watcher):
 Failures also raise **host risk**: they add to the *threat* score of the machine being logged into and to the
 *reach* score of the machine trying. On the dashboard: **Network → Lateral movement → Admin access** has
 stat tiles, a logins-by-protocol chart (click to filter), an outcome chart, the session list and the admin tools
-seen. The nightly PDF has a section listing only the sessions with failures.
+seen.
 
 **The 15-minute watcher** (`watch.py` check 7) runs the same logic over its window. It raises **Admin ALERT**
 (investigate) for high and **Admin notice** for medium, tagged with ATT&CK (T1110.x brute force, T1021.x remote
@@ -97,7 +97,7 @@ reviewer calls far more often than a typical API rate cap allows) - **the review
 (LM Studio) to be running.** If the chosen provider is later disabled or deleted, the next run raises a clear
 error on the AI review page instead of silently falling back, so pick another model there. Mind each API
 provider's calls-per-hour cap (AI review → AI providers): the reviewer can fire many calls a minute, so a
-cloud provider meant for the occasional research run will hit its cap quickly unless you raise it.
+cloud provider meant for the occasional on-request research will hit its cap quickly unless you raise it.
 
 | Setting (`dashboard/.env`) | Default | |
 |---|---|---|
@@ -187,96 +187,86 @@ the model), **↻** deletes the verdict so the model reviews that link again.
 - **Users** page: admins assign devices to each person. That sets which devices they get push notifications and the
   🔔 count for (the same setting people edit on their own Alerts page).
 
-## 5. The research step (`review.py`) — what it does and where it looks
+## 5. The review job (`review.py`) — what it does and where it looks
 
-`review.py` is the scheduled (or on-demand) **research job**: it turns a raw snapshot into the triage summary,
-alarms, reviewer copies of earlier research notes and (once a day) the news briefing + PDF. It runs as a tool-using model with a
-small set of **read-only lookup tools** plus a few **validated submit tools** it must call to write anything.
+`review.py` is the scheduled (or on-demand) **review job**: it collects and analyzes a fresh snapshot, lets the reviewer
+reuse earlier notes for events that repeat, and (once a day) writes the news briefing. It does **not** research events
+on a schedule, to keep token cost down: a model researches an event only when a person clicks **Send to research**
+(`review.py --event ID`). The model steps use a small set of **read-only lookup tools** plus a few **validated submit
+tools** they must call to write anything.
 
 ```mermaid
 flowchart LR
     subgraph SRC["Where it gets information from"]
         SNAP["Snapshot & analysis\ndata/*.json, *.analysis.json"]
-        HIST["Previous / 24h-ago triage\ndata/*.triage.json"]
-        POL["known_benign.json\n& policy.json"]
         KB["Notes KB\nenrich.sh kb (host + event notes)"]
         DEV["Device lookup\nnetmon_mcp (traffic, services, findings)"]
         ES["Elasticsearch\nSecurity Onion logs, via es_search tool"]
         WEB["Public internet\nweb_search / web_fetch"]
+        PRIOR["Earlier notes\nsame family, correlated,\nsimilar label"]
     end
 
-    subgraph JOB["Research step — review.py"]
-        T["Triage phase\nanalyst + triage prompt"]
-        RV{"Reviewer phase\nreview-mode events vs prior notes"}
-        R["Event research phase\nenrich: batches of 8 work items\n(alerts, findings, IDS, admin, gateway,\nthreat intel, vulnerabilities)"]
-        B["Briefing phase\n(PDF run only)"]
+    subgraph JOB["Scheduled run — review.py"]
+        C["Collect + analyze\ncollect.py, analyze.py (no model)"]
+        RV{"Reviewer\nreview-mode events vs prior notes"}
+        Q["Research queue\nwaits for a click"]
+        B["Briefing\n(daily run only)"]
+    end
+
+    subgraph REQ["On request — Send to research (review.py --event ID)"]
+        R["Event research\none event and its correlated events"]
     end
 
     subgraph OUT["What it writes (validated submit_* tools only)"]
-        TJ["data/*.triage.json\nsummary + alarms"]
         COPY["Copied note\n(marked 'Copied by the reviewer')\nenrich.sh copy"]
-        NOTES["Research notes, link verdicts,\nhost notes -> enrich.sh put"]
+        NOTES["Research note, link verdicts,\nhost notes -> enrich.sh put"]
         SRC2["data/*.sources.json\ncited pages only"]
-        BEN["known_benign.json\nnew entries"]
         BJ["data/*.briefing.json"]
-        PDF["Nightly PDF\nreport.py"]
     end
 
-    SNAP --> T
-    HIST --> T
-    POL --> T
-    KB --> T
+    SNAP --> C
+    C --> RV
     SNAP --> RV
-    PRIOR["Earlier research notes\nsame family, correlated,\nsimilar label"] --> RV
+    PRIOR --> RV
     RV -- "similar enough: copy" --> COPY
-    RV -- "different / unsure / no prior" --> R
+    RV -- "different / unsure / no prior" --> Q
+    Q -. "person clicks Send to research" .-> R
     SNAP --> R
     KB --> R
     DEV --> R
     ES --> R
     WEB --> R
     WEB --> B
-
-    T --> TJ
-    T --> BEN
     R --> NOTES
-    COPY --> NOTES
     R --> SRC2
-    R --> BEN
     B --> BJ
-    BJ --> PDF
-    TJ --> PDF
 ```
 
-- **Triage phase** reads the new snapshot, its analysis, the notes KB and the last two triage files (to see what
-  changed) and writes one summary plus a list of alarms (`submit_triage`), optionally adding conclusively benign
-  items to `known_benign.json` so later runs stop raising them.
-- **Reviewer phase** handles events whose category is set to **review** (AI review → Events to research) and that
+- **Collect + analyze** (`collect.py`, `analyze.py`) build the snapshot and fold it into the baseline. No model is involved.
+- **Reviewer** handles events whose category is set to **review** (AI review → Events to research) and that
   have no note of their own. `enrich.py` attaches the candidate prior notes to each such event: the note of the same
   event family, notes of correlated events, and notes on same-type events whose label is at least 60 % similar (numbers
   masked). The reviewer model (prompt `prompts/reviewer.md`; tools: Elasticsearch, device lookup, notes KB) answers per
-  event with `submit_review`: **copy** (naming which prior note and why) or **research**. A copy is stored by
+  event with `submit_review`: **copy** (naming which prior note and why) or **research** (leave it queued). A copy is stored by
   `enrich.sh copy` / `enrich.py copy_notes`: the earlier verdict, priority, summary, links and research are reused, with a
   first line `[Copied by the reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
   re-researched.]`, and the note's source shows "reviewer (copied note)". Everything else stays in the research queue
-  until someone clicks **Send to research** on it. The reviewer is told to prefer research when unsure, when a malicious/suspicious prior doesn't clearly
-  match, or when the prior is old; events with no prior at all stay queued. If the reviewer fails, its events stay queued too, so nothing is dropped. The run summary shows how many notes were copied and how many were sent back.
-- **Event research** (`enrich`) is **not part of scheduled runs**: it only runs when a person clicks **Send to research**
-  on an event (`review.py --event ID`), to keep token cost down; the scheduled run stops after the reviewer phase.
-  It works through the event and its correlation candidates from section 2, in batches of 8,
-  with the broadest toolset: it can query Elasticsearch, look up a device's full history, read the notes KB, and
-  search/fetch the open web — but it may only *cite* a page after fetching it, and may only link pages it actually
-  read. Results go through `submit_notes`, which shells out to `enrich.sh put` to store notes, link verdicts and
-  host notes.
-- **Briefing phase** (daily PDF run only) only has web search/fetch and writes the security news items that go into
-  the PDF.
+  until someone clicks **Send to research** on it. The reviewer is told to leave an event queued when unsure, when a
+  malicious/suspicious prior doesn't clearly match, or when the prior is old; events with no prior at all stay queued. If the
+  reviewer fails, its events stay queued too, so nothing is dropped. The run summary shows how many notes were copied and
+  how many stayed queued.
+- **Event research** (`enrich`) runs only on request, for one event, with the broadest toolset: it can query
+  Elasticsearch, look up a device's full history, read the notes KB, and search/fetch the open web — but it may only *cite*
+  a page after fetching it, and may only link pages it actually read. Results go through `submit_notes`, which shells out
+  to `enrich.sh put` to store the note, link verdicts and host notes.
+- **Briefing** (daily run only) only has web search/fetch and writes the security news items.
 - Every write path is a `submit_*` tool that validates its input (ids must exist, URLs must have been fetched,
   verdicts/priorities must be from a fixed list) — the model proposes, the tool enforces the schema before anything
   lands on disk.
 
-## 6. The review phase (reviewer) — copy an earlier note or send back to research
+## 6. The reviewer — copy an earlier note or leave the event queued
 
-The reviewer is the last step of a scheduled run inside `review.py` (`Review.review_items`). Its job is to avoid
+The reviewer is the last model step of a scheduled run inside `review.py` (`Review.review_items`). Its job is to avoid
 paying for research twice: when an event is the same activity as one already researched, the earlier note is reused;
 everything else stays in the queue until a person sends it to research. Only events whose category is **review**
 (AI review → Events to research) and that have **no note of their own** enter this phase. Events set to *research*
@@ -293,7 +283,7 @@ flowchart LR
         end
     end
 
-    subgraph REV["Reviewer phase — review.py review_items"]
+    subgraph REV["Reviewer — review.py review_items"]
         NP{"Any prior\nnote?"}
         RM["Reviewer model\nprompts/reviewer.md\nbatches of 16, max 20 turns"]
         TOOLS["Read-only tools\nes_search, device_lookup, notes_kb"]
@@ -303,8 +293,8 @@ flowchart LR
 
     subgraph OUT["What happens next"]
         CP["enrich.sh copy -> copy_notes\nverdict, priority, summary, links, research reused\nfirst line: Copied by the reviewer ... Not re-researched\nsource: reviewer (copied note)"]
-        RS["Event research phase\nenrich, batches of 8"]
-        STAT["Run summary\nnotes copied / sent to research"]
+        RS["Research queue\nwaits for Send to research"]
+        STAT["Run summary\nnotes copied / left queued"]
     end
 
     WORK --> NP
@@ -317,7 +307,7 @@ flowchart LR
     RM --> SUB
     SUB --> DEC
     DEC -- "copy (from = prior id, reason)" --> CP
-    DEC -- "research (different / unsure / old / loose match)" --> RS
+    DEC -- "research = leave queued (different / unsure / old / loose match)" --> RS
     SUB -. "batch fails or copy step fails" .-> RS
     CP --> STAT
     RS --> STAT
@@ -331,13 +321,13 @@ flowchart LR
    notes of correlated events (up to 8, see section 2), and notes on same-type events whose label is at least 60 %
    similar with numbers masked (up to 4, via `difflib`). Each prior carries `how` it was found, its label, verdict,
    priority, summary, research (first 800 characters) and age in hours.
-3. **No prior, no model call.** Items with nothing to compare against are sent straight to research.
+3. **No prior, no model call.** Items with nothing to compare against stay queued.
 4. **Ask the reviewer.** The rest go to the model in batches of 16 (system prompt: analyst + `prompts/reviewer.md`),
    with `es_search`, `device_lookup` and `notes_kb` available to check the item's evidence against the prior note.
    It answers once through `submit_review` with `{id, action: "copy"|"research", from?, reason}` for every item.
 5. **Rules the reviewer follows.** Copy only when it is the same activity: same signature or rule, same kind of
    source and destination, same behaviour, nothing in the item's evidence or `user_notes` that contradicts the prior
-   verdict. Choose research when hosts, ports or behaviour differ, when a malicious/suspicious prior does not clearly
+   verdict. Leave it queued when hosts, ports or behaviour differ, when a malicious/suspicious prior does not clearly
    match, when the prior is old, when the match is loose, or when unsure. A wrong copy hides a real event.
 6. **Validation.** `submit_review` rejects ids outside the batch, actions other than copy/research, and a `from`
    that is not one of that item's prior note ids. If some items get no decision, the tool tells the model to fill
@@ -347,11 +337,11 @@ flowchart LR
    (<date>), researched by <model>: <reason>. Not re-researched.]`. The note's source reads "reviewer (copied note)".
 8. **Leave the rest queued.** Every item not copied waits in the research queue; only a click on **Send to research** researches it.
 
-**Failure behaviour.** Nothing is dropped. If a reviewer batch errors, its items go to research and the error is
-listed in the run's errors. If the copy step fails, no copies are stored and all items go to research. A budget
+**Failure behaviour.** Nothing is dropped. If a reviewer batch errors, its items stay queued and the error is
+listed in the run's errors. If the copy step fails, no copies are stored and all items stay queued. A budget
 overrun stops the run as it would anywhere else.
 
-**Where to see it.** The run summary reports *N earlier notes copied, M sent to research*. A copied note shows the
+**Where to see it.** The run summary reports *N earlier notes copied, M left queued*. A copied note shows the
 copy line first and its source on the Notes views, with the usual ✨ model flare for the reviewer's model.
 
 ## Event ids (for links and the API)
@@ -362,20 +352,17 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 ## AI provenance flares
 
 Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
-triage summary, triage alarms and each alarm's *Next* recommendation, research notes, device notes, the security
-news briefing, Ask AI answers, and correlation-review reasons (Related popover, AI review page). The research job
-(`review.py`) records `generated_by: {model, via: "netmon research"}` in `triage.json` / `briefing.json`; if a file
-has none, `report.py` stamps the research job's configured model. Chat answers record the model that answered;
-correlation verdicts store the reviewer's model id. The PDF report labels the triage summary the same way. Fix-list "How to fix"
-text and risk scores are rule-based (no flare).
+research notes, device notes, the security news briefing, Ask AI answers, and correlation-review reasons (Related popover,
+AI review page). `review.py` records `generated_by: {model, via}` in `briefing.json`. Chat answers record the model that
+answered; correlation verdicts store the reviewer's model id. Fix-list "How to fix" text and risk scores are rule-based (no flare).
 
 ## Clearing segmentation findings
 
 Tick the box on a segmentation finding (Posture), a `Segmentation:` Fix-list item, or a flagged port in a Lateral
 movement link to mark the flow as expected. It is stored once as a stable flow key (`<source MAC or IP>|<dest>|<port>`,
 ack type `seg`), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots. Cleared flows
-are hidden from Posture, the Fix list and Risk, shown as *allowed* on Lateral movement, dropped from correlation and
-the PDF, and no longer raise host risk. Failed admin logins on a cleared flow still escalate. They are listed in a
+are hidden from Posture, the Fix list and Risk, shown as *allowed* on Lateral movement, dropped from correlation,
+and no longer raise host risk. Failed admin logins on a cleared flow still escalate. They are listed in a
 separate **Cleared segmentation** section (Posture, Fix list, Lateral movement, Checked); untick to bring one back.
 For a permanent rule that also applies to the nightly analysis, add it to `policy.json` `allow`.
 

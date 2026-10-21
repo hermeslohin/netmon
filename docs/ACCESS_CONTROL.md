@@ -17,7 +17,7 @@ what a role can't use. Hiding a button is never the protection.
 | Push notifications on own browsers/phones | ✓ | ✓ | ✓ (assigned devices only) |
 | Urgent alerts (Alerts page, 🔔) | all | all | assigned devices only |
 | Security events for a device (correlated findings, IDS, gateway, endpoint, vulns) | all pages | all pages | **My devices** page, assigned devices only |
-| Every other page: Overview, Security, Network, Devices, Notes, Reports (PDF), AI review, Checked | ✓ | ✓ | ✗ |
+| Every other page: Overview, Security, Network, Devices, Notes, AI review, Checked | ✓ | ✓ | ✗ |
 | Configuration and Users pages | view + change | view only | ✗ |
 | Check off events, write 📝 event notes and host notes, confirm/reject AI correlation verdicts | ✓ | ✓ | ✗ |
 | 📝 notes on events of own devices (pending until approved; sees only own notes) | ✓ | ✓ | ✓ (assigned devices only) |
@@ -30,11 +30,11 @@ what a role can't use. Hiding a button is never the protection.
 | Add / delete users, reset passwords, change roles, assign devices | ✓ | ✗ | ✗ |
 | Integrations (Elasticsearch, UniFi, web search): view and change | ✓ | ✗ | ✗ |
 | Audit log (More → Audit log): read, set its Elasticsearch key | ✓ | ✗ | ✗ |
-| Security Triage settings, research-job schedule and limits, "Run now" / Pause, reopen auto-closed | ✓ | ✗ | ✗ |
-| AI providers and API keys, AI models (correlation reviewer, research job, chat), model comparisons, "Use this" | ✓ | ✗ | ✗ |
+| Auto-close settings, research-job schedule and limits, "Run now" / Pause, reopen auto-closed | ✓ | ✗ | ✗ |
+| AI providers and API keys, AI models (correlation reviewer, review job, chat), model comparisons, "Use this" | ✓ | ✗ | ✗ |
 
 **"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
-roles, device assignments, integrations, triage/auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items
+roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items
 off, writing notes, confirming or rejecting an AI link, limiting which links the reviewer sees (AI review > Review limits) and using Ask AI, is not a setting. Defenders can do it.
 
 ## The User role in detail
@@ -44,7 +44,7 @@ off, writing notes, confirming or rejecting an AI link, limiting which links the
 - The dashboard shows a User two pages: **My devices** (their devices and the security events from the latest snapshot
   that involve one of the devices' IP addresses) and **Alerts** (urgent alerts whose targets include one of their
   devices: IP, MAC or endpoint host name). Their account page and push notifications also work.
-- Every other API, the report PDFs and Ask AI return **403** for a User. The site config they receive has only the
+- Every other API and Ask AI return **403** for a User. The site config they receive has only the
   site name; it leaves out IP hints, internal prefixes and admin workstations.
 - Event text can name the other party, for example the external IP that attacked their device or the internal host it
   talked to. They don't get the other device's own events.
