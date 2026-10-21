@@ -1018,7 +1018,48 @@ def _review(model, aid, base, todo):
             if d is not None:
                 k = pair(aid, r["id"])
                 store_artifacts(c, k, (clean_artifacts(d.get("artifacts")) + query_artifacts(logq.found)) if d.get("related") else [], mname, time.time())
+    try:
+        _note_expected(model, aid, E, cands, dec)
+    except Exception as e:  # noqa: BLE001 - host notes are a by-product, never fail a review for them
+        print(f"corr_llm: host notes skipped: {e}", file=sys.stderr)
     return len(rows)
+
+
+HOST_NOTES = os.environ.get("NETMON_REVIEW_HOST_NOTES", "on").lower() != "off"
+NOTE_MIN_CONF = 0.8
+NOTE_TAG = "[reviewer:{kind}:{value}]"
+
+
+def _note_expected(model, aid, E, cands, dec):
+    """Turn the reviewer's `expected` artifact judgements into host notes (category behavior) on the host(s) both events
+    involve, so the next reviews and the research job see them as ai_notes. One note per host + artifact (found by its
+    tag and updated in place), only for confident related links; they are marked unverified and can be deleted on the
+    Notes page."""
+    if not HOST_NOTES:
+        return 0
+    import kb
+    mname = model["model"] if isinstance(model, dict) else model
+    n = 0
+    for i, (e, r) in enumerate(cands, 1):
+        d = dec.get(f"c{i}")
+        if not d or not d.get("related") or float(d.get("confidence") or 0) < NOTE_MIN_CONF:
+            continue
+        a_ips, b_ips = set(E[aid].get("ips") or []), set(e.get("ips") or [])
+        hosts = sorted(a_ips & b_ips) or sorted(a_ips)[:1] or sorted(b_ips)[:1]
+        for art in clean_artifacts(d.get("artifacts")):
+            if art["decision"] != "expected" or art["kind"] == "ip" and art["value"] in hosts:
+                continue
+            tag = NOTE_TAG.format(kind=art["kind"], value=art["value"][:120])
+            text = (f"{tag} Expected {art['kind']} {art['value'][:160]}: {art['relation'] or str(d.get('reason') or '')[:150]}. "
+                    f"Seen in a correlation between '{E[aid]['label'][:80]}' and '{e['label'][:80]}'. Reviewer judgement ({mname}), unverified; delete if wrong.")
+            for ip in hosts[:2]:
+                try:
+                    old = [x for x in kb.host_notes(kb.subjects_for_ip(ip)) if x["text"].startswith(tag)]
+                    kb.add_host_note({"ip": ip}, text, "behavior", author="ai", model=mname, via="correlation reviewer", note_id=old[0]["id"] if old else None)
+                    n += 1
+                except ValueError as ex:  # note limit reached / unresolvable subject
+                    print(f"corr_llm: host note not added for {ip}: {ex}", file=sys.stderr)
+    return n
 
 
 # ---------------------------------------------------------------- event classification (review limits > classify)
