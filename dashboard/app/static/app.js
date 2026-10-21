@@ -321,7 +321,14 @@ const ACK = {
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
 // Baseline findings exclude segmentation: those have their own section (Segmentation violations on Posture).
-const baseFind = (an) => ((an && an.findings) || []).filter((f) => f.kind !== "segmentation");
+// host_ip: the finding's device as an IP (device may be a MAC; "" when unknown, e.g. network-wide findings)
+const findHostIp = (f) => {
+  const d = String(f.device || "");
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(d)) return d;
+  const m = d.toLowerCase(), dev = S.snap?.raw?.devices || {};
+  return Object.keys(dev).find((ip) => String(dev[ip]?.mac || "").toLowerCase() === m) || "";
+};
+const baseFind = (an) => ((an && an.findings) || []).filter((f) => f.kind !== "segmentation").map((f) => (f.host_ip === undefined ? Object.assign(f, { host_ip: findHostIp(f) }) : f));
 const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", dnstunnel: "DNS-tunnel domain", seg: "Cleared segmentation flow" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
@@ -973,7 +980,7 @@ V.security = (el) => {
   el.innerHTML = `<h1>Posture</h1>`;
   { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
   const BF = ackSplit("finding", baseFind(an), "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];

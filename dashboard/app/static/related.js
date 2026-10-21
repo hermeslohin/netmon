@@ -61,10 +61,18 @@
       ${hits ? `<span class="small muted">${esc(hits)}</span>` : ""}${d.approx ? ` <span class="small muted" title="${esc(tip)}">≈</span>` : ""} ${a.model ? aiFlare({ model: a.model, via: "Elasticsearch search", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`;
   }
+  // host / destination IPs of a related event, always listed as ip artifacts (before the reviewer's own, deduped)
+  function ipArts(e, arts) {
+    const have = new Set((arts || []).filter((a) => a.kind === "ip").map((a) => a.value)), out = [];
+    for (const [list, rel] of [[e.host_ips, "host IP"], [e.dst_ips, "destination IP"]]) {
+      for (const ip of list || []) { if (!have.has(ip)) { have.add(ip); out.push({ kind: "ip", value: ip, relation: rel, decision: "info" }); } }
+    }
+    return [...out, ...(arts || [])];
+  }
   function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";
     return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
-      <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
+      <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${!a.model ? "" : aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
   }
   document.addEventListener("click", (e) => {  // capture phase: the artifact sits inside a link row, so stop that navigation
@@ -91,7 +99,7 @@
         return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-pair small muted" title="event pair">${esc(pairText(me?.type, e.type))}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
           <span class="rel-time small muted">🕒 ${esc(evTime(e))}</span>
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
-          ${artifactsHtml(r.llm_artifacts)}
+          ${artifactsHtml(ipArts(e, r.llm_artifacts))}
           <span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span></a>`; }).join("")}
       <div class="small muted" style="padding:6px 10px">${esc(llmLine())}</div>`;
     document.body.appendChild(pop);

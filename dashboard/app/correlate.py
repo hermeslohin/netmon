@@ -115,10 +115,12 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
                 e.add(("dom", d.lower()))
         return e
 
-    def add(eid, typ, label, t0, t1, ents, tech=(), link="", sev="", vuln=False, topics=()):
+    def add(eid, typ, label, t0, t1, ents, tech=(), link="", sev="", vuln=False, topics=(), host=None, dst=None):
         ents = {(k, v) for k, v in ents if v and not (k == "ip" and str(v).endswith(".1"))}  # gateway interfaces link everything
         ev[eid] = {"id": eid, "type": typ, "label": label[:160], "t0": t0, "t1": t1 if t1 is not None else t0, "ents": ents,
-                   "tech": set(tech), "link": link, "sev": sev, "vuln": vuln, "topics": set(topics)}
+                   "tech": set(tech), "link": link, "sev": sev, "vuln": vuln, "topics": set(topics),
+                   # host_ips / dst_ips feed the artifacts of a related event; default: internal IPs are hosts, external ones destinations
+                   "host": None if host is None else set(host), "dst": None if dst is None else set(dst)}
 
     def host_ents(h):
         ip = resolve(h or "")
@@ -169,9 +171,11 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         base = ({("ip" if internal(dev) else "ext", dev)} if dev.count(".") == 3 else
                 {("ip", mac2ip[dev.lower()])} if _MAC.match(dev) and mac2ip.get(dev.lower()) else host_ents(dev))
         e = ents_from_text(f.get("detail", ""), base)
+        hips = {v for k, v in base if k == "ip"}
         eid = f"f|{f['kind']}|{dev}|{f.get('detail', '')}"
         add(eid, "finding", f"{f['kind']}: {names.get(dev, dev)} - {f.get('detail', '')}", w0, w1, e, techniques("analysis", f["kind"]),
-            "#/security?ev=" + eid, f.get("severity", ""), topics=_topics_finding(f["kind"]))
+            "#/security?ev=" + eid, f.get("severity", ""), topics=_topics_finding(f["kind"]),
+            host=hips, dst={v for k, v in e if k in ("ip", "ext") and v not in hips})
 
     # --- IDS signatures
     for s in (raw.get("alerts") or {}).get("signatures") or []:
@@ -182,6 +186,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             e.add(("ip" if internal(ip) else "ext", ip))
         add(f"ids|{s['name']}", "ids", f"IDS: {s['name']} x{s.get('count', 0)}", _ts(s.get("first")) or w0, _ts(s.get("last")) or w1, e,
             _TECH.findall(" ".join(map(str, s.get("mitre") or []))), "#/security?ev=" + f"ids|{s['name']}", {1: "high", 2: "medium"}.get(s.get("severity"), "low"),
+            host=list((s.get("src") or {}))[:6], dst=list((s.get("dst") or {}))[:6],
             topics={t for rx, t in ((r"SCAN", "scan"), (r"CINS|Poor Reputation|DROP|Compromised|Dshield", "threat-intel"), (r"\bSSH\b", "ssh-auth"),
                                     (r"TLS|SSL", "tls-legacy" if re.search(r"SSLv|TLSv1\.[01]", s["name"]) else "_")) if re.search(rx, s["name"])} - {"_"})
 
@@ -192,6 +197,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         add(eid, "admin", f"{a['protocol']} {names.get(a['src'], a['src'])} -> {names.get(a['dst'], a['dst'])}: {a['why']}",
             _ts(a.get("first")) or w0, _ts(a.get("last")) or w1, e, techniques("admin", f"{a['protocol']} | {a['why']}"),
             "#/lateral?at=admin-list&ev=" + eid, a["level"],
+            host=[a["src"]], dst=[a["dst"]],
             topics=({"ssh-auth"} if a["protocol"] == "SSH" else set()) | ({"auth-fail"} if a["auth_fail"] else set()) | ({"scan"} if a["conn_failed"] >= 5 else set())
             | ({"segmentation"} if a.get("src_zone") != a.get("dst_zone") else set()))
 
@@ -239,7 +245,8 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         threat = key.startswith("THREAT") or "INTRUSION" in str(g.get("subcategory") or "")
         sev = {"HIGH": "high", "CRITICAL": "high", "MEDIUM": "medium", "LOW": "low"}.get(str(g.get("severity") or "").upper(), "low")
         add(eid, "gw", f"Gateway {key}: {msg}", t, t, e, ["T1595"] if threat else [], "#/security?at=gateway-security&ev=" + eid, sev,
-            topics={"scan"} if threat else ({"wan"} if "INTERNET" in str(g.get("subcategory") or "") or key.startswith(("ISP", "WAN")) else set()))
+            topics={"scan"} if threat else ({"wan"} if "INTERNET" in str(g.get("subcategory") or "") or key.startswith(("ISP", "WAN")) else set()),
+            host=[g[x] for x in ("src",) if g.get(x)], dst=[g[x] for x in ("dst",) if g.get(x)])
 
     # --- vulnerabilities / misconfigurations (open issues): time-less, relate by host
     for i in issues:
@@ -321,6 +328,8 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
                 break
         out[eid] = keep
     events = {eid: {**{k: x[k] for k in ("type", "label", "link", "sev", "t0", "t1")},  # ips: internal hosts involved (host notes lookup)
-                    "ips": sorted(v for k, v in x["ents"] if k == "ip")[:8]} for eid, x in ev.items()}
+                    "ips": sorted(v for k, v in x["ents"] if k == "ip")[:8],
+                    "host_ips": sorted(x["host"] if x["host"] is not None else {v for k, v in x["ents"] if k == "ip"})[:8],
+                    "dst_ips": sorted(x["dst"] if x["dst"] is not None else {v for k, v in x["ents"] if k == "ext"})[:8]} for eid, x in ev.items()}
     return {"events": events, "related": out, "window": [w0, w1], "counts": {t: sum(1 for x in ev.values() if x["type"] == t) for t in
                                                                               ("alert", "finding", "ids", "admin", "host", "ti", "vuln", "gw", "alarm")}}
