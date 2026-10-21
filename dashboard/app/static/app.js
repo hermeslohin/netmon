@@ -359,7 +359,7 @@ function ackBox(type, x, label) {
 // split rows into open / checked and decide what to show for a section
 function ackSplit(type, rows, sec) {
   const open = rows.filter((x) => !acked(type, x)), done = rows.filter((x) => acked(type, x));
-  const show = S.showAcked[sec] || hq().has("ev") ? [...open, ...done] : open;
+  const show = S.showAcked[sec] || hq().has("ev") || (sec === "ep-find" && hq().has("hstate")) ? [...open, ...done] : open;
   const toggle = done.length ? ` <a href="#" class="ack-toggle small" data-s="${sec}">${S.showAcked[sec] ? "hide" : "show"} ${done.length} checked</a>` : "";
   return { open, done, show, toggle };
 }
@@ -690,7 +690,7 @@ V.endpoints = (el, arg) => {
   el.innerHTML = `<h1>Endpoints</h1><div class="sub">Elastic Agent / Security Onion host telemetry (window ${ft(S.range.start)} – ${ft(S.range.end)}). Click a host for detail.</div>`;
   const hf = H.findings || [];
   const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-  el.insertAdjacentHTML("beforeend", kpis([["Agents", (H.fleet || []).length], ["Open host findings", `<a href="#/security?to=sec-hostfind" title="Listed on Posture">${hfo.length} <span style="font-size:13px">›</span></a>`, hfo.length ? "warn" : "good"], ["Investigate (open)", hfo.filter((f) => /investigate/i.test(f.priority)).length, "bad"], ["Checked off", `<a href="#/checked">${HF.done.length}</a>`],
+  el.insertAdjacentHTML("beforeend", kpis([["Agents", (H.fleet || []).length], ["Open host findings", `<a href="#/security?to=sec-hostfind" title="Listed on Posture">${hfo.length} <span style="font-size:13px">›</span></a>`, hfo.length ? "warn" : "good"], ["Investigate (open)", `<a href="#/security?hpri=Investigate&hstate=open&to=sec-hostfind" title="Open Investigate-priority host findings on Posture">${hfo.filter((f) => /investigate/i.test(f.priority)).length} <span style="font-size:13px">›</span></a>`, "bad"], ["Checked off", `<a href="#/security?hstate=checked&to=sec-hostfind" title="Checked-off host findings on Posture">${HF.done.length} <span style="font-size:13px">›</span></a>`],
     ["Auth failures", kpiLink("authfail", (H.auth?.failures || []).reduce((s, f) => s + (f.count || 0), 0))], ["sudo events", kpiLink("sudo", (H.auth?.sudo || []).reduce((s, f) => s + (f.count || 0), 0))],
     ["Defend failures", kpiLink("defend", (H.defend || []).filter((d) => d.status !== "success").length), (H.defend || []).some((d) => d.status !== "success") ? "bad" : "good"]]));
   if (EP_KINDS[arg]) epDrill(arg, el);
@@ -985,7 +985,8 @@ V.security = (el) => {
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}` }) : `<div class="empty">All host findings checked off.</div>`);
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
+      urlFilter: { hpri: ["Priority", (x, v) => eqi(x.priority, v)], hstate: ["State", (x, v) => (v === "checked") === !!acked("host", x)] } }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
   }
   const sigs = raw.alerts?.signatures || [];
