@@ -498,8 +498,10 @@ from the event text or script evidence above - never invent values, at most 6 pe
 named. Each artifact has: kind (file|process|user|ip|dns), value, relation (under 15 words: how it links the two
 events) and decision: benign (looks odd, harmless), expected (normal for this device or task) or suspicious
 (needs a person's eye). Base benign and expected on the notes: an owner/artifact note saying the artifact is normal, or an ai_note
-(research verdict benign/expected, or a host note describing this role, baseline or behaviour) that explains it, justifies benign
-or expected; name that note in the relation (e.g. "per host note: nightly backup"). Without such support, or when notes conflict
+(research verdict benign/expected, a host note describing this role, baseline or behaviour, or a user profile showing the account normally
+does this - its usual hosts, sources, methods and hours) that explains it, justifies benign or expected. Host notes and user profiles are
+attached to each event: compare what the event shows with them (right account, right source, usual hours, usual process) and name the note;
+activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Without such support, or when notes conflict
 with the evidence, do not guess benign or expected: choose suspicious when it needs a person's eye. Use [] for candidates that are NOT RELATED.
 Answer with JSON only. Keep each reason under 25 words and specific (name the shared thing and why it matters)."""
 
@@ -947,7 +949,7 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correla
     def ev(tag, e, extra=""):
         on = "".join(f"\n  <owner_note>{str(t)[:300]}</owner_note>" for t in (notes.get(tag) or [])[:3])
         ips = f' hosts="{", ".join(map(str, (e.get("ips") or [])[:6]))}"' if es_max and e.get("ips") else ""
-        on += "".join(f"\n  <ai_note>{str(t)[:700]}</ai_note>" for t in (ai_notes.get(tag) or [])[:4])
+        on += "".join(f"\n  <ai_note>{str(t)[:700]}</ai_note>" for t in (ai_notes.get(tag) or [])[:7])
         kn = "; ".join(f"{a[0]}={str(a[1])[:90]}" for a in (e.get("arts") or [])[:8])  # artifacts the script read from the event itself
         kn = f"\n  known artifacts: {kn}" if kn else ""
         return f'<event id="{tag}" type="{e["type"]} - {TYPE_DESC.get(e["type"], "")}" when="{_when(e.get("t0"), e["type"])}" severity="{e.get("sev", "")}"{ips}>{e["label"][:400]}{kn}</event>{on}{extra}'
@@ -956,7 +958,9 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, purpose="correla
         lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))
     try:  # people's notes on artifacts (files, processes, users, IPs, DNS) seen in earlier reviews
         import kb
-        an = [n for n in kb.host_notes() if str(n["subject"]).startswith("art:")][:25]
+        hay = " ".join(str(x) for e_ in [anchor, *(c[0] for c in cands)] for x in (e_.get("label"), *(e_.get("ips") or []), *(a[1] for a in e_.get("arts") or []))).lower()
+        allan = [n for n in kb.host_notes() if str(n["subject"]).startswith("art:")]
+        an = ([n for n in allan if str(n["subject"]).split(":", 2)[-1].lower() in hay] + [n for n in allan if str(n["subject"]).split(":", 2)[-1].lower() not in hay])[:25]  # the ones named in these events first
         if an:
             lines += ["", "OWNER NOTES ON ARTIFACTS (authoritative guidance from the network owners; apply when the same artifact appears):"]
             lines += [f'<artifact_note artifact="{n["subject"][4:][:200]}">{str(n["text"])[:300]}</artifact_note>' for n in an]
@@ -1009,8 +1013,66 @@ def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=Non
     return _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query)[0]
 
 
-def _owner_notes(aid, ids):
-    """Owner event notes for the anchor and candidates, keyed like the prompt tags."""
+_PRIO = {"decision": 0, "role": 1, "baseline": 2, "behavior": 3, "config": 4, "risk": 5, "watch": 6, "other": 7}
+_PROFILE_CACHE = {"t": 0, "v": {}}
+_TAG = _re.compile(r"^\[profile:\w+\]\s*")
+
+
+def _human(n):
+    """A host / artifact note written by a person (not the AI, the reviewer or the profile pass)."""
+    return str(n.get("author") or "").startswith("user:") or str(n.get("via") or "") == "dashboard"
+
+
+def _user_profiles():
+    """{account: one-line pattern} from accounts.py (cached a minute: every review of a pass asks)."""
+    if time.time() - _PROFILE_CACHE["t"] > 60:
+        try:
+            import accounts
+            _PROFILE_CACHE.update(t=time.time(), v={u["user"].lower(): u["pattern"] + (" Flags: " + ", ".join(u["flags"]) + "." if u["flags"] else "") for u in accounts.overview()["users"]})
+        except Exception as e:  # noqa: BLE001
+            print(f"corr_llm: user profiles unavailable: {e}", file=sys.stderr)
+            _PROFILE_CACHE.update(t=time.time(), v={})
+    return _PROFILE_CACHE["v"]
+
+
+def _context_notes(tags, E):
+    """Host notes (about the hosts an event involves) and user notes (about the accounts it names) for each event.
+    -> (owner, ai): owner[tag] = notes people wrote (trusted), ai[tag] = AI / profile notes + account profiles (informed, unverified).
+    The reviewer bases its benign / expected calls on these."""
+    owner, ai = {}, {}
+    import kb
+    prof = _user_profiles()
+    for tag, eid in tags.items():
+        ev = E.get(eid, {})
+        o, a = [], []
+        subs = set()
+        for ip in (ev.get("ips") or [])[:4]:
+            subs |= set(kb.subjects_for_ip(ip))
+        hn = sorted(kb.host_notes(sorted(subs)) if subs else [], key=lambda n: (_PRIO.get(n.get("category"), 9), -float(n.get("updated") or 0)))
+        users = []
+        for kind, value, _rel in ev.get("arts") or []:
+            if kind == "user" and value.lower() not in [u.lower() for u in users]:
+                users.append(value)
+        ua = []  # accounts first: they are the shortest and decide most "expected" calls
+        for u in users[:4]:
+            for n in kb.host_notes([f"art:user:{u}"]):
+                (o if _human(n) else ua).append(f"user note [{u}]: {str(n['text'])[:300]}")
+            if prof.get(u.lower()):
+                ua.append(f"user profile: {prof[u.lower()][:300]}")
+        a += ua
+        for n in hn:
+            line = f"host note [{n['category']}] {n['label'] or n['subject']}: {_TAG.sub('', str(n['text']))[:240]}"
+            (o if _human(n) else a).append(line)
+        if o:
+            owner[tag] = o[:5]
+        if a:
+            ai[tag] = a[:6]
+    return owner, ai
+
+
+def _owner_notes(aid, ids, E=None):
+    """Owner event notes for the anchor and candidates, keyed like the prompt tags; with E also the notes people wrote on the
+    hosts and accounts the events involve."""
     try:
         import kb
         un = kb.event_notes([aid, *ids], ai=True)  # approved notes only: unapproved User notes never reach the AI
@@ -1019,31 +1081,33 @@ def _owner_notes(aid, ids):
         return {}
     out = {"anchor": [n["text"] for n in un.get(aid, [])]}
     out.update({f"c{i}": [n["text"] for n in un.get(x, [])] for i, x in enumerate(ids, 1)})
+    if E:
+        try:
+            for k, v in _context_notes({"anchor": aid, **{f"c{i}": x for i, x in enumerate(ids, 1)}}, E)[0].items():
+                out[k] = out.get(k, []) + v
+        except Exception as e:  # noqa: BLE001
+            print(f"corr_llm: host/user owner notes unavailable: {e}", file=sys.stderr)
     return {k: v for k, v in out.items() if v}
 
 
 def _ai_notes(aid, ids, E):
     """Earlier AI work as context for the reviewer, keyed like the prompt tags: the research job's note on each event
-    (verdict + summary + start of the research) and the AI-written host notes about the hosts the event involves.
-    People's notes are handled by _owner_notes (approved only); these are the AI's own, so they are labelled as such."""
+    (verdict + summary + start of the research), the AI-written / profile host notes about the hosts the event involves and the
+    profiles of the accounts it names. People's notes are handled by _owner_notes (approved only); these are labelled as the AI's own."""
     out = {}
     try:
-        import enrich, kb
+        import enrich
         tags = {"anchor": aid, **{f"c{i}": x for i, x in enumerate(ids, 1)}}
         rn = enrich.load(list(tags.values()))
+        ctx = _context_notes(tags, E)[1]
         for tag, eid in tags.items():
             lines = []
             n = rn.get(eid)
             if n and (n.get("verdict") or n.get("summary")):
                 lines.append(f"research verdict {n.get('verdict') or '?'}: {str(n.get('summary') or '')[:200]} {str(n.get('research') or '')[:300]}".strip())
-            subs = set()
-            for ip in (E.get(eid, {}).get("ips") or [])[:4]:
-                subs |= set(kb.subjects_for_ip(ip))
-            for hn in kb.host_notes(sorted(subs))[:30] if subs else []:
-                if (hn.get("author") == "ai" or hn.get("via") == "correlation profile") and hn.get("category") in ("role", "baseline", "behavior", "decision", "config", "other"):
-                    lines.append(f"host note [{hn['category']}] {hn['label'] or hn['subject']}: {str(hn['text'])[:200]}")
+            lines += ctx.get(tag, [])
             if lines:
-                out[tag] = lines[:4]
+                out[tag] = lines[:7]
     except Exception as e:  # noqa: BLE001 - reviews work without them
         print(f"corr_llm: AI notes unavailable: {e}", file=sys.stderr)
     return out
@@ -1074,7 +1138,7 @@ def _review(model, aid, base, todo):
     mname = model["model"] if isinstance(model, dict) else model
 
     logq = _es_logger(aid, ids, mname)
-    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, _owner_notes(aid, ids), es["max"] if es["enabled"] else 0, logq, ai_notes=_ai_notes(aid, ids, E))}
+    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, _owner_notes(aid, ids, E), es["max"] if es["enabled"] else 0, logq, ai_notes=_ai_notes(aid, ids, E))}
     rows = []
     for i, (e, r) in enumerate(cands, 1):
         d = dec.get(f"c{i}")
@@ -1166,7 +1230,7 @@ def _classify(model, eid, base, confirmed, sig):
     ids = [i for i, _, _ in conf]
     cands = [(E[i], {"score": 0, "why": [w]}) for i, _, w in conf]
     es, mname = config()["es_queries"], model["model"]
-    dec = _ask_full(model, E[eid], cands, _owner_notes(eid, ids), ai_notes=_ai_notes(eid, ids, E), purpose="event-classify",
+    dec = _ask_full(model, E[eid], cands, _owner_notes(eid, ids, E), ai_notes=_ai_notes(eid, ids, E), purpose="event-classify",
                     es_max=es["max"] if es["enabled"] else 0, on_query=_es_logger(eid, ids, mname) if es["enabled"] else None,
                     system=CLASS_SYSTEM, schemas=(CSCHEMA, CQSCHEMA), fmts=(CFMT, CQFMT), base_tokens=400)[0]
     d = next((x for x in dec if isinstance(x, dict) and x.get("label") in CLASS_LABELS), None)
