@@ -1479,6 +1479,7 @@ def _safe_review(model, aid, base, todo):
         STATUS["error"] = ""
         return n
     except Exception as e:  # noqa: BLE001 - one bad answer must not stop the run
+        print(f"reviewer error ({aid[:60]}): {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
         STATUS["error"] = f"{type(e).__name__}: {str(e)[:200]}"
         return 0
 
@@ -1501,6 +1502,7 @@ def start(get_base, latest_sid_fn, every=60):
                 n = run_once(get_base, latest_sid_fn())
                 time.sleep(5 if n else every)
             except Exception as e:  # noqa: BLE001 - LM Studio down / model unloading: back off and retry
+                print(f"reviewer loop error: {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
                 STATUS.update(busy=False, error=f"{type(e).__name__}: {str(e)[:200]}")
                 time.sleep(180)
     threading.Thread(target=loop, name="corr-llm", daemon=True).start()
