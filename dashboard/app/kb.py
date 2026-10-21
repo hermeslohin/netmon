@@ -31,7 +31,17 @@ import json, os, re, sqlite3, sys, time
 DB = os.path.join(os.environ.get("STATE_DIR", "/state"), "kb.db")
 CATEGORIES = ("role", "baseline", "behavior", "decision", "risk", "config", "watch", "other")
 MAX_TEXT = 2000
-MAX_PER_SUBJECT = 40
+MAX_PER_SUBJECT, PER_SUBJECT_LIMIT = 40, 500  # default / most an admin can set (AI review > Models, Notes per host / user)
+
+
+def max_per_subject():
+    """Most notes stored per host / user / domain subject (admin setting in llm_config.json context_notes.per_subject)."""
+    try:
+        with open(os.path.join(os.environ.get("STATE_DIR", "/state"), "llm_config.json")) as f:
+            v = int((json.load(f).get("context_notes") or {}).get("per_subject") or MAX_PER_SUBJECT)
+        return max(1, min(v, PER_SUBJECT_LIMIT))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return MAX_PER_SUBJECT
 _MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 _IP = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 _DOM = re.compile(r"^(?:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -308,8 +318,9 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
             _index(c, int(note_id), subj, text)
             return int(note_id)
         n = c.execute("SELECT count(*) FROM host_notes WHERE subject=?", (subj,)).fetchone()[0]
-        if n >= MAX_PER_SUBJECT:
-            raise ValueError(f"{subj} already has {n} notes - update or delete old ones instead of adding")
+        cap = max_per_subject()
+        if n >= cap:
+            raise ValueError(f"{subj} already has {n} notes (limit {cap}) - update or delete old ones instead of adding")
         cur = c.execute("INSERT INTO host_notes (subject, label, category, text, author, model, via, ts, updated) VALUES (?,?,?,?,?,?,?,?,?)",
                         (subj, label, cat, text, author, model, via, now, now))
         _index(c, cur.lastrowid, subj, text)

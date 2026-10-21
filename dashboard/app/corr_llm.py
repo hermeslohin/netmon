@@ -96,7 +96,14 @@ def notes_chars():
         return NOTE_BUDGET
 
 
-def set_notes_limit(mx, user, chars=None):
+def kb_per_subject():
+    try:
+        return max(1, min(int((_raw_config().get("context_notes") or {}).get("per_subject") or 40), 500))
+    except (TypeError, ValueError):
+        return 40
+
+
+def set_notes_limit(mx, user, chars=None, per_subject=None):
     """Set notes per event and / or the total note characters per prompt (each optional, the other is kept)."""
     c = _raw_config()
     cur = dict(c.get("context_notes") or {})
@@ -110,7 +117,12 @@ def set_notes_limit(mx, user, chars=None):
         if not CHARS_MIN <= chars <= CHARS_LIMIT:
             raise ValueError(f"note characters must be {CHARS_MIN}-{CHARS_LIMIT}")
         cur["chars"] = chars
-    if mx is None and chars is None:
+    if per_subject is not None:
+        per_subject = int(per_subject)
+        if not 1 <= per_subject <= 500:
+            raise ValueError("notes per host / user must be 1-500")
+        cur["per_subject"] = per_subject
+    if mx is None and chars is None and per_subject is None:
         raise ValueError("nothing to set")
     cur.update(by=user, at=time.time())
     c["context_notes"] = cur
@@ -131,8 +143,9 @@ def config():
         prov, model = llm_providers.default_target()
     return {"correlation": {"provider": prov, "model": model or MODEL},
             "chat": {"provider": ch.get("provider") or "", "model": ch.get("model") or "", "by": ch.get("by"), "at": ch.get("at")},
+            "chat_es": {"enabled": (c.get("chat_es") or {}).get("enabled", True) is not False, "by": (c.get("chat_es") or {}).get("by"), "at": (c.get("chat_es") or {}).get("at")},
             "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")},
-            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
+            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "per_subject": kb_per_subject(), "per_subject_default": 40, "per_subject_limit": 500, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
 
 
 # ---------------------------------------------------------------- review limits (admin): what is never sent to the reviewer
@@ -492,6 +505,14 @@ def set_chat(provider, model, user):
     c = _raw_config()
     c["chat"] = {"provider": provider, "model": model, "by": user, "at": time.time()}
     _save_config(c)
+
+
+def set_chat_es(enabled, user):
+    """Admin setting: may the Ask AI chat search Elasticsearch (default on)."""
+    c = _raw_config()
+    c["chat_es"] = {"enabled": bool(enabled), "by": user, "at": time.time()}
+    _save_config(c)
+    return config()["chat_es"]
 
 
 def set_es_queries(enabled, mx, user):

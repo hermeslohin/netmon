@@ -915,6 +915,10 @@ class H(BaseHTTPRequestHandler):
                     res = review_job()
                 print(f"llm config: {user} set {sec} -> {prov}/{model}", file=sys.stderr)
                 return self._json({"ok": True, sec: res})
+            if u.path == "/api/llm/chat-es":  # may the Ask AI chat search Elasticsearch
+                res = corr_llm.set_chat_es(bool(body.get("enabled")), user)
+                print(f"llm chat-es: {user} set enabled={res['enabled']}", file=sys.stderr)
+                return self._json({"ok": True, "chat_es": res})
             if u.path == "/api/llm/esqueries":  # may the correlation reviewer search Elasticsearch, and how often per event
                 try:
                     res = corr_llm.set_es_queries(bool(body.get("enabled")), body.get("max"), user)
@@ -924,7 +928,7 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "es_queries": res})
             if u.path == "/api/llm/notes":  # most host / user notes the reviewer gets per event
                 try:
-                    res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"))
+                    res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"), body.get("per_subject"))
                 except (TypeError, ValueError) as e:
                     return self._json({"error": str(e)[:200]}, 400)
                 print(f"llm notes: {user} set max notes per event={res['max']}, note characters={res['chars']}", file=sys.stderr)

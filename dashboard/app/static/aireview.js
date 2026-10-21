@@ -96,12 +96,6 @@
       uc.id = "ai-usage";
       const chart = uc;  // header + .chart as direct children so cards.js marks it cc-chart (no phone height cap)
       if (U.length) {
-        const hd = chart.appendChild(Object.assign(document.createElement("div"), { className: "small" }));
-        hd.append(Object.assign(document.createElement("span"), { className: "muted", textContent: `last ${days.length} day${days.length === 1 ? "" : "s"} (${U.length} runs) · ${Math.round(mins)} min in total, ${Math.round(mins / U.length)} min per run · ` +
-            (tpm ? `avg ${tpm.toLocaleString()} tokens/min (${tpmR.toLocaleString()} incl. cache re-reads) · ` : "") +
-            (S.length ? `${(work / S.length / 1e6).toFixed(2)} M tokens new input + cache writes + output per run, plus ${(reads / S.length / 1e6).toFixed(1)} M cache re-reads (~10% price; hidden, click the legend to show)` : "") +
-            (nRaw ? ` · ${nRaw} run${nRaw > 1 ? "s" : ""} without cache split (grey)` : "") +
-            (nCost ? ` · est. $${cost.toFixed(2)} at the prices entered for the model ($${(cost / nCost).toFixed(2)} per run)` : "") }));
         const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
         chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
         const lbl = days.map((d) => new Date(d.at * 1000).toLocaleDateString([], { month: "short", day: "numeric" }));
@@ -255,8 +249,10 @@
       }
       body.appendChild(esQueriesRow(D));
       body.appendChild(esResearchRow(D));
+      body.appendChild(chatEsRow(D));
       body.appendChild(notesLimitRow(D));
       body.appendChild(notesCharsRow(D));
+      body.appendChild(notesPerSubjectRow(D));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
@@ -309,6 +305,27 @@
     r.title = "When on, the AI Research job may run read-only Elasticsearch searches (es_search tool) while researching an event. Independent of the correlation reviewer's setting.";
     return r;
   }
+  // Elasticsearch searches by the Ask AI chat (admin switch)
+  function chatEsRow(D) {
+    const cfg = D.config?.chat_es || { enabled: true };
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries · Ask AI chat" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: cfg.enabled !== false }));
+    lab.append(" Ask AI may search the logs when answering");
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (on) => on ? "now: on" : "now: off";
+    msg.textContent = D.admin ? show(chk.checked) : show(chk.checked) + " · only an admin can change this";
+    chk.disabled = !D.admin;
+    chk.addEventListener("change", async () => {
+      chk.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/chat-es", { enabled: chk.checked }); chk.checked = r2.chat_es.enabled; msg.textContent = "saved · " + show(chk.checked) + " (from the next chat message)"; }
+      catch (e) { msg.textContent = "error: " + e.message; chk.checked = !chk.checked; }
+      chk.disabled = !D.admin;
+    });
+    r.title = "When on, the Ask AI chat may run read-only Elasticsearch searches of the Security Onion logs (elasticsearch_search tool) through the host broker. Every search is written to the audit log. Independent of the reviewer and research settings.";
+    return r;
+  }
   // Host / user notes given to the reviewer with each event (admin sets the cap; more notes = more tokens in)
   function notesLimitRow(D) {
     const cfg = D.config?.context_notes || { max: 7, limit: 100, default: 7 };
@@ -332,6 +349,31 @@
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     r.title = "Host notes about the hosts an event involves and notes / profiles of the accounts it names are added to each event the reviewer sees. Raising this gives it more context (and more input tokens: see Avg tokens in / event); lowering it makes reviews cheaper.";
+    return r;
+  }
+  // Most notes stored per host / user / domain (admin)
+  function notesPerSubjectRow(D) {
+    const cfg = D.config?.context_notes || {}, hi = cfg.per_subject_limit || 500, def = cfg.per_subject_default || 40;
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Notes per host / user" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    lab.append("most notes kept for one host, user or domain, max ");
+    const num = lab.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: hi, step: 1, value: cfg.per_subject || def }));
+    num.style.width = "4.5em"; num.setAttribute("aria-label", "Maximum notes stored per host or user");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (c) => `now: up to ${c.per_subject} per host / user (default ${def}, limit ${hi})` + (c.by ? ` (${c.by})` : "");
+    msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
+    num.disabled = !D.admin;
+    autoApply(btn, [num]);
+    btn.onclick = async () => {
+      const v = Math.round(+num.value);
+      if (!(v >= 1 && v <= hi)) { msg.textContent = `Enter 1-${hi} notes.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/notes", { per_subject: v }); Object.assign(cfg, r2.context_notes || {}); msg.textContent = "saved · " + show(cfg); }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    r.title = "How many notes the AI jobs and people can store for one host, user or domain. Once a subject is full, new notes are refused until old ones are updated or deleted. Existing notes are never removed when you lower this. This is the storage cap; 'Notes per event' above is how many the reviewer reads.";
     return r;
   }
   // Total characters of notes in one review prompt (below Notes per event)
