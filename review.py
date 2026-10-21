@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""netmon research job: collect -> analyze -> AI triage -> AI event research -> (daily) briefing + PDF report.
+"""netmon research job: collect -> analyze -> AI event research -> (daily) briefing.
 
 Started by scheduler.py on the grid set on the dashboard (research_cfg.py), or by hand:
     review.py [--pdf | --no-pdf] [--trigger manual|schedule] [--skip-collect] [--max-batches N]
-The PDF run is the first run at or after 05:00 UTC each day (or --pdf); it always covers 24 h of logs, writes the news
-briefing and renders the report. Other runs cover the lookback window set on the AI review page.
+The daily run (--pdf) is the first run at or after 05:00 UTC each day; it always covers 24 h of logs and writes the news
+briefing. Other runs cover the lookback window set on the AI review page.
 
 The AI works through narrow, read-only tools (Elasticsearch search, netmon data, web search / fetch) and writes only
-through validated submit_* tools: data/<stamp>.triage.json, data/<stamp>.briefing.json, research notes via enrich.sh
+through validated submit_* tools: data/<stamp>.briefing.json, research notes via enrich.sh
 (dashboard container), known_benign.json additions. Sources it cites are kept in data/<stamp>.sources.json.
 Run state, token use and cost go to <state>/research_job.json (AI review page). Conversations are saved under
 logs/research/ for review (git-ignored; the newest 60 are kept).
@@ -111,22 +111,6 @@ def jload(p, default=None):
         return json.load(open(p))
     except (OSError, ValueError):
         return default
-
-
-def triage_files(stem):
-    """(previous triage, triage ~24 h earlier) for comparison."""
-    me = os.path.basename(stem)
-    files = sorted(f for f in glob.glob(os.path.join(DATA, "*.triage.json")) if os.path.basename(f) < me + ".triage.json")
-    prev = files[-1] if files else None
-    t0 = dt.datetime.strptime(me, "%Y-%m-%dT%H%MZ") - dt.timedelta(hours=24)
-    day = None
-    for f in files:
-        try:
-            if dt.datetime.strptime(os.path.basename(f)[:16], "%Y-%m-%dT%H%MZ") <= t0:
-                day = f
-        except ValueError:
-            pass
-    return prev, day
 
 
 def _walk(obj, path):
@@ -244,9 +228,7 @@ class Run:
             print(f"es log failed: {e}", file=sys.stderr)
 
     def files(self):
-        prev, day = triage_files(self.stem)
-        return {"snapshot": self.raw, "analysis": self.ana, "previous_triage": jload(prev, {}) if prev else {},
-                "day_ago_triage": jload(day, {}) if day else {}, "known_benign": jload(os.path.join(NM, "known_benign.json"), {}),
+        return {"snapshot": self.raw, "analysis": self.ana, "known_benign": jload(os.path.join(NM, "known_benign.json"), {}),
                 "policy": jload(os.path.join(NM, "policy.json"), {})}
 
     def t_read(self, a):
@@ -315,32 +297,6 @@ class Run:
                 raise ValueError(f"{where}: link {l['url'][:100]} was not fetched - only link pages you read")
             out.append({"title": str(l.get("title") or l["url"])[:200], "url": l["url"][:500]})
         return out
-
-    def t_triage(self, a):
-        alarms = []
-        for i, x in enumerate(a.get("alarms") or []):
-            if not isinstance(x, dict) or x.get("priority") not in PRIOS or not x.get("title"):
-                raise ValueError(f"alarms[{i}]: needs priority (Investigate|Review|Info) and title")
-            al = {k: str(x.get(k) or "")[:3000] for k in ("priority", "title", "who", "evidence", "why", "next", "context") if x.get(k)}
-            if x.get("links"):
-                al["links"] = self._links(x["links"], f"alarms[{i}]")
-            alarms.append(al)
-        rn = a.get("research_notes") or []
-        if isinstance(rn, str):
-            rn = [rn]
-        dn = a.get("device_notes") or {}
-        if not isinstance(dn, dict):
-            raise ValueError("device_notes must be an object {ip: note}")
-        doc = {"generated_by": {"model": self.target["model"], "via": VIA, "provider": LP.name(self.target["provider"])},
-               "summary": str(a.get("summary") or "")[:6000], "alarms": alarms,
-               "research_notes": [str(x)[:3000] for x in rn if x], "device_notes": {str(k): str(v)[:2000] for k, v in dn.items()}}
-        if not doc["summary"]:
-            raise ValueError("summary is required")
-        json.dump(doc, open(self.stem + ".triage.json", "w"), indent=1, ensure_ascii=False)
-        self.counts["alarms"] = len(alarms)
-        self.counts["investigate"] = sum(1 for x in alarms if x["priority"] == "Investigate")
-        self.triage_summary = doc["summary"]
-        return {"ok": True, "stored": len(alarms)}
 
     def t_briefing(self, a):
         items = []
@@ -411,7 +367,7 @@ class Run:
                            "body": {"type": "object", "description": "search body: query, aggs, size, sort, _source"},
                            "for_ids": {"type": "array", "items": {"type": "string"}, "description": "ids of the work items this search is about; each search is attached to those notes as a Kibana link"}}, ["index", "body"]),
             "read_data": (self.t_read, "Read netmon data by path. Files: snapshot (full collected data), analysis (findings vs baseline), "
-                          "previous_triage, day_ago_triage, known_benign, policy. path uses '/' between keys, e.g. devices/192.168.1.20 or "
+                          "known_benign, policy. path uses '/' between keys, e.g. devices/192.168.1.20 or "
                           "alerts/signatures/0. Big objects come back as a key list with sizes.",
                           {"file": {"type": "string"}, "path": {"type": "string"}, "max_chars": {"type": "integer"}}, ["file"]),
             "device_lookup": (self.t_device, "Everything netmon knows about one device (traffic, destinations, services, findings, notes).",
@@ -425,15 +381,7 @@ class Run:
             "cite": (self.t_cite, "Register a page you fetched as a source; returns its id for [n] citations.",
                      {"url": {"type": "string"}, "title": {"type": "string"}}, ["url", "title"]),
         }
-        if kind == "triage":
-            T["add_known_benign"] = (self.t_benign, "Record a conclusively benign item so later runs do not raise it again.",
-                                     {"section": {"type": "string", "enum": ["signatures", "names", "dns_domains", "beacon_domains"]},
-                                      "value": {"type": "string"}, "reason": {"type": "string"}}, ["section", "value", "reason"])
-            T["submit_triage"] = (self.t_triage, "Store the triage (call once at the end).",
-                                  {"summary": {"type": "string"}, "alarms": {"type": "array", "items": {"type": "object"}},
-                                   "research_notes": {"type": "array", "items": {"type": "string"}},
-                                   "device_notes": {"type": "object"}}, ["summary", "alarms"])
-        elif kind == "enrich":
+        if kind == "enrich":
             T["submit_notes"] = (self.t_notes_factory(batch), "Store research notes, link verdicts and host notes for this batch.",
                                  {"notes": {"type": "array", "items": {"type": "object"}}, "links": {"type": "array", "items": {"type": "object"}},
                                   "host_notes": {"type": "array", "items": {"type": "object"}},
@@ -494,22 +442,6 @@ class Run:
             self.errors.append(f"collector errors: {json.dumps(self.raw['extras_errors'])[:300]}")
         if not os.path.exists(self.ledger_path()):
             json.dump({"version": 1, "sources": []}, open(self.ledger_path(), "w"))
-
-    def triage(self):
-        rc, kb, _ = sh([os.path.join(NM, "enrich.sh"), "kb"], timeout=120)
-        prev, day = triage_files(self.stem)
-        ana = json.dumps(self.ana, ensure_ascii=False)
-        user = (f"Snapshot {os.path.basename(self.stem)} covering {self.raw.get('hours')} h of logs "
-                f"({'daily PDF run' if self.pdf else 'enrichment run'}); generated {self.raw.get('generated')}.\n"
-                f"Collector errors: {json.dumps(self.raw.get('extras_errors') or {})}\n"
-                f"Previous triage: {os.path.basename(prev) if prev else 'none'}; about 24 h ago: {os.path.basename(day) if day else 'none'}.\n\n"
-                f"<notes_kb>\n{(kb if rc == 0 else '{}')[:30000]}\n</notes_kb>\n\n"
-                f"<analysis>\n{ana[:60000]}{' …[truncated - read_data analysis for the rest]' if len(ana) > 60000 else ''}\n</analysis>\n\n"
-                f"Snapshot top-level keys: {list(self.raw.keys())}{self.NOWEB if not self.web else ''}")
-        r = self.converse("triage", prompt("analyst") + "\n\n" + prompt("triage"), user, self.tools("triage"), ("submit_triage",),
-                          max_turns=60, max_tokens=8000)
-        if not os.path.exists(self.stem + ".triage.json") or os.path.getmtime(self.stem + ".triage.json") < self.started:
-            raise RuntimeError(f"the model ended without submitting a triage ({r.get('stopped') or 'no submit_triage call'})")
 
     def enrich(self):
         out = self.stem + ".work.json"
@@ -611,25 +543,16 @@ class Run:
         self.converse("briefing", prompt("briefing"), f"Today is {time.strftime('%Y-%m-%d', time.gmtime())}. Categories:\n{want}",
                       self.tools("briefing"), ("submit_briefing",), max_turns=40, max_tokens=6000)
 
-    def report(self):
-        rc, out, err = sh([PY, os.path.join(NM, "report.py")], timeout=1800)
-        m = re.findall(r"(/\S+\.pdf)", out + err)
-        if rc or not m or not os.path.exists(m[-1]) or os.path.getsize(m[-1]) == 0:
-            raise RuntimeError(f"report.py failed: {(err or out)[-300:]}")
-        self.counts["pdf"] = m[-1]
-
     def go(self, status):
         self.status, self.started = status, time.time()
         fatal = None
-        steps = [("collect + analyze", self.collect, True), ("triage", self.triage, False), ("event research", self.enrich, False)]
-        if getattr(self.args, "event", None):  # one event on request: no new snapshot, no triage, no PDF
+        steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
+        if getattr(self.args, "event", None):  # one event on request: no new snapshot
             steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
         elif self.pdf:
             steps.append(("briefing", self.briefing, False))
-            if RC.get().get("pdf_report", True):
-                steps.append(("report", self.report, False))
         for name, fn, must in steps:
-            if fatal and name != "report":
+            if fatal:
                 continue
             status.phase(name)
             try:
@@ -648,13 +571,9 @@ class Run:
     def summary(self):
         c, u = self.counts, self.budget.summary()
         parts = [f"{'PDF run' if self.pdf else 'Enrichment run'} on {os.path.basename(self.stem or '?')} with {self.target['model']}."]
-        if getattr(self, "triage_summary", None):
-            parts.append(self.triage_summary[:900])
-        parts.append(f"Alarms: {c.get('alarms', 0)} ({c.get('investigate', 0)} Investigate). Research notes stored: {c.get('notes', 0)}, "
+        parts.append(f"Research notes stored: {c.get('notes', 0)}, "
                      f"link verdicts: {c.get('links', 0)}, host notes added/updated: {c.get('host_notes_added', 0)}/{c.get('host_notes_updated', 0)}, "
                      f"work items without a note at start: {c.get('without_note', 0)}. Reviewer: {c.get('review_copied', 0)} earlier notes copied, {c.get('review_to_research', 0)} sent to research.")
-        if c.get("pdf"):
-            parts.append(f"Report: {c['pdf']}.")
         parts.append(f"Tokens: {u['total']:,} in {u['calls']} calls" + (f", est. ${u['cost_usd']:.2f}" if u["cost_usd"] is not None else "") + ".")
         if self.errors:
             parts.append("Problems: " + "; ".join(self.errors)[:800])
@@ -662,7 +581,7 @@ class Run:
 
 
 def pdf_due():
-    """First run at or after 05:00 UTC each day renders the PDF (the report file name carries the snapshot stamp)."""
+    """First run at or after 05:00 UTC each day is the daily run (24 h window + briefing)."""
     now = dt.datetime.now(dt.timezone.utc)
     if now.hour < RC.PDF_HOUR:
         return False
@@ -710,10 +629,10 @@ def main():
         raise
     finally:
         s = run.summary()
-        failed = fatal or any(e.startswith("triage:") for e in run.errors)
+        failed = fatal
         st.finish("failed" if failed else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, pdf)
         print(s)
-    return 1 if (fatal or any(e.startswith("triage:") for e in run.errors)) else 0
+    return 1 if fatal else 0
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 FROM python:3.12-alpine
 WORKDIR /app
 # apk upgrade: pick up Alpine security fixes (e.g. zlib) at every rebuild; pip is only needed at build time - remove it
-RUN apk upgrade --no-cache && pip install --no-cache-dir pywebpush==2.* \
+RUN apk upgrade --no-cache && pip install --no-cache-dir --upgrade "certifi>=2026.10.18" pywebpush==2.* \
  && pip uninstall -y pip && rm -rf /root/.cache /usr/local/lib/python3.12/ensurepip
 COPY app/ /app/
 USER 1000:1000

@@ -101,23 +101,6 @@ os.environ.setdefault("NETMON_INTEGRATIONS", os.path.join(STATE, "integrations.j
 os.environ["NETMON_IN_DASHBOARD"] = "1"
 import integrations  # noqa: E402  /netmon/integrations.py: Elasticsearch + UniFi settings (More > Configuration)
 SELF_IP, SELF_HOST = SITE.get("self_ip") or "", SITE.get("self_host") or "netmon-host"
-REPORTS = os.environ.get("REPORTS_DIR", "/reports")  # nightly PDFs (read-only mount of ~/network_reports)
-REPORT_RE = re.compile(r"^network-report-(\d{4}-\d{2}-\d{2}T\d{4}Z)\.pdf$")
-
-
-def report_list():
-    out = []
-    try:
-        names = os.listdir(REPORTS)
-    except OSError:
-        return out
-    for n in names:
-        m = REPORT_RE.match(n)
-        if m:
-            st = os.stat(os.path.join(REPORTS, n))
-            out.append({"name": n, "stamp": m.group(1), "size": st.st_size, "mtime": int(st.st_mtime),
-                        "has_snapshot": os.path.exists(os.path.join(DATA, m.group(1) + ".json"))})
-    return sorted(out, key=lambda r: r["stamp"], reverse=True)
 _ack_lock = threading.Lock()
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -139,7 +122,7 @@ KEY = os.environ.get("KEY", "/certs/dashboard.key")
 USER = os.environ.get("DASH_USER", "")
 PASS = os.environ.get("DASH_PASS", "")
 SNAP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{4}Z$")
-COMPANIONS = ("analysis", "triage", "briefing", "sources")
+COMPANIONS = ("analysis", "briefing", "sources")
 
 _cache = {}
 
@@ -228,7 +211,7 @@ def range_skeleton(rid):
         for k in keys:
             raw[k] = json.loads(json.dumps(SECTION_DEFAULTS.get(k, {})))
     res = {"id": rid, "raw": raw, "analysis": {}, "range": raw["range"], "base": base, "pending": SECTION_NAMES, "section_keys": SECTION_KEYS}
-    for c in ("triage", "briefing", "sources"):
+    for c in ("briefing", "sources"):
         res[c] = (b or {}).get(c)
     return res
 
@@ -257,7 +240,7 @@ def range_snapshot(rid):
     base = base_snapshot(raw.get("generated"))
     b = snapshot(base) if base else None
     res = {"id": rid, "raw": raw, "analysis": an, "range": raw.get("range"), "base": base}
-    for c in ("triage", "briefing", "sources"):
+    for c in ("briefing", "sources"):
         res[c] = (b or {}).get(c)
     return res
 
@@ -522,7 +505,7 @@ def review_job():
             "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": research_cfg.next_run(),
             "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
             "requested": research_cfg.pending_request(),
-            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches")}, "web_research": cfg["web_research"], "pdf_report": cfg["pdf_report"],
+            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches")}, "web_research": cfg["web_research"],
             "severities": cfg["severities"], "severity_options": cfg["severity_options"],
             "modes": cfg["modes"], "mode_options": cfg["mode_options"], "mode_cats": cfg["mode_cats"],
             "spent_today_usd": round(research_cfg.spent_today(), 2), "limit_ranges": cfg["limits"]}
@@ -934,7 +917,7 @@ class H(BaseHTTPRequestHandler):
                     research_cfg.request(user)
                     print(f"research job: {user} requested a run", file=sys.stderr)
                     return self._json({"ok": True, "research": review_job()})
-                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches", "enabled", "web_research", "pdf_report", "severities", "modes") if k in body}
+                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches", "enabled", "web_research", "severities", "modes") if k in body}
                 try:
                     research_cfg.put(fields, user)
                 except ValueError as e:
@@ -1148,7 +1131,7 @@ class H(BaseHTTPRequestHandler):
             return self._deny(path)
         role = auth.role_of(user) if user else None
         self._aud.update(user=user, role=role)
-        if role == "user" and (path.startswith("/api/") or path.startswith("/reports/")) and path not in USER_GET:
+        if role == "user" and (path.startswith("/api/")) and path not in USER_GET:
             return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
         admin = role == "admin"
         try:
@@ -1156,22 +1139,6 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"user": user, "role": role, "role_name": auth.ROLE_NAMES.get(role, role)})
             if path == "/api/my":
                 return self._json(my_events(user))
-            if path == "/api/reports":
-                return self._json({"reports": report_list()})
-            if path.startswith("/reports/"):
-                name = path[len("/reports/"):]
-                if not REPORT_RE.match(name):  # strict whitelist: no paths, no traversal
-                    return self._send(404, "not found", "text/plain")
-                fn = os.path.join(REPORTS, name)
-                if not os.path.isfile(fn):
-                    return self._send(404, "not found", "text/plain")
-                with open(fn, "rb") as f:
-                    body = f.read()
-                inline = (q.get("view") or ["0"])[0] == "1"
-                self._aud.update(act="report.view" if inline else "report.download", target=name)
-                self._extra_headers = [("Content-Disposition", f'{"inline" if inline else "attachment"}; filename="{name}"')]
-                print(f"report download: {user} {name} ({'view' if inline else 'download'})", file=sys.stderr)
-                return self._send(200, body, "application/pdf", "private, no-store")
             if path == "/api/site":
                 return self._json({"site_name": SITE.public().get("site_name")} if role == "user" else SITE.public())
             if path == "/api/account":

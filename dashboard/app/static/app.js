@@ -75,7 +75,7 @@ function buildIndex() {
     if (ip) { hostIp[h] = ip; (ipHosts[ip] = ipHosts[ip] || []).push(h); }
   }
   // per-device rows
-  const findings = an.findings || [];
+  const findings = baseFind(an);
   const rows = entries(devs).map(([ip, d]) => {
     const f = findings.filter((x) => x.device === ip);
     const worst = f.length ? f.map((x) => x.severity).sort((a, c) => sevRank(a) - sevRank(c))[0] : "";
@@ -203,8 +203,25 @@ function table(id, cols, rows, opts = {}) {
     const more = wrap.querySelector(".more");
     if (more) more.innerHTML = opts.limit && r.length > opts.limit && !st.q ? `<button>${st.showAll ? "Show top " + opts.limit : "Show all " + r.length}</button>` : `<span class="muted small">${r.length} rows</span>`;
     wrap.querySelectorAll("th").forEach((th) => { th.classList.remove("sorted-asc", "sorted-desc"); if (th.dataset.k === String(st.key)) th.classList.add(st.dir > 0 ? "sorted-asc" : "sorted-desc"); });
+    st.vis = r; ackAllBtn();
   };
-  wrap.innerHTML = chipHtml + (opts.search !== false && (opts.filter || rows.length > 8) ? `<div class="tbltools"><input placeholder="Filter…" type="search" aria-label="Filter list"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
+  // "Check all": when the list has check-off boxes, one button checks off every unchecked row currently matching the filter
+  const ackC = cols.find((c) => c.k === "_ack" && c.fmt);
+  const unchecked = () => { if (!ackC) return []; const tp = document.createElement("template");
+    return (st.vis || []).map((x) => { tp.innerHTML = String(ackC.fmt(x[ackC.k], x) ?? ""); const i = tp.content.querySelector("input.ack-cb"); return i && !i.checked ? { t: i.dataset.t, k: i.dataset.k, l: i.dataset.l } : null; }).filter(Boolean); };
+  function ackAllBtn() {
+    if (!ackC) return; let b = wrap.querySelector(".ack-all");
+    if (!b) { b = document.createElement("button"); b.type = "button"; b.className = "ack-all small"; b.style.marginLeft = "8px";
+      b.onclick = async () => { const it = unchecked(); if (!it.length) return;
+        if (!confirm(`Check off ${it.length} item${it.length > 1 ? "s" : ""}${st.q || act.length ? " matching the current filter" : ""}?`)) return;
+        b.disabled = true; let seg = false;
+        try { for (const a of it) { await setAck(a.t, a.k, true, a.l); if (a.t === "seg") seg = true; } } catch (err) { alert(err); }
+        if (seg) { S.lateral = null; S.corr = null; try { S.risk = await api("/api/risk?id=" + encodeURIComponent(S.snap.id)); } catch (_) {} }
+        rerender(); };
+      (wrap.querySelector(".tbltools") || wrap).appendChild(b); }
+    const n = unchecked().length; b.hidden = !n; b.textContent = `✓ Check all ${n}${st.q || act.length ? " filtered" : ""}`;
+  }
+  wrap.innerHTML = chipHtml + (opts.search !== false && (opts.filter || rows.length > 8) ? `<div class="tfrow" style="margin-bottom:8px"><input placeholder="Filter…" type="search" aria-label="Filter list" style="width:100%;box-sizing:border-box"></div><div class="tbltools"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
     `<div class="tblwrap ${opts.short ? "short" : ""}"><table><thead><tr>${cols.map((c) => `<th data-k="${esc(c.k)}" class="${c.num ? "num" : ""}">${esc(c.t)}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`;
   wrap.querySelector("thead").onclick = (e) => { const k = e.target.closest("th")?.dataset.k; if (!k) return; st.dir = st.key === k ? -st.dir : (cols.find((c) => c.k === k)?.num ? -1 : 1); st.key = k; render(); };
   const inp = wrap.querySelector("input"); if (inp) inp.oninput = () => { st.q = inp.value; render(); };
@@ -303,6 +320,8 @@ const ACK = {
   dnstunnel: (t) => String(t.domain || "").toLowerCase(),  // by DNS name, so it stays checked across snapshots and sources
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
+// Baseline findings exclude segmentation: those have their own section (Segmentation violations on Posture).
+const baseFind = (an) => ((an && an.findings) || []).filter((f) => f.kind !== "segmentation");
 const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", dnstunnel: "DNS-tunnel domain", seg: "Cleared segmentation flow" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
@@ -448,20 +467,17 @@ const V = {};
 
 V.overview = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, T = raw.totals || {};
-  const fsev = {}; (an.findings || []).forEach((f) => (fsev[f.severity] = (fsev[f.severity] || 0) + 1));
-  const alarms = tr.alarms || [];
-  const inv = alarms.filter((a) => /investigate/i.test(a.priority) && !acked("alarm", a)).length;
+  const fsev = {}; baseFind(an).forEach((f) => (fsev[f.severity] = (fsev[f.severity] || 0) + 1));
   const fleet = raw.hosts?.fleet || [];
   const unhealthy = fleet.filter((f) => !/online|healthy/i.test(f.status)).length;
   el.innerHTML = `<h1>Network overview</h1><div class="sub">Window: ${ft(S.range.start)} – ${ft(S.range.end)} (${esc(+(+raw.hours).toFixed(1))} h${S.snap.range ? ", collected for this range; volumes compared with the 24 h baseline scaled to the range" : ""}) · baseline ${esc(an.baseline_days ?? "?")} days${an.baseline_ready ? " (ready)" : " (warming up)"}</div>` +
     kpis([["Devices seen", fn(Object.keys(raw.devices || {}).length)], ["Total traffic", fb(T.ip_bytes)], ["Internet traffic", fb(T.internet_ip_bytes)], ["Connections", fn(T.conns)],
       ["IDS alerts", fn(raw.alerts?.total), raw.alerts?.total ? "warn" : ""], ["High findings", `<a href="#/security?severity=high">${fn(fsev.high || 0)}</a>`, fsev.high ? "bad" : "good"],
-      ["Triage: investigate", `<a href="#/security?at=sec-alarms-card">${fn(inv)}</a>`, inv ? "bad" : "good"], ["Endpoints unhealthy", `${unhealthy}/${fleet.length}`, unhealthy ? "warn" : "good"],
+      ["Endpoints unhealthy", `${unhealthy}/${fleet.length}`, unhealthy ? "warn" : "good"],
       ["TI hits (in/out)", `${(raw.threat_intel?.ip_hits_in || []).length}/${(raw.threat_intel?.ip_hits_out || []).length + (raw.threat_intel?.domain_hits || []).length}`], ["Capture loss", fb(T.missed_bytes), T.missed_bytes > 1e9 ? "warn" : ""],
       ["Recurring issues to fix", `<a href="#/issues">${(S.issues?.open || []).filter((x) => x.recurring).length}</a>`, (S.issues?.open || []).some((x) => x.recurring && x.severity === "high") ? "bad" : "warn"],
       ["Highest-risk host", S.risk?.hosts?.[0] ? `<a href="#/risk" style="font-size:16px">${esc(S.risk.hosts[0].name)} · ${S.risk.hosts[0].score}</a>` : "—", S.risk?.hosts?.[0]?.score >= 40 ? "bad" : "warn"],
       ["Issues fixed", `<a href="#/issues">${(S.issues?.fixed || []).length}</a>`, "good"]]);
-  if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, `<div>${linkifyIps(tr.summary)}</div>`));
   const hl = Object.keys(T.hourly || {}).sort();
   el.appendChild(grid("g2",
     chartCard("Traffic per hour", { type: "line", data: { labels: hl.map((k) => k.slice(11, 16)), datasets: [
@@ -471,10 +487,8 @@ V.overview = (el) => {
     topTalkersChart(12)));
   el.appendChild(grid("g3",
     chartCard("Findings by severity", doughnutCfg(fsev, { onClick: (l) => drill("security", { severity: l }) })),
-    chartCard("Finding kinds", doughnutCfg((an.findings || []).reduce((o, f) => ((o[f.kind] = (o[f.kind] || 0) + 1), o), {}), { top: 10, onClick: (l) => drill("security", { kind: l }) })),
+    chartCard("Finding kinds", doughnutCfg(baseFind(an).reduce((o, f) => ((o[f.kind] = (o[f.kind] || 0) + 1), o), {}), { top: 10, onClick: (l) => drill("security", { kind: l }) })),
     chartCard("Devices by zone", doughnutCfg(S.idx.rows.reduce((o, r) => ((o[r.zone || "?"] = (o[r.zone || "?"] || 0) + 1), o), {}), { onClick: (l) => drill("devices", { zone: l }) }))));
-  if (alarms.length) { const A = ackSplit("alarm", alarms, "ov-alarms"); const lst = A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority));
-    const c = card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(lst.slice(0, S.showAcked["ov-alarms"] ? 50 : 6)) || `<div class="empty">All alarms checked off.</div>`); if (A.show.length > 6) c.insertAdjacentHTML("beforeend", `<a href="#/security">All alarms →</a>`); el.appendChild(c); }
   el.appendChild(grid("g2", card("Endpoint fleet", fleetTable()), card("Gateway health", unifiHealthHtml())));
   const brief = S.snap.briefing?.items || [];
   if (brief.length) el.appendChild(card(`Security news briefing ${aiFlare(S.snap.briefing.generated_by || {}, "AI news research")}`, brief.map((i) => `<div class="alarm info"><div class="t"><span class="chip">${esc(i.category)}</span> <a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a></div><p>${esc(i.summary)}</p></div>`).join("")));
@@ -542,8 +556,7 @@ V.device = (el, ip) => {
   const raw = S.snap.raw, d = raw.devices?.[ip];
   if (!d) { el.innerHTML = `<h1>${esc(ip)}</h1><div class="empty">Not present in this time range.</div>`; return; }
   const r = S.idx.byIp[ip], an = S.snap.analysis || {}, tr = S.snap.triage || {}, seen = S.idx.seenByIp[ip] || {};
-  const findings = (an.findings || []).filter((f) => f.device === ip);
-  const alarms = (tr.alarms || []).filter((a) => [a.who, a.title, a.evidence].join(" ").includes(ip) || (r.name && [a.who, a.title].join(" ").includes(r.name)));
+  const findings = baseFind(an).filter((f) => f.device === ip);
   el.innerHTML = `<div class="crumbs"><a href="#/devices">Devices</a> › ${esc(ip)}</div><h1>${esc(r.name || ip)} ${r.known ? badge("known") : '<span class="badge sev-medium">unknown</span>'} ${r.worst ? badge(r.worst) : ""}</h1>`;
   const id = card("Identity", `<div class="idgrid">
     <span class="k">IP</span><span class="mono">${esc(ip)}</span><span class="k">MAC</span><span class="mono">${esc(r.mac || "—")}</span>
@@ -563,10 +576,9 @@ V.device = (el, ip) => {
   const devIss = (S.issues?.open || []).filter((x) => x.ip === ip || (r.mac && x.dev === r.mac));
   const DI = ackSplit("issue", devIss, "dev-iss");
   if (devIss.length) el.appendChild(card(`Open issues to fix (${DI.open.length}) · <a href="#/issues">all</a>${DI.toggle}`, issueTable(DI.show, { short: true })));
-  if (findings.length || alarms.length) {
-    const DF = ackSplit("finding", findings, "dev-find"), DA = ackSplit("alarm", alarms, "dev-alarm");
+  if (findings.length) {
+    const DF = ackSplit("finding", findings, "dev-find");
     const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
-    if (alarms.length) c.insertAdjacentHTML("beforeend", `<h3>Triage alarms (${DA.open.length}) ${trFlare()}${DA.toggle}</h3>` + alarmsHtml(DA.show));
     el.appendChild(c);
   }
   const hrs = hourLabels();
@@ -960,11 +972,7 @@ V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
   el.innerHTML = `<h1>Posture</h1>`;
   { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
-  if (tr.summary) el.appendChild(card(`Triage summary ${trFlare()}`, linkifyIps(tr.summary)));
-  if ((tr.alarms || []).length) { const A = ackSplit("alarm", tr.alarms, "sec-alarms");
-    { const ac = card(`Triage alarms (${A.open.length} open) ${trFlare()}${A.toggle}`, alarmsHtml(A.show.slice().sort((a, b) => (acked("alarm", a) - acked("alarm", b)) || sevRank(a.priority) - sevRank(b.priority))) || `<div class="empty">All alarms checked off.</div>`); ac.id = "sec-alarms-card"; el.appendChild(ac); } }
-  { const rn = researchNotes(tr.research_notes); if (rn.length) el.appendChild(card(`Research notes ${trFlare()}`, "<ul>" + rn.map((n) => `<li>${linkifyIps(n)} ${cmpBtn("triage research note", n, { note: n, triage_summary: tr.summary })}</li>`).join("") + "</ul>")); }
-  const BF = ackSplit("finding", an.findings || [], "sec-find");
+  const BF = ackSplit("finding", baseFind(an), "sec-find");
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints

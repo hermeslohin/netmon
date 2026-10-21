@@ -2,7 +2,7 @@
 """Read-only netmon data tools for the dashboard chat (dashboard/app/chat.py imports TOOLS) - also usable as a
 minimal MCP server over stdio (stdlib only) by any MCP-capable AI client: `python3 netmon_mcp.py`.
 
-Exposes the latest snapshot/analysis/triage, recent watcher alerts, notes and the device registry as query tools.
+Exposes the latest snapshot/analysis, recent watcher alerts, notes and the device registry as query tools.
 It opens SQLite with mode=ro and only ever reads files, so the assistant can look at netmon data but cannot change
 anything.
 """
@@ -13,7 +13,6 @@ DATA = os.path.join(NM, "data")
 _STATE = os.environ.get("STATE_DIR") if os.path.isdir(os.environ.get("STATE_DIR") or "/nonexistent") else os.path.join(NM, "dashboard", "state")
 DB = os.environ.get("NETMON_DB") or os.path.join(_STATE, "netmon.db")
 KB = os.path.join(os.path.dirname(DB), "kb.db")  # notes knowledge base (dashboard/app/kb.py)
-REPORTS = os.environ.get("NETMON_REPORTS") or ("/reports" if os.path.isdir("/reports") else os.path.expanduser("~/network_reports"))
 MAX = 12000  # characters per tool result
 
 
@@ -31,7 +30,7 @@ def _latest():
         return None, {}, {}, {}
     p = snaps[-1]
     stem = p[:-5]
-    return os.path.basename(stem), _json(p, {}), _json(stem + ".analysis.json", {}), _json(stem + ".triage.json", {})
+    return os.path.basename(stem), _json(p, {}), _json(stem + ".analysis.json", {}), {}
 
 
 def _db():
@@ -48,23 +47,15 @@ def overview(_):
     stamp, s, a, t = _latest()
     if not stamp:
         return "No netmon snapshots yet."
-    alarms = [{"priority": x.get("priority"), "title": x.get("title"), "who": x.get("who")} for x in t.get("alarms", [])]
     sev = {}
     for f in a.get("findings", []):
         sev[f.get("severity")] = sev.get(f.get("severity"), 0) + 1
     hf = (s.get("hosts") or {}).get("findings") or []
-    return {"snapshot": stamp, "window_hours": s.get("hours"), "triage_summary": t.get("summary"),
-            "alarms": alarms, "network_findings_by_severity": sev, "baseline_days": a.get("baseline_days"),
+    return {"snapshot": stamp, "window_hours": s.get("hours"),
+            "network_findings_by_severity": sev, "baseline_days": a.get("baseline_days"),
             "baseline_ready": a.get("baseline_ready"), "devices_seen": len(s.get("devices") or {}),
             "new_devices": a.get("new_devices"), "unknown_devices": a.get("unknown_devices"),
             "endpoint_findings": len(hf), "ids_alert_total": (s.get("alerts") or {}).get("total")}
-
-
-def alarms(args):
-    _, _, _, t = _latest()
-    pr = (args.get("priority") or "").lower()
-    out = [x for x in t.get("alarms", []) if not pr or (x.get("priority") or "").lower() == pr]
-    return {"alarms": out, "research_notes": t.get("research_notes")} if out else "No matching alarms in the latest triage."
 
 
 def findings(args):
@@ -101,9 +92,7 @@ def device(args):
                             "external_peers": d.get("ext_peers"), "countries": d.get("countries")},
             "top_destinations": _top(d.get("top_dst"), 10), "services_out": d.get("services_out"),
             "served_ports": d.get("served_ports"), "inbound_internet_sources": d.get("inbound_ext_sources"),
-            "triage_note": (t.get("device_notes") or {}).get(ip),
             "findings": [f for f in a.get("findings", []) if f.get("device") == ip][:25],
-            "alarms": [x.get("title") for x in t.get("alarms", []) if ip in json.dumps(x)],
             "host_notes": _host_notes(["ip:" + ip] + (["mac:" + str(d.get("mac")).lower()] if d.get("mac") else [])
                                       + ["host:" + h.lower().split(".")[0] for h in reg.get(ip, ()) if h and ":" not in h]),
         })
@@ -206,23 +195,13 @@ def ids_alerts(args):
     return {"total": al.get("total"), "signatures": sig[:40]}
 
 
-def reports(_):
-    try:
-        names = sorted((n for n in os.listdir(REPORTS) if n.endswith(".pdf")), reverse=True)
-    except OSError:
-        names = []
-    return {"reports": names, "note": "Users download these from the dashboard's Reports page."}
-
-
 TOOLS = {
-    "netmon_overview": (overview, "Latest nightly netmon status: triage summary, alarm list, finding counts, baseline status, device and endpoint counts. Start here.", {}),
-    "netmon_alarms": (alarms, "Full triaged alarms from the latest nightly report (evidence, why it matters, next steps, research context).",
-                      {"priority": {"type": "string", "description": "Optional: Investigate, Review or Info"}}),
+    "netmon_overview": (overview, "Latest nightly netmon status: finding counts, baseline status, device and endpoint counts. Start here.", {}),
     "netmon_findings": (findings, "Automated network findings from the latest analysis, optionally filtered.",
                         {"severity": {"type": "string", "description": "high, medium or low"},
                          "device": {"type": "string", "description": "IP or name substring"},
                          "limit": {"type": "integer", "description": "max rows (default 40)"}}),
-    "netmon_device": (device, "Everything netmon knows about one device: traffic, destinations, services, findings, triage notes.",
+    "netmon_device": (device, "Everything netmon knows about one device: traffic, destinations, services, findings.",
                       {"query": {"type": "string", "description": "IP, MAC or device name (substring ok)"}}),
     "netmon_devices": (devices, "List devices seen in the last snapshot (IP, name, known/unknown, traffic), biggest first.",
                        {"filter": {"type": "string", "description": "optional substring filter"}}),
@@ -235,7 +214,6 @@ TOOLS = {
     "netmon_notes": (notes, "Notes knowledge base: what the AI and the owner have recorded about each device/host (role, normal behaviour, decisions) "
                      "and the owner's notes on events. Check it before judging a device or event.",
                      {"query": {"type": "string", "description": "optional IP / MAC / host name / text filter"}}),
-    "netmon_reports": (reports, "List the nightly PDF reports available for download.", {}),
 }
 
 

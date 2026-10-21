@@ -496,3 +496,5 @@ html,body,.rel-pop,.rel-pop *{-webkit-text-size-adjust:100%;text-size-adjust:100
 .rel-pair{margin:0 4px}.mute-btns{display:inline-flex;gap:4px;margin-left:6px}.mute-btn{font-size:11px;padding:1px 6px;cursor:pointer}
 
 .kib-btn{background:none;border:0;padding:0;cursor:pointer;color:var(--accent,#58a6ff);text-align:left;font:inherit}.kib-btn:hover code{text-decoration:underline}.kib-btn code{word-break:break-all}
+@media (max-width:900px){ .tbltools input[type=search]{flex:1 1 100%;width:100%;min-width:100%} }
+@media (max-width:900px){ .tbltools{flex-wrap:wrap} .tbltools > input[type=search]{flex:0 0 100% !important;width:100% !important;min-width:100% !important;box-sizing:border-box;order:-10} .tbltools > .lm-sort{order:-5} }

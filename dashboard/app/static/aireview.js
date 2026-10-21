@@ -25,7 +25,7 @@
   const every = (_, mins) => { const n = mins;
     return !n ? "scheduled" : n === 720 ? "twice a day" : n === 1440 ? "daily" : n % 60 ? `every ${n} min` : `every ${n / 60} h`; };
   function researchCard(C, D) {  // returns [status box, time/token box (only when usage exists)]
-    if (C.error) return [card("AI triage &amp; enrichment", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
+    if (C.error) return [card("AI event research", `<div class="bad">Status unavailable: ${esc(C.error)}</div>`)];
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
@@ -35,11 +35,11 @@
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
     const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "research job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
-    const c = card(`AI triage &amp; enrichment (${every(null, J && J.interval_minutes)})`, `
+    const c = card(`AI event research (${every(null, J && J.interval_minutes)})`, `
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
         ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no model chosen - pick one in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)}</span>` : ""}</span>
-        <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · PDF on the first run after 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
+        <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
           ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested || !J.model ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
         <span class="k">Last run</span><span>${lastRun ? `${esc(ago(lastRun.finished || lastRun.started))} · ${esc(lastRun.status)}${lastRun.duration_s ? ` in ${esc(dur(lastRun.duration_s))}` : ""}` : "never"}${J.failure_streak ? ` · <span class="bad">${fn(J.failure_streak)} failure(s) in a row</span>` : ""}</span>
         ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>Research job status unavailable.</span>`}
@@ -69,7 +69,7 @@
     let uc = null;
     USAGE = null;
     if (U.length) {  // time + token use of each research run
-      const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (PDF)" : ""));
+      const lbl = U.map((u) => new Date(u.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (u.pdf_run ? " (daily)" : ""));
       // the prompt count sums the whole re-sent conversation over every API call of the run; most of it can be
       // prompt-cache reads (a fraction of the input price) when the provider caches. review.py records the split.
       const M = (v) => +((v || 0) / 1e6).toFixed(3), sum = (f) => U.reduce((a, u) => a + (f(u) || 0), 0);
@@ -121,7 +121,7 @@
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
       { k: "started", t: "Started", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },
       { k: "status", t: "Result", fmt: (v, r) => `<span class="badge ${v === "completed" ? "sev-good" : v === "running" || v === "claimed" ? "sev-medium" : "sev-high"}">${esc(v === "claimed" ? "starting" : v)}</span>${r.error ? ` <span class="small bad">${esc(r.error)}</span>` : ""}` },
-      { k: "pdf_run", t: "Type", fmt: (v, r) => `${v ? "Triage + PDF" : "Triage + enrichment"}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
+      { k: "pdf_run", t: "Type", fmt: (v, r) => `${v ? "Daily run (24 h)" : "Enrichment"}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
       { k: "duration_s", t: "Took", num: true, fmt: (v, r) => esc(r.status === "running" ? `${dur(Math.round(now - r.started))} so far` : dur(v)) },
     ], runs, { sort: "started", limit: 12 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No runs recorded yet." }));
     c.querySelector(".cl-enr").appendChild(R.length ? table(null, [
@@ -554,8 +554,6 @@
           <span class="small muted" style="flex:1 1 380px">Web searches allowed per event in event research (a batch of 8 events shares 8 times this). Reading pages you already found is not counted. 0 = no limit. Ignored when web research is off.</span></div>
         <div class="llm-row"><span class="k">Web research</span><span><label><input type="checkbox" name="web_research"> on</label></span>
           <span class="small muted" style="flex:1 1 380px">Lets the model search and read web pages and cite them. Turn it off for cheaper, local-data-only runs (no web tools, no links or citations, and the daily news briefing is skipped).</span></div>
-        <div class="llm-row"><span class="k">PDF report</span><span><label><input type="checkbox" name="pdf_report"> on</label></span>
-          <span class="small muted" style="flex:1 1 380px">Renders the daily PDF on the first run after 05:00 UTC. Turn it off to stop making PDFs: that run still covers 24 h, triages and writes the briefing, and the Reports page keeps the existing files.</span></div>
         <div class="llm-row" style="align-items:flex-start"><span class="k">Events to research</span>
           <span class="rj-modes" style="display:grid;grid-template-columns:auto auto;gap:4px 14px">${(R.mode_cats || []).map((m) => `<span class="small">${esc(m.label)}</span>
             <select name="mode_${esc(m.key)}" data-cat="${esc(m.key)}">${(R.mode_options || ["research", "review", "skip"]).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>`).join("")}</span>
@@ -574,24 +572,22 @@
       c.querySelector(".cost-warn").textContent = r && avg != null && r < avg ? " Below the usual run cost: most runs would stop before finishing."
         : over ? ` ${over} of the last ${U.length} runs cost more than this.` : ""; };
     const web = c.querySelector('input[name="web_research"]');
-    const pdfc = c.querySelector('input[name="pdf_report"]');
-    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research === true; pdfc.checked = v.pdf_report === true;
+    const fill = (v) => { for (const k of K) inp(k).value = v[k] ?? 0; web.checked = v.web_research === true;
       for (const b of modeSel()) b.value = (v.modes || {})[b.dataset.cat] || "research"; warn(); };
-    fill({ ...L, modes: R.modes, web_research: R.web_research, pdf_report: R.pdf_report });
+    fill({ ...L, modes: R.modes, web_research: R.web_research });
     for (const k of K) { inp(k).disabled = !D.admin; inp(k).oninput = () => { btn.disabled = !D.admin; warn(); }; }
     web.disabled = !D.admin; web.onchange = () => { btn.disabled = !D.admin; };
-    pdfc.disabled = !D.admin; pdfc.onchange = () => { btn.disabled = !D.admin; };
     for (const b of modeSel()) { b.disabled = !D.admin; b.onchange = () => { btn.disabled = !D.admin; }; }
     btn.disabled = true;
     if (!D.admin) msg.textContent = "Only an admin can change the limits.";
     btn.onclick = async () => {
       const body = {};
       for (const k of K) body[k] = inp(k).value === "" ? 0 : +inp(k).value;
-      body.web_research = web.checked; body.pdf_report = pdfc.checked;
+      body.web_research = web.checked;
       body.modes = Object.fromEntries(modeSel().map((b) => [b.dataset.cat, b.value]));
       if (Object.values(body.modes).every((m) => m === "skip")) { msg.textContent = "error: pick research or review for at least one category"; return; }
       btn.disabled = true; msg.textContent = "saving…";
-      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), modes: r.research.modes || body.modes, web_research: r.research.web_research, pdf_report: r.research.pdf_report }); msg.textContent = "saved (applies from the next run)"; }
+      try { const r = await apiPost("/api/llm/research", body); fill({ ...(r.research.limits || body), modes: r.research.modes || body.modes, web_research: r.research.web_research }); msg.textContent = "saved (applies from the next run)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     return c;

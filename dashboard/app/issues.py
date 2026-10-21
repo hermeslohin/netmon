@@ -59,6 +59,7 @@ def check_snapshot(raw, analysis):
         kind, det, dev = f.get("kind"), f.get("detail") or "", f.get("device")
         dkey, ip = _resolve(raw, macidx, dev)
         if kind == "segmentation":
+            continue  # segmentation violations are tracked on the Lateral/Risk pages, not in the fix list
             m = re.search(r"\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)/(\w+)", det.rsplit("->", 1)[-1])
             dst, dport = (m.group(2), m.group(3)) if m else ("?", "?")
             dname = m.group(1) if m else dst
