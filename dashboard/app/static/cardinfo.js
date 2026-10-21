@@ -45,7 +45,7 @@ window.CARD_INFO = {
 "use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
 "what": "Stacked bars of each research run's tokens (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines."
 },
-"aireview|Review job limits": {
+"aireview|Research job limits": {
 "source": "Review job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
 "use": "Set a $ cap per run a bit above the usual run cost and a daily cap as a backstop. The token cap works even when no price is entered. Fewer research batches make runs cheaper; left-over events are picked up by the next run.",
 "what": "Cost and size limits of the scheduled review job: $ per run, $ per day, tokens per run and event-research batches per run."

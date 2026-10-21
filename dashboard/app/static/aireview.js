@@ -523,7 +523,7 @@
 
   // ---- review job cost caps (research_cfg.py): $ per run / per day, tokens per run, research batches per run
   function costCard(D) {
-    const R = D.research || {}, L = R.limits || {}, T = "Review job limits";
+    const R = D.research || {}, L = R.limits || {}, T = "Research job limits";
     if (R.error) { const e = card(T, `<div class="bad">Limits unavailable: ${esc(R.error)}</div>`); e.id = "ai-cost"; return e; }
     const U = (((D.research_status || {}).jobs || [])[0]?.usage || []).filter((u) => u.cost_usd != null).map((u) => u.cost_usd);
     const avg = U.length ? U.reduce((a, v) => a + v, 0) / U.length : null, max = U.length ? Math.max(...U) : null;
