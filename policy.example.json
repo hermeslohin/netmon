@@ -97,5 +97,6 @@
   "servers": "protected",
   "dmz": "dmz"
  },
- "_doc_zone_roles": "zone -> role: dmz (internet-exposed; flows from it inward are violations), protected (servers/clusters; IoT and cross-zone access flagged), mgmt (IPMI/infrastructure), user, iot. Settings > Network policy > Discover from UniFi fills zones, zone_roles and device_classes automatically."
+ "_doc_zone_roles": "zone -> role: dmz (internet-exposed; flows from it inward are violations), protected (servers/clusters; IoT and cross-zone access flagged), mgmt (IPMI/infrastructure), user, iot. Settings > Network policy > Discover from UniFi fills zones, zone_roles and device_classes automatically.",
+ "_doc_scan_thresholds": "Flags an internal device as a scanner. Within the time range being analysed (24 h for the nightly analysis), netmon counts each internal source's FAILED connections to other internal hosts (Zeek states S0 = no reply, REJ = refused, RSTOS0, SH, OTH). A source is reported as scanning when EITHER number is reached: hosts = distinct destination IPs it failed to reach (a sweep across many machines), or ports = distinct destination ports it failed on (a port scan of few machines). Defaults hosts 20, ports 40. Lower = more sensitive and more false positives (discovery apps such as Sonos/Cast/printers probe many hosts); raise it if known devices keep appearing. Gateway addresses ending in .1 are ignored. Successful connections do not count. Findings show under Posture > Scans and Network > Lateral movement."
 }

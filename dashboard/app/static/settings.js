@@ -161,7 +161,8 @@
       const e = editor(v, ed, k), box = h("span", { class: "small", style: "margin-left:10px" });
       const count = Array.isArray(v) ? v.length : Object.keys(v).filter((x) => !x.startsWith("_")).length;
       const btn = h("button", { type: "button", disabled: !ed, onclick: async () => { let val; try { val = e.get(); } catch (er) { msg(box, er.message, true); return; } await save([k], val, box); } }, "Save " + k);
-      el.append(card(`${esc(k)} <span class="muted small">(${count})</span>`, h("div", {}, e.el, ed ? h("div", { style: "margin-top:6px" }, btn, box) : "")));
+      const tip = data["_doc_" + k];
+      el.append(card(`${esc(k)} <span class="muted small">(${count})</span>` + (tip ? ` <span class="muted" title="${esc(tip)}" style="cursor:help">ⓘ</span>` : ""), h("div", {}, tip ? h("div", { class: "muted small", style: "margin-bottom:6px" }, tip) : "", e.el, ed ? h("div", { style: "margin-top:6px" }, btn, box) : "")));
     }
   };
 })();
