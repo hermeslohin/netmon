@@ -111,5 +111,17 @@
   "min_days": 3,
   "severity": "high"
  },
- "_doc_upload_spike": "How sensitive the 'upload-spike' finding is (a device sent unusually much data out; possible exfiltration or a backup). A device is flagged when the data it sent in the analysed range is ALL of: at least min_mb megabytes (default 25; raise it to ignore small uploads), more than times_normal x its own normal (median of its history, default 3), and more than its normal plus mad_factor x its typical day-to-day variation (default 6; this keeps devices with naturally uneven uploads quiet). min_days = days of history needed before judging a device (default 3). severity = high, medium, low, or off to disable the finding. More sensitive: lower min_mb, times_normal and mad_factor. Less sensitive: raise them. Applies at the next analysis run. Hosts that legitimately back up to the cloud are better handled by raising min_mb than by turning it off."
+ "_doc_upload_spike": "How sensitive the 'upload-spike' finding is (a device sent unusually much data out; possible exfiltration or a backup). A device is flagged when the data it sent in the analysed range is ALL of: at least min_mb megabytes (default 25; raise it to ignore small uploads), more than times_normal x its own normal (median of its history, default 3), and more than its normal plus mad_factor x its typical day-to-day variation (default 6; this keeps devices with naturally uneven uploads quiet). min_days = days of history needed before judging a device (default 3). severity = high, medium, low, or off to disable the finding. More sensitive: lower min_mb, times_normal and mad_factor. Less sensitive: raise them. Applies at the next analysis run. Hosts that legitimately back up to the cloud are better handled by raising min_mb than by turning it off.",
+ "beacon": {
+  "min_conns": 36,
+  "min_score": 0.75,
+  "min_coverage": 0.4,
+  "min_intervals": 10,
+  "unlabelled_min_score": 0.85,
+  "ignore_ports": [
+   3478,
+   19302
+  ]
+ },
+ "_doc_beacon": "How strict beacon (C2-style periodic connection) detection is. For each internal-to-internet pair (source, destination, port) netmon scores how regular the timing and sizes of its connections are (0 = random, 1 = clockwork) and how many hours of the range it covers. A pair is reported when it has at least min_conns connections, at least min_intervals gaps between them, a score of at least min_score, and activity in at least min_coverage of the hours (0.4 = 40 %). Lower min_score / min_coverage / min_conns = more sensitive (catches slower or sloppier beacons, more false positives from update checks and chat apps); raise them to see only strong, steady beacons. unlabelled_min_score = score at which a beacon to a bare IP (no DNS name or SNI) is reported even in the first days before a baseline exists. ignore_ports = destination ports never examined (default 3478 and 19302, STUN/WebRTC, which are periodic by design). Domains in Known benign > beacon_domains and NTP (123) are excluded afterwards. Applies at the next analysis run."
 }

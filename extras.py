@@ -318,13 +318,56 @@ def _robust(vals):
     return med, skew, mad
 
 
-def beacons(hours=24, min_conns=36, max_pairs=400):
-    """RITA-style beacon score per (src, dst, port): timing regularity, size regularity, day coverage."""
+UPLOAD_SPIKE = {"min_mb": 25, "times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "high"}  # defaults; policy "upload_spike" overrides
+
+
+def upload_cfg():
+    """policy.upload_spike merged over the defaults (bad values fall back to the default)."""
+    try:
+        p = load_policy().get("upload_spike") or {}
+    except Exception:  # noqa: BLE001
+        p = {}
+    out = dict(UPLOAD_SPIKE)
+    for k, v in p.items():
+        if k in out and not k.startswith("_"):
+            try:
+                out[k] = v if k == "severity" else float(v)
+            except (TypeError, ValueError):
+                pass
+    if out["severity"] not in ("high", "medium", "low", "off"):
+        out["severity"] = "high"
+    return out
+
+
+BEACON = {"min_conns": 36, "min_score": 0.75, "min_coverage": 0.4, "min_intervals": 10, "unlabelled_min_score": 0.85,
+          "ignore_ports": [3478, 19302]}  # defaults; policy "beacon" overrides (Settings > Network policy)
+
+
+def beacon_cfg(pol=None):
+    """policy.beacon merged over BEACON; values of the wrong type fall back to the default."""
+    p = (pol if pol is not None else load_policy()).get("beacon") or {}
+    out = dict(BEACON)
+    for k, d in BEACON.items():
+        v = p.get(k)
+        if v is None:
+            continue
+        try:
+            out[k] = [int(x) for x in v] if isinstance(d, list) else float(v)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def beacons(hours=24, min_conns=None, max_pairs=400):
+    """RITA-style beacon score per (src, dst, port): timing regularity, size regularity, day coverage.
+    Thresholds come from policy.beacon (see BEACON)."""
+    B = beacon_cfg()
+    min_conns = int(B["min_conns"] if min_conns is None else min_conns)
     q, ds, buckets = _ctx()
     R = rng(hours)
     r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), {"term": {"source.ip": SITE.get("internal_cidr")}},
                                                                     {"term": {"connection.local.responder": False}}],
-                                                         "must_not": [{"terms": {"destination.port": [3478, 19302]}}]}},
+                                                         "must_not": [{"terms": {"destination.port": B["ignore_ports"] or [0]}}]}},
                            "aggs": {"p": {"multi_terms": {"terms": [{"field": "source.ip"}, {"field": "destination.ip"},
                                                                     {"field": "destination.port"}],
                                                           "size": max_pairs, "min_doc_count": min_conns}}}})
@@ -343,7 +386,7 @@ def beacons(hours=24, min_conns=36, max_pairs=400):
             sizes.append((s.get("client") or {}).get("ip_bytes") or 0)
         uts = sorted(set(int(t) for t in ts))
         iv = [b - a for a, b in zip(uts, uts[1:]) if b - a > 0]
-        if len(iv) < 10:
+        if len(iv) < B["min_intervals"]:
             return None
         med, skew, mad = _robust(iv)
         smed, sskew, smad = _robust(sizes)
@@ -359,7 +402,7 @@ def beacons(hours=24, min_conns=36, max_pairs=400):
 
     with cf.ThreadPoolExecutor(8) as ex:
         res = [x for x in ex.map(score, pairs) if x]
-    cands = [x for x in res if x["score"] >= 0.75 and x["coverage_h"] >= hours * 0.4]
+    cands = [x for x in res if x["score"] >= B["min_score"] and x["coverage_h"] >= hours * B["min_coverage"]]
     # label destinations: SNI, DNS name, ASN
     ips = list({c["dst"] for c in cands})
     labels = defaultdict(dict)

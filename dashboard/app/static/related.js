@@ -6,7 +6,27 @@
     host: ["Endpoint", "sev-low"], ti: ["Threat intel", "sev-high"], vuln: ["Vulnerability", "sev-critical"], gw: ["Gateway", "sev-medium"],
     alarm: ["Triage alarm", "sev-high"] };
   let loading = null;
+  // Detection settings behind a finding (upload-spike, beacon-*, internal-scan): current values + description, from /api/tuning
+  let TUNE = null, tuneAt = 0;
+  function loadTuning() { if (Date.now() - tuneAt < 30000) return; tuneAt = Date.now(); api("/api/tuning").then((d) => { TUNE = d.settings || {}; }).catch(() => {}); }
+  function tuneFor(id) {
+    const m = /^f\|([^|]+)\|/.exec(String(id || "")); if (!m || !TUNE) return null;
+    for (const t of Object.values(TUNE)) if (new RegExp(t.kinds).test(m[1])) return t;
+    return null;
+  }
+  function tuneHtml(id) {
+    const t = tuneFor(id); if (!t) return "";
+    const v = Object.entries(t.values || {}).map(([k, x]) => `<code>${esc(k)}</code> = <b>${esc(Array.isArray(x) ? x.join(", ") : x)}</b>`).join(" · ");
+    return `<details class="tune-box small" style="margin:4px 0 0"><summary class="muted">⚙ Detection setting: ${esc(t.title)} — ${v}</summary><div class="muted" style="margin:4px 0">${esc(t.doc || "")}</div><span class="tune-go" data-href="${esc(t.link)}" style="cursor:pointer;text-decoration:underline">Adjust in Settings →</span></details>`;
+  }
+  document.addEventListener("click", (e) => {  // the box sits inside a link row: toggle / navigate without following the row's link
+    const sm = e.target.closest?.(".tune-box > summary"), go = e.target.closest?.(".tune-go");
+    if (!sm && !go) return;
+    e.preventDefault(); e.stopPropagation();
+    if (sm) sm.parentNode.open = !sm.parentNode.open; else { close(); location.hash = go.dataset.href; }
+  }, true);
   function ensure() {
+    loadTuning();
     const sid = S.snap?.id; if (!sid) return;
     if (S.corr && S.corr._snap === sid) return fill();
     if (loading === sid) return;
@@ -120,11 +140,13 @@
     if (!rel.length) return;
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
+      ${tuneHtml(id) ? `<div style="padding:4px 10px">${tuneHtml(id)}</div>` : ""}
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || [e.type, ""];
         const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
           : `<span class="rel-ai pend" title="The local LLM has not reviewed this link yet">AI review pending</span>`;
         return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-pair small muted" title="event pair">${esc(pairText(me?.type, e.type))}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
           <span class="rel-time small muted">🕒 ${esc(evTime(e))}</span>
+          ${tuneHtml(r.id)}
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
           ${artifactsHtml(ipArts(e, r.llm_artifacts))}
           <span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span></a>`; }).join("")}

@@ -98,26 +98,9 @@ READONLY = "--readonly" in sys.argv
 SCALE = 1.0  # time range of N hours: compare (value / (N/24)) with the 24 h baseline records
 
 
-UPLOAD_SPIKE = {"min_mb": 25, "times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "high"}  # defaults; policy "upload_spike" overrides
-
-
 def upload_cfg():
-    """policy.upload_spike merged over the defaults (bad values fall back to the default)."""
-    try:
-        import extras
-        p = extras.load_policy().get("upload_spike") or {}
-    except Exception:  # noqa: BLE001
-        p = {}
-    out = dict(UPLOAD_SPIKE)
-    for k, v in p.items():
-        if k in out and not k.startswith("_"):
-            try:
-                out[k] = v if k == "severity" else float(v)
-            except (TypeError, ValueError):
-                pass
-    if out["severity"] not in ("high", "medium", "low", "off"):
-        out["severity"] = "high"
-    return out
+    import extras
+    return extras.upload_cfg()
 
 
 def spike(today, hist, floor, card=False, mult=3, madf=6, min_days=None):
@@ -201,6 +184,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
 
     # --- beaconing ---
     bdom = set(benign.get("beacon_domains", []))
+    ub = extras.beacon_cfg()["unlabelled_min_score"]
     newdom = {n["domain"] for n in ti.get("new_domains", [])}
     tihit = {h["ip"] for h in ti.get("ip_hits_out", []) if h["serious"]}
     for c in (snap.get("beacons") or {}).get("candidates", []):
@@ -225,7 +209,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
         elif ready and beacon_id(c) not in seen:
             add("high" if klass(c["src"]) in ("iot", "camera") and why else "medium", k, "beacon-new",
                 desc + ("; " + ", ".join(why) if why else ""))
-        elif why and not ready and c["score"] >= 0.85 and not c_dom:
+        elif why and not ready and c["score"] >= ub and not c_dom:
             add("low", k, "beacon-unlabelled", desc + "; " + ", ".join(why))
 
     # --- internal traffic / segmentation ---

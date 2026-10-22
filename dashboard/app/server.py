@@ -29,7 +29,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 #   admin    - everything
 #   defender - reads everything and does analyst work (check-offs, notes, AI verdicts, chat); changes no settings
 #   user     - only the alerts / events of the devices an admin assigned to them (allow-list below)
-USER_GET = {"/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
+USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
 ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/notes", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
@@ -431,6 +431,22 @@ def seg_filter(analysis):
     return out
 
 
+TUNING = (  # finding-kind regex -> (policy setting, title, defaults). Event ids look like f|<kind>|<device>|<detail>.
+    (r"^upload-spike", "upload_spike", "Upload spike sensitivity"),
+    (r"^beacon", "beacon", "Beacon detection thresholds"),
+    (r"^internal-scan", "scan_thresholds", "Scan thresholds"),
+)
+
+
+def tuning_info():
+    """Current values + description of every tunable detection, for the event cards (read-only; edit under More > Settings)."""
+    import extras
+    pol = store.cfg_load("policy")
+    eff = {"upload_spike": extras.upload_cfg(), "beacon": extras.beacon_cfg(pol), "scan_thresholds": {**{"hosts": 20, "ports": 40}, **(pol.get("scan_thresholds") or {})}}
+    return {"settings": {key: {"title": title, "kinds": rx, "values": eff[key], "doc": pol.get("_doc_" + key) or "",
+                               "link": "#/settings/policy"} for rx, key, title in TUNING}}
+
+
 def cfg_validate(doc, data):
     """Reject a settings change that would break a job (bad regex, wrong shape). Returns an error text or None."""
     try:
@@ -467,6 +483,24 @@ def cfg_validate(doc, data):
                             return f"upload_spike {k} must be a number of 0 or more"
                     else:
                         return f"upload_spike: unknown setting {k} (min_mb, times_normal, mad_factor, min_days, severity)"
+            bc = data.get("beacon")
+            if bc is not None:
+                if not isinstance(bc, dict):
+                    return "beacon must be a table of name -> value"
+                for k, v in bc.items():
+                    if k.startswith("_"):
+                        continue
+                    if k == "ignore_ports":
+                        if not isinstance(v, list) or any(isinstance(x, bool) or not isinstance(x, int) or not 0 < x < 65536 for x in v):
+                            return "beacon ignore_ports must be a list of port numbers (1-65535)"
+                    elif k in ("min_score", "min_coverage", "unlabelled_min_score"):
+                        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+                            return f"beacon {k} must be a number from 0 to 1"
+                    elif k in ("min_conns", "min_intervals"):
+                        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 1:
+                            return f"beacon {k} must be a number of 1 or more"
+                    else:
+                        return f"beacon: unknown setting {k} (min_conns, min_score, min_coverage, min_intervals, unlabelled_min_score, ignore_ports)"
             for a in data.get("allow") or []:
                 if not isinstance(a, dict) or not a.get("src") or not a.get("dst"):
                     return "every allow rule needs a src and a dst"
@@ -1423,6 +1457,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"user": user, "role": role, "role_name": auth.ROLE_NAMES.get(role, role)})
             if path == "/api/my":
                 return self._json(my_events(user))
+            if path == "/api/tuning":  # detection settings shown on event cards: current values + their descriptions
+                return self._json(tuning_info())
             if path == "/api/site":
                 return self._json({"site_name": SITE.public().get("site_name")} if role == "user" else SITE.public())
             if path == "/api/account":
