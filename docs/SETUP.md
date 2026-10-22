@@ -265,6 +265,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 |---|---|
 | `collect.py`, `extras.py`, `unifi.py`, `hosts.py`, `hostdetail.py`, `osq.py` | data collection (Elasticsearch, UniFi, endpoints) |
 | `discover.py` | Auto-discover zones, zone roles and device classes from UniFi (Settings → Network policy) |
+| `settings_docs.py` | the (i) definitions shown for every Settings section (stored as `_doc_<setting>` in each settings document; run it to refresh them) |
 | `analyze.py`, `mitre.py` | baselines, findings, ATT&CK mapping |
 | `adminproto.py` | admin / lateral-movement protocol + tool catalog, session merger |
 | `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk ([RISK_SCORING.md](RISK_SCORING.md)) |

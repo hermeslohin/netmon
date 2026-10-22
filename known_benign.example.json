@@ -28,5 +28,9 @@
   "meethue.com",
   "ui.com",
   "dns.google"
- ]
+ ],
+ "_doc_signatures": "Suricata alert names (substring match) you have judged harmless in your network, with the reason. They are shown as noise, not signal, in reports and the AI review. Only add a signature after you know exactly what generates it.",
+ "_doc_names": "Labels for IP addresses that are not in your DHCP inventory (gateways, VIPs, appliances), so they show a name instead of a bare address.",
+ "_doc_dns_domains": "Registered domains cleared of DNS-tunnelling suspicion (high-volume, high-entropy lookups that are legitimate, such as security products and reverse DNS). They are excluded from tunnel alarms.",
+ "_doc_beacon_domains": "Registered domains whose regular check-ins are expected (NTP, Apple, cloud IoT vendors, DNS-over-HTTPS). They are excluded from beaconing / C2 alarms. Subdomains match."
 }

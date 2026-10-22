@@ -138,7 +138,7 @@
     el.append(h("div", { class: "fchips" }, DOCS.map(([d, t]) => h("a", { href: "#/settings/" + d, class: "chip" + (d === doc ? " on" : ""), style: d === doc ? "font-weight:700" : "" }, t))));
     el.append(h("div", { class: "muted small", style: "margin:6px 0" }, HELP[doc], ed ? " Each section has its own Save button." : " Read-only: only an admin can change settings."));
     if (doc === "policy" && ed) el.append(discoverCard(() => V.settings(el, doc)));
-    const notes = Object.entries(data).filter(([k]) => k.startsWith("_")).map(([k, v]) => `${k.replace(/^_doc_?/, "") || "about"}: ${v}`);
+    const notes = Object.entries(data).filter(([k]) => k.startsWith("_") && !(k.startsWith("_doc_") && k.slice(5) in data)).map(([k, v]) => `${k.replace(/^_doc_?/, "") || "about"}: ${v}`);
     if (notes.length) el.append(h("details", { class: "muted small", style: "margin-bottom:8px" }, h("summary", {}, "Notes on these settings"), notes.map((n) => h("p", {}, n))));
     const msg = (box, text, bad) => { box.textContent = text; box.style.color = bad ? "#f85149" : "#3fb950"; };
     const save = async (path, value, box) => {
@@ -150,7 +150,7 @@
     if (gen.length) {
       const eds = gen.map(([k, v]) => [k, v, scalar(v, ed)]);
       const box = h("span", { class: "small", style: "margin-left:10px" });
-      const tbl = h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"))), h("tbody", {}, eds.map(([k, , e]) => h("tr", {}, h("td", {}, k), h("td", {}, e.el)))));
+      const tbl = h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"))), h("tbody", {}, eds.map(([k, , e]) => h("tr", {}, h("td", {}, k, data["_doc_" + k] ? h("span", { class: "muted", title: data["_doc_" + k], style: "cursor:help" }, " ⓘ") : ""), h("td", {}, e.el, data["_doc_" + k] ? h("div", { class: "muted small" }, data["_doc_" + k]) : "")))));
       const btn = h("button", { type: "button", disabled: !ed, onclick: async () => {
         try { for (const [k, v, e] of eds) { const nv = e.get(); if (JSON.stringify(nv) !== JSON.stringify(v)) { await save([k], nv, box); eds.find((x) => x[0] === k)[1] = nv; } } } catch (er) { msg(box, er.message, true); }
       } }, "Save");
