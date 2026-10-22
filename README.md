@@ -58,7 +58,7 @@ Home-network security monitoring for the home network. netmon runs on its own: a
 
 ## Set it up yourself
 
-Using the dashboard? See the **[user guide](docs/USER_GUIDE.md)**.
+Using the dashboard? See the **[user guide](docs/USER_GUIDE.md)**. Investigating something? See the **[investigation playbooks](docs/PLAYBOOKS.md)** (troubleshooting, DNS tunnelling, lateral movement, insider threat and more).
 
 Want to run this on your own network? Follow **[docs/SETUP.md](docs/SETUP.md)**: clone it anywhere (e.g. `~/netmon`), run `./setup.sh`, describe your network in a few local JSON files, add a read-only Elasticsearch key, start the dashboard and the two host services (`netmon-broker`, `netmon-scheduler`), then add an AI provider and pick models on the AI review page. Everything specific to your network stays in git-ignored local files.
 
