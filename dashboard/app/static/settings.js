@@ -1,5 +1,5 @@
 // Settings (#/settings/<doc>): policy, host policy, known-benign list and site values, edited as tables.
-// They live in the SQLite `cfg` table (store.py cfg_*); this page is the only editor. A section is saved as a whole
+// They live in the SQLite `cfg` table (store.py cfg_*); this page is the only editor. A section is saved as a whole, automatically on every edit
 // (POST /api/config/cfg {doc, path:[section], value}); the server validates it before storing.
 (() => {
   const DOCS = [["policy", "Network policy"], ["host_policy", "Endpoint policy"], ["known_benign", "Known benign"], ["site", "Site"]];
@@ -136,14 +136,22 @@
     const ed = !!r.admin, data = r.data;
     el.innerHTML = "";
     el.append(h("div", { class: "fchips" }, DOCS.map(([d, t]) => h("a", { href: "#/settings/" + d, class: "chip" + (d === doc ? " on" : ""), style: d === doc ? "font-weight:700" : "" }, t))));
-    el.append(h("div", { class: "muted small", style: "margin:6px 0" }, HELP[doc], ed ? " Each section has its own Save button." : " Read-only: only an admin can change settings."));
+    el.append(h("div", { class: "muted small", style: "margin:6px 0" }, HELP[doc], ed ? " Changes save automatically as you edit." : " Read-only: only an admin can change settings."));
     if (doc === "policy" && ed) el.append(discoverCard(() => V.settings(el, doc)));
     const notes = Object.entries(data).filter(([k]) => k.startsWith("_") && !(k.startsWith("_doc_") && k.slice(5) in data)).map(([k, v]) => `${k.replace(/^_doc_?/, "") || "about"}: ${v}`);
     if (notes.length) el.append(h("details", { class: "muted small", style: "margin-bottom:8px" }, h("summary", {}, "Notes on these settings"), notes.map((n) => h("p", {}, n))));
+    // Changes are saved as soon as a field is edited (on change/blur) or a row is removed; saves run one at a time.
+    let chain = Promise.resolve();
+    const autosave = (root, run, box) => {
+      let t = null;
+      const go = () => { clearTimeout(t); t = setTimeout(() => { chain = chain.then(async () => { try { box.style.color = ""; box.textContent = "Saving…"; await run(); } catch (er) { msg(box, "Not saved: " + (er.message || er), true); } }); }, 250); };
+      root.addEventListener("change", go);
+      root.addEventListener("click", (ev) => { if (ev.target.closest && ev.target.closest('button[title="Remove this row"]')) go(); });
+    };
     const msg = (box, text, bad) => { box.textContent = text; box.style.color = bad ? "#f85149" : "#3fb950"; };
     const save = async (path, value, box) => {
-      try { await apiPost("/api/config/cfg", { doc, path, value }); msg(box, "Saved " + new Date().toLocaleTimeString()); }
-      catch (e) { msg(box, String(e.message || e).replace(/^.*?→ \d+\s*/, ""), true); }
+      try { await apiPost("/api/config/cfg", { doc, path, value }); msg(box, "✓ Saved " + new Date().toLocaleTimeString()); }
+      catch (e) { throw new Error(String(e.message || e).replace(/^.*?→ \d+\s*/, "")); }
     };
     // scalar top-level values: one General table
     const gen = Object.entries(data).filter(([k, v]) => !k.startsWith("_") && !Array.isArray(v) && !isObj(v));
@@ -151,18 +159,17 @@
       const eds = gen.map(([k, v]) => [k, v, scalar(v, ed)]);
       const box = h("span", { class: "small", style: "margin-left:10px" });
       const tbl = h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"))), h("tbody", {}, eds.map(([k, , e]) => h("tr", {}, h("td", {}, k, data["_doc_" + k] ? h("span", { class: "muted", title: data["_doc_" + k], style: "cursor:help" }, " ⓘ") : ""), h("td", {}, e.el, data["_doc_" + k] ? h("div", { class: "muted small" }, data["_doc_" + k]) : "")))));
-      const btn = h("button", { type: "button", disabled: !ed, onclick: async () => {
-        try { for (const [k, v, e] of eds) { const nv = e.get(); if (JSON.stringify(nv) !== JSON.stringify(v)) { await save([k], nv, box); eds.find((x) => x[0] === k)[1] = nv; } } } catch (er) { msg(box, er.message, true); }
-      } }, "Save");
-      el.append(card("General", h("div", {}, tbl, ed ? h("div", { style: "margin-top:6px" }, btn, box) : "")));
+      const sync = async () => { for (const [k, v, e] of eds) { const nv = e.get(); if (JSON.stringify(nv) !== JSON.stringify(v)) { await save([k], nv, box); eds.find((x) => x[0] === k)[1] = nv; } } };
+      const root = h("div", {}, tbl); if (ed) autosave(root, sync, box);
+      el.append(card("General", h("div", {}, root, ed ? h("div", { style: "margin-top:6px" }, box) : "")));
     }
     for (const [k, v] of Object.entries(data)) {
       if (k.startsWith("_") || !(Array.isArray(v) || isObj(v))) continue;
       const e = editor(v, ed, k), box = h("span", { class: "small", style: "margin-left:10px" });
       const count = Array.isArray(v) ? v.length : Object.keys(v).filter((x) => !x.startsWith("_")).length;
-      const btn = h("button", { type: "button", disabled: !ed, onclick: async () => { let val; try { val = e.get(); } catch (er) { msg(box, er.message, true); return; } await save([k], val, box); } }, "Save " + k);
+      const root = h("div", {}, e.el); if (ed) autosave(root, async () => { await save([k], e.get(), box); }, box);
       const tip = data["_doc_" + k];
-      el.append(card(`${esc(k)} <span class="muted small">(${count})</span>` + (tip ? ` <span class="muted" title="${esc(tip)}" style="cursor:help">ⓘ</span>` : ""), h("div", {}, tip ? h("div", { class: "muted small", style: "margin-bottom:6px" }, tip) : "", e.el, ed ? h("div", { style: "margin-top:6px" }, btn, box) : "")));
+      el.append(card(`${esc(k)} <span class="muted small">(${count})</span>` + (tip ? ` <span class="muted" title="${esc(tip)}" style="cursor:help">ⓘ</span>` : ""), h("div", {}, tip ? h("div", { class: "muted small", style: "margin-bottom:6px" }, tip) : "", root, ed ? h("div", { style: "margin-top:6px", class: "muted small" }, box) : "")));
     }
   };
 })();
