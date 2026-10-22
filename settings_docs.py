@@ -31,6 +31,10 @@ DOCS = {
                            "hosts = distinct destination IPs it failed to reach (a sweep across many machines), or ports = distinct destination ports it failed on (a port scan of few machines). "
                            "Defaults hosts 20, ports 40. Lower = more sensitive and more false positives (discovery apps such as Sonos/Cast/printers probe many hosts); raise it if known devices keep appearing. "
                            "Gateway addresses ending in .1 are ignored. Successful connections do not count. Findings show under Posture > Scans and Network > Lateral movement.",
+        "upload_spike": "How sensitive the 'upload-spike' finding is (a device sent unusually much data out; possible exfiltration or a backup). A device is flagged when the data it sent in the analysed range is ALL of: "
+                        "at least min_mb megabytes (default 25; raise it to ignore small uploads), more than times_normal x its own normal (median of its history, default 3), and more than its normal plus mad_factor x its typical day-to-day variation (default 6; this keeps devices with naturally uneven uploads quiet). "
+                        "min_days = days of history needed before judging a device (default 3). severity = high, medium, low, or off to disable the finding. "
+                        "More sensitive: lower min_mb, times_normal and mad_factor. Less sensitive: raise them. Applies at the next analysis run. Hosts that legitimately back up to the cloud are better handled by raising min_mb than by turning it off.",
         "allow": "Expected internal flows that are NOT violations, checked top to bottom. Each rule has src and dst (an IP, a zone name, a device class, or * for any), "
                  "optional ports (numbers or 'port/proto' such as 41641/udp; empty = any port) and a 'why'. "
                  "Anything on a sensitive port, from a dmz zone, from IoT/camera to a protected zone, or across zones into a protected zone that no rule allows is reported. "

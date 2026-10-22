@@ -452,6 +452,21 @@ def cfg_validate(doc, data):
             for z, r in (data.get("zone_roles") or {}).items():
                 if not z.startswith("_") and r not in ("dmz", "protected", "mgmt", "user", "iot"):
                     return f"zone_roles[{z}] must be one of dmz, protected, mgmt, user, iot"
+            us = data.get("upload_spike")
+            if us is not None:
+                if not isinstance(us, dict):
+                    return "upload_spike must be a table of name -> value"
+                for k, v in us.items():
+                    if k.startswith("_"):
+                        continue
+                    if k == "severity":
+                        if v not in ("high", "medium", "low", "off"):
+                            return "upload_spike severity must be high, medium, low or off"
+                    elif k in ("min_mb", "times_normal", "mad_factor", "min_days"):
+                        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                            return f"upload_spike {k} must be a number of 0 or more"
+                    else:
+                        return f"upload_spike: unknown setting {k} (min_mb, times_normal, mad_factor, min_days, severity)"
             for a in data.get("allow") or []:
                 if not isinstance(a, dict) or not a.get("src") or not a.get("dst"):
                     return "every allow rule needs a src and a dst"

@@ -98,15 +98,37 @@ READONLY = "--readonly" in sys.argv
 SCALE = 1.0  # time range of N hours: compare (value / (N/24)) with the 24 h baseline records
 
 
-def spike(today, hist, floor, card=False):
+UPLOAD_SPIKE = {"min_mb": 25, "times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "high"}  # defaults; policy "upload_spike" overrides
+
+
+def upload_cfg():
+    """policy.upload_spike merged over the defaults (bad values fall back to the default)."""
+    try:
+        import extras
+        p = extras.load_policy().get("upload_spike") or {}
+    except Exception:  # noqa: BLE001
+        p = {}
+    out = dict(UPLOAD_SPIKE)
+    for k, v in p.items():
+        if k in out and not k.startswith("_"):
+            try:
+                out[k] = v if k == "severity" else float(v)
+            except (TypeError, ValueError):
+                pass
+    if out["severity"] not in ("high", "medium", "low", "off"):
+        out["severity"] = "high"
+    return out
+
+
+def spike(today, hist, floor, card=False, mult=3, madf=6, min_days=None):
     """True when today is far above the device's own normal and above an absolute floor.
     Time range: counts are scaled to 24 h; distinct counts (card=True) don't grow linearly, so they are only scaled
     down for ranges over 24 h (a 6 h range is compared as is - conservative either way)."""
     today = today / (max(SCALE, 1.0) if card else SCALE)
-    if today < floor or len(hist) < MIN_DAYS:
+    if today < floor or len(hist) < (MIN_DAYS if min_days is None else min_days):
         return False
     m, d = med(hist), mad(hist)
-    return today > max(3 * m, m + 6 * d, floor)
+    return today > max(mult * m, m + madf * d, floor)
 
 
 def enrich_today(snap, today, ip2key):
@@ -347,6 +369,7 @@ def main():
         print(f"(new-device alarms not added to findings: {_e})", file=sys.stderr)
 
     # --- per-device deviation vs baseline ---
+    UP = upload_cfg()
     for key, t in today.items():
         past = [h["devices"][key] for h in history if key in h.get("devices", {})]
         if not past:  # brand-new devices are reported via the registry below
@@ -354,8 +377,8 @@ def main():
         if spike(t["total"], [p["total"] for p in past], 50 * MB):
             add("medium", key, "volume-spike",
                 f"total {t['total']/MB:.0f} MB vs normal {med([p['total'] for p in past])/MB:.0f} MB")
-        if spike(t["sent"], [p["sent"] for p in past], 25 * MB):
-            add("high", key, "upload-spike",
+        if UP["severity"] != "off" and spike(t["sent"], [p["sent"] for p in past], UP["min_mb"] * MB, mult=UP["times_normal"], madf=UP["mad_factor"], min_days=UP["min_days"]):
+            add(UP["severity"], key, "upload-spike",
                 f"sent {t['sent']/MB:.0f} MB vs normal {med([p['sent'] for p in past])/MB:.0f} MB (possible exfil/backup)")
         if spike(t["ext_peers"], [p["ext_peers"] for p in past], 50, card=True):
             add("medium", key, "fan-out", f"{t['ext_peers']} external peers vs normal {med([p['ext_peers'] for p in past]):.0f}")
