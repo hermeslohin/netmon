@@ -33,8 +33,8 @@ the nightly report and the watcher):
 |---|---|
 | High | ≥ 10 failed logins, ≥ 3 invalid user names, or ≥ 3 failures followed by a success on the same account (possible guessed password) |
 | Medium | any failed login, or ≥ 5 refused connections |
-| Low | 1–4 refused connections, or a successful session not covered by `policy.json` `allow` |
-| Allowed | a successful session that `policy.json` allows |
+| Low | 1–4 refused connections, or a successful session not covered by the network policy's `allow` list |
+| Allowed | a successful session that the network policy allows |
 
 Failures also raise **host risk**: they add to the *threat* score of the machine being logged into and to the
 *reach* score of the machine trying. On the dashboard: **Network → Lateral movement → Admin access** has
@@ -147,7 +147,7 @@ cloud provider meant for the occasional on-request research will hit its cap qui
 Local (LM Studio) is itself an AI review → **AI providers** row: an admin can disable it or set its calls-per-hour
 cap there, same as any other provider (no key or URL to enter - those come from `NETMON_LLM_URL` and the live
 model list). Besides Local (LM Studio), the reviewer can use any provider an admin adds on AI review > **AI
-providers** (`llm_providers.py`, stored in `/state/llm_providers.json`, mode 600). These are OpenAI-compatible
+providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mode 600)). These are OpenAI-compatible
 (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
 its own calls-per-hour cap.
@@ -179,6 +179,10 @@ matched across hosts. Each note's artifacts are refreshed whenever it is added o
 at upgrade. Artifacts a reviewer writes into its notes (the `[reviewer:…]` tag and the value in the text) are what make the next
 reviews find them. On the Notes page, the Internet notes pages and the notes cards, each note shows its artifacts as chips under the text (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port), so you can see what the reviewer will match on.
 
+**DNS notes.** Notes on `dom:<domain>` (or `art:dns:<domain>`) apply by suffix: a note on `example.com` covers `a.b.example.com`; a note on `b.example.com` covers only that name and below. For each event the DNS names are taken from its dns artifacts and its label (`kb.dns_names`), the matching notes are found with `kb.dns_notes_for` (most specific first, up to 6) and are shown to the reviewer as `dns note [domain]` (or `dns note [example.com covers a.b.example.com]`) and to the research job as `dns_notes` on each work item. When the reviewer judges a `dns` artifact and adds a `note`, `corr_llm._note_dns` writes a host note on `dom:<name>` (one per name, tagged `[reviewer:dns:<name>]`, updated in place; the name must appear in one of the two events). `GET /api/kb/dns` lists domains with their notes.
+
+**Note review (accept / reject).** `host_notes` has `status` ('' not reviewed, `approved`, `rejected`), `reviewed_by`, `reviewed_at` (added to `kb.db` automatically). An admin or defender sets it with `POST /api/kb/host {action: approve|reject|clear, id}`. `approved` makes `corr_llm._human()` true, so the note goes in the owner-notes group and research items carry `authoritative: true`. `rejected` notes are dropped by every AI-facing read (`kb.host_notes(..., ai=True)`, `notes_by_artifacts`, `dns_notes_for`, `kb.dump`, `netmon_mcp`) but stay on the pages. `add_host_note` raises for an `ai` author changing an approved/rejected note, and `kb.put` will not delete one, so the AI can neither edit nor recreate them. A person editing a note clears its status.
+
 Host notes are ordered decision, role, baseline, behavior, config, risk, watch, other, then newest first; accounts come
 first because they decide most "expected" calls. Unapproved User notes never reach the AI. The prompt tells the model
 never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evidence of harm.
@@ -199,7 +203,7 @@ never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evid
 - **Elasticsearch searches as artifacts** (when searches are enabled, below). Every successful search is kept as a
   `query` artifact on the links it was run for (up to 12 per link): the search in KQL, its time range, the hit count
   and the model's *why*. In the Related popover it is a **🔭 query** button that opens Kibana Discover with that
-  search (needs `kibana_url` / `kibana_data_view` in `site.json`; without it the query is shown as text). A search that
+  search (needs `kibana_url` / `kibana_data_view` in the site settings (More → Settings); without it the query is shown as text). A search that
   uses aggregations or clauses KQL cannot express is marked ≈ and opens a broader search than the one the model ran.
 
 ### Event classification (optional)
@@ -283,9 +287,9 @@ behind an IDS alert also made the failed SSH logins, or whether a domain was res
 | **Elasticsearch queries · AI research** (checkbox) | on | separate switch: lets the AI Research job search the logs while researching events (`es_search` tool) |
 | **Max per event** | 3 | the total number of searches the reviewer may run for one event review (one anchor event and its up to 10 candidates), 1–20; classification uses the same budget |
 | **Note characters** | 6000 | total characters of notes in one review request (1,000–100,000, `context_notes.chars`), set below Notes per event; the re-check of a single link uses a third of it |
-| **Notes per event** | 7 | host + user notes the reviewer is given for each event, 1–100 (`llm_config.json` `context_notes`); more notes = more tokens in |
+| **Notes per event** | 7 | host + user notes the reviewer is given for each event, 1–100 (the `llm_config` settings `context_notes`); more notes = more tokens in |
 
-The reviewer's switch and **Max per event** are stored in `dashboard/state/llm_config.json` (`"es_queries": {"enabled",
+The reviewer's switch and **Max per event** are stored in the netmon database (settings document `llm_config`) (`"es_queries": {"enabled",
 "max"}`, with who changed them and when); the research switch is part of the research job's settings in the netmon
 store (`es_search`). Both take effect from the next review or run. Model comparisons (⇄) never search, so every model gets exactly the
 same prompt.
@@ -371,7 +375,7 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 ## 5. The review job (`review.py`) — what it does and where it looks
 
 `review.py` is the scheduled (or on-demand) **review job**: it collects and analyzes a fresh snapshot, lets the reviewer
-reuse earlier notes for events that repeat, and (once a day) writes the news briefing. It does **not** research events
+reuse earlier notes for events that repeat. It does **not** research events
 on a schedule, to keep token cost down: a model researches an event only when a person clicks **Send to research**
 (`review.py --event ID`). The model steps use a small set of **read-only lookup tools** plus a few **validated submit
 tools** they must call to write anything.
@@ -379,7 +383,7 @@ tools** they must call to write anything.
 ```mermaid
 flowchart LR
     subgraph SRC["Where it gets information from"]
-        SNAP["Snapshot & analysis\ndata/*.json, *.analysis.json"]
+        SNAP["Snapshot & analysis\nsnapshots and analysis (netmon.db docs table)"]
         KB["Notes KB\nenrich.sh kb (host + event notes)"]
         DEV["Device lookup\nnetmon_mcp (traffic, services, findings)"]
         ES["Elasticsearch\nSecurity Onion logs, via es_search tool"]
@@ -401,8 +405,7 @@ flowchart LR
     subgraph OUT["What it writes (validated submit_* tools only)"]
         COPY["Copied note\n(marked 'Copied by the reviewer')\nenrich.sh copy"]
         NOTES["Research note, link verdicts,\nhost notes -> enrich.sh put"]
-        SRC2["data/*.sources.json\ncited pages only"]
-        BJ["data/*.briefing.json"]
+        SRC2["sources documents (netmon.db)\ncited pages only"]
     end
 
     SNAP --> C
@@ -457,9 +460,9 @@ A run stops at its next model call once a cap is passed; what it found until the
 | Tokens per run | 25,000,000 | Input + output tokens of all calls in a run; works without prices |
 | Research batches | 10 | Event-research conversations per run (8 events each), max 40 |
 | Searches per event | 3 | Web searches per event (a batch of 8 shares 8×), max 20; ignored when web research is off |
-| Web research | off on new deployments | Lets the model search and read web pages and cite them; off = local data only and the daily news briefing is skipped |
+| Web research | off on new deployments | Lets the model search and read web pages and cite them; off = local data only  |
 | Elasticsearch (Models box) | on | Lets the job's `es_search` tool run (separate from the correlation reviewer's switch) |
-| Interval | 240 min | How often the review job runs, 30–1440 min, on a grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day is the **daily run** (24 h of logs, plus the news briefing) |
+| Interval | 240 min | How often the review job runs, 30–1440 min, on a grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day is the **daily run** (24 h of logs) |
 | Lookback | 24 h | Hours of logs a non-daily run collects, 1–24 |
 
 The per-event-category setting (**research** / **review** / **test** / **skip**, categories `host`, `ids12`, `gw`,
@@ -552,12 +555,12 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 
 | Setting | Default | Stored in |
 |---|---|---|
-| Correlation reviewer provider + model | first enabled provider with a model | `dashboard/state/llm_config.json` → `correlation` |
-| Chat provider + model | – | `llm_config.json` → `chat` |
-| Elasticsearch look-ups for the reviewer: on/off, max per event | off, 3 (1–20) | `llm_config.json` → `es_queries` |
-| Notes per event | 7 (1–100) | `llm_config.json` → `context_notes` |
-| Note characters | 6000 (1000–100000) | `llm_config.json` → `context_notes.chars` |
-| Review limits: link-type modes, default mode | review (skip on a brand-new deployment) | `llm_config.json` → `review_limits.pair_modes`, `pair_default` |
+| Correlation reviewer provider + model | first enabled provider with a model | `llm_config` (netmon database) → `correlation` |
+| Chat provider + model | – | `llm_config` → `chat` |
+| Elasticsearch look-ups for the reviewer: on/off, max per event | off, 3 (1–20) | `llm_config` → `es_queries` |
+| Notes per event | 7 (1–100) | `llm_config` → `context_notes` |
+| Note characters | 6000 (1000–100000) | `llm_config` → `context_notes.chars` |
+| Review limits: link-type modes, default mode | review (skip on a brand-new deployment) | `llm_config` → `review_limits.pair_modes`, `pair_default` |
 | Review limits: time window (minutes) | 0 = off, max 525,600 | `review_limits.window_minutes` |
 | Review limits: max links per event | 0 = no cap, max 200 | `review_limits.max_links` |
 | Review limits: never-send events and rules | none (max 500 / 200) | `review_limits.excluded`, `review_limits.rules` |
@@ -577,8 +580,8 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 ## AI provenance flares
 
 Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
-research notes, device notes, the security news briefing, Ask AI answers, and correlation-review reasons (Related popover,
-AI review page). `review.py` records `generated_by: {model, via}` in `briefing.json`. Chat answers record the model that
+research notes, device notes, Ask AI answers, and correlation-review reasons (Related popover,
+AI review page). `review.py` records `generated_by: {model, via}` with what it writes. Chat answers record the model that
 answered; correlation verdicts store the reviewer's model id. Fix-list "How to fix" text and risk scores are rule-based (no flare).
 
 ## Clearing segmentation findings
@@ -589,5 +592,5 @@ ack type `seg`), so clearing it anywhere clears it everywhere and it stays clear
 are hidden from Posture, the Fix list and Risk, shown as *allowed* on Lateral movement, dropped from correlation,
 and no longer raise host risk. Failed admin logins on a cleared flow still escalate. They are listed in a
 separate **Cleared segmentation** section (Posture, Fix list, Lateral movement, Checked); untick to bring one back.
-For a permanent rule that also applies to the nightly analysis, add it to `policy.json` `allow`.
+For a permanent rule that also applies to the nightly analysis, add it to the network policy's `allow` list (More → Settings).
 

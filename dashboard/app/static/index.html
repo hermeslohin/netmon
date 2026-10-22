@@ -20,6 +20,7 @@
   <nav id="nav">
     <a href="#/overview" data-r="overview">Overview</a>
     <a href="#/alerts" data-r="alerts">Alerts <span class="alert-count badge sev-high" style="display:none"></span></a>
+    <a href="#/events" data-r="events">Open events <span class="oe-count badge sev-medium" style="display:none"></span></a>
     <div class="ngroup"><button type="button" class="ngh" aria-haspopup="true" aria-expanded="false">Security <span class="chev">▾</span></button><div class="ngm">
       <a href="#/security" data-r="security">Posture</a>
       <a href="#/threatintel" data-r="threatintel">Threat intel</a>
@@ -43,9 +44,10 @@
     <div class="ngroup"><button type="button" class="ngh" aria-haspopup="true" aria-expanded="false">More <span class="chev">▾</span></button><div class="ngm">
       <a href="#/chat" data-r="chat">Ask AI</a>
       <a href="#/aireview" data-r="aireview">AI review</a>
-      <a href="#/checked" data-r="checked">Checked</a>
+      <a href="#/checked" data-r="checked">Checked/suppressed</a>
       <a href="#/users" data-r="users">Dashboard users</a>
       <a href="#/config" data-r="config">Configuration</a>
+      <a href="#/settings" data-r="settings">Settings (policy &amp; site)</a>
       <a href="#/audit" data-r="audit" class="admin-only">Audit log</a>
     </div></div>
   </nav>
@@ -65,6 +67,8 @@
 <script src="/sections.js"></script>
 <script src="/mobile.js"></script>
 <script src="/alerts.js"></script>
+<script src="/openevents.js"></script>
+<script src="/settings.js"></script>
 <script src="/account.js"></script>
 <script src="/config.js"></script>
 <script src="/audit.js"></script>

@@ -57,7 +57,8 @@ def entropy(s):
 
 
 def load_policy():
-    return json.load(open(POLICY)) if os.path.exists(POLICY) else {}
+    import store
+    return store.jload(POLICY, {}) or {}
 
 
 def zone_of(ip, policy=None):
@@ -70,6 +71,16 @@ def zone_of(ip, policy=None):
         if a in ipaddress.ip_network(cidr):
             return z
     return "internal-other" if is_internal(ip) else "external"
+
+
+ZONE_ROLES = ("dmz", "protected", "mgmt", "user", "iot")
+_LEGACY_ROLE = {"dmz": "dmz", "servers": "protected", "k8s": "protected", "ai": "protected"}  # zone names used before zone_roles existed
+
+
+def zone_role(zone, policy=None):
+    """Role of a zone: policy.zone_roles (set by Settings > Auto-discover or by hand), else guessed from the old zone names."""
+    roles = (policy if policy is not None else load_policy()).get("zone_roles") or {}
+    return roles.get(zone) or _LEGACY_ROLE.get(zone) or "user"
 
 
 # ----------------------------------------------------------------------------- threat intel feeds
@@ -682,15 +693,16 @@ def policy_violations(flows, ip2mac, pol):
         if allowed(f, sc, dc):
             continue
         reason, sev = None, None
-        if f["src_zone"] == "dmz" and f["dst_zone"] != "dmz":
+        sr, dr = zone_role(f["src_zone"], pol), zone_role(f["dst_zone"], pol)
+        if sr == "dmz" and dr != "dmz":
             reason, sev = "DMZ host initiating into the internal network", "high"
-        elif sc in ("iot", "camera") and f["dst_zone"] in ("servers", "k8s", "ai"):
+        elif sc in ("iot", "camera") and dr == "protected":
             reason, sev = f"{sc} device reaching {f['dst_zone']}", "high"
         elif sc in ("iot", "camera") and f["port"] in sens:
             reason, sev = f"{sc} device using admin/lateral port {f['port']}", "high"
         elif f["port"] in sens and f["answered"]:
             reason, sev = f"lateral-movement/admin port {f['port']} ({f['service'] or 'tcp'}) between internal hosts", "medium"
-        elif f["src_zone"] != f["dst_zone"] and f["dst_zone"] in ("servers", "k8s", "ai") and f["port"] not in disc and f["answered"]:
+        elif f["src_zone"] != f["dst_zone"] and dr == "protected" and f["port"] not in disc and f["answered"]:
             reason, sev = f"cross-zone access {f['src_zone']} -> {f['dst_zone']} on {f['port']}/{f['proto']}", "low"
         if reason:
             sev = port_severity(f["port"], sens, std)

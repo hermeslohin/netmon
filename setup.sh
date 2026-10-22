@@ -25,11 +25,17 @@ done
 /usr/bin/python3 -c 'import reportlab' 2>/dev/null && ok "reportlab (PDF reports)" || bad "reportlab missing: sudo apt install python3-reportlab   (or pip install --user reportlab)"
 docker info >/dev/null 2>&1 && ok "docker usable by $(id -un)" || bad "docker not usable by $(id -un) (add the user to the docker group)"
 
+echo "== settings (SQLite cfg table; edit on the dashboard: More > Settings)"
+for f in site policy host_policy known_benign; do
+  if python3 -c "import sys; sys.path.insert(0,'$NM'); import store; sys.exit(0 if store.cfg_has('$f') else 1)" 2>/dev/null; then ok "$f settings"
+  elif [ $CHECK = 1 ]; then bad "$f settings missing"
+  else python3 "$NM/store.py" cfg-import "$f" "$NM/$f.example.json" >/dev/null && warn "$f settings loaded from the template - EDIT them for your network (dashboard: More > Settings)"; fi
+done
 echo "== local config (git-ignored, from *.example.json)"
-for f in site policy host_policy known_benign sec_accepted; do
+for f in sec_accepted; do
   if [ -f "$NM/$f.json" ]; then ok "$f.json"
   elif [ $CHECK = 1 ]; then bad "$f.json missing"
-  else cp "$NM/$f.example.json" "$NM/$f.json"; chmod 600 "$NM/$f.json"; warn "$f.json created from template - EDIT IT for your network"; fi
+  else cp "$NM/$f.example.json" "$NM/$f.json"; chmod 600 "$NM/$f.json"; warn "$f.json created from template"; fi
 done
 
 echo "== folders"

@@ -16,8 +16,23 @@
   }
   const pendingEv = (id) => (S.corr?.related?.[id] || []).some((r) => r.llm === "pending");
   window.netmonPendingReview = pendingEv;
+  // rows whose event is no longer in the loaded correlation (checked off, aged out of the snapshot) still get their saved research note
+  const orphanAsked = new Set(), orphanNotes = {};
+  function fetchOrphans() {
+    const ids = [...new Set([...main.querySelectorAll(".rel-btn")].map((b) => b.dataset.rel))].filter((id) => id && !S.corr.notes?.[id] && !S.corr.events?.[id] && !orphanAsked.has(id));
+    if (!ids.length) return;
+    ids.forEach((i) => orphanAsked.add(i));
+    for (let i = 0; i < ids.length; i += 20) {
+      api("/api/notes/by-event?" + ids.slice(i, i + 20).map((x) => "e=" + encodeURIComponent(x)).join("&")).then((N) => {
+        if (!N || !Object.keys(N).length || !S.corr) return; Object.assign(orphanNotes, N); S.corr.notes = { ...(S.corr.notes || {}), ...N }; fill(); }).catch(() => {});
+    }
+  }
   function fill() {
     if (!S.corr || S.corr._snap !== S.snap?.id) return;
+    for (const [k, v] of Object.entries(orphanNotes)) if (!S.corr.notes?.[k] && !S.corr.events?.[k]) (S.corr.notes = S.corr.notes || {})[k] = v;
+    const X = location.hash.startsWith("#/events") ? window.__oeExtra : null;  // Open events page: AI notes, classifications, your notes, times seen
+    if (X) for (const m of ["notes", "classes", "unotes", "seen"]) S.corr[m] = { ...(S.corr[m] || {}), ...(X[m] || {}) };
+    fetchOrphans();
     main.querySelectorAll(".rel-btn").forEach((b) => {
       const n = (S.corr.related?.[b.dataset.rel] || []).length;
       const t = n ? String(n) : "–";
@@ -40,6 +55,11 @@
       const uns = S.corr.unotes?.[b.dataset.rel] || [], un = uns.length, ut = un ? `📝 ${un}${uns.some((x) => x.status === "pending") ? " ⏳" : ""}` : "📝";
       if (ub.textContent !== ut) ub.textContent = ut;
       ub.classList.toggle("has", un > 0);
+      // times seen: "👁 N×" after the Related count (snapshots the event was present in; alerts: times raised)
+      const sn = S.corr.seen?.[b.dataset.rel]; let sb = b.parentNode.querySelector(`.seen-flair[data-seen="${CSS.escape(b.dataset.rel)}"]`);
+      if (sn && !sb) { sb = document.createElement("span"); sb.className = "seen-flair small muted"; sb.dataset.seen = b.dataset.rel; (ub.nextElementSibling?.classList.contains("pend-flair") ? ub.nextElementSibling : ub).after(sb); }
+      if (!sn && sb) sb.remove();
+      if (sn && sb) { const t = ` 👁 ${sn.n}×`; if (sb.textContent !== t) sb.textContent = t; sb.title = `Seen ${sn.n} time${sn.n === 1 ? "" : "s"}${sn.first ? " · first " + sn.first : ""}${sn.last ? " · last " + sn.last : ""}`; }
       // "pending review": the correlation job has not finished this event yet (at least one candidate link still undecided)
       const isP = pendingEv(b.dataset.rel); let pf = ub.nextElementSibling?.classList.contains("pend-flair") ? ub.nextElementSibling : null;
       if (isP && !pf) { pf = document.createElement("span"); pf.className = "pend-flair"; pf.textContent = "⏳ pending review"; pf.title = "The correlation job has not reviewed this event's candidate links yet"; ub.after(pf); }
@@ -120,7 +140,7 @@
   const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
   function openNote(btn) {
     close();
-    const id = btn.dataset.note, n = S.corr?.notes?.[id], me = S.corr?.events?.[id];
+    const id = btn.dataset.note, n = S.corr?.notes?.[id] || window.__ckNotes?.[id], me = S.corr?.events?.[id] || (n ? { label: n.label || String(id).split("|").slice(1).join(" · ") } : null);
     if (!n) return;
     const links = (n.links || []).filter((l) => safeUrl(l.url));
     pop = document.createElement("div"); pop.className = "rel-pop note-pop"; pop.setAttribute("role", "dialog");
@@ -173,7 +193,12 @@
       + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host…</button>`
       + `<button type="button" class="mute-btn" data-mute="suppress" title="Suppress: hide alerts like this from the feed but keep them in correlation, research and review. You can edit the pattern and pick an artifact of the alert or of its correlated events.">🚫 suppress…</button></span>`; };
   // ---- Suppress dialog (button next to a check-off box): hide an event by signature name (+ one artifact), keep it in correlation
+  let lastClick = null; document.addEventListener("click", (e) => { lastClick = e.target; }, true);
+  const globRe = (g) => new RegExp("^" + String(g).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
   window.suppressDialog = async (type, key, fallbackLabel) => {
+    const trig = lastClick && lastClick.isConnected ? lastClick : null;
+    const cardOf = () => trig && (trig.closest(".card") || trig.closest("section, details, .panel") || null);
+    const card = cardOf();
     let sg = { label: fallbackLabel || "", artifacts: [] };
     try { sg = { ...sg, ...(await api(`/api/suppress/suggest?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`)) }; } catch (_) {}
     if (!sg.label) sg.label = fallbackLabel || "";
@@ -183,7 +208,7 @@
     d.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center";
     d.innerHTML = `<div style="background:var(--card,#1c2128);color:inherit;border:1px solid var(--line,#555);border-radius:8px;padding:14px;max-width:600px;width:92vw;max-height:90vh;overflow:auto">
       <h3 style="margin:0 0 6px">🚫 Suppress this finding</h3>
-      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked → Suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
+      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked/suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
       <div class="small mono" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
       <input class="sp-name" value="${esc(alertName(sg.label))}" style="width:100%;box-sizing:border-box" title="Signature name">
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small">Only when it involves</span>
@@ -202,7 +227,14 @@
       const a = pv === "other" ? { type: q(".sp-type").value, value: q(".sp-val").value.trim() } : pv ? A[+pv] : { type: "", value: "" };
       if (!name.replace(/[*?]/g, "").trim()) { q(".sp-msg").textContent = "Enter some text that is not just wildcards."; return; }
       q(".sp-ok").disabled = true; q(".sp-msg").textContent = "saving…";
-      try { await apiPost("/api/llm/review-limits", { suppress: { name, art_type: a.type, art: a.value } }); S.acks = await api("/api/acks"); S.corr = null; close(); rerender(); }
+      try { await apiPost("/api/llm/review-limits", { suppress: { name, art_type: a.type, art: a.value } }); S.acks = await api("/api/acks"); S.corr = null;
+        // also check off every other event in the same card that this suppression matches
+        if (card) {
+          const re = name.includes("*") || name.includes("?") ? globRe(name) : globRe("*" + name + "*"), av = (a.value || "").trim(), are = av ? globRe(/[*?]/.test(av) ? av : "*" + av + "*") : null;
+          const todo = [...card.querySelectorAll("input.ack-cb:not(:checked)")].filter((i) => i.dataset.t !== "seg" && re.test(i.dataset.l || "") && (!are || are.test(i.dataset.l || "")));
+          for (const i of todo) { try { S.acks = await apiPost("/api/acks", { type: i.dataset.t, key: i.dataset.k, checked: true, label: i.dataset.l, note: "suppressed: rule " + name }); } catch (_) {} }
+        }
+        close(); rerender(); }
       catch (e) { q(".sp-ok").disabled = false; q(".sp-msg").textContent = "error: " + (e.message || e); }
     };
     q(".sp-name").focus();
@@ -232,8 +264,8 @@
       try {
         const sup = { name: pat, art_type: wrap.querySelector(".mute-art")?.value || "", art: wrap.querySelector(".mute-artv")?.value.trim() || "" };
         const r = await apiPost("/api/llm/review-limits", { suppress: sup });
-        wrap.innerHTML = `<span class="muted">suppressed ✓ ${esc(pat)}${sup.art_type ? " + " + esc(sup.art_type) + " " + esc(sup.art) : ""} · hid ${r.cleared_alerts || 0} alert(s); still correlated</span>`; S.corr = null;
-        if (/^#\/(alerts|aireview)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
+        wrap.innerHTML = `<span class="muted">suppressed ✓ ${esc(pat)}${sup.art_type ? " + " + esc(sup.art_type) + " " + esc(sup.art) : ""} · hid ${r.cleared_alerts || 0} alert(s)${r.cleared_open ? ", closed " + r.cleared_open + " open finding(s)" : ""}; still correlated</span>`; S.corr = null;
+        if (/^#\/(alerts|aireview|events)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
       } catch (err) { ok.disabled = false; alert(String(err.message || err)); }
       return;
     }
@@ -242,7 +274,7 @@
     try {
       const r = await apiPost("/api/llm/review-limits", { rule, clear_alerts: true });
       wrap.innerHTML = `<span class="muted">muted ✓ ${esc(pat)}${rule.host ? " @ " + esc(rule.host) : ""} · cleared ${r.cleared_alerts || 0} alert(s)</span>`; S.corr = null;
-      if (/^#\/(alerts|aireview)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
+      if (/^#\/(alerts|aireview|events)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
     } catch (err) { ok.disabled = false; alert(String(err.message || err)); }
   }, true);
   // Triage alarm title -> the best-matching underlying event (host finding, new device, IDS, gateway, TI, admin ...)

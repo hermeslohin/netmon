@@ -35,15 +35,15 @@ window.CARD_INFO = {
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
-"aireview|AI Research job": {
-"source": "The AI Research job (review.py), started by the netmon scheduler on the grid set on the Configuration page (anchored at 05:00 UTC; the first run after 05:00 UTC also writes the PDF). Settings in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
-"use": "Status should be Idle or Running with no failure streak. Check that coverage of current events is high; a failing job means notes and verdicts are out of date. Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
-"what": "Status of the scheduled AI Research job (collect, analyze, reviewer): health, model, schedule, last run, note counts by verdict, coverage, and recent runs. Events are researched only on request (Send to research), not on the schedule."
+"aireview|AI Correlation job": {
+"source": "The correlation job (review.py), started by the netmon scheduler on a grid anchored at 05:00 UTC (the first run after 05:00 UTC also writes the PDF). The interval is set on this card; settings are in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
+"use": "Status should be Idle or Running with no failure streak. Set Run every to change how often it runs (5 to 1440 minutes; saves automatically). Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
+"what": "Status of the scheduled correlation job: each run collects and analyzes the latest logs, correlates events, and has the AI reviewer decide the proposed links and queue events for research. Shows health, model, schedule, last run, link verdicts, note coverage and recent runs. Events are researched only on request (Send to research), not on the schedule."
 },
-"aireview|Time and tokens per research job": {
-"source": "Token counts reported by the AI provider for every call of each run, recorded by review.py (per event: the tokens of its research batch divided over the batch's events); cost estimated from the prices entered for the model under AI providers.",
+"aireview|Time and tokens per research job and Ask AI chat": {
+"source": "Token counts reported by the AI provider for every call of each run, recorded by review.py (per event: the tokens of its research batch divided over the batch's events); cost estimated from the prices entered for the model under AI providers. Ask AI chat turns are recorded by chat.py in chat.db (one row per message: tokens, cost, time spent answering).",
 "use": "Watch for runs that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
-"what": "Stacked bars of the research job's tokens per day (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines, plus a list of each researched event with its tokens and cost (a batch of events shares one conversation, so its use is split evenly)."
+"what": "Stacked bars of the tokens per day used by the research job and by Ask AI chat (new input, cache writes, output; grey when the provider gave no cache split) with run time and estimated cost as lines (the dotted yellow line is the chat's share of the cost; hover a day for the research runs / chat turns split), plus a list of each researched event with its tokens and cost (a batch of events shares one conversation, so its use is split evenly)."
 },
 "aireview|Research job limits": {
 "source": "AI Research job settings in the netmon store (research_cfg.py), enforced by review.py before every model call.",
@@ -63,7 +63,7 @@ window.CARD_INFO = {
 "aireview|Models": {
 "source": "Dashboard AI configuration: local models are listed from LM Studio, cloud models from the AI providers box. Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
-"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled AI Research job (reviewer, daily briefing) and on-request event research and the Ask AI chat."
+"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events), the scheduled AI Research job (reviewer) and on-request event research and the Ask AI chat."
 },
 "aireview|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
@@ -106,12 +106,12 @@ window.CARD_INFO = {
 "what": "Everything checked off elsewhere (baseline findings, fix-list items, endpoint findings, gateway events), newest first, with whether each is still present, fixed or absent in the selected snapshot. Items closed automatically show an 'auto-closed' AI verdict badge."
 },
 "checked|Cleared segmentation": {
-"source": "Your check-offs, saved in the netmon SQLite store on the dashboard host, matched against the violations analyze.py found using the zone rules in policy.json.",
-"use": "Cleared flows are hidden from Posture, Fix list, Risk, correlation and the PDF. Uncheck one to bring it back. To make an exception permanent for everyone and the nightly analysis, add it to policy.json instead.",
+"source": "Your check-offs, saved in the netmon SQLite store on the dashboard host, matched against the violations analyze.py found using the zone rules in the network policy (More → Settings).",
+"use": "Cleared flows are hidden from Posture, Fix list, Risk, correlation and the PDF. Uncheck one to bring it back. To make an exception permanent for everyone and the nightly analysis, add it to the network policy (More → Settings) instead.",
 "what": "Network segmentation violations (traffic between zones that policy says should not happen) that you marked as expected, with why they were flagged and whether they still occur."
 },
 "devices|All hosts": {
-"source": "Zeek conn and DNS logs from Security Onion for the last 24 h (collect.py), names from DHCP/DNS and the DHCP-export inventory, zones and classes from policy.json, finding counts from analyze.py baselines.",
+"source": "Zeek conn and DNS logs from Security Onion for the last 24 h (collect.py), names from DHCP/DNS and the DHCP-export inventory, zones and classes from the network policy (More → Settings), finding counts from analyze.py baselines.",
 "use": "Sort by Total or Ext peers to spot unusually busy devices; use the Known/Unknown/high-findings tiles above to filter. Click a row to open the per-host page with full detail, findings and charts.",
 "what": "Every internal address that had traffic in the selected snapshot, with name, MAC, vendor, zone, device class, bytes sent/received, connections, external peers, DNS queries and finding count. An 'unknown' badge marks devices not in the inventory; 'agent' marks hosts running Elastic Agent."
 },
@@ -256,7 +256,7 @@ window.CARD_INFO = {
 "what": "Suricata IDS signatures that fired with this device as source or destination, with severity, role, hit count and last time."
 },
 "device|Identity": {
-"source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from policy.json and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the scheduled AI triage.",
+"source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from the network policy (More → Settings) and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the scheduled AI triage.",
 "use": "Check that the vendor and hostname match what you expect for this device. 'unknown' means it is not in your inventory: identify and add it. Several other IPs, or a very recent first-seen date, deserve a second look. Click the agent link for endpoint detail.",
 "what": "Who this device is: IP, MAC, vendor (from the MAC prefix), DHCP hostname, network zone and device class, inventory name, first/last seen and days seen, other IPs it has used, and any linked Elastic Agent host."
 },
@@ -291,7 +291,7 @@ window.CARD_INFO = {
 "what": "TLS server names (SNI) this IoT device connected to, with counts."
 },
 "device|IoT: domains contacted": {
-"source": "Zeek DNS logs from Security Onion, last 24 h, for devices classed as IoT in policy.json.",
+"source": "Zeek DNS logs from Security Onion, last 24 h, for devices classed as IoT in the network policy (More → Settings).",
 "use": "IoT devices should talk to a small, stable set of vendor domains. Once the baseline has 3 days, a domain outside the learned set is flagged 'iot-new-domain' (medium).",
 "what": "Every registered domain this IoT device looked up, with counts. Forms its learned destination allowlist."
 },
@@ -356,7 +356,7 @@ window.CARD_INFO = {
 "what": "This device's overall risk score (0-100) and its rank among all hosts. Score = likelihood (exposure, weaknesses, threat activity, lateral reach, visibility gaps) x impact (1-5, how much a compromise would hurt the network) / 5."
 },
 "device|Segmentation violations": {
-"source": "Zeek internal flows from Security Onion, last 24 h, checked against zones and rules in policy.json.",
+"source": "Zeek internal flows from Security Onion, last 24 h, checked against zones and rules in the network policy (More → Settings).",
 "use": "Each row shows source, destination, port and reason. Answered connections matter most. Either fix the firewall rule or, if expected, clear it in the policy so it stops being flagged.",
 "what": "Internal connections involving this device that break your zone rules (e.g. IoT reaching servers, DMZ reaching the LAN)."
 },
@@ -516,8 +516,8 @@ window.CARD_INFO = {
 "what": "Bar chart of how many telemetry documents each endpoint sent in the collection window (syslog, auth, Defend process events and agent logs combined)."
 },
 "issues|Cleared segmentation": {
-"source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (policy.json).",
-"use": "Cleared flows are hidden from Posture, Fix list and Risk and shown as allowed on Lateral movement. Uncheck to bring one back. To make it permanent for everyone, add it to the allow list in policy.json.",
+"source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (the network policy (More → Settings)).",
+"use": "Cleared flows are hidden from Posture, Fix list and Risk and shown as allowed on Lateral movement. Uncheck to bring one back. To make it permanent for everyone, add it to the allow list in the network policy (More → Settings).",
 "what": "Segmentation-policy flows you marked as expected, with why they were flagged, whether they were seen in this snapshot, and when you cleared them."
 },
 "issues|Fixed": {
@@ -551,22 +551,22 @@ window.CARD_INFO = {
 "what": "Open misconfigurations and security suggestions seen in 2 or more snapshots, with severity, where, how many times seen out of checks run, first/last seen and fix instructions."
 },
 "lateral|Admin sessions": {
-"source": "lateral.py from Zeek, endpoint login logs and endpoint commands, last 24 h. High = 10+ failed logins, 3+ invalid users, or 3+ failures then success; medium = any failure or 5+ refused; low = few refused or not allowed by policy.json.",
-"use": "Check high and medium rows first and confirm you recognise the accounts. Click a row to see the link in the graph panel. Tick the check box once reviewed — it moves to Checked admin sessions. Add expected admin paths to policy.json allow.",
+"source": "lateral.py from Zeek, endpoint login logs and endpoint commands, last 24 h. High = 10+ failed logins, 3+ invalid users, or 3+ failures then success; medium = any failure or 5+ refused; low = few refused or not allowed by the network policy (More → Settings).",
+"use": "Check high and medium rows first and confirm you recognise the accounts. Click a row to see the link in the graph panel. Tick the check box once reviewed — it moves to Checked admin sessions. Add expected admin paths to the network policy (More → Settings) allow.",
 "what": "Every internal admin session (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC, Docker, Kubernetes, remote support) with risk, outcome, accounts, login and connection counts, and why it was rated."
 },
 "lateral|Checked admin sessions": {
 "source": "Your check-offs stored in the dashboard database (keyed by source, target and protocol), matched against this snapshot's admin sessions.",
-"use": "Reviewed sessions live here so the main list shows only what still needs a look. Uncheck a row to move it back. Checking off does not change risk scoring; use policy.json allow for that.",
+"use": "Reviewed sessions live here so the main list shows only what still needs a look. Uncheck a row to move it back. Checking off does not change risk scoring; use the network policy (More → Settings) allow for that.",
 "what": "Admin sessions you have checked off, with when you checked them and the same risk, outcome and login details as the main list."
 },
 "lateral|Cleared segmentation": {
-"source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (policy.json).",
-"use": "These show as allowed on Lateral movement and are hidden from Posture, Fix list and Risk. Uncheck to bring one back; add it to policy.json allow to make it permanent.",
+"source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (the network policy (More → Settings)).",
+"use": "These show as allowed on Lateral movement and are hidden from Posture, Fix list and Risk. Uncheck to bring one back; add it to the allow list in the network policy (More → Settings) to make it permanent.",
 "what": "Segmentation-policy flows you marked as expected, with why they were flagged, whether they were seen in this snapshot, and when you cleared them."
 },
 "lateral|Connections shown": {
-"source": "lateral.py over Zeek conn logs (internal to internal only, last 24 h), classified against policy.json: policy violations, repeated failed admin attempts and internal scans are risky, allowed admin access is separate.",
+"source": "lateral.py over Zeek conn logs (internal to internal only, last 24 h), classified against the network policy (More → Settings): policy violations, repeated failed admin attempts and internal scans are risky, allowed admin access is separate.",
 "use": "Change Show or Focus host above to filter. Sort by score; high and medium links need a look. Click a row to see details in the side panel.",
 "what": "Table of the internal host-to-host links currently shown in the graph, with risk level, score, zones, the risky ports and reasons, connection counts and bytes."
 },
@@ -586,12 +586,12 @@ window.CARD_INFO = {
 "what": "Every internal host netmon knows about, with zone, name, IP, MAC, vendor, class, whether active this snapshot, in the inventory, running an endpoint agent, plus risk and open issues."
 },
 "netmap|Zones": {
-"source": "Zones and subnets from policy.json; hosts merged from live traffic (Zeek), DHCP inventory, the baseline device registry and UniFi clients; risk from risk.py and issues from the Fix list.",
+"source": "Zones and subnets from the network policy (More → Settings); hosts merged from live traffic (Zeek), DHCP inventory, the baseline device registry and UniFi clients; risk from risk.py and issues from the Fix list.",
 "use": "Look for zones with unknown hosts or a high max risk. Click the riskiest host to open it.",
 "what": "Summary of each network zone: subnet, gateway, number of hosts, how many were active, unknown hosts, open issues, the highest risk score and the riskiest host."
 },
 "overview|Devices by zone": {
-"source": "Device IPs from Zeek traffic in the snapshot, mapped to zones using the subnet ranges in policy.json. '?' means the address is outside every defined zone.",
+"source": "Device IPs from Zeek traffic in the snapshot, mapped to zones using the subnet ranges in the network policy (More → Settings). '?' means the address is outside every defined zone.",
 "use": "Click a slice to open Hosts filtered to that zone. Devices in '?' or an unexpected zone may be misconfigured or unknown and are worth checking.",
 "what": "How many devices seen in the window fall into each network zone, for example main, IoT, servers or guest."
 },
@@ -666,8 +666,8 @@ window.CARD_INFO = {
 "what": "Connections from an internal device to the same destination and port that repeat on a regular timer, with interval, jitter, hours active and score."
 },
 "security|Cleared segmentation": {
-"source": "Your Clear check-offs, stored in the dashboard's SQLite database, matched against this snapshot's segmentation violations from analyze.py and policy.json.",
-"use": "Cleared flows are hidden from Posture, Fix list and Risk and stay cleared. Uncheck one to bring it back. For a permanent rule for everyone, add an allow entry to policy.json.",
+"source": "Your Clear check-offs, stored in the dashboard's SQLite database, matched against this snapshot's segmentation violations from analyze.py and the network policy (More → Settings).",
+"use": "Cleared flows are hidden from Posture, Fix list and Risk and stay cleared. Uncheck one to bring it back. For a permanent rule for everyone, add an allow entry to the network policy (More → Settings).",
 "what": "Internal flows you marked as expected from Segmentation violations, with why they were flagged and whether they still occur in this snapshot."
 },
 "security|DNS-tunnel scoring": {
@@ -726,7 +726,7 @@ window.CARD_INFO = {
 "what": "Internet addresses on a threat or scanner list that connected in to your devices, with feeds, connection count, targets and ports."
 },
 "security|Malicious JA / internal scans / detections": {
-"source": "JA3 from Zeek TLS logs checked against the abuse.ch SSLBL JA3 list; scans from Zeek conn logs (failed connections to 20+ internal hosts or 40+ ports, thresholds in policy.json); detections from Security Onion's detections index. All last 24 h.",
+"source": "JA3 from Zeek TLS logs checked against the abuse.ch SSLBL JA3 list; scans from Zeek conn logs (failed connections to 20+ internal hosts or 40+ ports, thresholds in the network policy (More → Settings)); detections from Security Onion's detections index. All last 24 h.",
 "use": "JA3 matches alone are weak because common TLS libraries collide with old malware entries; they matter when the destination is also threat-listed. An unexpected scanner or any detection hit needs a look.",
 "what": "Three short lists: TLS client fingerprints (JA3) matching known malware, internal devices that look like they are scanning, and Security Onion detection rule hits."
 },
@@ -741,7 +741,7 @@ window.CARD_INFO = {
 "what": "Background notes on an event: what the AI looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
 },
 "security|Segmentation violations": {
-"source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal flows checked against policy.json zones, device classes, sensitive ports and allow rules. High: DMZ initiating inward, or IoT/camera reaching servers or using admin ports; medium: admin ports between hosts; low: cross-zone access.",
+"source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal flows checked against the network policy (More → Settings) zones, device classes, sensitive ports and allow rules. High: DMZ initiating inward, or IoT/camera reaching servers or using admin ports; medium: admin ports between hosts; low: cross-zone access.",
 "use": "If a flow is expected, tick the green Clear box (it disappears; use “show checked” on the card to bring it back). Answered connections matter more than refused attempts. Use 💬 Ask AI if unsure.",
 "what": "Internal connections between zones or devices that the zone policy does not allow, with severity, ports, connection counts, answered count and reason."
 },
@@ -807,7 +807,7 @@ window.CARD_INFO = {
 },
 "threatintel|Malware / exploit-class IDS signatures": {
 "source": "Suricata alerts from Security Onion, last 24 h, filtered by a keyword pattern on signature category and name.",
-"use": "Sort by alert count and look at source and destination hosts. A 'yes' under Tuned benign means the signature is in known_benign.json and has been judged harmless. Anything outbound from an internal host is the priority.",
+"use": "Sort by alert count and look at source and destination hosts. A 'yes' under Tuned benign means the signature is in the Known benign list (More → Settings) and has been judged harmless. Anything outbound from an internal host is the priority.",
 "what": "Suricata IDS signatures in this window whose name or category points to malware, C2, exploits, botnets, mining, ransomware, phishing or admin/user compromise attempts, or with severity 1."
 },
 "threatintel|Newly registered domains": {
@@ -916,7 +916,7 @@ window.CARD_INFO = {
 "what": "Line chart of total network bytes and internet upload for each baseline snapshot over time."
 },
 "traffic|Zone-to-zone matrix": {
-"source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal only (broadcast and self traffic excluded); zones come from the CIDRs in policy.json.",
+"source": "Zeek conn logs from Security Onion, last 24 h, internal-to-internal only (broadcast and self traffic excluded); zones come from the CIDRs in the network policy (More → Settings).",
 "use": "Hover a cell to see its top ports. Traffic within a zone and from trusted zones to infrastructure is normal. Cells going from IoT, cameras or guest zones into server or personal zones are what segmentation should block; see Segmentation violations on Posture.",
 "what": "Heat map of internal traffic between network zones: each cell shows connections and bytes from one zone to another."
 },

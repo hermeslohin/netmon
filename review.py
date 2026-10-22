@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""netmon research job: collect -> analyze -> AI triage + reviewer -> (daily) briefing; events are researched only on request (--event).
+"""netmon research job: collect -> analyze -> reviewer; events are researched only on request (--event).
 
 Started by scheduler.py on the grid set on the dashboard (research_cfg.py), or by hand:
     review.py [--pdf | --no-pdf] [--trigger manual|schedule] [--skip-collect] [--max-batches N]
-The daily run (--pdf) is the first run at or after 05:00 UTC each day; it always covers 24 h of logs and writes the news
-briefing. Other runs cover the lookback window set on the AI review page.
+The daily run (--pdf) is the first run at or after 05:00 UTC each day; it always covers 24 h of logs. Other runs cover the lookback window set on the AI review page.
 
 The AI works through narrow, read-only tools (Elasticsearch search, netmon data, web search / fetch) and writes only
-through validated submit_* tools: data/<stamp>.briefing.json, research notes via enrich.sh
-(dashboard container), known_benign.json additions. Sources it cites are kept in data/<stamp>.sources.json.
+through validated submit_* tools: research notes via enrich.sh
+(dashboard container), known_benign additions. Sources it cites are kept in data/<stamp>.sources.json.
 Run state, token use and cost go to <state>/research_job.json (AI review page). Conversations are saved under
 logs/research/ for review (git-ignored; the newest 60 are kept).
 """
@@ -21,6 +20,7 @@ import agent  # noqa: E402
 import esk  # noqa: E402  (dashboard/app) Elasticsearch search -> Kibana artifact
 import llm_providers as LP  # noqa: E402
 import research_cfg as RC  # noqa: E402
+import store  # noqa: E402
 import site_cfg as SITE  # noqa: E402
 import webtools  # noqa: E402
 
@@ -104,15 +104,12 @@ def sh(argv, timeout=3600, inp=None):
 
 
 def latest_snapshot():
-    snaps = sorted(p for p in glob.glob(os.path.join(DATA, "*.json")) if STAMP_RE.search(p))
+    snaps = sorted(p for p in store.jglob(DATA, "*.json") if STAMP_RE.search(p))
     return snaps[-1] if snaps else None
 
 
 def jload(p, default=None):
-    try:
-        return json.load(open(p))
-    except (OSError, ValueError):
-        return default
+    return store.jload(p, default)
 
 
 def _walk(obj, path):
@@ -173,7 +170,7 @@ class Run:
 
     def known_urls(self):
         urls = set(self.fetched)
-        for f in sorted(glob.glob(os.path.join(DATA, "*.sources.json")))[-30:]:
+        for f in sorted(store.jglob(DATA, "*.sources.json"))[-30:]:
             d = jload(f, {})
             urls |= {s.get("url") for s in (d.get("sources") if isinstance(d, dict) else d) or [] if isinstance(s, dict)}
         return urls
@@ -272,7 +269,7 @@ class Run:
             raise ValueError("fetch the page with web_fetch first - only pages you read can be cited")
         sid = max([int(s.get("id") or 0) for s in led["sources"]] or [0]) + 1
         led["sources"].append({"id": sid, "url": url, "title": title or url, "accessed": time.strftime("%Y-%m-%d", time.gmtime())})
-        json.dump(led, open(self.ledger_path(), "w"), indent=2)
+        store.jdump(led, self.ledger_path())
         return {"id": sid}
 
     def t_benign(self, a):
@@ -285,9 +282,7 @@ class Run:
             kb.setdefault(sec, {})[key] = why
         elif key not in kb.setdefault(sec, []):
             kb[sec].append(key)
-        tmp = p + ".tmp"
-        json.dump(kb, open(tmp, "w"), indent=1, ensure_ascii=False)
-        os.replace(tmp, p)
+        store.jdump(kb, p)
         self.counts["known_benign_added"] = self.counts.get("known_benign_added", 0) + 1
         return {"ok": True}
 
@@ -301,19 +296,6 @@ class Run:
                 raise ValueError(f"{where}: link {l['url'][:100]} was not fetched - only link pages you read")
             out.append({"title": str(l.get("title") or l["url"])[:200], "url": l["url"][:500]})
         return out
-
-    def t_briefing(self, a):
-        items = []
-        for i, x in enumerate(a.get("items") or []):
-            if not isinstance(x, dict) or not x.get("title") or not x.get("url"):
-                raise ValueError(f"items[{i}]: needs category, title, summary and url")
-            if x["url"] not in self.known_urls():
-                raise ValueError(f"items[{i}]: fetch {x['url'][:100]} with web_fetch before using it")
-            items.append({k: str(x.get(k) or "")[:1500] for k in ("category", "title", "summary", "url")})
-        json.dump({"generated_by": {"model": self.target["model"], "via": VIA}, "items": items},
-                  open(self.stem + ".briefing.json", "w"), indent=1, ensure_ascii=False)
-        self.counts["briefing_items"] = len(items)
-        return {"ok": True, "stored": len(items)}
 
     def queries_for(self, *item_ids):
         """Searches of this batch that concern one of the items (tagged with for_ids) or were not tagged at all."""
@@ -392,10 +374,6 @@ class Run:
                                  {"notes": {"type": "array", "items": {"type": "object"}}, "links": {"type": "array", "items": {"type": "object"}},
                                   "host_notes": {"type": "array", "items": {"type": "object"}},
                                   "host_notes_delete": {"type": "array", "items": {"type": "integer"}}}, ["notes"])
-        elif kind == "briefing":
-            T = {k: T[k] for k in ("web_search", "web_fetch")}
-            T["submit_briefing"] = (self.t_briefing, "Store the briefing items (call once at the end).",
-                                    {"items": {"type": "array", "items": {"type": "object"}}}, ["items"])
         if kind == "enrich" and batch and self.web and self.max_searches and "web_search" in T:
             left, fn, cap = [self.max_searches * len(batch)], T["web_search"][0], self.max_searches * len(batch)
             def capped(a, _fn=fn, _left=left, _cap=cap):
@@ -446,13 +424,17 @@ class Run:
         self.raw, self.ana = jload(self.snap, {}), jload(self.stem + ".analysis.json", {})
         if self.raw.get("extras_errors"):
             self.errors.append(f"collector errors: {json.dumps(self.raw['extras_errors'])[:300]}")
-        if not os.path.exists(self.ledger_path()):
-            json.dump({"version": 1, "sources": []}, open(self.ledger_path(), "w"))
+        if not store.jexists(self.ledger_path()):
+            store.jdump({"version": 1, "sources": []}, self.ledger_path())
 
     def enrich(self):
         out = self.stem + ".work.json"
         one = getattr(self.args, "event", None)  # only a person's "Send to research" click researches events; scheduled runs never do
-        rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out] + (["--only", one] if one else []), timeout=600)
+        for attempt in range(3):  # the dashboard container may be restarting (deploy): retry instead of losing the run
+            rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out] + (["--only", one] if one else []), timeout=600)
+            if not rc:
+                break
+            time.sleep(20)
         if rc:
             raise RuntimeError(f"enrich.sh events failed: {(err or o)[-300:]}")
         d = jload(out, {})
@@ -559,24 +541,12 @@ class Run:
         self.counts["review_to_research"] = len(back)
         return back
 
-    def briefing(self):
-        if not self.web:
-            print("web research is off: briefing skipped", file=sys.stderr)
-            return
-        topics = SITE.get("briefing_topics") or [{"category": "Security", "count": 3, "about": "high-impact computer security news"}]
-        want = "\n".join(f"- {t.get('category')}: {t.get('count', 1)} stor{'y' if t.get('count', 1) == 1 else 'ies'} about {t.get('about') or t.get('category')}"
-                         for t in topics)
-        self.converse("briefing", prompt("briefing"), f"Today is {time.strftime('%Y-%m-%d', time.gmtime())}. Categories:\n{want}",
-                      self.tools("briefing"), ("submit_briefing",), max_turns=40, max_tokens=6000)
-
     def go(self, status):
         self.status, self.started = status, time.time()
         fatal = None
         steps = [("collect + analyze", self.collect, True), ("reviewer", self.enrich, False)]
         if getattr(self.args, "event", None):  # one event on request: no new snapshot
             steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
-        elif self.pdf:
-            steps.append(("briefing", self.briefing, False))
         for name, fn, must in steps:
             if fatal:
                 continue
@@ -607,7 +577,7 @@ class Run:
 
 
 def pdf_due():
-    """First run at or after 05:00 UTC each day is the daily run (24 h window + briefing)."""
+    """First run at or after 05:00 UTC each day is the daily run (24 h window)."""
     now = dt.datetime.now(dt.timezone.utc)
     if now.hour < RC.PDF_HOUR:
         return False

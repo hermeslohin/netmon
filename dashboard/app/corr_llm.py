@@ -23,6 +23,10 @@ Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (defaul
      NETMON_LLM_REASONING (default "none" - fast, clean JSON), NETMON_LLM_WORKERS (default 2), NETMON_LLM=off to disable.
 """
 import json, os, sqlite3, sys, threading, time, urllib.error, urllib.request
+_R = os.environ.get("NETMON_DIR", "/netmon")
+if os.path.isdir(_R) and _R not in sys.path:
+    sys.path.append(_R)
+import store  # noqa: E402  /netmon/store.py (SQLite docs table)
 from concurrent.futures import ThreadPoolExecutor
 
 import audit
@@ -68,16 +72,14 @@ ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review:
 
 def _raw_config():
     try:
-        c = json.load(open(CONFIG))
+        c = store.jload(CONFIG, {})
         return c if isinstance(c, dict) else {}
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001
         return {}
 
 
 def _save_config(c):
-    tmp = CONFIG + ".tmp"
-    json.dump(c, open(tmp, "w"), indent=1)
-    os.replace(tmp, CONFIG)
+    store.jdump(c, CONFIG)
 
 
 def notes_limit():
@@ -222,8 +224,9 @@ def _glob(pat, text, sub):
     """Case-insensitive match: a pattern with * or ? is a glob over the whole text, otherwise a substring (sub) / exact."""
     pat, text = str(pat).lower(), str(text).lower()
     if "*" in pat or "?" in pat:
-        import fnmatch
-        return fnmatch.fnmatchcase(text, pat)
+        import re as _re  # only * and ? are wildcards; [ ] are literal (event text has "['1.2.3.4']")
+        rx = "".join(".*" if ch == "*" else "." if ch == "?" else _re.escape(ch) for ch in pat)
+        return _re.fullmatch(rx, text, _re.S) is not None
     return pat in text if sub else pat == text
 
 
@@ -579,9 +582,9 @@ events) and decision: benign (looks odd, harmless), expected (normal for this de
 (research verdict benign/expected, a host note describing this role, baseline or behaviour, or a user profile showing the account normally
 does this - its usual hosts, sources, methods and hours) that explains it, justifies benign or expected. Host notes and user profiles are
 attached to each event: compare what the event shows with them (right account, right source, usual hours, usual process) and name the note;
-activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Internet notes (\"internet note [ip]\") describe external addresses (who runs them, what they are normally contacted for): count them as notes when judging an ip artifact benign or expected. Without such support, or when notes conflict
+activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Internet notes (\"internet note [ip]\") describe external addresses (who runs them, what they are normally contacted for): count them as notes when judging an ip artifact benign or expected. DNS notes (\\"dns note [domain]\\") describe frequent DNS patterns for a domain or subdomain (a note on a domain covers its subdomains): count them when judging a dns artifact benign or expected. Without such support, or when notes conflict
 with the evidence, do not guess benign or expected: choose suspicious when it needs a person's eye. Use [] for candidates that are NOT RELATED.
-When an artifact is an EXTERNAL ip (public address) and the evidence tells you something durable about it (owner/ASN, service such as a CDN or update server, why this network talks to it, or why it is a concern), add a \"note\" (under 40 words, facts only) to that artifact; omit it when you have nothing specific to say.
+When an artifact is an EXTERNAL ip (public address) and the evidence tells you something durable about it (owner/ASN, service such as a CDN or update server, why this network talks to it, or why it is a concern), add a \"note\" (under 40 words, facts only) to that artifact; omit it when you have nothing specific to say. Do the same for a dns artifact: add a "note" (under 40 words, facts only) about a recurring or noteworthy DNS pattern (what the domain or subdomain is, who runs it, which devices query it and how often, why it is normal or a concern).
 Answer with JSON only. Keep each reason under 25 words and specific (name the shared thing and why it matters)."""
 
 SCHEMA = {"type": "object", "properties": {"decisions": {"type": "array", "items": {"type": "object", "properties": {
@@ -1061,7 +1064,7 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, p
     try:  # people's notes on artifacts (files, processes, users, IPs, DNS) seen in earlier reviews
         import kb
         hay = " ".join(str(x) for e_ in [anchor, *(c[0] for c in cands)] for x in (e_.get("label"), *(e_.get("ips") or []), *(a[1] for a in e_.get("arts") or []))).lower()
-        allan = [n for n in kb.host_notes() if str(n["subject"]).startswith("art:")]
+        allan = [n for n in kb.host_notes(ai=True) if str(n["subject"]).startswith("art:")]
         an = ([n for n in allan if str(n["subject"]).split(":", 2)[-1].lower() in hay] + [n for n in allan if str(n["subject"]).split(":", 2)[-1].lower() not in hay])[:25]  # the ones named in these events first
         if an:
             lines += ["", "OWNER NOTES ON ARTIFACTS (authoritative guidance from the network owners; apply when the same artifact appears):"]
@@ -1131,7 +1134,7 @@ _TAG = _re.compile(r"^\[profile:\w+\]\s*")
 
 def _human(n):
     """A host / artifact note written by a person (not the AI, the reviewer or the profile pass)."""
-    return str(n.get("author") or "").startswith("user:") or str(n.get("via") or "") == "dashboard"
+    return str(n.get("author") or "").startswith("user:") or str(n.get("via") or "") == "dashboard" or n.get("status") == "approved"  # approved by a defender/admin = authoritative
 
 
 def _user_profiles():
@@ -1159,7 +1162,7 @@ def _context_notes(tags, E):
         subs = set()
         for ip in (ev.get("ips") or [])[:4]:
             subs |= set(kb.subjects_for_ip(ip))
-        hn = kb.host_notes(sorted(subs)) if subs else []
+        hn = kb.host_notes(sorted(subs), ai=True) if subs else []
         earts = kb.event_artifact_keys(ev)  # look the event's artifacts up in the notes' artifact index BEFORE choosing which notes to send
         na = kb.note_artifacts([n["id"] for n in hn])
         have = {n["id"] for n in hn}
@@ -1175,16 +1178,19 @@ def _context_notes(tags, E):
                 users.append(value)
         ua = []  # accounts first: they are the shortest and decide most "expected" calls
         for u in users[:4]:
-            for n in kb.host_notes([f"art:user:{u}"]):
+            for n in kb.host_notes([f"art:user:{u}"], ai=True):
                 (o if _human(n) else ua).append(f"user note [{u}]: {str(n['text'])[:300]}")
             if prof.get(u.lower()):
                 ua.append(f"user profile: {prof[u.lower()][:300]}")
         a += ua
         in_pool = {n["id"] for _sc, _hit, n in pool}
         for ip in kb.external_ips(ev)[:6]:  # what is known about the internet addresses involved (Network > Internet notes); the ones the index already ranked come below
-            for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"])[:3]:
+            for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"], ai=True)[:3]:
                 if n["id"] not in in_pool:
                     (o if _human(n) else a).append(f"internet note [{ip}]: {_TAG.sub('', str(n['text']))[:240]}")
+        for name, dom, n, exact in kb.dns_notes_for(kb.dns_names(ev), 6):  # DNS notes by domain / subdomain (Network > Internet notes)
+            if n["id"] not in in_pool:
+                (o if _human(n) else a).append(f"dns note [{dom}{'' if exact else ' covers ' + name}]: {_TAG.sub('', str(n['text']))[:240]}")
         homes = {x["id"] for x in hn}
         for sc, hit, n in pool:
             where = "" if n["id"] in homes or not hit else f" (matches {', '.join(hit[:3])})"
@@ -1294,6 +1300,7 @@ def _review(model, aid, base, todo):
     try:
         _note_expected(model, aid, E, cands, dec)
         _note_internet(model, aid, E, cands, dec)
+        _note_dns(model, aid, E, cands, dec)
     except Exception as e:  # noqa: BLE001 - host notes are a by-product, never fail a review for them
         print(f"corr_llm: host notes skipped: {e}", file=sys.stderr)
     return len(rows)
@@ -1332,6 +1339,36 @@ def _note_internet(model, aid, E, cands, dec):
                 n += 1
             except ValueError as ex:
                 print(f"corr_llm: internet note not added for {ip}: {ex}", file=sys.stderr)
+    return n
+
+
+def _note_dns(model, aid, E, cands, dec):
+    """DNS artifacts the reviewer wrote a `note` for -> a DNS note (host note on dom:<name>; a subdomain gets its own note), one per
+    name and reviewer (found by its tag, updated in place). The name must appear in one of the two events. Unverified, deletable on
+    Network > Internet notes."""
+    if not HOST_NOTES:
+        return 0
+    import kb
+    mname = model["model"] if isinstance(model, dict) else model
+    n = 0
+    for i, (e, r) in enumerate(cands, 1):
+        d = dec.get(f"c{i}")
+        if not d or not d.get("related"):
+            continue
+        seen = set(kb.dns_names(E[aid])) | set(kb.dns_names(e))
+        for art in clean_artifacts(d.get("artifacts")):
+            name = art["value"].strip().lower().strip(".")
+            if art["kind"] != "dns" or not art.get("note") or name not in seen:
+                continue
+            tag = f"[reviewer:dns:{name}]"
+            text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Reviewer judgement ({mname}), unverified.)"
+            try:
+                old = [x for x in kb.host_notes([f"dom:{name}"]) if x["text"].startswith(tag)]
+                kb.add_host_note({"dom": name}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="correlation reviewer",
+                                 note_id=old[0]["id"] if old else None)
+                n += 1
+            except ValueError as ex:
+                print(f"corr_llm: dns note not added for {name}: {ex}", file=sys.stderr)
     return n
 
 

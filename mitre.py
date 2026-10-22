@@ -364,8 +364,9 @@ if __name__ == "__main__":
         print(f"ATT&CK v{col.get('x_mitre_version')}: {len(tech)} techniques; invalid rule IDs now: {check() or 'none'}")
     elif cmd == "map":  # mitre.py map <snapshot.json>
         p = sys.argv[2]
-        snap = json.load(open(p))
-        load = lambda s: json.load(open(p[:-5] + s)) if os.path.exists(p[:-5] + s) else {}
+        import store
+        snap = store.jload(p, {})
+        load = lambda s: store.jload(p[:-5] + s, {})
         r = map_all(snap, load(".analysis.json"), load(".triage.json"))
         print(json.dumps(r["summary"]))
         for short in r["tactic_order"]:

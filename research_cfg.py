@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Settings, schedule and status of the research job (review.py): event research + daily briefing.
+"""Settings, schedule and status of the research job (review.py): event research.
 
 Settings live in the netmon store's meta table (key "research_job"), so the dashboard container (which writes them
 from the AI review / Configuration pages) and the host scheduler read the same values:
   provider, model       which AI does the research ("api:<id>" from llm_providers, or "lmstudio")
-  interval_minutes      30 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily PDF run)
+  interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily PDF run)
   enabled               the scheduler skips the job when off
   max_run_usd           stop a run when its estimated cost passes this (needs a price for the model; 0 = no cap)
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
@@ -48,7 +48,7 @@ DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in te
 DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
             "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": False, "es_search": True, "severities": ["high", "medium"],
             "modes": DEFAULT_MODES}
-LIMITS = {"interval_minutes": (30, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
+LIMITS = {"interval_minutes": (5, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40), "max_searches": (0, 20)}
 STATE = os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state"))
 STATUS = os.path.join(STATE, "research_job.json")
@@ -172,17 +172,11 @@ def pending_request():
 
 
 def status():
-    try:
-        return json.load(open(STATUS))
-    except (OSError, ValueError):
-        return {}
+    return store.jload(STATUS, {}) or {}
 
 
 def write_status(d):
-    tmp = STATUS + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(d, f, indent=1, default=str)
-    os.replace(tmp, STATUS)
+    store.jdump(d, STATUS)
 
 
 def spent_today():

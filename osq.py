@@ -19,8 +19,9 @@ from esq import q  # noqa: E402
 PACK = "netmon-host-posture"
 POL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "host_policy.json")
 try:
-    POLICY = json.load(open(POL)).get("osquery", {})
-except Exception:
+    import store
+    POLICY = store.cfg_load("host_policy").get("osquery", {})
+except Exception:  # noqa: BLE001
     POLICY = {}
 SYS_BIN = tuple(POLICY.get("package_managed_prefixes", ["/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/lib", "/lib"]))
 USER_WRITABLE = ("/home/", "/tmp/", "/var/tmp/", "/dev/shm/", "/run/user/")

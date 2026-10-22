@@ -29,3 +29,10 @@
   mq.addEventListener("change", () => { placeUser(); if (!mq.matches) set(false); });
   placeUser(); label();
 })();
+
+/* spinning microscope at the top while the AI research job is running */
+(() => {
+  const el = document.createElement("div"); el.id = "researchSpin"; el.textContent = "🔬"; el.title = "AI research job running"; document.body.appendChild(el);
+  const poll = async () => { if (document.hidden) return; try { const r = await fetch("/api/research/running", { credentials: "same-origin" }); if (r.ok) el.classList.toggle("on", !!(await r.json()).running); } catch (_) {} };
+  poll(); setInterval(poll, 15000); document.addEventListener("visibilitychange", poll);
+})();

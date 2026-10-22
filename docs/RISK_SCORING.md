@@ -29,13 +29,13 @@ and `dashboard/app/lateral.py` (admin sessions and link scores).
 
 | Input | Source |
 |---|---|
-| Snapshot raw data: devices, served ports, IDS signatures, beacons, threat intel, TLS, internal flows, admin access, endpoint fleet | `data/<snapshot>.json` (collect.py) |
-| Behaviour findings and segmentation violations | `data/<snapshot>.analysis.json` (analyze.py) |
+| Snapshot raw data: devices, served ports, IDS signatures, beacons, threat intel, TLS, internal flows, admin access, endpoint fleet | snapshot document `data/<snapshot>` in the netmon database (collect.py) |
+| Behaviour findings and segmentation violations | `data/<snapshot>.analysis` document in the netmon database (analyze.py) |
 | Open Fix-list issues, with occurrence counts across **all** snapshots | `issues.track()` plus software-scan findings |
-| Zones, device classes, allow list | `policy.json` |
+| Zones, device classes, allow list | network policy (More → Settings) |
 | Cleared segmentation flows (ack type `seg`) | ack store |
-| Known-benign IDS signatures, beacon domains, names | `known_benign.json` |
-| Crown-jewel hosts, endpoint-name→IP map | `site.json` (git-ignored) |
+| Known-benign IDS signatures, beacon domains, names | Known benign list (More → Settings) |
+| Crown-jewel hosts, endpoint-name→IP map | Site settings (More → Settings) |
 
 Because scores are computed on request, picking an older snapshot recomputes risk for that snapshot. Clearing a
 segmentation flow or fixing an issue changes the scores right away, without waiting for the next nightly run.
@@ -87,7 +87,7 @@ two segments, then the bare kind.
 ### Host exposure factor
 
 This depends on the affected host. The issue's `ip` is used, or the host name is resolved to an IP through
-`site.json` `host_ips` or a device-name match. Only the first matching row applies:
+the site setting `host_ips` or a device-name match. Only the first matching row applies:
 
 | Condition | Factor |
 |---|---|
@@ -197,11 +197,11 @@ The admin-login points are added after the first cap, and the total is capped at
 
 Only the first matching rule applies:
 
-1. **Override.** Crown-jewel hosts listed in `site.json` `crown_jewels` (with a reason) are 5. The **UniFi
+1. **Override.** Crown-jewel hosts listed in the site setting `crown_jewels` (with a reason) are 5. The **UniFi
    gateway** entity is 5.
 2. **DMZ** host: 3. It is isolated by design, but becomes a pivot point if segmentation leaks.
 3. **Endpoint known only by host name** (Elastic agent, no device IP): 4.
-4. Otherwise, by **device class** from `policy.json` `device_classes`. When the device has no class, the
+4. Otherwise, by **device class** from the network policy `device_classes`. When the device has no class, the
    **zone** is used instead.
 
 | Class | Impact | | Zone (only used when there is no class) | Impact |
@@ -228,7 +228,7 @@ support…) by *(source, destination, protocol)* and gives each session a level.
 | **medium** | ≥ 5 refused/unanswered connections to an admin port |
 | **low** | 1–4 refused/unanswered connections |
 | normal | database client traffic |
-| allowed-admin | successful session matched by `policy.json` `allow`, or on a user-cleared segmentation flow |
+| allowed-admin | successful session matched by the network policy `allow` list, or on a user-cleared segmentation flow |
 | **low** | successful session not covered by the allow list |
 
 Only **high** and **medium** sessions feed host risk: the destination's *threat* and the source's *reach*.
@@ -237,7 +237,7 @@ list.
 
 ### Segmentation severity (by port)
 
-A flow that breaks the segmentation policy (`policy.json`) becomes a *violation*, a Fix-list `seg` issue and a
+A flow that breaks the segmentation policy (the network policy) becomes a *violation*, a Fix-list `seg` issue and a
 behaviour finding. The reason says why it is flagged (a DMZ host initiating inward, an IoT or camera device reaching
 servers, an admin port between internal hosts, cross-zone access to a server zone); its **severity comes from the port
 alone**, so one noisy zone pair cannot flood the high bucket:
@@ -304,14 +304,14 @@ Host risk bubbles use the newest nightly snapshot, not the picked periods.
 - **Fix the issue.** Once a snapshot can re-check the issue and no longer sees it, it moves to *Fixed* and stops
   counting toward vulnerability and weakness scores.
 - **Clear an expected segmentation flow** (checkbox on Posture, the Fix list or Lateral movement). This removes
-  the issue, the violation and its reach points. To make it permanent for everyone, add it to `policy.json`
+  the issue, the violation and its reach points. To make it permanent for everyone, add it to the network policy `allow` list
   `allow`.
-- **Mark noise as known-benign.** IDS signatures and beacon domains in `known_benign.json` stop adding threat
+- **Mark noise as known-benign.** IDS signatures and beacon domains in the Known benign list stop adding threat
   points.
 - **Close visibility gaps.** Add the device to the inventory, install or repair the Elastic agent, and stop DNS
   bypass.
 - **Classify devices.** An unclassified device falls back to its zone's impact. Setting its class in
-  `policy.json` `device_classes` gives it the right impact.
+  the network policy `device_classes` gives it the right impact.
 
 Acknowledging (checking off) a vulnerability on the Risk page only moves it to the "checked" view. It does **not**
 change its score. Only fixing or clearing does.
@@ -360,7 +360,7 @@ All weights are module-level constants:
 | Severity bases | `risk.SEV_BASE` |
 | Kind factors and their reasons | `risk.KIND_FACTOR` |
 | Impact by class / zone | `risk.IMPACT_BY_CLASS`, `risk.IMPACT_BY_ZONE` |
-| Crown jewels (site-specific) | `site.json` → `crown_jewels: {"<ip>": "<why>"}` |
+| Crown jewels (site-specific) | Settings → Site → `crown_jewels: {"<ip>": "<why>"}` |
 | Component caps and per-signal points | inline in `risk.compute()` |
 | Admin-session thresholds | `lateral.admin_sessions()` |
 | Edge level weights | `lateral.SEV_W` |
@@ -378,7 +378,7 @@ If you change a cap, also update `components_max` in the `compute()` return valu
   UniFi keys such as `unifi|admin-src|<ip>` resolve correctly.
 - Some points have no driver text (DMZ exposure +5, JA3 +2, unhealthy agent +3, DNS bypass +2). In those cases the
   component bar can be higher than the listed drivers explain.
-- Host-to-IP resolution for endpoint names uses `site.json` `host_ips`, then a short-name match against device
+- Host-to-IP resolution for endpoint names uses the site setting `host_ips`, then a short-name match against device
   names longer than 3 characters. An endpoint that can't be resolved is scored separately by host name with
   impact 4, and gets no network-side signals.
 - Threat-intel outbound matching is a substring test of the host IP against each hit. A short IP can, in rare

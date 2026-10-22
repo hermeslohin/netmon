@@ -78,6 +78,8 @@
     document.body.classList.remove("chat-list-open");
   }
 
+  const canOpt = () => window.chatOptBar && window.chatCanOpt();
+  const optGet = window.chatOptGet;
   async function send(text, ctx) {
     text = text.trim(); if (!text || C.busy) return;
     const log = document.getElementById("chatLog"), ta = document.getElementById("chatInput"), btn = document.getElementById("chatSend");
@@ -90,7 +92,7 @@
       const live = log.querySelector(".chat-msg.live"), tools = live.querySelector(".chat-tools"), out = live.querySelector(".chat-text");
       log.scrollTop = log.scrollHeight;
       const r = await fetch("/api/chat", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Netmon": "1" },
-        body: JSON.stringify({ action: "send", id: C.cur, text, ...(ctx ? { context: ctx } : {}), ...(chatModel() ? { model: chatModel() } : {}) }) });
+        body: JSON.stringify({ action: "send", id: C.cur, text, ...(ctx ? { context: ctx } : {}), ...(chatModel() ? { model: chatModel() } : {}), ...(canOpt() ? { es: optGet("es", true), web: optGet("web", false) } : {}) }) });
       if (!r.ok || !(r.headers.get("Content-Type") || "").includes("event-stream")) {
         const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`);
       }
@@ -135,11 +137,13 @@
       <aside class="chat-side card"><div class="chat-side-h"><b>Chats</b></div><div id="chatList"><div class="loading">Loading…</div></div></aside>
       <section class="chat-main card">
         <div class="chat-head"><button class="chat-listbtn" aria-label="Show chats">☰ Chats</button><b>Ask AI</b><span class="muted small">read-only netmon assistant</span><span class="chatm-slot"></span></div>
+        <div class="chatopt-slot"></div>
         <div id="chatLog" class="chat-log"></div>
         <form class="chat-form" autocomplete="off"><textarea id="chatInput" rows="1" placeholder="Ask about your network…" maxlength="4000" aria-label="Message"></textarea><button id="chatSend" type="submit" aria-label="Send">➤</button></form>
         <div class="chat-foot muted small">Answers can be wrong. Check important findings on the dashboard pages.</div>
       </section></div>`;
     window.scrollTo(0, 0); fit(); addEventListener("resize", fit); setTimeout(fit, 300);
+    if (canOpt()) el.querySelector(".chatopt-slot")?.replaceChildren(window.chatOptBar());
     chatModelPicker().then((p) => el.querySelector(".chatm-slot")?.replaceChildren(p));
     const ta = el.querySelector("#chatInput"), form = el.querySelector(".chat-form");
     ta.addEventListener("input", () => autosize(ta));

@@ -41,10 +41,13 @@ _cache = {"k": None, "v": [], "local": {}}
 # ---------------------------------------------------------------- storage
 def _load_all():
     try:
-        st = os.stat(PATH)
-        k = (st.st_mtime_ns, st.st_size)
+        import store
+        mt = store.jmtime(PATH)
+        k = (mt,)
+        if mt is None:
+            return [], {}
         if _cache["k"] != k:
-            d = json.load(open(PATH))
+            d = store.jload(PATH, {})
             if not isinstance(d, dict):
                 d = {}
             ps = [p for p in (d.get("providers") or []) if isinstance(p, dict) and p.get("id")]
@@ -67,12 +70,8 @@ def _load_local_cfg():
 def _save(providers, local=None):
     if local is None:
         local = _load_local_cfg()
-    tmp = PATH + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump({"providers": providers, "local": local}, f, indent=1)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, PATH)
+    import store
+    store.jdump({"providers": providers, "local": local}, PATH)
     _cache["k"] = None
 
 

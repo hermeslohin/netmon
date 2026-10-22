@@ -461,7 +461,11 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .range-pop button.primary{background:var(--accent);color:#0e1116;border-color:var(--accent);font-weight:600}
 .range-pop .rp-note{margin:0;line-height:1.4}
 @media (max-width:900px){ #rangeBtn #rangeLbl .muted{display:none} #rangeBtn{max-width:44vw;overflow:hidden;text-overflow:ellipsis;font-size:12px;padding:4px 6px} }
-@media (max-width:900px){ #rangeBtn .rb-ic{display:none} }
+.rb-cal{display:none}
+@media (max-width:900px){ #rangeBtn .rb-ic,#rangeBtn #rangeLbl,#rangeBtn .rb-car{display:none} #rangeBtn .rb-cal{display:inline;font-size:18px;line-height:1} #rangeBtn{padding:4px 8px;max-width:none} }
+#researchSpin{position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:70;font-size:22px;line-height:1;pointer-events:none;display:none;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
+#researchSpin.on{display:block;animation:rsSpin 1.4s linear infinite}
+@keyframes rsSpin{from{transform:translateX(-50%) rotate(0)}to{transform:translateX(-50%) rotate(360deg)}}
 
 /* ---- time ranges load section by section: a card whose data has not arrived yet shows a spinner over it ---- */
 .card.sec-loading{position:relative;min-height:90px;pointer-events:none}
@@ -505,3 +509,17 @@ html,body,.rel-pop,.rel-pop *{-webkit-text-size-adjust:100%;text-size-adjust:100
 .note-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .art-chip{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:1px 6px;border-radius:10px;background:rgba(127,127,127,.15);border:1px solid rgba(127,127,127,.3)}
 .art-chip code{font-size:11px;background:none;padding:0}
+
+.chat-opts{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:6px 14px;margin:0}
+.chat-opts label{display:inline-flex;gap:6px;align-items:center;cursor:pointer;white-space:nowrap}
+.askdlg .chat-opts{padding:6px 0}
+.chatopt-slot:not(:empty){border-bottom:1px solid var(--border)}
+
+.kb-hrev{font-size:11px;padding:1px 6px;margin-left:4px}
+.kb-note.kb-st-rejected .kb-text-v{opacity:.55;text-decoration:line-through}
+
+/* Settings page tables (settings.js) */
+.cfg-tbl{width:auto;min-width:50%;margin:4px 0}
+.cfg-tbl th,.cfg-tbl td{padding:3px 6px;vertical-align:top;border-bottom:1px solid var(--line,#30363d)}
+.cfg-tbl .cfg-tbl{min-width:0;margin:0}
+.cfg-tbl input[type=text],.cfg-tbl textarea{background:transparent;color:inherit;border:1px solid var(--line,#30363d);border-radius:4px;padding:2px 5px;font:inherit}

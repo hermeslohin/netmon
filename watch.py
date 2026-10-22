@@ -31,10 +31,8 @@ FAILED = ["S0", "REJ", "RSTOS0", "SH", "OTH"]
 
 
 def load(p, default):
-    try:
-        return json.load(open(p))
-    except Exception:
-        return default
+    v = store.jload(p)
+    return default if v is None else v
 
 
 benign = load(os.path.join(NM, "known_benign.json"), {})

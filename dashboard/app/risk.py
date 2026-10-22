@@ -18,7 +18,7 @@ import os as _os, sys as _sys
 for _p in (_os.environ.get("NETMON_DIR", "/netmon"), _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))):
     if _os.path.isdir(_p) and _p not in _sys.path:
         _sys.path.append(_p)
-import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
+import site_cfg as SITE  # noqa: E402  network-specific values live in the site settings
 
 SEV_BASE = {"high": 45, "medium": 28, "low": 14, "info": 5}
 # issue-key prefix -> (factor, why)
@@ -39,10 +39,11 @@ KIND_FACTOR = {
 }
 IMPACT_BY_CLASS = {"infra": 5, "server": 5, "k8s": 4, "work": 4, "personal": 3, "camera": 2,
                    "media": 2, "game": 2, "iot": 2}
-IMPACT_BY_ZONE = {"servers": 5, "ai": 5, "k8s": 4, "dmz": 3, "lan": 3, "vlan3": 3, "vlan4": 3, "vlan21": 3}
-IMPACT_OVERRIDE = {**{ip: (5, why) for ip, why in (SITE.get("crown_jewels") or {}).items()},  # crown jewels (site.json)
+IMPACT_BY_ROLE = {"protected": 5, "mgmt": 4, "dmz": 3, "user": 3, "iot": 2}
+_LEGACY_ROLE = {"dmz": "dmz", "servers": "protected", "k8s": "protected", "ai": "protected"}  # zone names used before zone_roles existed
+IMPACT_OVERRIDE = {**{ip: (5, why) for ip, why in (SITE.get("crown_jewels") or {}).items()},  # crown jewels (the site settings (More → Settings))
                    "UniFi gateway": (5, "gateway/firewall for every network")}
-HOST_IP = dict(SITE.get("host_ips") or {})  # endpoint host name -> IP (site.json)
+HOST_IP = dict(SITE.get("host_ips") or {})  # endpoint host name -> IP (the site settings (More → Settings))
 EPHEMERAL = 32768
 ICMP_PORTS = {"0", "3", "4", "8", "11"}
 
@@ -143,6 +144,11 @@ def compute(raw, analysis, tracker, policy, known_benign):
     cleared = seg_cleared(policy)
     open_issues = [i for i in (tracker or {}).get("open") or [] if seg_key_issue(i["key"]) not in cleared or not cleared]
 
+    zroles = (policy or {}).get("zone_roles") or {}
+
+    def role(z):  # zone -> dmz | protected | mgmt | user | iot ("" when the IP is in no configured zone)
+        return zroles.get(z) or _LEGACY_ROLE.get(z) or ("user" if z in zones else "")
+
     # ---------- per-host context ----------
     def ctx(ip):
         d = devices.get(ip) or {}
@@ -157,9 +163,9 @@ def compute(raw, analysis, tracker, policy, known_benign):
         d, z, cls, exp = ctx(ip)
         if exp:
             return 1.4, "host exposes services to the internet"
-        if z == "dmz":
+        if role(z) == "dmz":
             return 1.3, "host is in the DMZ"
-        if z in ("servers", "ai"):
+        if role(z) == "protected":
             return 1.15, "host is a server"
         return 1.0, ""
 
@@ -169,7 +175,7 @@ def compute(raw, analysis, tracker, policy, known_benign):
         key = i["key"]
         ip = i.get("ip") or _host_ip(i.get("host"), devices)
         pre = key.split("|")[0]
-        if pre == "seg" and zone_of(ip, zones) == "dmz":
+        if pre == "seg" and role(zone_of(ip, zones)) == "dmz":
             pre = "seg-dmz"
         fk = next((k for k in (key.rsplit("|", 1)[0], "|".join(key.split("|")[:2]), pre) if k in KIND_FACTOR), pre)
         kf, kwhy = KIND_FACTOR.get(fk, (1.0, ""))
@@ -238,7 +244,7 @@ def compute(raw, analysis, tracker, policy, known_benign):
         if tin:
             e += 7
             drivers.append(("exposure", f"probed by {len(tin)} threat-listed IPs"))
-        if z == "dmz":
+        if role(z) == "dmz":
             e += 5
         comp["exposure"] = min(25, e)
 
@@ -299,7 +305,7 @@ def compute(raw, analysis, tracker, policy, known_benign):
         if is_ip and not d.get("known"):
             vg += 4
             drivers.append(("visibility", "not in inventory"))
-        if is_ip and (cls in ("server", "infra", "work") or z in ("servers", "ai", "dmz")) and t not in agent_ips and cls != "infra":
+        if is_ip and (cls in ("server", "infra", "work") or role(z) in ("protected", "dmz")) and t not in agent_ips and cls != "infra":
             vg += 4
             drivers.append(("visibility", "no Elastic agent on a server/workstation"))
         ag = agent_ips.get(t)
@@ -312,12 +318,12 @@ def compute(raw, analysis, tracker, policy, known_benign):
         likelihood = min(100, sum(comp.values()))
         if t in IMPACT_OVERRIDE:
             impact, iwhy = IMPACT_OVERRIDE[t]
-        elif z == "dmz":
+        elif role(z) == "dmz":
             impact, iwhy = 3, "DMZ host - isolated by design, but a pivot point if segmentation leaks"
         elif not is_ip:
             impact, iwhy = 4, "endpoint with Elastic agent"
         else:
-            impact = max(IMPACT_BY_CLASS.get(cls, 0), IMPACT_BY_ZONE.get(z, 2) if not cls else 0) or 2
+            impact = max(IMPACT_BY_CLASS.get(cls, 0), IMPACT_BY_ROLE.get(role(z), 2) if not cls else 0) or 2
             iwhy = f"class {cls}" if cls else f"zone {z or '?'}"
         score = round(likelihood * impact / 5, 1)
         if score <= 0 and not vs:

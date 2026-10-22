@@ -90,5 +90,12 @@
    "why": "monitoring host queries Elasticsearch"
   }
  ],
- "_doc_device_classes": "Keys may be a MAC address (lower-case, colon separated; preferred, survives DHCP changes) or an IP."
+ "_doc_device_classes": "Keys may be a MAC address (lower-case, colon separated; preferred, survives DHCP changes) or an IP.",
+ "zone_roles": {
+  "lan": "user",
+  "iot": "iot",
+  "servers": "protected",
+  "dmz": "dmz"
+ },
+ "_doc_zone_roles": "zone -> role: dmz (internet-exposed; flows from it inward are violations), protected (servers/clusters; IoT and cross-zone access flagged), mgmt (IPMI/infrastructure), user, iot. Settings > Network policy > Discover from UniFi fills zones, zone_roles and device_classes automatically."
 }

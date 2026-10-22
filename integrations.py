@@ -44,10 +44,11 @@ _cache = {"k": None, "v": {}}
 def load():
     p = path()
     try:
-        st = os.stat(p)
-        k = (p, st.st_mtime_ns, st.st_size)
+        import store
+        mt = store.jmtime(p)
+        k = (p, mt)
         if _cache["k"] != k:
-            d = json.load(open(p))
+            d = store.jload(p, {})
             _cache.update(k=k, v=d if isinstance(d, dict) else {})
         return _cache["v"]
     except (OSError, ValueError):
@@ -212,12 +213,8 @@ def save(section, body, user):
     d = load()
     d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     p = path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), prefix=".integrations.")
-    with os.fdopen(fd, "w") as f:
-        json.dump(d, f, indent=1)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, p)
+    import store
+    store.jdump(d, p)
     _cache["k"] = None
     return public()
 

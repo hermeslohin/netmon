@@ -30,7 +30,7 @@ echo "   clean"
 
 echo "== 2b. sensitive-data gate (no site IPs, MACs, host/account names or private config in the repo)"
 git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r /usr/bin/python3 "$NM/repo_guard.py" || {
-  echo "   ABORT: sensitive site data in the commit - move it to site.json (git-ignored) and read it via site_cfg"; git reset -q; exit 4; }
+  echo "   ABORT: sensitive site data in the commit - move it to the site settings (dashboard: More > Settings) and read it via site_cfg"; git reset -q; exit 4; }
 echo "   clean"
 
 NEWHIGH=$(echo "$R" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("new_high", 0))' 2>/dev/null || echo 0)

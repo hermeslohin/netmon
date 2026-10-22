@@ -2,11 +2,11 @@
 """Pre-push guard: refuse to commit anything that identifies this network.
 
   repo_guard.py <file>...    exit 1 and list offending lines if any staged file contains
-     - an IP inside internal_cidr, the home WAN IP, or any IP that appears anywhere in site.json
+     - an IP inside internal_cidr, the home WAN IP, or any IP that appears anywhere in the site settings
      - a MAC address
-     - a sensitive term from site.json "sensitive_terms" (host names, account names, domains)
+     - a sensitive term from the site settings "sensitive_terms" (host names, account names, domains)
      - a file that must never be committed (site.json, policy/inventory/accepted-findings JSON, data, state)
-Values come from site.json (git-ignored), so the guard itself contains nothing sensitive.
+Values come from the site settings (cfg table, never committed), so the guard itself contains nothing sensitive.
 """
 import ipaddress, json, os, re, sys
 
@@ -22,7 +22,9 @@ SKIP_CONTENT = re.compile(r"(^|/)(chart\.umd\.min\.js|attack_enterprise\.json|.*
 
 
 def _site_values():
-    s = json.load(open(os.path.join(HERE, "site.json"))) if os.path.exists(os.path.join(HERE, "site.json")) else {}
+    sys.path.insert(0, HERE)
+    import store
+    s = store.cfg_load("site") if store.cfg_has("site") else {}
     ips = set(IP_RE.findall(json.dumps(s)))
     terms = [t for t in s.get("sensitive_terms", []) if len(t) >= 4]
     for k in ("site_name", "self_host", "gateway_name", "github_user"):

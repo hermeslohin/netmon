@@ -23,6 +23,8 @@ what a role can't use. Hiding a button is never the protection.
 | 📝 notes on events of own devices (pending until approved; sees only own notes) | ✓ | ✓ | ✓ (assigned devices only) |
 | Send an event to research (📝 popover; Users: own devices' events only) | ✓ | ✓ | ✓ |
 | Approve / reject User notes so the AI may read them | ✓ | ✓ | ✗ |
+| Accept / reject host, endpoint, Internet IP and DNS notes (accepted = authoritative for the AI, rejected = never sent to it) | ✓ | ✓ | ✗ |
+| Ask AI tool options: Elasticsearch (default on) and web research (default off) | ✓ | ✓ | fixed at Elasticsearch on, web off |
 | Ask AI (chat) | ✓ (and can pick the model per message) | ✓ (the configured chat model) | ✗ |
 | Choose own alert devices (Alerts → Notification settings) | ✓ | ✓ | ✗ (an admin assigns them) |
 | Mark alerts read | shared 🔔 for everyone | shared 🔔 for everyone | private marker, doesn't change anyone else's 🔔 |
@@ -90,9 +92,9 @@ docker exec -it netmon-dashboard python /app/server.py set-password <user>
 
 | What | Where |
 |---|---|
-| Role per account | `role` field in `dashboard/state/users.json` (0600, git-ignored) |
+| Role per account | `role` field of the account in the netmon database (`users` document; the DB file is 0600) |
 | Device assignment | `push_prefs` table in `dashboard/state/netmon.db` (the same setting that routes alerts) |
-| User-role read marker | `read_upto` field in `users.json` |
+| User-role read marker | `read_upto` field of the same account |
 | Enforcement | `dashboard/app/server.py`: `USER_GET` / `USER_POST` allow-lists for Users, `ADMIN_POST` for admin-only changes; `auth.role_of()` |
 | Push scope | `dashboard/app/pushsvc.py` |
 

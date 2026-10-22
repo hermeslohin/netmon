@@ -92,6 +92,40 @@ def load(eids):
     return out
 
 
+def for_acks(acks):
+    """Research notes for checked-off items, whether or not their event is still in a snapshot: {"type|key": note}.
+    host / alarm / issue / gateway items map to the note's key directly; baseline findings by their label (kind: detail)."""
+    out, want, fl = {}, {}, {}
+    for typ, m in (acks or {}).items():
+        for key, a in (m or {}).items():
+            sk = {"host": "hf|" + key, "alarm": "alarm|" + key, "issue": "iss|" + key, "gw": key}.get(typ)
+            if sk:
+                want.setdefault(sk, []).append(f"{typ}|{key}")
+            elif typ == "finding" and (a or {}).get("label"):
+                fl[f"{typ}|{key}"] = _NUM.sub("#", str(a["label"]))
+    with _db() as c:
+        cols = "skey, eid, verdict, priority, summary, research, links, model, via, ts, snapshot, label"
+        def note(r, same):
+            return {"verdict": r[2], "priority": r[3], "summary": r[4], "research": r[5], "links": json.loads(r[6] or "[]"),
+                    "model": r[7], "via": r[8], "at": r[9], "snapshot": r[10], "same_event": same, "label": r[11]}
+        ks = list(want)
+        for i in range(0, len(ks), 500):
+            ch = ks[i:i + 500]
+            for r in c.execute(f"SELECT {cols} FROM notes WHERE skey IN ({','.join('?' * len(ch))})", ch):
+                for k in want[r[0]]:
+                    out[k] = note(r, True)
+        if fl:
+            rows = [r for r in c.execute(f"SELECT {cols} FROM notes WHERE skey LIKE 'f|%' ORDER BY ts DESC")]
+            for k, lab in fl.items():
+                kind, _, detail = lab.partition(": ")
+                for r in rows:
+                    nl = _NUM.sub("#", str(r[11] or ""))
+                    if nl == lab or (nl.startswith(kind + ": ") and nl.endswith(" - " + detail)):
+                        out[k] = note(r, False)
+                        break
+    return out
+
+
 def apply(res):
     """Attach notes for the events of a correlation result (new dict; the cached base stays untouched)."""
     if not res or res.get("error"):
@@ -189,14 +223,23 @@ def job():
     cfg, st = RC.get(), RC.status()
     runs = st.get("runs") or []
     last = next((r for r in runs if r.get("status") != "running"), {})
-    return {"id": "research", "name": "Review job: collect + analyze, reviewer (news briefing on the first run after 05 UTC)",
+    return {"id": "research", "name": "Review job: collect + analyze, reviewer",
             "model": cfg.get("model"), "provider": cfg.get("provider"), "enabled": cfg.get("enabled"),
             "interval_minutes": cfg.get("interval_minutes"), "next_run": RC.next_run(),
             "severities": cfg.get("severities"), "severity_options": cfg.get("severity_options"),
             "requested": RC.pending_request(), "last_run": st.get("last_run"), "last_status": st.get("last_status"),
             "last_error": st.get("last_error"), "failure_streak": st.get("failure_streak") or 0,
-            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "researched": st.get("researched") or [], "summary": st.get("summary"),
+            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "chat_usage": _chat_usage(), "researched": st.get("researched") or [], "summary": st.get("summary"),
             "last": last, "exported": st.get("exported")}
+
+
+def _chat_usage():
+    try:
+        import chat
+        return chat.chat_usage()
+    except Exception as e:  # noqa: BLE001
+        print(f"chat usage unavailable: {e}", file=sys.stderr)
+        return []
 
 
 def status(event_ids=()):
@@ -333,8 +376,8 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             hn = {}
             for ip in (E.get(x["id"]) or {}).get("ips") or []:
                 if ip not in hn_cache:
-                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "text": n["text"]}
-                                    for n in kb.host_notes(kb.subjects_for_ip(ip, reg))]
+                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}
+                                    for n in kb.host_notes(kb.subjects_for_ip(ip, reg), ai=True)]
                 if hn_cache[ip]:
                     hn[ip] = hn_cache[ip]
             if hn:
@@ -342,12 +385,16 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             inn = {}  # notes on the external IPs the event involves (Network > Internet notes)
             for ip in kb.external_ips(E.get(x["id"]) or {}):
                 if ip not in hn_cache:
-                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "text": n["text"]}
-                                    for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"])]
+                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}
+                                    for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"], ai=True)]
                 if hn_cache[ip]:
                     inn[ip] = hn_cache[ip]
             if inn:
                 x["internet_notes"] = inn
+            dn = [{"id": n["id"], "domain": d, "applies_to": nm, "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}  # DNS notes (a domain's note covers its subdomains)
+                  for nm, d, n, _ex in kb.dns_notes_for(kb.dns_names(E.get(x["id"]) or {}), 6)]
+            if dn:
+                x["dns_notes"] = dn
         hn_count = sum(1 for v in hn_cache.values() if v)
     except Exception as e:  # noqa: BLE001 - the work list must not depend on the notes store
         print(f"kb notes unavailable: {e}", file=sys.stderr)

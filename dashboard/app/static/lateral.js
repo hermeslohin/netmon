@@ -302,7 +302,7 @@ function lmDraw() { _lmDraw && _lmDraw(); }
 
 V.lateral = async (el, arg) => {
   if (arg) { LM.focus = arg; if (!["all", "admin"].includes(LM.filter)) LM.filter = "admin"; }
-  el.innerHTML = `<h1>Lateral movement</h1><div class="sub">Host-to-host connections inside the network only (internet hosts are never mapped), grouped by zone. Links are classified against the segmentation policy: policy violations, failed admin logins and refused admin connections, and internal scans are risky; admin access you've allowed in policy.json is shown separately. <a href="#/lateral?at=admin">Admin access ↓</a></div><div class="loading">Loading…</div>`;
+  el.innerHTML = `<h1>Lateral movement</h1><div class="sub">Host-to-host connections inside the network only (internet hosts are never mapped), grouped by zone. Links are classified against the segmentation policy: policy violations, failed admin logins and refused admin connections, and internal scans are risky; admin access you've allowed in the network policy (More → Settings) is shown separately. <a href="#/lateral?at=admin">Admin access ↓</a></div><div class="loading">Loading…</div>`;
   let D;
   // custom time range or extra periods from the header picker: query Elasticsearch for exactly those periods and combine them
   const per = (S.extra?.length || /^r\d/.test(S.snap.id)) && window.rangePeriods ? rangePeriods() : null, pkey = S.snap.id + "|" + (per ? per.map((r) => r.start + "~" + r.end).join(",") : "");

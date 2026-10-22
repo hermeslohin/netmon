@@ -45,6 +45,18 @@ when deciding benign / expected. When you learn something durable about an exter
 this network talks to it, or why it is a concern), record it as a host_note with `ip` set to that public address (same
 fields, one short factual note per IP; update the existing one by id rather than adding another). They are listed on the
 dashboard's Network > Internet notes page.
+Do the same for frequent or noteworthy DNS patterns: `dns_notes` lists notes that apply to the event's DNS names (a note on a domain covers
+its subdomains). Use them when deciding benign / expected. To record one, add a host_note with `dom` set to the domain or the specific
+subdomain (what it is, who runs it, which devices query it and how often, why it is normal or a concern); update by id, one short note per name.
 
 Finish by calling submit_notes once with notes, links, host_notes and host_notes_delete (use the exact id strings from
 the batch). If it reports rejected ids, fix them and call it again.
+
+Artifacts: whenever an item involves an artifact with something durable to say (a process or file path, an account, a port, an IP, a DNS
+name) and that is not already covered by a note, record it as a host_note with `subject` set to `art:<kind>:<value>` (kind = process |
+file | user | ip | dns; for a domain or subdomain you can also use `dom`). One short factual note per artifact (what it is, who/what uses it,
+how often it appears, why it is normal or a concern); update by id rather than adding duplicates. The reviewer matches events to these.
+
+Review status: notes carry `authoritative: true` when a person or a network defender/admin accepted them - treat those as the owner's
+word, apply them, and never edit or delete them. Notes a defender rejected are not shown to you and cannot be changed: do not re-create
+them.

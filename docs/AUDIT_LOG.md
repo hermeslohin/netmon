@@ -72,7 +72,7 @@ tokens and estimated cost are on the AI review page.
 
 ### Switching the AI sources off
 
-On the Audit log page, **Audit log storage** has two checkboxes: *Send reviewer events* (user `netmon (background reviewer)`: `llm.correlation-review`, `llm.event-classify` and `aireview.esquery`) and *Send researcher events* (user `netmon (research job)`: `llm.research-input`, `-copy`, `-result`, `-hostnotes`). Each is independent and on by default; when off, those entries are dropped (not queued). Stored in `integrations.json` section `audit` as `send_reviewer` / `send_researcher`; the status API counts them as `skipped`.
+On the Audit log page, **Audit log storage** has two checkboxes: *Send reviewer events* (user `netmon (background reviewer)`: `llm.correlation-review`, `llm.event-classify` and `aireview.esquery`) and *Send researcher events* (user `netmon (research job)`: `llm.research-input`, `-copy`, `-result`, `-hostnotes`). Each is independent and on by default; when off, those entries are dropped (not queued). Stored in the `integrations` settings section `audit` as `send_reviewer` / `send_researcher`; the status API counts them as `skipped`.
 
 These switches are separate from the Elasticsearch look-up switches on AI review → Models, which decide whether the reviewer (`llm.esqueries`) or the research job (`llm.research`, `es_search`) may *search* Security Onion at all. The research job's own searches are kept for the AI review page and as Kibana links on its notes, but are not individual audit entries; its prompts and results are.
 Comparisons (`llm.correlation-compare`, `llm.item-compare`) are tied to the person who ran them and are not affected by either switch.
@@ -158,9 +158,9 @@ One time, with an Elasticsearch account that can manage index templates and crea
    which should answer `false`.
 
 3. **Give the key to the dashboard**: paste the `encoded` value on **More → Audit log → Change the audit key or index**,
-   press **Test**, then **Save**. It is stored in `dashboard/state/integrations.json` (0600, git-ignored) under
+   press **Test**, then **Save**. It is stored in the netmon database (`integrations` document; the DB file is 0600) under
    `audit`. Alternatively set `NETMON_AUDIT_ES_KEY` in `dashboard/.env` and run `./deploy.sh`. The Elasticsearch URL
-   is the one used for everything else (Configuration → Integrations, or `es_url` in `site.json`).
+   is the one used for everything else (Configuration → Integrations, or `es_url` in the site settings).
 
 To use another index, enter it in the same form (one concrete name, no wildcards or commas) and create the template and
 index for that name.
@@ -246,6 +246,6 @@ On startup the container log says `audit log -> <url>/logs-netmon (key set)` or 
 | `dashboard/app/chat.py` | `stream()` fills the record of a chat turn (input, answer, tools, status). |
 | `dashboard/app/corr_llm.py`, `itemcmp.py` | Wrap every model call (`_complete`, `_ask`) with an `llm.*` entry, also on errors; the reviewer's Elasticsearch look-ups write `aireview.esquery`. |
 | `dashboard/app/enrich.py`, `kb.py` | Research-job input and results. |
-| `integrations.py` | `audit_key()`, `audit_index()`; the `audit` section of `integrations.json` and its **Test**. |
+| `integrations.py` | `audit_key()`, `audit_index()`; the `audit` section of the `integrations` document and its **Test**. |
 | `dashboard/app/static/audit.js` | The More → Audit log page. `app.js` reports page views (`auditView`). |
 | `docs/audit_index_template.json` | Index template (mapping). |

@@ -464,13 +464,11 @@ def main():
            "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
     if OUT:  # time range: written where the caller says (dashboard/state/ranges), never into data/
         path = OUT
-        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        pass
     else:
-        os.makedirs(os.path.join(NM, "data"), exist_ok=True)
         path = os.path.join(NM, "data", now.strftime("%Y-%m-%dT%H%MZ") + ".json")
-    tmp = path + ".tmp"
-    json.dump(out, open(tmp, "w"), indent=1, default=str)
-    os.replace(tmp, path)
+    import store  # noqa: E402
+    store.jdump(out, path, indent=1, default=str)  # data/ and ranges/ documents live in the SQLite docs table
     print(path)
 
 
@@ -561,10 +559,8 @@ def main_section(name):
     os.environ.setdefault("NETMON_RDAP_BUDGET", "0")
     out = section(name)
     path = OUT
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = path + ".tmp"
-    json.dump(out, open(tmp, "w"), indent=1, default=str)
-    os.replace(tmp, path)
+    import store  # noqa: E402
+    store.jdump(out, path, indent=1, default=str)
     print(path)
 
 

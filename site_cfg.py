@@ -1,10 +1,10 @@
 #!/usr/bin/python3
 """Site configuration loader (module name site_cfg: `site` would shadow the Python stdlib module). All network-specific values (IPs, host names, domains, accounts) live in site.json,
-which is git-ignored; site.example.json is the committed template. Code must read them from here, never hard-code.
+which now lives in the SQLite cfg table (edited on the dashboard Settings page; site.example.json is the template for a first install). Code must read them from here, never hard-code.
 
-Lookup: $NETMON_SITE, else site.json next to this file (host: the netmon folder, dashboard container: /netmon).
+Lookup: store.cfg_load("site") (the DB is found like store.py does: $NETMON_DB / $STATE_DIR / dashboard/state).
 """
-import json, os
+import json, os, sys, time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULTS = {
@@ -19,17 +19,21 @@ DEFAULTS = {
     "unifi_paths": {"Security detections (System Log)": "logs/threats", "Flows": "insights/flows"},
 }
 _cache = None
+_at, _src = 0.0, None
 
 
 def load():
-    global _cache
-    if _cache is None:
-        p = os.environ.get("NETMON_SITE") or os.path.join(_HERE, "site.json")
+    global _cache, _at
+    if _cache is None or time.time() - _at > 3:  # the Settings page edits these; pick changes up within seconds
         try:
-            data = json.load(open(p))
-        except Exception:
+            import store
+            data = store.cfg_load("site", shared=True)
+        except Exception:  # noqa: BLE001
             data = {}
-        _cache = {**DEFAULTS, **{k: v for k, v in data.items() if not k.startswith("_")}}
+        if _cache is None or data is not _src:
+            _cache = {**DEFAULTS, **{k: v for k, v in data.items() if not k.startswith("_")}}
+            globals()["_src"] = data
+        _at = time.time()
     return _cache
 
 

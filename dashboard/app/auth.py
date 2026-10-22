@@ -10,6 +10,11 @@ Session cookie value = base64(user) . expiry . gen . hmac   (stateless; survives
 `gen` is bumped on password change / delete, which invalidates that user's existing sessions.
 """
 import base64, hashlib, hmac, json, os, re, secrets, threading, time
+import sys
+_R = os.environ.get("NETMON_DIR", "/netmon")
+if os.path.isdir(_R) and _R not in sys.path:
+    sys.path.append(_R)
+import store  # noqa: E402  /netmon/store.py (SQLite docs table)
 
 STATE = os.environ.get("STATE_DIR", "/state")
 USERS = os.path.join(STATE, "users.json")
@@ -60,19 +65,11 @@ def _verify(pw, stored):
 
 
 def load():
-    try:
-        with open(USERS) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    return store.jload(USERS, {}) or {}
 
 
 def _save(u):
-    tmp = USERS + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(u, f, indent=1)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, USERS)
+    store.jdump(u, USERS)  # SQLite docs table (owner-only DB file)
 
 
 def bootstrap(env_user, env_pass):

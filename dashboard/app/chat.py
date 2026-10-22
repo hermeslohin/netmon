@@ -6,7 +6,7 @@ tools from netmon_mcp.py (snapshot, alarms, findings, devices, notes...) plus we
 Conversations live in chat.db on the state volume (mode 0600): chats (owner, title) and messages (the full
 provider-neutral message list per chat). Ownership is checked on every call; messages are rate-limited per user.
 """
-import json, os, re, secrets, sqlite3, threading, time
+import json, os, re, secrets, sqlite3, sys, threading, time
 
 DB = os.path.join(os.environ.get("STATE_DIR", "/state"), "chat.db")
 MAX_INPUT = 4000           # characters per message
@@ -96,6 +96,35 @@ def _db():
     return c
 
 
+def _record_usage(user, cid, target, budget, secs):
+    """One row per Ask AI turn (tokens, cost, run time) for the AI review page's Time and tokens chart."""
+    try:
+        u = budget.summary()
+        if not u.get("calls"):
+            return
+        with _db() as c:
+            c.execute("create table if not exists chat_usage (at real, user text, chat text, provider text, model text, prompt integer, completion integer,"
+                      " cache_read integer, cache_write integer, cost_usd real, calls integer, duration_s real)")
+            c.execute("insert into chat_usage values (?,?,?,?,?,?,?,?,?,?,?,?)", (time.time(), user, cid, target["provider"], target["model"], u["prompt"], u["completion"],
+                                                                                u["cache_read"], u["cache_write"], u["cost_usd"], u["calls"], round(secs, 1)))
+    except Exception as e:  # noqa: BLE001 - accounting must never break the chat
+        print(f"chat usage not recorded: {e}", file=sys.stderr)
+
+
+def chat_usage(days=60):
+    """Ask AI turns of the last `days` days, shaped like the research job's usage rows (chat=True)."""
+    try:
+        with _db() as c:
+            c.execute("create table if not exists chat_usage (at real, user text, chat text, provider text, model text, prompt integer, completion integer,"
+                      " cache_read integer, cache_write integer, cost_usd real, calls integer, duration_s real)")
+            rows = c.execute("select at, provider, model, prompt, completion, cache_read, cache_write, cost_usd, calls, duration_s from chat_usage where at > ? order by at",
+                             (time.time() - days * 86400,)).fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+    return [{"at": r[0], "provider": r[1], "model": r[2], "prompt": r[3], "completion": r[4], "total": r[3] + r[4], "cache_read": r[5], "cache_write": r[6],
+             "fresh": r[3] - r[5] - r[6], "cost_usd": r[7], "calls": r[8], "duration_s": r[9], "chat": True, "error": False} for r in rows]
+
+
 def owns(user, cid):
     with _db() as c:
         return c.execute("select 1 from chats where id=? and user=?", (cid, user)).fetchone() is not None
@@ -172,16 +201,17 @@ def _tool_label(name):
     return LABELS.get(name, (name or "").replace("_", " ")) if name else None
 
 
-def _tools():
+def _tools(es=True, web=False):
     import netmon_mcp
     import webtools
     t = {n: (lambda a, f=fn: f(a), d, p) for n, (fn, d, p) in netmon_mcp.TOOLS.items()}
-    t["web_search"] = (lambda a: webtools.search(a.get("query"), a.get("n") or 6), "Search the web; returns titles, URLs and snippets.",
+    if web:
+      t["web_search"] = (lambda a: webtools.search(a.get("query"), a.get("n") or 6), "Search the web; returns titles, URLs and snippets.",
                        {"query": {"type": "string"}, "n": {"type": "integer"}}, ["query"])
-    t["web_fetch"] = (lambda a: webtools.fetch(str(a.get("url") or ""), a.get("max_chars") or 8000), "Read a public web page as text.",
+      t["web_fetch"] = (lambda a: webtools.fetch(str(a.get("url") or ""), a.get("max_chars") or 8000), "Read a public web page as text.",
                       {"url": {"type": "string"}, "max_chars": {"type": "integer"}}, ["url"])
     import corr_llm
-    if not corr_llm.config()["chat_es"]["enabled"]:  # admin switch on the AI review page (Models)
+    if not es or not corr_llm.config()["chat_es"]["enabled"]:  # admin switch on the AI review page (Models)
         return t
     t["elasticsearch_search"] = (_es_search, "Read-only search of the network's Security Onion logs in Elasticsearch. "
                                  "Sources: " + "; ".join(x.strip(" -") for x in corr_llm.ES_SOURCES.splitlines()) + ". "
@@ -238,7 +268,7 @@ def _history_window(msgs):
     return tail[i:]
 
 
-def stream(user, cid, text, emit, ctx=None, model=None, rec=None):
+def stream(user, cid, text, emit, ctx=None, model=None, rec=None, es=True, web=False):
     """Run one turn and call emit(event, dict) for each UI event. model = {"provider", "model"} (validated by the server)
     or None for the configured chat model. rec is filled in for the audit log (input, answer, tools, status, error, model)."""
     import agent
@@ -261,10 +291,14 @@ def stream(user, cid, text, emit, ctx=None, model=None, rec=None):
             emit("tool_error", {"name": _tool_label(a[0])})
 
     hist = _history_window(msgs)
-    tools = _tools()
+    tools = _tools(es, web)
     budget = agent.Budget(target["provider"], target["model"], max_tokens=600_000)
-    r = agent.run(target, SYSTEM + (("\n\n" + ES_PROMPT.strip()) if "elasticsearch_search" in tools else ""), content, tools, budget=budget, max_turns=16, max_tokens=4000, max_result=12000,
-                  on_event=on_event, history=hist)
+    _t0 = time.time()
+    try:
+        r = agent.run(target, (SYSTEM if web else SYSTEM + "\n\nWeb search is switched OFF for this chat: do not claim to have searched the web; answer from netmon data and say so if outside knowledge is needed.") + (("\n\n" + ES_PROMPT.strip()) if "elasticsearch_search" in tools else ""), content, tools, budget=budget, max_turns=16, max_tokens=4000, max_result=12000,
+                      on_event=on_event, history=hist)
+    finally:
+        _record_usage(user, cid, target, budget, time.time() - _t0)
     answer = r["text"] or (f"(stopped: {r['stopped']})" if r.get("stopped") else "")
     new = msgs + r["messages"][len(hist):]
     if not new or new[-1]["role"] != "assistant" or new[-1].get("tool_calls") or not (new[-1].get("content") or "").strip():

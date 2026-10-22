@@ -1,6 +1,6 @@
 # Setting up netmon
 
-This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review, and an optional daily news briefing), a 15-minute urgent watcher, the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
+This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review), a 15-minute urgent watcher, the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
 
 netmon is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
 
@@ -13,7 +13,7 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 | Component | Required? | Used for |
 |---|---|---|
 | **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl, systemd (user services) | yes | runs the scheduler, the host broker and the dashboard container |
-| **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | the review job (reviewer, news briefing, and on-request event research) and the chat. Pick a strong model that supports tool calling. The 15-minute watcher uses no LLM. |
+| **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | the review job (reviewer and on-request event research) and the chat. Pick a strong model that supports tool calling. The 15-minute watcher uses no LLM. |
 | **LM Studio** (local LLM server) | optional, recommended | the correlation reviewer; can also serve the review job or chat |
 | **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
 | **Elastic Agent via Fleet** on your endpoints (Elastic Defend + osquery integrations) | recommended | endpoint findings, host posture |
@@ -36,7 +36,7 @@ cd ~/netmon
 `setup.sh` is safe to re-run. It never overwrites existing files. It:
 
 - checks prerequisites (`python3`, `docker`, `git`, `openssl`, `systemctl`, `/usr/bin/python3`)
-- copies the `*.example.json` templates to your local config files
+- loads the `*.example.json` templates into the netmon database as your starting settings (site, policy, host policy, known benign)
 - creates the data folders (including `logs/`)
 - creates the host secrets file `~/.config/netmon/secrets.env` (mode 600) for your API keys
 - creates a self-signed TLS certificate and `dashboard/.env` with a first dashboard login (it prints the password) and the host broker's URL and key
@@ -44,17 +44,17 @@ cd ~/netmon
 
 `./setup.sh --check` only reports what is present or missing.
 
-## 2. Describe your network (local files, never committed)
+## 2. Describe your network (the Settings page)
 
-All network-specific values live in git-ignored files. Edit the copies `setup.sh` made:
+All network-specific values live in the netmon database (`dashboard/state/netmon.db`, table `cfg`), never in git and never in JSON files. `setup.sh` loads the `*.example.json` templates as a starting point; after the dashboard is running, an admin edits them as tables on **More → Settings** (tabs: Network policy, Endpoint policy, Known benign, Site). Each section has its own Save button and the server rejects invalid values (bad regexes, an allow rule without a source or destination, a bad network range). Jobs read the new values on their next run; a few dashboard-wide site values (crown jewels, host IPs used by risk scoring) need a dashboard restart. To load a settings file by hand: `python3 store.py cfg-import <site|policy|host_policy|known_benign> file.json`; `python3 store.py cfg-export <doc>` prints one back out.
 
-| File | What to put in it |
+| Settings tab | What to put in it |
 |---|---|
-| `site.json` | Your internal CIDR and prefixes, Elasticsearch URL, sensor IP, this host's IP and name, gateway name/DNS IP, home WAN IP, VPN prefixes, honeypot IPs, Fleet host name → IP (`host_ips`), crown-jewel hosts (scored highest impact), and `sensitive_terms` (host/user names the push guard should block). Optional pivot links (🔎 buttons): `kibana_url` (Kibana base, e.g. `https://so.example.lan/kibana/`), `kibana_data_view` (Discover data view id, default `logs-*`), `unifi_web_url` (UniFi Network web app base, e.g. `https://unifi.ui.com/consoles/<console-id>/network/default/` or `https://<gateway-ip>/network/default/`) and `unifi_paths` (label → page path under it). Leave `kibana_url` empty to hide the buttons. If you'll publish your own fork, also fill in `github_user`, `github_repo` and `image_repo`. |
-| `policy.json` | Network **zones** (CIDR per VLAN), **device_classes** (MAC or IP → `iot`, `camera`, `media`, `game`, `personal`, `work`, `server`, `k8s` or `infra`), and **allow** rules for expected cross-zone flows. Anything else on a sensitive port, from the DMZ, or from IoT/cameras to servers is reported as a segmentation violation. |
-| `host_policy.json` | Endpoint rules: expected admin source IPs (`admin_sources`), Fleet host → LAN IP (`endpoint_ips`), trusted tool paths (replace `/home/YOUR_USER`), syslog patterns, osquery posture expectations and per-host exceptions. The defaults are sensible; adjust the paths and IPs. |
-| `known_benign.json` | Suricata signatures, IP names and domains you have explained as benign. The review model can add to this (`add_known_benign`). |
-| `sec_accepted.json` | Reviewed security-scan findings (filled in by `secfindings.py accept-current`). Start empty. |
+| **Site** | Your internal CIDR and prefixes, Elasticsearch URL, sensor IP, this host's IP and name, gateway name/DNS IP, home WAN IP, VPN prefixes, honeypot IPs, Fleet host name → IP (`host_ips`), crown-jewel hosts (scored highest impact), and `sensitive_terms` (host/user names the push guard should block). Optional pivot links (🔎 buttons): `kibana_url` (Kibana base, e.g. `https://so.example.lan/kibana/`), `kibana_data_view` (Discover data view id, default `logs-*`), `unifi_web_url` (UniFi Network web app base, e.g. `https://unifi.ui.com/consoles/<console-id>/network/default/` or `https://<gateway-ip>/network/default/`) and `unifi_paths` (label → page path under it). Leave `kibana_url` empty to hide the buttons. If you'll publish your own fork, also fill in `github_user`, `github_repo` and `image_repo`. |
+| **Network policy** | Network **zones** (CIDR per VLAN), **device_classes** (MAC or IP → `iot`, `camera`, `media`, `game`, `personal`, `work`, `server`, `k8s` or `infra`), and **allow** rules for expected cross-zone flows. Anything else on a sensitive port, from the DMZ, or from IoT/cameras to servers is reported as a segmentation violation. |
+| **Endpoint policy** | Endpoint rules: expected admin source IPs (`admin_sources`), Fleet host → LAN IP (`endpoint_ips`), trusted tool paths (replace `/home/YOUR_USER`), syslog patterns, osquery posture expectations and per-host exceptions. The defaults are sensible; adjust the paths and IPs. |
+| **Known benign** | Suricata signatures, IP names and domains you have explained as benign. The review model can add to this (`add_known_benign`). |
+| `sec_accepted.json` (file, git-ignored) | Reviewed security-scan findings (filled in by `secfindings.py accept-current`). Start empty. |
 
 Optional extras:
 
@@ -68,7 +68,7 @@ Optional extras:
 | Elasticsearch API key | `~/.config/netmon/secrets.env` → `ES_API_KEY=<key>`, or **Configuration → Integrations** | Create a **read-only** key: Kibana → Stack Management → API keys, with `read` + `view_index_metadata` on `logs-*`. |
 | UniFi Site Manager API key | `~/.config/netmon/secrets.env` → `UNIFI_API_KEY=<key>`, or **Configuration → Integrations** | https://unifi.ui.com → API. Optional. |
 | Web search key (optional) | `~/.config/netmon/secrets.env` → `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` | Only if you pick that search backend (step 7c). DuckDuckGo needs no key. |
-| AI provider API keys | **AI review → AI providers** on the dashboard | Stored in `dashboard/state/llm_providers.json` (mode 600). See step 7b. |
+| AI provider API keys | **AI review → AI providers** on the dashboard | Stored in the netmon database (owner-only file `dashboard/state/netmon.db`, mode 600). See step 7b. |
 | Dashboard login + host broker key | `dashboard/.env` | Created by `setup.sh` (`DASH_PASS`, `NETMON_BROKER_URL`, `NETMON_BROKER_KEY`). |
 
 The secrets file is plain `KEY=value` lines, mode 600, outside the repo (set `NETMON_SECRETS` to use another path). Values saved on the dashboard's Configuration page take precedence over it. None of these are ever committed: `.gitignore` and the push gate block them.
@@ -88,8 +88,8 @@ Hosts then appear on the dashboard's **Endpoints** page after the next collectio
 ```bash
 cd ~/netmon
 /usr/bin/python3 esq.py logs-zeek-so '{"size":0}'      # connectivity test: prints hit totals
-/usr/bin/python3 collect.py 24                          # → data/<stamp>.json
-/usr/bin/python3 analyze.py                             # → data/<stamp>.analysis.json + baseline
+/usr/bin/python3 collect.py 24                          # → snapshot document `data/<stamp>` in the netmon database
+/usr/bin/python3 analyze.py                             # → `data/<stamp>.analysis` document + baseline
 ```
 
 Behaviour rules (traffic spikes, new destinations and so on) need **3 days** of baseline before they fire. Static rules (IDS, threat intel, segmentation, endpoint findings) work from day one.
@@ -113,13 +113,13 @@ Every user action and every AI conversation is written to the Elasticsearch inde
 2. A key for the dashboard that can only add and read entries:
    `POST _security/api_key {"name": "netmon-audit", "role_descriptors": {"netmon_audit": {"indices": [{"names": ["logs-netmon"], "privileges": ["create_doc", "read", "view_index_metadata"]}]}}}`
    (create it as a user, not with another API key: Elasticsearch refuses keys with privileges derived from an API key).
-3. Paste the `encoded` value on **More → Audit log → Change the audit key or index**, **Test**, **Save** (stored in `dashboard/state/integrations.json`, 0600). `NETMON_AUDIT_ES_KEY` in `dashboard/.env` works too.
+3. Paste the `encoded` value on **More → Audit log → Change the audit key or index**, **Test**, **Save** (stored in the netmon database). `NETMON_AUDIT_ES_KEY` in `dashboard/.env` works too.
 
 Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 MB) and are sent automatically. Full reference: [AUDIT_LOG.md](AUDIT_LOG.md).
 
 ### Time ranges
 
-Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
+Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`; the results are stored as `ranges/<id>…` documents in the netmon database, not as files), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
 
 The optional Elasticsearch look-ups of the correlation reviewer and of the research AI (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
 
@@ -149,7 +149,7 @@ systemctl --user status netmon-scheduler   # or: /usr/bin/python3 scheduler.py s
 | Job | When | What |
 |---|---|---|
 | watcher | every 15 minutes | `watch.py`: urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
-| review job | every N minutes, set on **Configuration → AI Research job runs every** (30 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, the reviewer (reuses earlier research notes), and once a day the news briefing (only with web research on). |
+| review job | every N minutes, set on **Configuration → AI Research job runs every** (30 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, the reviewer (reuses earlier research notes). |
 | weekly rebuild | Sundays 03:00 UTC | `weekly_rebuild.sh`: dashboard image rebuild with updated libraries + security scan. |
 
 Jobs never overlap with themselves. A slot missed while the host was down is not made up, except the review job, which starts late within its own slot. The review job only runs once a model is chosen for it (step 7b) and it isn't paused.
@@ -162,13 +162,12 @@ Each run of `review.py`:
 
 1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI review page (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. **Reviewer, then research on request only.** A scheduled run does not research events (to keep token cost down): the reviewer copies earlier notes for repeat events and everything else waits in the queue. Event research happens when someone clicks **Send to research** on an event (`review.py --event ID`). The events go to the model in batches of 8 (`prompts/enrich.md`, at most *research batches* per run). `enrich.sh events` lists them; every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events. The model's `submit_notes` results are stored with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the local LLM's and replace them; manual verdicts are kept. Gateway events (`gw|...`) are also correlation events, so the local LLM reviews their links.
-3. On the daily run only, and only when **Web research** is on: a **news briefing** conversation (`prompts/briefing.md`). The briefing's categories come from `briefing_topics` in `site.json`, a list of `{"category", "count", "about"}`; the default is 3 high-impact security stories.
 
-Run state, tokens and estimated cost are in `dashboard/state/research_job.json` and on the AI review page. The full conversations, tool calls included, are saved in `logs/research/` (the newest 60 are kept). Manual runs:
+Run state, tokens and estimated cost are stored in the netmon database and shown on the AI review page. The full conversations, tool calls included, are saved in `logs/research/` (the newest 60 are kept). Manual runs:
 
 ```bash
-/usr/bin/python3 review.py                 # like a scheduled run (with the briefing if it's the first run after 05:00 UTC)
-/usr/bin/python3 review.py --pdf           # force the 24 h daily run with the briefing (flag name kept); --no-pdf to skip it
+/usr/bin/python3 review.py                 # like a scheduled run
+/usr/bin/python3 review.py --pdf           # force the 24 h daily run (flag name kept); --no-pdf to skip it
 /usr/bin/python3 review.py --skip-collect --max-batches 2   # reuse the newest snapshot, fewer research batches
 ```
 
@@ -185,7 +184,7 @@ After a model id you can add prices in $ per million tokens, `model input output
 for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models
 without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the correlation
 reviewer and comparisons) and an optional number of extra reasoning tokens. Keys are stored in
-`dashboard/state/llm_providers.json` (mode 600), only the last 4 characters are ever shown, and they are scrubbed
+the netmon database (`netmon.db`, mode 600), only the last 4 characters are ever shown, and they are scrubbed
 from error messages. Changing a provider's type or base URL requires entering the key again. Model choices are
 stored as `api:<provider id>` or `lmstudio` plus the model name.
 
@@ -206,13 +205,13 @@ and will hurt research quality even on a model that supports it. The correlation
 this: the reviewer only ever answers one fixed-format question per call, and the chat still works, just more
 superficially, on a non-reasoning model.
 
-**Research job limits** (also on AI review): $ per run (default 5), $ per day (default 20), tokens per run (input + output, works without prices; default 25,000,000) and research batches per run (default 10), web searches per event (default 3) and the **Web research** switch (off on a new install: no web search and no news briefing until an admin turns it on). A run stops when it passes its caps, and no new run starts once today's runs (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **AI Research job** card shows the job's status, schedule and next run, **Run now** / **Pause**, recent runs, and the *Time and tokens per research job* chart with a cost preview for another model.
+**Research job limits** (also on AI review): $ per run (default 5), $ per day (default 20), tokens per run (input + output, works without prices; default 25,000,000) and research batches per run (default 10), web searches per event (default 3) and the **Web research** switch (off on a new install: no web search until an admin turns it on). A run stops when it passes its caps, and no new run starts once today's runs (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **AI Research job** card shows the job's status, schedule and next run, **Run now** / **Pause**, recent runs, and the *Time and tokens per research job* chart with a cost preview for another model.
 
-Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`research_cfg.py`) and `dashboard/state/llm_config.json`. The correlation reviewer's model is remembered once chosen; if none has ever been chosen, it defaults to the first enabled, configured provider with a model (an API provider before Local (LM Studio), since the reviewer calls far more often than a typical API rate cap allows) - it no longer requires Local (LM Studio) to be running.
+Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`research_cfg.py`) and the netmon database (settings document `llm_config`). The correlation reviewer's model is remembered once chosen; if none has ever been chosen, it defaults to the first enabled, configured provider with a model (an API provider before Local (LM Studio), since the reviewer calls far more often than a typical API rate cap allows) - it no longer requires Local (LM Studio) to be running.
 
 ## 7c. Web search (research and chat)
 
-The AI Research job (event research and the briefing) and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in `dashboard/state/integrations.json`, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Without a working key, search falls back to DuckDuckGo.
+The AI Research job (event research) and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in the netmon database, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Without a working key, search falls back to DuckDuckGo.
 
 ## 8. Ask AI chat (optional)
 
@@ -224,7 +223,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 
 ## 9. Making changes (and publishing your fork)
 
-- Develop with any editor or AI coding assistant; none is needed at runtime. Code changes go through `./ship.sh "<message>" [--deploy]`. It runs the security scan suite (`sec_scan.sh`: Semgrep, Ruff/Bandit, pip-audit, ESLint, Trivy, Hadolint, Gitleaks, ZAP; the scanners run in Docker), a secret gate, and **`repo_guard.py`**, which blocks commits containing your site IPs, MAC addresses, host/account names (from `site.json`) or any private config file. Then it rebases on `origin/main` and pushes. `sec_scan.sh` writes to `${NETMON_SCAN_DIR:-~/.cache/netmon/sec}`; set `NODE_BIN` to a folder with `node`/`npx` for ESLint if they aren't on `PATH`, and `NETMON_SCAN_EXTRA` to extra folders for Gitleaks (space-separated).
+- Develop with any editor or AI coding assistant; none is needed at runtime. Code changes go through `./ship.sh "<message>" [--deploy]`. It runs the security scan suite (`sec_scan.sh`: Semgrep, Ruff/Bandit, pip-audit, ESLint, Trivy, Hadolint, Gitleaks, ZAP; the scanners run in Docker), a secret gate, and **`repo_guard.py`**, which blocks commits containing your site IPs, MAC addresses, host/account names (from the site settings) or any private config file. Then it rebases on `origin/main` and pushes. `sec_scan.sh` writes to `${NETMON_SCAN_DIR:-~/.cache/netmon/sec}`; set `NODE_BIN` to a folder with `node`/`npx` for ESLint if they aren't on `PATH`, and `NETMON_SCAN_EXTRA` to extra folders for Gitleaks (space-separated).
 - New scan findings show up as in-app alerts and Fix list entries. Review them, fix them, or accept them with a reason (`secfindings.py accept-current`).
 - The weekly rebuild can also push a versioned image to `ghcr.io`, if `image_repo` is set and a token with `write:packages` is in `~/.config/netmon/github_token`.
 
@@ -258,9 +257,9 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | `review.py`, `research_cfg.py`, `prompts/` | the review job, its settings, and its prompts |
 | `agent.py`, `llm_providers.py`, `webtools.py` | tool-using conversation loop, AI provider calls, web search / fetch |
 | `scheduler.py`, `host_broker.py`, `systemd/` | job scheduler and loopback host broker, their systemd user units |
-| `store.py` | SQLite state store (WAL) |
+| `store.py` | SQLite state store (WAL): state tables, JSON documents (snapshots, time ranges, job state) and the settings tables |
 | `netmon_mcp.py` | read-only netmon tools for the chat (also a stdio MCP server) |
 | `dashboard/` | HTTPS dashboard (stdlib server, plain JS, Web Push) |
-| `site_cfg.py` + `site.json` | site configuration loader + your local values |
+| `site_cfg.py` | site settings loader (reads the `site` settings from the database) |
 | `setup.sh` | installer (config, folders, secrets file, TLS, dashboard login, systemd units) |
 | `sec_scan.sh`, `secfindings.py`, `repo_guard.py`, `ship.sh`, `weekly_rebuild.sh` | security scanning and the push gate |

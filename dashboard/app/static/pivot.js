@@ -1,6 +1,6 @@
 // Pivot links: a 🔎 button on Security rows (baseline findings, IDS signatures, host findings, beacons, triage alarms,
 // gateway events) that opens a popover of deep links into Kibana Discover - and, for gateway events, the UniFi web app.
-// Base URLs come from /api/site (site.json: kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
+// Base URLs come from /api/site (the site settings (More → Settings): kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
 const PIV = new Map(); let pivSeq = 0;
 function pivotBtn(kind, item) {
   if (!SITE.kibana_url && !(kind === "gateway" && SITE.unifi_web_url)) return "";
@@ -22,7 +22,8 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
   const q = (v) => '"' + String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
   const iso = (t) => new Date(t).toISOString();
   const uniq = (a) => [...new Set(a.filter(Boolean))];
-  function win() {  // snapshot window: [generated - hours, generated]
+  function win() {  // snapshot window: [generated - hours, generated] (or the item's own window, see open())
+    if (window.__pivWin) return window.__pivWin;
     const r = S.snap?.raw || {}, end = Date.parse(r.generated) || Date.now(), h = Number(r.hours) || 24;
     return [end - h * 3600e3, end];
   }
@@ -117,7 +118,8 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
   const close = () => { pop?.remove(); pop = null; };
   function open(btn) {
     close(); const P = PIV.get(btn.dataset.piv); if (!P) return;
-    let links = []; try { links = (B[P.kind] || B.alarm)(P.item) || []; } catch (e) { links = []; console.warn("pivot", e); }
+    let links = []; window.__pivWin = P.item && P.item._win || null;
+    try { links = (B[P.kind] || B.alarm)(P.item) || []; } catch (e) { links = []; console.warn("pivot", e); } finally { window.__pivWin = null; }
     const seen = new Set(); links = links.filter(([, u]) => u && !seen.has(u) && seen.add(u));
     pop = document.createElement("div"); pop.className = "rel-pop piv-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Open in ${P.kind === "gateway" ? "Kibana / UniFi" : "Kibana"}</b> <span class="muted small">time range: this event or the selected range</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>

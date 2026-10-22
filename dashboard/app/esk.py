@@ -3,7 +3,7 @@
 An artifact of kind "query" keeps what Discover needs to reproduce a search the reviewer or the research AI ran:
   {"kql": ..., "from": ..., "to": ..., "index": ..., "total": ..., "why": ..., "approx": bool, "by": "reviewer"|"research"}
 `approx` is true when part of the search (aggregations, scripts, odd clauses) cannot be written as KQL: the link then
-opens a broader search than the one the AI ran. The page builds the URL from site.json (kibana_url, kibana_data_view).
+opens a broader search than the one the AI ran. The page builds the URL from the site settings (More → Settings) (kibana_url, kibana_data_view).
 """
 import json
 import re

@@ -8,7 +8,7 @@ const NM_CLASS = {
 };
 const NM_ZONE_ORDER = ["servers", "ai", "k8s", "dmz", "vlan3", "vlan4", "vlan21", "other", "lan"];
 // Display names where the DHCP export only has an OS hostname (from the home-network-devices inventory)
-const NM_NAMES = new Proxy({}, { get: (_, ip) => (SITE.display_names || {})[ip] });  // display-name overrides from site.json
+const NM_NAMES = new Proxy({}, { get: (_, ip) => (SITE.display_names || {})[ip] });  // display-name overrides from the site settings (More → Settings)
 const NM = { color: "risk", inactive: true, q: "", sel: null };
 
 function nmRiskColor(r) { return r >= 40 ? "#f85149" : r >= 20 ? "#d29922" : r >= 8 ? "#e3b341" : "#3fb950"; }

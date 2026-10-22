@@ -28,8 +28,10 @@ def load_base():
 
 def load(p, d):
     try:
-        return json.load(open(p))
-    except Exception:
+        import store
+        v = store.jload(p)
+        return d if v is None else v
+    except Exception:  # noqa: BLE001
         return d
 
 

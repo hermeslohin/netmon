@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NM = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, NM)
+import store  # noqa: E402
 HOST, PORT = "127.0.0.1", int(os.environ.get("NETMON_BROKER_PORT", "8650"))
 PY = os.environ.get("NETMON_PYTHON") or "/usr/bin/python3"
 ES_RATE = (600, 3600)  # reviewer Elasticsearch look-ups per hour (each one is also capped per event by the dashboard)
@@ -69,31 +70,22 @@ def range_id(s, e):
 
 def _rstatus(rid, **kw):
     p = os.path.join(RANGES, rid + ".status.json")
-    cur = {}
-    try:
-        cur = json.load(open(p))
-    except (OSError, ValueError):
-        pass
+    cur = store.jload(p, {}) or {}
     cur.update(kw, updated=time.time())
-    with open(p + ".tmp", "w") as f:
-        json.dump(cur, f)
-    os.replace(p + ".tmp", p)
+    store.jdump(cur, p)
     return cur
 
 
 def _prune():
-    files = sorted(glob.glob(os.path.join(RANGES, "r*.json")), key=os.path.getmtime)
+    files = sorted(store.jglob(RANGES, "r*.json"), key=store.jmtime)
     ids = []
     for f in files:
         b = os.path.basename(f).split(".")[0]
         if b not in ids:
             ids.append(b)
     for b in ids[:-RANGE_KEEP]:
-        for f in glob.glob(os.path.join(RANGES, b + ".*")):
-            try:
-                os.remove(f)
-            except FileNotFoundError:  # a parallel request pruned it first
-                pass
+        for f in store.jglob(RANGES, b + ".*"):
+            store.jdelete(f)
 
 
 def range_start(b):
@@ -109,17 +101,14 @@ def range_start(b):
         raise ValueError(f"the range can be at most {RANGE_MAX_H // 24} days")
     if (now - s).days > RANGE_MAX_AGE_D:
         raise ValueError(f"the start can be at most {RANGE_MAX_AGE_D} days ago")
-    os.makedirs(RANGES, exist_ok=True)
     rid = range_id(s, e)
-    if os.path.exists(os.path.join(RANGES, rid + ".analysis.json")):
+    if store.jexists(os.path.join(RANGES, rid + ".analysis.json")):
         return {"id": rid, "status": "done"}
     # sections are collected on demand (POST /section) as the page asks for them: just record the window
     meta = {"id": rid, "start": s.isoformat(), "end": e.isoformat(), "generated": e.isoformat(),
             "hours": round((e - s).total_seconds() / 3600, 3)}
     mp = os.path.join(RANGES, rid + ".meta.json")
-    with open(mp + ".tmp", "w") as f:
-        json.dump(meta, f)
-    os.replace(mp + ".tmp", mp)
+    store.jdump(meta, mp)
     _rstatus(rid, status="sections", start=s.isoformat(), end=e.isoformat(), error="")
     _prune()
     return {"id": rid, "status": "sections"}
@@ -137,20 +126,20 @@ def _sec_path(rid, name):
 
 def _run_section(rid, name):
     out = _sec_path(rid, name)
-    if os.path.exists(out):
+    if store.jexists(out):
         return
-    meta = json.load(open(os.path.join(RANGES, rid + ".meta.json")))
+    meta = store.jload(os.path.join(RANGES, rid + ".meta.json"))
     with _sec_sem:
         p = subprocess.run([PY, os.path.join(NM, "collect.py"), "--start", meta["start"], "--end", meta["end"], "--section", name, "--out", out],  # noqa: S603 - fixed argv, validated names/times
                            capture_output=True, text=True, timeout=900, cwd=NM)
-    if p.returncode or not os.path.exists(out):
+    if p.returncode or not store.jexists(out):
         raise RuntimeError(f"{name}: " + (p.stderr or p.stdout or "collect failed")[-300:])
 
 
 def section(b):
     import re
     rid, name = str(b.get("id") or ""), str(b.get("name") or "")
-    if not re.match(r"^r\d{8}T\d{4}Z-\d{8}T\d{4}Z$", rid) or not os.path.exists(os.path.join(RANGES, rid + ".meta.json")):
+    if not re.match(r"^r\d{8}T\d{4}Z-\d{8}T\d{4}Z$", rid) or not store.jexists(os.path.join(RANGES, rid + ".meta.json")):
         raise ValueError("unknown time range")
     if name != "analysis" and name != "lateral" and name not in SECTIONS:
         raise ValueError("unknown section")
@@ -160,23 +149,21 @@ def section(b):
     with lk:  # two requests for the same piece share one run
         if name != "analysis":
             _run_section(rid, name)
-        elif not os.path.exists(os.path.join(RANGES, rid + ".analysis.json")):
-            meta = json.load(open(os.path.join(RANGES, rid + ".meta.json")))
+        elif not store.jexists(os.path.join(RANGES, rid + ".analysis.json")):
+            meta = store.jload(os.path.join(RANGES, rid + ".meta.json"))
             raw = {"generated": meta["generated"], "hours": meta["hours"], "range": {"start": meta["start"], "end": meta["end"]}}
             for n in SECTIONS:
                 _run_section(rid, n)  # normally all done already; computes any the page has not asked for yet
-                raw.update(json.load(open(_sec_path(rid, n))))
+                raw.update(store.jload(_sec_path(rid, n)))
             out = os.path.join(RANGES, rid + ".json")
-            with open(out + ".tmp", "w") as f:
-                json.dump(raw, f, indent=1, default=str)
-            os.replace(out + ".tmp", out)
+            store.jdump(raw, out)
             p = subprocess.run([PY, os.path.join(NM, "analyze.py"), out, "--readonly"],  # noqa: S603 - fixed argv
                                capture_output=True, text=True, timeout=900, cwd=NM)
             if p.returncode:
                 raise RuntimeError((p.stderr or p.stdout or "analyze failed")[-300:])
             for n in SECTIONS:  # the assembled files now hold everything
                 try:
-                    os.remove(_sec_path(rid, n))
+                    store.jdelete(_sec_path(rid, n))
                 except OSError:
                     pass
             _rstatus(rid, status="done", step="")

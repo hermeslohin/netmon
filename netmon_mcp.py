@@ -24,13 +24,27 @@ def _json(p, default=None):
         return default
 
 
+def _doc(name, default=None):
+    """A document from the docs table (snapshots / analysis), read-only."""
+    import zlib
+    try:
+        with _db() as c:
+            r = c.execute("SELECT doc FROM docs WHERE name=?", (name,)).fetchone()
+        return json.loads(zlib.decompress(r[0])) if r else default
+    except sqlite3.Error:
+        return default
+
+
 def _latest():
-    snaps = sorted(p for p in glob.glob(os.path.join(DATA, "*.json")) if re.search(r"/\d{4}-\d\d-\d\dT\d{4}Z\.json$", p))
-    if not snaps:
+    try:
+        with _db() as c:
+            names = [r[0] for r in c.execute("SELECT name FROM docs WHERE name GLOB 'data/????-??-??T????Z' ORDER BY name")]
+    except sqlite3.Error:
+        names = []
+    if not names:
         return None, {}, {}, {}
-    p = snaps[-1]
-    stem = p[:-5]
-    return os.path.basename(stem), _json(p, {}), _json(stem + ".analysis.json", {}), {}
+    n = names[-1]
+    return n.split("/", 1)[1], _doc(n, {}), _doc(n + ".analysis", {}), {}
 
 
 def _db():
@@ -113,7 +127,7 @@ def _host_notes(subjects):
     subs = [s for s in dict.fromkeys(subjects) if s]
     if not subs:
         return []
-    rows = _kb(f"select subject, category, text, author, model, updated from host_notes where subject in ({','.join('?' * len(subs))}) order by updated desc", subs)
+    rows = _kb(f"select subject, category, text, author, model, updated from host_notes where coalesce(status,'')!='rejected' and subject in ({','.join('?' * len(subs))}) order by updated desc", subs)
     return [{"subject": r[0], "category": r[1], "text": r[2], "by": r[3] if r[3] != "ai" else f"AI ({r[4]})"} for r in rows]
 
 
@@ -121,7 +135,7 @@ def notes(args):
     """Host notes (what the AI and the owner know about devices) + the owner's notes on events."""
     q = (args.get("query") or "").strip().lower()
     hn = [{"subject": r[0], "device": r[1], "category": r[2], "text": r[3], "by": r[4] if r[4] != "ai" else f"AI ({r[5]})"}
-          for r in _kb("select subject, label, category, text, author, model from host_notes order by subject, updated desc")]
+          for r in _kb("select subject, label, category, text, author, model from host_notes where coalesce(status,'')!='rejected' order by subject, updated desc")]
     en = [{"event": r[0], "label": r[1], "by": r[2], "text": r[3]} for r in _kb("select eid, label, author, text from event_notes where status = 'approved' order by ts desc limit 300")]
     if q:
         hn = [n for n in hn if q in json.dumps(n).lower()]
@@ -131,7 +145,13 @@ def notes(args):
 
 
 def _site():
-    return _json(os.path.join(NM, "site.json"), {})
+    try:
+        import zlib  # noqa: F401
+        sys.path.insert(0, NM)
+        import store
+        return store.cfg_load("site")
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _registry_names():

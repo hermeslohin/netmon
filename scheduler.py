@@ -21,6 +21,7 @@ import time
 NM = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, NM)
 import research_cfg as RC  # noqa: E402
+import store  # noqa: E402
 
 PY = os.environ.get("NETMON_PYTHON") or "/usr/bin/python3"
 LOGS = os.path.join(NM, "logs")
@@ -35,16 +36,11 @@ running = {}
 
 
 def _state():
-    try:
-        return json.load(open(STATE))
-    except (OSError, ValueError):
-        return {}
+    return store.jload(STATE, {}) or {}
 
 
 def _save(s):
-    tmp = STATE + ".tmp"
-    json.dump(s, open(tmp, "w"), indent=1)
-    os.replace(tmp, STATE)
+    store.jdump(s, STATE)
 
 
 def _log(name):

@@ -145,7 +145,7 @@ Field names follow your Security Onion version; confirm them in a Discover resul
 
 **Decide and act**
 
-- Benign: add the domain to the known-benign list (admin edits `known_benign.json`, `dns_domains`), check the row off, and add a 📝 note saying why.
+- Benign: add the domain to the known-benign list (admin adds it to `dns_domains` on **More → Settings → Known benign**), check the row off, and add a 📝 note saying why.
 - Suspicious: isolate or block the device at the gateway, block the domain, capture the process (command line, parent, path, hash) from Endpoints, and preserve the Kibana queries. Treat any credentials used on the device as exposed.
 
 ---
@@ -249,7 +249,7 @@ Lateral movement is an attacker (or a compromised credential) moving from one in
 7. **Check the account.** Network → Users → the account page: normal hosts, normal sources, active hours. Is this the usual source and hour? Is a privileged account being used somewhere it never was before?
 8. **Use several time periods.** On Lateral movement, **+ Add period** (up to 8) to compare the incident day with several normal days in one view. Connection and login counts add up and each link keeps its worst risk; a link present only in the incident period stands out.
 9. **Related events.** Open Related on the admin session to find linked processes, files and DNS names.
-10. **Decide.** Expected (a documented admin path): click the green **Clear** on the flow and add a 📝 note; for a permanent exception have the admin add an `allow` rule in `policy.json`. Not expected: contain the source, reset the account credentials and look at what the account did on each host.
+10. **Decide.** Expected (a documented admin path): click the green **Clear** on the flow and add a 📝 note; for a permanent exception have the admin add an `allow` rule in the network policy (**More → Settings**). Not expected: contain the source, reset the account credentials and look at what the account did on each host.
 
 **Direction caveat.** Check `connection.state` before blaming the source. Flipped-direction records can make a server reply look like it initiated the session.
 
@@ -449,10 +449,10 @@ A tool that cries wolf gets ignored. Tune with a reason and keep an exit.
 |---|---|---|
 | "I looked, it's fine, once" | ☐ Check off | Hidden, listed on Checked, carries over; **reopens** if the reviewer later classifies it suspicious |
 | "This flow is allowed" | Green **Clear** on a segmentation violation | Stops counting toward risk; shown as allowed; reversible under Cleared segmentation |
-| "This is permanently allowed" | `allow` rule in `policy.json` (admin) | Policy-level exception |
+| "This is permanently allowed" | `allow` rule in the network policy (admin, More → Settings) | Policy-level exception |
 | "This family of events is noise" | 🚫 suppress (admin / defender) | Hides the finding, keeps correlation |
 | "Don't send this to the model" | Never-send rule (AI review → Review limits) | Skipped by reviewer/research; reduces token cost |
-| "This domain / signature is benign here" | `known_benign.json` (admin) | Separated from signal in scoring and reports |
+| "This domain / signature is benign here" | Known benign list (admin, More → Settings) | Separated from signal in scoring and reports |
 | "This device behaves like this on purpose" | 📝 host note (category *behavior* or *role*) | The AI reads it; people's notes are authoritative |
 
 Guidelines:

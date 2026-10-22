@@ -27,6 +27,10 @@ CLI (inside the dashboard container; host wrapper: netmon/enrich.sh kb ...):
   kb.py put -                            {"model", "via", "host_notes": [...], "host_notes_delete": [ids]} from stdin
 """
 import json, os, re, sqlite3, sys, time
+_R = os.environ.get("NETMON_DIR", "/netmon")
+if os.path.isdir(_R) and _R not in sys.path:
+    sys.path.append(_R)
+import store  # noqa: E402  /netmon/store.py (SQLite docs table)
 
 DB = os.path.join(os.environ.get("STATE_DIR", "/state"), "kb.db")
 CATEGORIES = ("role", "baseline", "behavior", "decision", "risk", "config", "watch", "other")
@@ -37,8 +41,7 @@ MAX_PER_SUBJECT, PER_SUBJECT_LIMIT = 40, 500  # default / most an admin can set 
 def max_per_subject():
     """Most notes stored per host / user / domain subject (admin setting in llm_config.json context_notes.per_subject)."""
     try:
-        with open(os.path.join(os.environ.get("STATE_DIR", "/state"), "llm_config.json")) as f:
-            v = int((json.load(f).get("context_notes") or {}).get("per_subject") or MAX_PER_SUBJECT)
+        v = int(((store.jload(os.path.join(os.environ.get("STATE_DIR", "/state"), "llm_config.json"), {}) or {}).get("context_notes") or {}).get("per_subject") or MAX_PER_SUBJECT)
         return max(1, min(v, PER_SUBJECT_LIMIT))
     except (OSError, ValueError, TypeError, AttributeError):
         return MAX_PER_SUBJECT
@@ -60,6 +63,10 @@ def _db():
         for nid, subj, text in c.execute("SELECT id, subject, text FROM host_notes").fetchall():
             _index(c, nid, subj, text)
         c.execute("PRAGMA user_version=1")
+    hh = {r[1] for r in c.execute("PRAGMA table_info(host_notes)")}
+    for col, decl in (("status", "TEXT NOT NULL DEFAULT ''"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL")):  # '' = not reviewed, approved = authoritative, rejected = kept but never sent to the AI
+        if col not in hh:
+            c.execute(f"ALTER TABLE host_notes ADD COLUMN {col} {decl}")
     have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
     for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL")):
         if col not in have:  # older kb.db: every existing note was written by an admin/defender, so it stays approved
@@ -195,7 +202,7 @@ def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12):
     out = []
     for n in rows:
         sc, hit = art_score(na.get(n["id"], []), ev_arts)
-        if sc >= MIN_ART_SCORE and not str(n["text"]).startswith("[profile:"):  # generated per-host profiles list many peers: they stay with their own host
+        if n.get("status") != "rejected" and sc >= MIN_ART_SCORE and not str(n["text"]).startswith("[profile:"):  # generated per-host profiles list many peers: they stay with their own host
             out.append((sc, hit, n))
     out.sort(key=lambda t: (-t[0], -float(t[2].get("updated") or 0)))
     return out[:limit]
@@ -276,10 +283,11 @@ def subjects_for_ip(ip, reg=None):
 
 
 # ---------------------------------------------------------------- host notes
-_COLS = ("id", "subject", "label", "category", "text", "author", "model", "via", "ts", "updated")
+_COLS = ("id", "subject", "label", "category", "text", "author", "model", "via", "ts", "updated", "status", "reviewed_by", "reviewed_at")
 
 
-def host_notes(subjects=None, q=""):
+def host_notes(subjects=None, q="", ai=False):
+    """ai=True: the notes the AI may read (rejected ones are left out)."""
     with _db() as c:
         if subjects is not None:
             subs = [s for s in subjects if s][:50]
@@ -289,6 +297,8 @@ def host_notes(subjects=None, q=""):
         else:
             rows = c.execute(f"SELECT {','.join(_COLS)} FROM host_notes ORDER BY subject, updated DESC").fetchall()
     out = [dict(zip(_COLS, r)) for r in rows]
+    if ai:
+        out = [n for n in out if n.get("status") != "rejected"]
     if out:
         na = note_artifacts([n["id"] for n in out])
         for n in out:
@@ -310,11 +320,13 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
     now = time.time()
     with _db() as c:
         if note_id:
-            r = c.execute("SELECT subject FROM host_notes WHERE id=?", (int(note_id),)).fetchone()
+            r = c.execute("SELECT subject, status FROM host_notes WHERE id=?", (int(note_id),)).fetchone()
             if not r:
                 raise ValueError(f"note {note_id} not found")
-            c.execute("UPDATE host_notes SET subject=?, label=?, category=?, text=?, author=?, model=?, via=?, updated=? WHERE id=?",
-                      (subj, label, cat, text, author, model, via, now, int(note_id)))
+            if author == "ai" and r[1] in ("approved", "rejected"):
+                raise ValueError(f"note {note_id} was {r[1]} by a person: the AI may not change it")
+            c.execute("UPDATE host_notes SET subject=?, label=?, category=?, text=?, author=?, model=?, via=?, updated=?, status=CASE WHEN ?='ai' THEN status ELSE '' END WHERE id=?",
+                      (subj, label, cat, text, author, model, via, now, author, int(note_id)))
             _index(c, int(note_id), subj, text)
             return int(note_id)
         n = c.execute("SELECT count(*) FROM host_notes WHERE subject=?", (subj,)).fetchone()[0]
@@ -325,6 +337,16 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
                         (subj, label, cat, text, author, model, via, now, now))
         _index(c, cur.lastrowid, subj, text)
         return cur.lastrowid
+
+
+def review_host_note(note_id, decision, by):
+    """Admin / defender: 'approve' (authoritative for the reviewer and the research job), 'reject' (kept, never sent to the AI) or 'clear'."""
+    st = {"approve": "approved", "reject": "rejected", "clear": ""}.get(decision)
+    if st is None:
+        raise ValueError("decision must be approve, reject or clear")
+    with _db() as c:
+        return c.execute("UPDATE host_notes SET status=?, reviewed_by=?, reviewed_at=? WHERE id=?",
+                         (st, str(by)[:60] if st else None, time.time() if st else None, int(note_id))).rowcount
 
 
 def delete_host_note(note_id):
@@ -371,6 +393,61 @@ def internet_notes(q=""):
     return sorted(out, key=lambda r: -r["updated"])
 
 
+# ---------------------------------------------------------------- DNS notes (Network > Internet notes): by domain or subdomain
+def dns_suffixes(name):
+    """a.b.example.com -> [a.b.example.com, b.example.com, example.com] (most specific first; the bare TLD is never a subject)."""
+    p = str(name or "").lower().strip().strip(".").split(".")
+    return [".".join(p[i:]) for i in range(len(p) - 1)] if len(p) >= 2 else []
+
+
+def dns_names(ev):
+    """DNS names an event involves: its dns artifacts + domain names in its label."""
+    out = []
+    for a in (ev.get("arts") or []):
+        if a and a[0] == "dns" and a[1]:
+            out.append(str(a[1]).lower().strip("."))
+    out += [k[4:] for k in artifact_keys(text=str(ev.get("label") or ""), kinds={"dns"})]
+    seen, res = set(), []
+    for d in out:
+        if d not in seen and _DOM.match(d):
+            seen.add(d)
+            res.append(d)
+    return res
+
+
+def dns_notes_for(names, limit=6, ai=True):
+    """Notes that apply to these DNS names: a note on a domain covers all its subdomains, a note on a subdomain only that name and below.
+    -> [(name, subject domain, note, exact)] most specific first."""
+    subs, owner = [], {}
+    for n in names or []:
+        for i, d in enumerate(dns_suffixes(n)):
+            for pre in ("dom:", "art:dns:"):
+                owner.setdefault(pre + d, []).append((n, d, i == 0))
+                subs.append(pre + d)
+    notes = host_notes(sorted(set(subs)), ai=ai) if subs else []
+    out, seen = [], set()
+    for nt in notes:
+        for name, d, exact in owner.get(nt["subject"], []):
+            if (name, nt["id"]) not in seen:
+                seen.add((name, nt["id"]))
+                out.append((name, d, nt, exact))
+    out.sort(key=lambda t: (not t[3], -len(t[1]), -float(t[2].get("updated") or 0)))
+    return out[:limit]
+
+
+def dns_notes(q=""):
+    """Every domain with notes (subject dom:<d> or art:dns:<d>), grouped per domain: [{domain, parent, notes, n, updated}]."""
+    by = {}
+    for n in host_notes(q=q):
+        s = str(n["subject"])
+        d = s[4:] if s.startswith("dom:") else s[8:] if s.startswith("art:dns:") else None
+        if d:
+            by.setdefault(d, []).append(n)
+    out = [{"domain": d, "n": len(ns), "updated": max(float(x.get("updated") or 0) for x in ns), "notes": ns,
+            "parent": (dns_suffixes(d)[1] if len(dns_suffixes(d)) > 1 else "")} for d, ns in by.items()]
+    return sorted(out, key=lambda r: -r["updated"])
+
+
 def put(doc):
     """AI write path: {"model", "via", "host_notes": [{ip|mac|host|subject, category, text, id?}], "host_notes_delete": [ids]}."""
     model = str(doc.get("model") or "unknown")[:80]
@@ -386,6 +463,11 @@ def put(doc):
     deleted = 0
     for i in doc.get("host_notes_delete") or []:
         try:
+            with _db() as c:
+                st = c.execute("SELECT status FROM host_notes WHERE id=?", (int(i),)).fetchone()
+            if st and st[0] in ("approved", "rejected"):  # reviewed by a person: the AI may not delete it
+                bad.append(f"delete {i!r}: reviewed by a person")
+                continue
             deleted += delete_host_note(i)
         except (ValueError, TypeError):
             bad.append(f"delete {i!r}: bad id")
@@ -508,7 +590,7 @@ def apply(res):
 
 
 def dump(q=""):
-    hn = host_notes(q=q)
+    hn = host_notes(q=q, ai=True)
     en = all_event_notes(ai=True)  # dump feeds the AI research run: approved event notes only
     if q:
         ql = q.lower()
@@ -518,7 +600,7 @@ def dump(q=""):
             "event_notes": [{k: v for k, v in {**n, "ts": fmt(n["ts"]), "reviewed_at": fmt(n["reviewed_at"])}.items() if k not in ("status", "role")} for n in en],
             "how_to_use": "event_notes are written (or approved) by the network owner / defenders: treat them as authoritative analyst guidance "
                           "(e.g. 'expected - my backup job', 'escalate if seen again'). host_notes are what earlier AI runs "
-                          "(and the owner, author user:<name>) learned about each device; correct or delete stale ones."}
+                          "(and the owner, author user:<name>) learned about each device; correct or delete stale ones. A note with status 'approved' was accepted by a network defender or admin: treat it as authoritative and do not edit or delete it (rejected notes are not listed)."}
 
 
 def main(argv):

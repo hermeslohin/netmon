@@ -167,7 +167,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
             e = inb.setdefault(t, {"ips": set(), "conns": 0, "ports": set(), "feeds": set(), "bytes": 0})
             e["ips"].add(h["ip"]); e["conns"] += n; e["ports"].update(h["ports"]); e["feeds"].update(h["feeds"]); e["bytes"] += h["bytes"]
     for t, e in inb.items():
-        public = extras.zone_of(t, pol) == "dmz"
+        public = extras.zone_role(extras.zone_of(t, pol), pol) == "dmz"
         add("low" if public and e["feeds"] <= {"cins_badguys", "et_compromised"} else "high", key(t), "ti-ip-in",
             f"answered {e['conns']} inbound conns from {len(e['ips'])} listed IPs ({', '.join(sorted(e['feeds']))}) on ports "
             f"{sorted(e['ports'])}, {int(e['bytes'])} bytes total" + (" - internet-exposed service being probed" if public else ""))
@@ -297,12 +297,15 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
 def main():
     global SCALE
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    import store
     snap_path = args[0] if args else sorted(
-        p for p in glob.glob(os.path.join(NM, "data", "*.json")) if os.path.basename(p).count(".") == 1)[-1]
-    snap = json.load(open(snap_path))
+        p for p in store.jglob(os.path.join(NM, "data"), "*.json") if os.path.basename(p).count(".") == 1)[-1]
+    snap = store.jload(snap_path)
+    if snap is None:
+        raise SystemExit(f"no such snapshot: {snap_path}")
     if READONLY or float(snap.get("hours") or 24) < 24:  # a time range, or a research run with a short lookback window
         SCALE = max(float(snap.get("hours") or 24) / 24, 1 / 24)
-    benign = json.load(open(BENIGN)) if os.path.exists(BENIGN) else {"signatures": {}, "devices": {}}
+    benign = store.jload(BENIGN) or {"signatures": {}, "devices": {}}
     history = load_history()
     days = len(history)
 
@@ -536,8 +539,7 @@ def main():
            "new_devices": new_devices, "dns_tunnel": tunnel, "violations": snap.get("_violations", []), "registry_seeded_now": seeding, "window_start": win_start,
            "zeek_retention_start": snap.get("zeek_retention_start"), "scale_24h": round(SCALE, 3)}
     ap = snap_path[:-5] + ".analysis.json"
-    json.dump(out, open(ap + ".tmp", "w"), indent=1)
-    os.replace(ap + ".tmp", ap)
+    store.jdump(out, ap, indent=1)
     if READONLY:  # time range: nothing folded into the baseline, no backup
         print(ap, f"findings={len(findings)} (time range, read-only)")
         return

@@ -8,7 +8,8 @@ Replaces the JSON files:
   baseline/watch_state.json    -> table watch_mute     (mute_filter)
   dashboard/state/acks.json    -> table acks           (acks_load / ack_set)
 
-Raw events stay in Security Onion Elasticsearch; nightly snapshots stay in data/*.json (for now).
+Raw events stay in Security Onion Elasticsearch. Snapshots (data/), time ranges (ranges/) and job/config state (users, scheduler,
+research_job, llm_*, integrations) are JSON documents in table docs (jload/jdump/jexists/jglob).
 
 DB location: $NETMON_DB, else $STATE_DIR/netmon.db (dashboard container: /state), else
 <netmon>/dashboard/state/netmon.db. It lives on the dashboard's writable state volume so the container can
@@ -59,9 +60,17 @@ CREATE TABLE IF NOT EXISTS suppress_rules (
 CREATE TABLE IF NOT EXISTS seg_suppress (
   id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT NOT NULL DEFAULT '', dst TEXT NOT NULL DEFAULT '', ports TEXT NOT NULL DEFAULT '',
   by TEXT, at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS ids_suppress (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, sig TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', by TEXT, at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS sec_findings (
   key TEXT PRIMARY KEY, tool TEXT, severity TEXT, title TEXT, location TEXT, fix TEXT, detail TEXT,
   first_seen TEXT, last_seen TEXT, status TEXT NOT NULL DEFAULT 'open', fixed_at TEXT, notified INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS docs (
+  name TEXT PRIMARY KEY, doc BLOB NOT NULL, updated REAL NOT NULL, size INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS cfg (
+  doc TEXT NOT NULL, seq INTEGER NOT NULL, path TEXT NOT NULL, vtype TEXT NOT NULL, value TEXT,
+  PRIMARY KEY (doc, seq));
+CREATE INDEX IF NOT EXISTS cfg_path ON cfg(doc, path);
 CREATE TABLE IF NOT EXISTS push_prefs (
   user TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'all', devices TEXT NOT NULL DEFAULT '[]', updated TEXT);
 CREATE TABLE IF NOT EXISTS push_subs (
@@ -114,6 +123,275 @@ def tx(c):
 
 def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# ------------------------------------------------------------------ docs (JSON documents: snapshots, time ranges, job state)
+# A document is addressed by the path it used to have as a file. Paths under a data/ or ranges/ directory (and the state
+# files in DOC_FILES) live in the `docs` table, zlib-compressed; any other path is still read/written as a plain file.
+# jload / jdump / jexists / jglob / jmtime / jdelete are drop-in replacements for the open()/json/glob/os.path calls.
+import threading, zlib
+DOC_FILES = {"research_job.json", "scheduler.json", "llm_config.json", "llm_providers.json", "integrations.json", "users.json"}
+_dl = threading.local()
+
+
+def doc_name(path):
+    """'data/2026-10-22T0500Z.analysis', 'ranges/r2026...status', 'state/users' or None when the path is a real file."""
+    path = os.path.abspath(str(path))
+    d, f = os.path.split(path)
+    if f.endswith(".tmp"):
+        f = f[:-4]
+    b = os.path.basename(d)
+    if cfg_doc(path):
+        return None
+    if f.endswith(".work.json"):  # enrich.sh redirects into it from a shell: a real scratch file
+        return None
+    if b in ("data", "ranges") and f.endswith(".json"):
+        return b + "/" + f[:-5]
+    if f in DOC_FILES and b in ("state", ".state"):
+        return "state/" + f[:-5]
+    return None
+
+
+def _dc():
+    c = getattr(_dl, "c", None)
+    if c is None or _dl.path != db_path():
+        c = _dl.c = connect()
+        _dl.path = db_path()
+    return c
+
+
+def doc_put(name, obj, c=None):
+    raw = json.dumps(obj, default=str, separators=(",", ":")).encode()
+    c = c or _dc()
+    with tx(c):
+        c.execute("INSERT INTO docs(name,doc,updated,size) VALUES (?,?,?,?) ON CONFLICT(name) DO UPDATE SET doc=excluded.doc, updated=excluded.updated, size=excluded.size",
+                  (name, zlib.compress(raw, 6), time.time(), len(raw)))
+
+
+def doc_get(name, default=None, c=None):
+    r = (c or _dc()).execute("SELECT doc FROM docs WHERE name=?", (name,)).fetchone()
+    return json.loads(zlib.decompress(r[0])) if r else default
+
+
+def doc_exists(name):
+    return _dc().execute("SELECT 1 FROM docs WHERE name=?", (name,)).fetchone() is not None
+
+
+def doc_mtime(name):
+    r = _dc().execute("SELECT updated FROM docs WHERE name=?", (name,)).fetchone()
+    return r[0] if r else None
+
+
+def doc_names(prefix):
+    return [r[0] for r in _dc().execute("SELECT name FROM docs WHERE name LIKE ? ESCAPE '\\' ORDER BY name", (prefix.replace("_", "\\_").replace("%", "\\%") + "%",))]
+
+
+def doc_delete(name):
+    c = _dc()
+    with tx(c):
+        c.execute("DELETE FROM docs WHERE name=?", (name,))
+
+
+def cfg_doc(path):
+    """'policy' for <netmon>/policy.json (also host_policy, known_benign, site); None for anything else (incl. *.example.json)."""
+    d, f = os.path.split(os.path.abspath(str(path)))
+    if d == HERE and f.endswith(".json") and f[:-5] in CFG_DOCS:
+        return f[:-5]
+    return None
+
+
+def jload(path, default=None):
+    cd = cfg_doc(path)
+    if cd:
+        return cfg_load(cd, shared=False) if cfg_has(cd) else default
+    n = doc_name(path)
+    if n:
+        return doc_get(n, default)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def jdump(obj, path, **kw):
+    cd = cfg_doc(path)
+    if cd:
+        cfg_save(cd, obj)
+        return
+    n = doc_name(path)
+    if n:
+        return doc_put(n, obj)
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, **kw)
+    os.replace(tmp, path)
+
+
+def jexists(path):
+    cd = cfg_doc(path)
+    if cd:
+        return cfg_has(cd)
+    n = doc_name(path)
+    return doc_exists(n) if n else os.path.exists(path)
+
+
+def jmtime(path):
+    cd = cfg_doc(path)
+    if cd:
+        return float(_cfg_ver(_dc(), cd))
+    n = doc_name(path)
+    return doc_mtime(n) if n else os.path.getmtime(path)
+
+
+def jdelete(path):
+    n = doc_name(path)
+    if n:
+        doc_delete(n)
+    elif os.path.exists(path):
+        os.remove(path)
+
+
+def jglob(directory, pattern="*.json"):
+    """Paths (as the files used to be named) of the documents in `directory`, sorted, matching a glob pattern."""
+    import fnmatch
+    d = os.path.abspath(directory)
+    b = os.path.basename(d)
+    if b in ("data", "ranges"):
+        return [os.path.join(d, n.split("/", 1)[1] + ".json") for n in doc_names(b + "/")
+                if fnmatch.fnmatch(n.split("/", 1)[1] + ".json", pattern)]
+    return sorted(glob.glob(os.path.join(d, pattern)))
+
+
+def docs_migrate(dirs, delete=False):
+    """Load every *.json in these directories into the docs table (and remove the file once it reads back identically)."""
+    n = 0
+    for d in dirs:
+        for p in sorted(glob.glob(os.path.join(d, "*.json"))):
+            nm = doc_name(p)
+            if not nm:
+                continue
+            try:
+                obj = json.load(open(p))
+            except ValueError:
+                continue
+            doc_put(nm, obj)
+            if delete and doc_get(nm) == obj:
+                os.remove(p)
+            n += 1
+    return n
+
+
+# ------------------------------------------------------------------ cfg (policy / host_policy / known_benign / site)
+# Editable settings, one row per value: (doc, seq, path, vtype, value). path is "section/key/#3" (dict keys escaped, "#n" = list
+# item n); vtype is str|int|float|bool|null, or list|dict for an empty container. seq keeps document order. The dashboard's
+# Policy page edits these as tables; cfg_load() hands the rest of netmon the same dict the JSON files used to give.
+import copy
+CFG_DOCS = ("policy", "host_policy", "known_benign", "site")
+_cfg_cache = {}
+
+
+def _esc(k):
+    return str(k).replace("%", "%25").replace("/", "%2F").replace("#", "%23")
+
+
+def _unesc(k):
+    return k.replace("%23", "#").replace("%2F", "/").replace("%25", "%")
+
+
+def cfg_flatten(obj, path=()):
+    """Yield (path string, vtype, value text) for every leaf of a nested dict/list."""
+    if isinstance(obj, dict):
+        if not obj:
+            yield "/".join(path), "dict", None
+        for k, v in obj.items():
+            yield from cfg_flatten(v, path + (_esc(k),))
+    elif isinstance(obj, (list, tuple)):
+        if not obj:
+            yield "/".join(path), "list", None
+        for i, v in enumerate(obj):
+            yield from cfg_flatten(v, path + (f"#{i}",))
+    elif obj is None:
+        yield "/".join(path), "null", None
+    elif isinstance(obj, bool):
+        yield "/".join(path), "bool", "1" if obj else "0"
+    elif isinstance(obj, int):
+        yield "/".join(path), "int", str(obj)
+    elif isinstance(obj, float):
+        yield "/".join(path), "float", repr(obj)
+    else:
+        yield "/".join(path), "str", str(obj)
+
+
+def cfg_build(rows):
+    """Inverse of cfg_flatten; rows = [(path, vtype, value)] in document order."""
+    root = {}
+    for path, vt, val in rows:
+        segs = path.split("/") if path else []
+        leaf = {"dict": {}, "list": [], "null": None, "bool": val == "1", "int": int(val) if vt == "int" else None,
+                "float": float(val) if vt == "float" else None, "str": val if val is not None else ""}[vt]
+        node = root
+        for i, sg in enumerate(segs):
+            last = i == len(segs) - 1
+            nxt_list = (not last) and segs[i + 1].startswith("#")
+            if sg.startswith("#"):  # node is a list
+                idx = int(sg[1:])
+                while len(node) <= idx:
+                    node.append(None)
+                if last:
+                    node[idx] = leaf
+                else:
+                    if node[idx] is None:
+                        node[idx] = [] if nxt_list else {}
+                    node = node[idx]
+            else:
+                key = _unesc(sg)
+                if last:
+                    node[key] = leaf
+                else:
+                    if key not in node:
+                        node[key] = [] if nxt_list else {}
+                    node = node[key]
+    return root
+
+
+def _cfg_ver(c, doc):
+    r = c.execute("SELECT v FROM meta WHERE k=?", ("cfg_ver:" + doc,)).fetchone()
+    return r[0] if r else "0"
+
+
+def cfg_save(doc, data, c=None):
+    c = c or connect()
+    rows = [(doc, i, p, vt, v) for i, (p, vt, v) in enumerate(cfg_flatten(data))]
+    with tx(c):
+        c.execute("DELETE FROM cfg WHERE doc=?", (doc,))
+        c.executemany("INSERT INTO cfg(doc,seq,path,vtype,value) VALUES (?,?,?,?,?)", rows)
+        c.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", ("cfg_ver:" + doc, str(time.time())))
+    _cfg_cache.pop((db_path(), doc), None)
+    return len(rows)
+
+
+_CFG_TTL = 2.0  # seconds a process trusts its cached copy before asking the DB whether the settings changed
+
+
+def cfg_load(doc, c=None, shared=False):
+    """The settings document as a dict (a private copy unless shared=True; cached, refreshed within a couple of seconds of a save)."""
+    k = (db_path(), doc)
+    hit = _cfg_cache.get(k)
+    if not hit or time.time() - hit[2] > _CFG_TTL:
+        c = c or _dc()
+        ver = _cfg_ver(c, doc)
+        if not hit or hit[0] != ver:
+            rows = [(r[0], r[1], r[2]) for r in c.execute("SELECT path, vtype, value FROM cfg WHERE doc=? ORDER BY seq", (doc,))]
+            hit = (ver, cfg_build(rows), time.time())
+        else:
+            hit = (hit[0], hit[1], time.time())
+        _cfg_cache[k] = hit
+    return hit[1] if shared else copy.deepcopy(hit[1])
+
+
+def cfg_has(doc, c=None):
+    return (c or _dc()).execute("SELECT 1 FROM cfg WHERE doc=? LIMIT 1", (doc,)).fetchone() is not None
 
 
 # ------------------------------------------------------------------ acks (dashboard check-offs)
@@ -193,8 +471,9 @@ def alerts_add(items, source="watcher", c=None):
 def _mglob(pat, text, sub):
     pat, text = str(pat).lower(), str(text).lower()
     if "*" in pat or "?" in pat:
-        import fnmatch
-        return fnmatch.fnmatchcase(text, pat)
+        import re as _re  # only * and ? are wildcards; [ ] are literal (event text has "['1.2.3.4']")
+        rx = "".join(".*" if ch == "*" else "." if ch == "?" else _re.escape(ch) for ch in pat)
+        return _re.fullmatch(rx, text, _re.S) is not None
     return pat in text if sub else pat == text
 
 
@@ -369,6 +648,59 @@ def seg_suppress_match(rules, src, dst, port):
     return False
 
 
+# ------------------------------------------------------------------ IDS signature suppress rules (signature, optional host)
+def ids_suppress_list(c=None):
+    c = c or connect()
+    return [dict(r) for r in c.execute("SELECT * FROM ids_suppress ORDER BY id")]
+
+
+def ids_suppress_add(sig, host, by, c=None):
+    """Hide an IDS signature (exact name, or glob with * ?) everywhere in netmon; host blank = all hosts, else only alerts with that IP."""
+    c = c or connect()
+    sig, host = str(sig or "").strip()[:300], str(host or "").strip()[:100]
+    if not sig or sig.replace("*", "").replace("?", "") == "":
+        raise ValueError("give a signature name")
+    with tx(c):
+        r = c.execute("SELECT id FROM ids_suppress WHERE sig=? AND host=?", (sig, host)).fetchone()
+        if r:
+            return r[0]
+        if c.execute("SELECT count(*) FROM ids_suppress").fetchone()[0] >= 500:
+            raise ValueError("too many IDS suppress rules (500)")
+        return c.execute("INSERT INTO ids_suppress(sig,host,by,at) VALUES (?,?,?,?)", (sig, host, str(by)[:60], time.time())).lastrowid
+
+
+def ids_suppress_remove(rid, c=None):
+    c = c or connect()
+    with tx(c):
+        return c.execute("DELETE FROM ids_suppress WHERE id=?", (int(rid),)).rowcount
+
+
+def ids_filter(raw, rules):
+    """Copy of a snapshot's raw with the IDS signatures the rules cover removed (host rule: only that host's alerts)."""
+    al = (raw or {}).get("alerts") or {}
+    if not rules or not al.get("signatures"):
+        return raw
+    out, total, gone = [], al.get("total") or 0, 0
+    for sg in al["signatures"]:
+        rs = [r for r in rules if _mglob(r["sig"], sg.get("name", ""), False)]
+        if not rs:
+            out.append(sg)
+            continue
+        if any(not r["host"] for r in rs):
+            gone += sg.get("count") or 0
+            continue
+        hosts = {r["host"] for r in rs}
+        src = {k: v for k, v in (sg.get("src") or {}).items() if not any(_mglob(h, k, False) for h in hosts)}
+        dst = {k: v for k, v in (sg.get("dst") or {}).items() if not any(_mglob(h, k, False) for h in hosts)}
+        if not src and not dst:
+            gone += sg.get("count") or 0
+            continue
+        n = max(sum(src.values()), sum(dst.values()))
+        gone += max(0, (sg.get("count") or 0) - n)
+        out.append(dict(sg, src=src, dst=dst, count=n))
+    return dict(raw, alerts=dict(al, signatures=out, total=max(0, total - gone)))
+
+
 def suppress_remove(rid, c=None):
     """Delete a suppress rule; the alerts it hid come back into the feed -> number restored."""
     c = c or connect()
@@ -439,7 +771,7 @@ _MAC_RE = re.compile(r"\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b", re.I)
 
 def _endpoint_ips():
     try:
-        return {k.lower(): v for k, v in json.load(open(os.path.join(HERE, "host_policy.json"))).get("endpoint_ips", {}).items()}
+        return {k.lower(): v for k, v in cfg_load("host_policy", shared=True).get("endpoint_ips", {}).items()}
     except Exception:
         return {}
 
@@ -780,6 +1112,10 @@ if __name__ == "__main__":
         print(json.dumps(stats(), indent=1))
     elif cmd == "backup":
         print(backup())
+    elif cmd == "cfg-import":  # store.py cfg-import <doc> <file.json>: load a settings file into the cfg table
+        print(cfg_save(sys.argv[2], json.load(open(sys.argv[3]))), "rows")
+    elif cmd == "cfg-export":  # store.py cfg-export <doc>: print it as JSON (backup / rollback)
+        print(json.dumps(cfg_load(sys.argv[2]), indent=1))
     elif cmd == "check":
         print(integrity())
     elif cmd == "export":

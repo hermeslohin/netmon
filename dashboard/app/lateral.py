@@ -7,14 +7,14 @@ never mapped). Each port on an edge is classified:
   high / medium / low   - segmentation-policy violation (analysis.violations)
   medium                - repeated failed attempts at an admin/lateral port
   medium                - part of an internal scan
-  allowed-admin         - admin/lateral port explicitly allowed in policy.json
+  allowed-admin         - admin/lateral port explicitly allowed in the network policy (More → Settings)
   normal                - everything else (discovery, gateway services, media...)
 
 Admin sessions (SSH, RDP, PsExec/SMB, WMI, WinRM/PS remoting, VNC, ...) from raw.admin_access are merged
 per (src, dst, protocol) with their login outcomes. Failures raise the risk:
   high    - password guessing (>= 10 failed logins or >= 3 invalid users), or >= 3 failures then a success on one account
   medium  - any failed login, or >= 5 refused/unanswered connections to an admin port
-  low     - 1-4 refused connections, or a successful admin session not covered by policy.json "allow"
+  low     - 1-4 refused connections, or a successful admin session not covered by the network policy (More → Settings) "allow"
   allowed-admin - successful sessions that policy allows
 """
 from risk import zone_of, _host_ip, seg_is_cleared, seg_cleared

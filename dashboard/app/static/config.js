@@ -30,7 +30,7 @@
           ${D.admin ? `<button id="rv-save" disabled>Save schedule</button>` : ""}
           <span class="muted small">next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
           <span id="rv-msg" class="small"></span></div>
-        <div class="muted small">30 min to 24 h. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h and writes the news briefing.
+        <div class="muted small">5 to 1440 minutes. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h.
           Each run is a AI Research job pass (events are not researched on the schedule), so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
     const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">AI event research (run when someone clicks <b>Send to research</b>${iv ? `; the scheduled job runs every ${ivTxt(iv)}` : ""}) writes a note with a verdict for an event
       (malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event). These options check off the events whose verdict is
@@ -60,7 +60,7 @@
     const tot = () => (parseInt(rh.value, 10) || 0) * 60 + (parseInt(rm.value, 10) || 0);
     if (rs) {
       const chk = () => { const t = tot(); rs.disabled = t === iv || t < 30 || t > 1440;
-        rmsg.className = "small sev-high"; rmsg.textContent = t && (t < 30 || t > 1440) ? "between 30 min and 24 h" : ""; };
+        rmsg.className = "small sev-high"; rmsg.textContent = t && (t < 5 || t > 1440) ? "between 5 and 1440 minutes" : ""; };
       rh.oninput = rm.oninput = chk;
       rs.onclick = async () => {
         const t = tot();
@@ -128,7 +128,7 @@
     const E = D.elasticsearch, U = D.unifi;
     const ixRows = Object.keys(E.index_defaults).map((k) => fld("es-ix-" + k, E.index_labels[k], E.indices[k], E.index_defaults[k], `Default <span class="mono">${esc(E.index_defaults[k])}</span>. Comma-separated patterns and <span class="mono">*</span> are allowed.`)).join("");
     const ce = intCard("elasticsearch", "Elasticsearch (Security Onion)", "Read-only API key with <span class=\"mono\">read</span> + <span class=\"mono\">view_index_metadata</span> on the indices below. TLS certificates are not verified (Security Onion uses its own CA).",
-      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (site.json): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
+      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (the site settings (More → Settings)): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
       + fld("elasticsearch-key", "API key", "", E.key_set ? E.key_hint : "base64 id:key from Kibana › Stack Management › API keys", keyHelp(E), "password")
       + `<div class="small" style="margin-top:12px"><b>Indices to search</b></div>` + ixRows, E);
     const cu = intCard("unifi", "UniFi API", "Site Manager API key from <span class=\"mono\">unifi.ui.com › API</span>. netmon reads clients, devices and events through the console connector (read-only).",

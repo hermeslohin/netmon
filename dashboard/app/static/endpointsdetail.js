@@ -13,7 +13,7 @@ function epAdminLabel(ip) {
 function epSrc(ip) {
   if (!ip || ip === "local") return '<span class="muted">local console / PAM</span>';
   const lab = epAdminLabel(ip), z = zoneOf(ip);
-  return `${ipLink(ip)}${lab ? ` <span class="badge sev-good" title="admin source in host_policy.json">admin: ${esc(lab)}</span>` : z === "internet" ? ' <span class="badge sev-high">internet</span>' : ""}`;
+  return `${ipLink(ip)}${lab ? ` <span class="badge sev-good" title="admin source in host_the network policy (More → Settings)">admin: ${esc(lab)}</span>` : z === "internet" ? ' <span class="badge sev-high">internet</span>' : ""}`;
 }
 const epHostMatch = (h) => !EP.host || hostMatch(h, EP.host);
 function epTimeline(title, tl, color) {

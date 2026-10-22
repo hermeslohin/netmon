@@ -122,12 +122,30 @@ KEY = os.environ.get("KEY", "/certs/dashboard.key")
 USER = os.environ.get("DASH_USER", "")
 PASS = os.environ.get("DASH_PASS", "")
 SNAP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{4}Z$")
-COMPANIONS = ("analysis", "briefing", "sources")
+COMPANIONS = ("analysis", "sources")
 
 _cache = {}
 
 
 def load_json(path, default=None):
+    cd = store.cfg_doc(path)
+    if cd:  # policy / host_policy / known_benign / site: tables in the cfg table
+        return store.cfg_load(cd, shared=True) if store.cfg_has(cd) else default
+    dn = store.doc_name(path)
+    if dn:  # snapshots / time ranges / job state live in the SQLite docs table
+        mt = store.doc_mtime(dn)
+        if mt is None:
+            return default
+        hit = _cache.get(path)
+        if hit and hit[0] == mt:
+            return hit[1]
+        try:
+            val = store.doc_get(dn, default)
+        except Exception as e:  # noqa: BLE001
+            print("load error", path, e, file=sys.stderr)
+            return hit[1] if hit else default
+        _cache[path] = (mt, val)
+        return val
     try:
         st = os.stat(path)
     except OSError:
@@ -150,13 +168,13 @@ def load_json(path, default=None):
 
 def snapshots():
     out = []
-    for p in sorted(glob.glob(os.path.join(DATA, "*.json"))):
+    for p in store.jglob(DATA, "*.json"):
         sid = os.path.basename(p)[:-5]
         if not SNAP_RE.match(sid):
             continue
         out.append({"id": sid,
                     "has": [c for c in COMPANIONS
-                            if os.path.exists(os.path.join(DATA, f"{sid}.{c}.json"))]})
+                            if store.jexists(os.path.join(DATA, f"{sid}.{c}.json"))]})
     return out
 
 
@@ -165,7 +183,7 @@ RANGES = os.path.join(STATE, "ranges")  # written by the host broker (collect.py
 
 
 def base_snapshot(end_iso):
-    """The newest nightly snapshot generated at or before `end_iso`: its AI triage, briefing and alarms go with a
+    """The newest nightly snapshot generated at or before `end_iso`: its AI alarms go with a
     time range (alarms stay per report run; everything else is collected for the range)."""
     s = snapshots()
     if not s:
@@ -211,7 +229,7 @@ def range_skeleton(rid):
         for k in keys:
             raw[k] = json.loads(json.dumps(SECTION_DEFAULTS.get(k, {})))
     res = {"id": rid, "raw": raw, "analysis": {}, "range": raw["range"], "base": base, "pending": SECTION_NAMES, "section_keys": SECTION_KEYS}
-    for c in ("briefing", "sources"):
+    for c in ("sources",):
         res[c] = (b or {}).get(c)
     return res
 
@@ -227,7 +245,7 @@ def range_section(rid, name):
     if done is not None:
         return {k: done.get(k, SECTION_DEFAULTS.get(k, {})) for k in SECTION_KEYS[name]}
     p = os.path.join(RANGES, f"{rid}.sec.{name}.json")
-    if not os.path.exists(p):
+    if not store.jexists(p):
         corr_llm.broker("/section", {"id": rid, "name": name}, timeout=300)
     return load_json(p, None)
 
@@ -240,7 +258,7 @@ def range_snapshot(rid):
     base = base_snapshot(raw.get("generated"))
     b = snapshot(base) if base else None
     res = {"id": rid, "raw": raw, "analysis": an, "range": raw.get("range"), "base": base}
-    for c in ("briefing", "sources"):
+    for c in ("sources",):
         res[c] = (b or {}).get(c)
     return res
 
@@ -259,7 +277,7 @@ _fseen = {"sig": None, "val": {}}
 def finding_last_seen():
     """{finding key: generated time of the newest nightly snapshot that contained it} (baseline 'f|kind|dev|detail', host 'hf|key')."""
     snaps = snapshots()
-    sig = tuple((s["id"], os.path.getmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
+    sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
     if _fseen["sig"] != sig:
         seen = {}
         for s in snaps:  # oldest -> newest, so the last write wins
@@ -283,6 +301,11 @@ def snapshot(sid):
             res = dict(res, analysis=seg_filter(res["analysis"]))  # suppressed segmentation flows are not shown anywhere
         except Exception as e:  # noqa: BLE001
             print(f"segmentation suppress filter failed: {e}", file=sys.stderr)
+    if res and res.get("raw"):
+        try:
+            res = dict(res, raw=store.ids_filter(res["raw"], store.ids_suppress_list()))  # suppressed IDS signatures are not shown anywhere
+        except Exception as e:  # noqa: BLE001
+            print(f"ids suppress filter failed: {e}", file=sys.stderr)
     if res:
         try:
             seen = finding_last_seen()
@@ -408,6 +431,44 @@ def seg_filter(analysis):
     return out
 
 
+def cfg_validate(doc, data):
+    """Reject a settings change that would break a job (bad regex, wrong shape). Returns an error text or None."""
+    try:
+        if doc == "host_policy":
+            for k in ("suspicious_cmdline", "service_parents"):
+                for r in data.get(k) or []:
+                    re.compile(str(r))
+            for k in ("service_child_suspicious", "net_suspicious_procs"):
+                if data.get(k):
+                    re.compile(str(data[k]))
+        if doc == "policy":
+            import ipaddress
+            zs = data.get("zones") or {}
+            if not isinstance(zs, dict):
+                return "zones must be a table of name -> CIDR"
+            for z, c in zs.items():
+                if not z.startswith("_"):
+                    ipaddress.ip_network(str(c), strict=False)
+            for z, r in (data.get("zone_roles") or {}).items():
+                if not z.startswith("_") and r not in ("dmz", "protected", "mgmt", "user", "iot"):
+                    return f"zone_roles[{z}] must be one of dmz, protected, mgmt, user, iot"
+            for a in data.get("allow") or []:
+                if not isinstance(a, dict) or not a.get("src") or not a.get("dst"):
+                    return "every allow rule needs a src and a dst"
+        if doc == "site":
+            import ipaddress
+            ipaddress.ip_network(str(data.get("internal_cidr") or "10.0.0.0/8"), strict=False)
+            if not isinstance(data.get("internal_prefixes"), list) or not data["internal_prefixes"]:
+                return "internal_prefixes needs at least one prefix"
+        if doc == "known_benign":
+            for k in ("signatures", "names"):
+                if not isinstance(data.get(k), dict):
+                    return f"{k} must be a table of name -> reason"
+    except (re.error, ValueError) as e:
+        return f"invalid value: {e}"
+    return None
+
+
 def with_cleared(pol):
     """policy + the set of segmentation flows people have cleared (ack type "seg"); see risk.seg_key."""
     try:
@@ -516,7 +577,7 @@ def correlation(sid):
     _clr = with_cleared({}).get("_cleared_seg") or set()  # includes the segmentation suppress rules
     open_iss = [i for i in it.get("open", []) if (i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open"))
                 and risk.seg_key_issue(i["key"]) not in _clr]
-    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()), tuple(r["id"] for r in store.seg_suppress_list()))
+    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()), tuple(r["id"] for r in store.seg_suppress_list()), tuple(r["id"] for r in store.ids_suppress_list()))
     if _CORR.get("k") == ck:
         return _CORR["v"]
     pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
@@ -534,9 +595,21 @@ def correlation(sid):
                         cleared=pol.get("_cleared_seg") or set(), triage=res.get("triage"))
     try:  # suppress rules: check off what they cover (the events stay in the correlation)
         import suppress
-        suppress.apply(v.get("events") or {}, res["raw"], res["analysis"], open_iss, v.get("related"))
+        suppress.apply(v.get("events") or {}, res["raw"], res["analysis"], open_iss, v.get("related"), sid=sid if latest else None)
     except Exception as e:  # noqa: BLE001
         print(f"suppress: apply failed: {e}", file=sys.stderr)
+    try:  # persist every event (sqlite `events`): open until checked off, whatever the time picker says
+        import eventstore
+        eventstore.upsert(v.get("events") or {}, sid, str(res["raw"].get("generated") or "") or None, v.get("items"))
+        eventstore.sync_vulns(v.get("events") or {}, latest)
+    except Exception as e:  # noqa: BLE001
+        print(f"eventstore: upsert failed: {e}", file=sys.stderr)
+    try:  # count how many snapshots each event has been seen in
+        import eventseen
+        if latest:
+            eventseen.bump(v.get("events") or {}, sid)
+    except Exception as e:  # noqa: BLE001
+        print(f"eventseen: bump failed: {e}", file=sys.stderr)
     try:  # profile what this pass knows (accounts, frequent IPs) and keep the host notes about them current
         import accounts
         accounts.record_users(sid, res["raw"], adm)
@@ -573,7 +646,7 @@ def review_job():
         return {"error": f"research job settings unavailable: {str(e)[:160]}"}
     runs = st.get("runs") or []
     last = next((r for r in runs if r.get("status") != "running"), {})
-    return {"job": "research", "name": "Research job", "model": cfg["model"], "provider": cfg["provider"],
+    return {"job": "research", "name": "Correlation job", "model": cfg["model"], "provider": cfg["provider"],
             "provider_name": llm_providers.name(cfg["provider"]) if cfg["provider"] else "",
             "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": research_cfg.next_run(),
             "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
@@ -593,7 +666,7 @@ def acks_load_all():
 
 def issue_tracker():
     snaps = snapshots()
-    sig = tuple((s["id"], os.path.getmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
+    sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
     if _issues["sig"] != sig:
         rows = []
         for s in snaps:
@@ -633,7 +706,7 @@ def with_software_vulns(tr):
 # ---------------------------------------------------------------- audit log (audit.py -> Elasticsearch logs-netmon)
 AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open",
              "/api/compare/item": "compare.item.history", "/api/aireview/compare": "aireview.compare.history"}
-AUDIT_TARGET = ("username", "id", "eid", "key", "pair", "event", "section", "kind", "title", "subject", "route", "provider", "model")
+AUDIT_TARGET = ("username", "doc", "id", "eid", "key", "pair", "event", "section", "kind", "title", "subject", "route", "provider", "model")
 
 
 def audit_action_name(path, body):
@@ -773,7 +846,9 @@ class H(BaseHTTPRequestHandler):
         rec, t0 = {}, time.time()
         try:
             emit("start", {})
-            chat.stream(user, cid, text, emit, body.get("context"), chat_model, rec)
+            _priv = auth.role_of(user) in ("admin", "defender")  # only admins / network defenders may choose; others get the defaults (Elasticsearch on, web off)
+            chat.stream(user, cid, text, emit, body.get("context"), chat_model, rec,
+                        es=bool(body.get("es", True)) if _priv else True, web=bool(body.get("web", False)) if _priv else False)
         except (BrokenPipeError, ConnectionResetError):
             print(f"chat: {user} disconnected mid-answer", file=sys.stderr)
             rec.update(status="disconnected", error="browser disconnected mid-answer")
@@ -1036,6 +1111,19 @@ class H(BaseHTTPRequestHandler):
                     print(f"review-limits: {user}: rejected: {e}", file=sys.stderr)
                     return self._json({"error": str(e)[:300]}, 400)
                 cleared = 0
+                if body.get("ids_suppress") or body.get("unids_suppress"):  # IDS signature (+ optional host): hidden everywhere in netmon
+                    try:
+                        if body.get("unids_suppress"):
+                            store.ids_suppress_remove(body["unids_suppress"])
+                            print(f"ids suppress: {user} removed rule {body['unids_suppress']}", file=sys.stderr)
+                        else:
+                            sp = body["ids_suppress"]
+                            rid = store.ids_suppress_add(sp.get("sig"), sp.get("host"), user)
+                            print(f"ids suppress: {user} added rule {rid} {json.dumps(sp)[:200]}", file=sys.stderr)
+                        _CORR.clear()
+                    except ValueError as e:
+                        return self._json({"error": str(e)[:300]}, 400)
+                    return self._json({"ok": True, "ids_rules": store.ids_suppress_list()})
                 if body.get("seg_suppress") or body.get("unseg_suppress"):  # segmentation violations: hide by source IP / destination IP / ports; not correlated
                     try:
                         if body.get("unseg_suppress"):
@@ -1053,18 +1141,20 @@ class H(BaseHTTPRequestHandler):
                     try:
                         import suppress
                         sp = body.get("suppress") or {}
+                        swept = 0
                         if body.get("unsuppress"):
                             r = suppress.remove(body["unsuppress"])
                             print(f"suppress: {user} removed rule {body['unsuppress']}: reopened {r[0]} item(s), restored {r[1]} alert(s)", file=sys.stderr)
                         else:
                             rid, cleared = store.suppress_add(sp.get("name"), sp.get("art_type"), sp.get("art"), user)
                             print(f"suppress: {user} added rule {rid} {json.dumps(sp)[:200]}; hid {cleared} alert(s)", file=sys.stderr)
+                            swept = suppress.sweep_open(rid)  # also close the stored open findings (any age) the rule covers
                         _CORR.clear()
                         sid0 = (snapshots() or [{"id": ""}])[-1]["id"]
                         correlation(sid0)  # applies the rules to the events now
                     except ValueError as e:
                         return self._json({"error": str(e)[:300]}, 400)
-                    return self._json({"ok": True, "cleared_alerts": cleared, "limits": corr_llm.limits_view(correlation(sid0) or {})})
+                    return self._json({"ok": True, "cleared_alerts": cleared, "cleared_open": swept, "limits": corr_llm.limits_view(correlation(sid0) or {})})
                 if body.get("rule") and body.get("clear_alerts"):  # muting an alert class: save the mute rule (applied to every future alert) and clear the alerts that already fired
                     try:
                         rl = {k: str(body["rule"].get(k) or "").strip() for k in ("name", "host")}
@@ -1181,7 +1271,13 @@ class H(BaseHTTPRequestHandler):
                     n = kb.delete_host_note(body.get("id"))
                     print(f"kb: {user} deleted host note {body.get('id')!r}", file=sys.stderr)
                     return self._json({"ok": bool(n)})
-                return self._json({"error": "action must be add or delete"}, 400)
+                if act in ("approve", "reject", "clear"):  # admin / network defender: approve = authoritative for the AI, reject = kept but never sent
+                    if role not in ("admin", "defender"):
+                        return self._json({"error": "only a network defender or admin can review notes"}, 403)
+                    n = kb.review_host_note(body.get("id"), act, user)
+                    print(f"kb: {user} {act} host note {body.get('id')!r}", file=sys.stderr)
+                    return self._json({"ok": bool(n)})
+                return self._json({"error": "action must be add, delete, approve, reject or clear"}, 400)
             if u.path == "/api/research/request":  # send one event to the research job if it was not researched yet
                 eid, act = str(body.get("eid") or "")[:300], body.get("action")
                 if not eid or act not in ("status", "send"):
@@ -1229,6 +1325,45 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"ok": True})
                 store.alerts_read_all()
                 return self._json({"ok": True})
+            if u.path == "/api/config/discover":  # admin only: build a zone/role/device-class proposal from UniFi; apply=true merges it
+                try:
+                    import discover
+                    prop = discover.build()
+                    if not body.get("apply"):
+                        return self._json({"ok": True, **prop})
+                    ow = bool(body.get("overwrite"))
+                    n = discover.apply(prop, overwrite=ow)
+                    print(f"settings: {user} applied UniFi discovery (overwrite={ow}): {n}", file=sys.stderr)
+                    return self._json({"ok": True, "applied": n})
+                except Exception as e:  # noqa: BLE001
+                    print(f"discover failed: {type(e).__name__}: {e}", file=sys.stderr)
+                    hint = " - set the UniFi API key under More > Configuration" if "401" in str(e) or "403" in str(e) or not integrations.unifi_key() else ""
+                    return self._json({"error": f"UniFi discovery failed: {type(e).__name__}: {e}{hint}"}, 502)
+            if u.path == "/api/config/cfg":  # admin only (ADMIN_POST prefix); set one value inside a settings document
+                doc, kp, val = str(body.get("doc") or ""), body.get("path"), body.get("value")
+                if doc not in store.CFG_DOCS or not isinstance(kp, list) or not kp or len(kp) > 6 or "value" not in body:
+                    return self._json({"error": "doc, path and value required"}, 400)
+                if len(json.dumps(val)) > 400000:
+                    return self._json({"error": "value too large"}, 400)
+                data = store.cfg_load(doc)
+                node = data
+                for k in kp[:-1]:
+                    node = node[k] if isinstance(node, list) and isinstance(k, int) and 0 <= k < len(node) else (node.get(k) if isinstance(node, dict) else None)
+                    if node is None:
+                        return self._json({"error": "no such section"}, 400)
+                last = kp[-1]
+                if isinstance(node, list) and isinstance(last, int) and 0 <= last < len(node):
+                    node[last] = val
+                elif isinstance(node, dict) and isinstance(last, str) and not last.startswith("_"):
+                    node[last] = val
+                else:
+                    return self._json({"error": "bad path"}, 400)
+                bad = cfg_validate(doc, data)
+                if bad:
+                    return self._json({"error": bad}, 400)
+                n = store.cfg_save(doc, data)
+                print(f"settings: {user} changed {doc} / {'/'.join(map(str, kp))} ({n} rows)", file=sys.stderr)
+                return self._json({"ok": True, "rows": n})
             if u.path == "/api/acks":
                 typ, key = str(body.get("type", ""))[:40], str(body.get("key", ""))[:600]
                 if not typ or not key:
@@ -1316,6 +1451,22 @@ class H(BaseHTTPRequestHandler):
                 return self._json(res) if res is not None else self._json({"error": "not found"}, 404)
             if path == "/api/acks":
                 return self._json(read_acks())
+            if path == "/api/events/open":  # every unchecked event, any age (persisted in sqlite `events`)
+                import eventstore
+                return self._json(eventstore.open_events(types=set(q.get("type") or []) or None, sev=(q.get("sev") or [""])[0].lower() or None,
+                                                         q=(q.get("q") or [""])[0] or None, limit=min(int((q.get("limit") or ["2000"])[0]), 5000)))
+            if path == "/api/notes/by-event":  # research notes for events that may no longer be in the loaded snapshot (checked-off / aged out)
+                try:
+                    return self._json(enrich.load([e[:600] for e in (q.get("e") or [])[:40]]))
+                except Exception as e:  # noqa: BLE001
+                    print(f"notes by event: {e}", file=sys.stderr)
+                    return self._json({})
+            if path == "/api/checked/notes":  # research notes of checked-off items (kept even when the event is gone from the snapshot)
+                try:
+                    return self._json(enrich.for_acks(read_acks()))
+                except Exception as e:  # noqa: BLE001
+                    print(f"checked notes: {e}", file=sys.stderr)
+                    return self._json({})
             if path == "/api/llm/providers":
                 if not admin:
                     return self._json({"admin": False, "providers": []})
@@ -1325,6 +1476,13 @@ class H(BaseHTTPRequestHandler):
                 if not admin:
                     return self._json({"admin": False})
                 return self._json({**integrations.public(), "admin": True})
+            if path == "/api/config/cfg":  # Settings page: policy / host_policy / known_benign / site as editable tables
+                if role not in ("admin", "defender"):
+                    return self._json({"error": "only an admin or defender can read the settings"}, 403)
+                doc = (q.get("doc") or ["policy"])[0]
+                if doc not in store.CFG_DOCS:
+                    return self._json({"error": "unknown settings document"}, 404)
+                return self._json({"doc": doc, "docs": list(store.CFG_DOCS), "data": store.cfg_load(doc), "admin": admin})
             if path == "/api/config/triage":
                 inp = autoclose_inputs()
                 return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "review": review_job(),
@@ -1398,7 +1556,15 @@ class H(BaseHTTPRequestHandler):
                     s_ = snapshots()
                     sid = s_[-1]["id"] if s_ else ""
                 corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
-                return self._json(kb.apply(enrich.apply(corr_llm.apply(correlation(sid)))) or {"error": "not found"}, 200)
+                res_ = kb.apply(enrich.apply(corr_llm.apply(correlation(sid))))
+                if res_:
+                    res_ = {k: v for k, v in res_.items() if k != "items"}
+                    try:
+                        import eventseen
+                        res_ = dict(res_, seen=eventseen.view(res_.get("events")))
+                    except Exception as e:  # noqa: BLE001
+                        print(f"eventseen: view failed: {e}", file=sys.stderr)
+                return self._json(res_ or {"error": "not found"}, 200)
             if path == "/api/accounts":  # Network > Users: accounts seen and their patterns (?user= adds that account's breakdown + events)
                 import accounts
                 u = (q.get("user") or [""])[0]
@@ -1419,13 +1585,20 @@ class H(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"subject": s_, "label": label})
+            if path == "/api/kb/dns":  # Network > Internet notes: DNS notes by domain / subdomain
+                return self._json({"domains": kb.dns_notes((q.get("q") or [""])[0])})
             if path == "/api/kb/internet":  # Network > Internet notes: every external IP that has notes
                 return self._json({"ips": kb.internet_notes((q.get("q") or [""])[0])})
+            if path == "/api/research/running":  # header microscope: is the research job running right now
+                try:
+                    return self._json({"running": bool(review_job().get("running"))})
+                except Exception:  # noqa: BLE001
+                    return self._json({"running": False})
             if path == "/api/suppress":  # Checked page: suppress rules + what they hid
                 import suppress
                 ce, ca = suppress.counts()
                 return self._json({"rules": [{**r, "events": ce.get(r["id"], 0), "alerts": ca.get(r["id"], 0)} for r in store.suppress_list()],
-                                   "seg_rules": store.seg_suppress_list(), "can_edit": role in ("admin", "defender")})
+                                   "seg_rules": store.seg_suppress_list(), "ids_rules": store.ids_suppress_list(), "hits": suppress.item_hits(), "can_edit": role in ("admin", "defender")})
             if path == "/api/suppress/suggest":  # the correlation event behind a check-off item: label + every artifact of it and of its correlated events
                 t, k = (q.get("type") or [""])[0], (q.get("key") or [""])[0]
                 sl = snapshots()
@@ -1566,6 +1739,22 @@ def main():
         print(f"correlation review: local LLM at {corr_llm.URL} ({'on' if corr_llm.ENABLED else 'off'})", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"correlation review disabled: {e}", file=sys.stderr)
+    def _ingest():  # backfill the stored events from every snapshot (oldest first), then keep the newest current
+        import eventstore
+        done = False
+        while True:
+            try:
+                ss = snapshots()
+                if not done:
+                    for sn in ss:
+                        correlation(sn["id"])
+                    done = True
+                elif ss:
+                    correlation(ss[-1]["id"])
+            except Exception as e:  # noqa: BLE001
+                print(f"eventstore ingest: {e}", file=sys.stderr)
+            time.sleep(300)
+    threading.Thread(target=_ingest, daemon=True, name="eventstore-ingest").start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2

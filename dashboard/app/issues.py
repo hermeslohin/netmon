@@ -14,7 +14,7 @@ import os as _os, sys as _sys
 for _p in (_os.environ.get("NETMON_DIR", "/netmon"), _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))):
     if _os.path.isdir(_p) and _p not in _sys.path:
         _sys.path.append(_p)
-import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
+import site_cfg as SITE  # noqa: E402  network-specific values live in the site settings
 
 SEV_ORDER = {"high": 0, "medium": 1, "low": 2, "info": 3}
 PLAINTEXT_SVCS = {"telnet": "Telnet", "ftp": "FTP", "tftp": "TFTP", "snmp": "SNMP", "irc": "IRC", "pop3": "POP3"}
@@ -65,14 +65,14 @@ def check_snapshot(raw, analysis):
             dname = m.group(1) if m else dst
             if "DMZ host initiating" in det:
                 fix = (f"The DMZ host should not open connections into internal zones. If {dname}:{dport} is required "
-                       f"(e.g. Elastic Fleet 8220/5055), allow exactly that source/dest/port in UniFi and in policy.json; block the rest.")
+                       f"(e.g. Elastic Fleet 8220/5055), allow exactly that source/dest/port in UniFi and in the network policy (More → Settings); block the rest.")
                 cat = "Misconfiguration"
             elif "lateral-movement/admin port" in det:
                 fix = (f"Admin port {dport} reachable between internal hosts. Restrict SSH/RDP to a defined admin source "
-                       f"({SITE.get('admin_workstations')}) with a UniFi firewall rule, use key-only auth, then add that source to policy.json 'allow'.")
+                       f"({SITE.get('admin_workstations')}) with a UniFi firewall rule, use key-only auth, then add that source to the network-policy allow list (More → Settings).")
                 cat = "Security suggestion"
             else:
-                fix = (f"Cross-zone flow not covered by policy. If expected, add an allow entry to netmon policy.json "
+                fix = (f"Cross-zone flow not covered by policy. If expected, add an allow entry to netmon the network policy (More → Settings) "
                        f"(src → {dst} {dport}); otherwise block it in UniFi zone firewall.")
                 cat = "Misconfiguration"
             add(f"seg|{dkey}|{dst}|{dport}", "analysis", f.get("severity", "low"), cat,
@@ -85,7 +85,7 @@ def check_snapshot(raw, analysis):
         elif kind == "malicious-ja3":
             add(f"ja3|{dkey}|{det.split()[3] if len(det.split()) > 3 else ''}", "analysis", "low", "Security suggestion",
                 "TLS fingerprint matches an old malware JA3 list", ip=ip,
-                fix="Usually a JA3 collision with a common TLS library. Confirm the destination/SNI is legitimate; if so add the JA3 to known_benign.json.",
+                fix="Usually a JA3 collision with a common TLS library. Confirm the destination/SNI is legitimate; if so add the JA3 to the Known benign list (More → Settings).",
                 evidence=det)
         elif kind == "ti-ip-in":
             add(f"ti-in|{dkey}", "analysis", "medium", "Security suggestion", "Internet-exposed service probed by listed attackers", ip=ip,
