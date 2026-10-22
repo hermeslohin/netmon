@@ -92,8 +92,8 @@ the site setting `host_ips` or a device-name match. Only the first matching row 
 | Condition | Factor |
 |---|---|
 | host serves a TCP port below 32768 to the internet (`ext_conns` > 0; ICMP ignored) | 1.4 |
-| host is in the `dmz` zone | 1.3 |
-| host is in the `servers` or `ai` zone | 1.15 |
+| host is in a zone with role `dmz` (network policy `zone_roles`) | 1.3 |
+| host is in a zone with role `protected` | 1.15 |
 | otherwise, or the host can't be resolved | 1.0 |
 
 ### Recurrence
@@ -189,7 +189,7 @@ The admin-login points are added after the first cap, and the total is capped at
 | Signal | Points |
 |---|---|
 | device not in the inventory (`known` false) | +4 |
-| server, workstation or DMZ/servers/AI-zone host with no Elastic agent (infra excluded) | +4 |
+| server, workstation or `dmz`/`protected`-role zone host with no Elastic agent (infra excluded) | +4 |
 | Elastic agent present but not online/healthy | +3 (no driver) |
 | host has an open `doh` or `dns-ext` issue (DNS bypass) | +2 (no driver) |
 
@@ -202,7 +202,7 @@ Only the first matching rule applies:
 2. **DMZ** host: 3. It is isolated by design, but becomes a pivot point if segmentation leaks.
 3. **Endpoint known only by host name** (Elastic agent, no device IP): 4.
 4. Otherwise, by **device class** from the network policy `device_classes`. When the device has no class, the
-   **zone** is used instead.
+   **zone role** is used instead (`protected` 5, `mgmt` 4, `dmz` 3, `user` 3, `iot` 2; `zone_roles` is filled by Auto-discover from UniFi, see SETUP.md).
 
 | Class | Impact | | Zone (only used when there is no class) | Impact |
 |---|---|---|---|---|
@@ -359,7 +359,7 @@ All weights are module-level constants:
 |---|---|
 | Severity bases | `risk.SEV_BASE` |
 | Kind factors and their reasons | `risk.KIND_FACTOR` |
-| Impact by class / zone | `risk.IMPACT_BY_CLASS`, `risk.IMPACT_BY_ZONE` |
+| Impact by class / zone | `risk.IMPACT_BY_CLASS`, `risk.IMPACT_BY_ROLE` |
 | Crown jewels (site-specific) | Settings → Site → `crown_jewels: {"<ip>": "<why>"}` |
 | Component caps and per-signal points | inline in `risk.compute()` |
 | Admin-session thresholds | `lateral.admin_sessions()` |

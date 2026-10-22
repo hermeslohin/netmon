@@ -51,10 +51,25 @@ All network-specific values live in the netmon database (`dashboard/state/netmon
 | Settings tab | What to put in it |
 |---|---|
 | **Site** | Your internal CIDR and prefixes, Elasticsearch URL, sensor IP, this host's IP and name, gateway name/DNS IP, home WAN IP, VPN prefixes, honeypot IPs, Fleet host name → IP (`host_ips`), crown-jewel hosts (scored highest impact), and `sensitive_terms` (host/user names the push guard should block). Optional pivot links (🔎 buttons): `kibana_url` (Kibana base, e.g. `https://so.example.lan/kibana/`), `kibana_data_view` (Discover data view id, default `logs-*`), `unifi_web_url` (UniFi Network web app base, e.g. `https://unifi.ui.com/consoles/<console-id>/network/default/` or `https://<gateway-ip>/network/default/`) and `unifi_paths` (label → page path under it). Leave `kibana_url` empty to hide the buttons. If you'll publish your own fork, also fill in `github_user`, `github_repo` and `image_repo`. |
-| **Network policy** | Network **zones** (CIDR per VLAN), **device_classes** (MAC or IP → `iot`, `camera`, `media`, `game`, `personal`, `work`, `server`, `k8s` or `infra`), and **allow** rules for expected cross-zone flows. Anything else on a sensitive port, from the DMZ, or from IoT/cameras to servers is reported as a segmentation violation. |
+| **Network policy** | **Quick start: click Auto-discover from UniFi** (see below). Network **zones** (CIDR per VLAN), **zone_roles** (zone → `dmz`, `protected`, `mgmt`, `user` or `iot`), **device_classes** (MAC or IP → `iot`, `camera`, `media`, `game`, `personal`, `work`, `server`, `k8s` or `infra`), and **allow** rules for expected cross-zone flows. Anything else on a sensitive port, from the DMZ, or from IoT/cameras to servers is reported as a segmentation violation. |
 | **Endpoint policy** | Endpoint rules: expected admin source IPs (`admin_sources`), Fleet host → LAN IP (`endpoint_ips`), trusted tool paths (replace `/home/YOUR_USER`), syslog patterns, osquery posture expectations and per-host exceptions. The defaults are sensible; adjust the paths and IPs. |
 | **Known benign** | Suricata signatures, IP names and domains you have explained as benign. The review model can add to this (`add_known_benign`). |
 | `sec_accepted.json` (file, git-ignored) | Reviewed security-scan findings (filled in by `secfindings.py accept-current`). Start empty. |
+
+### Auto-discover from UniFi
+
+On **More → Settings → Network policy** (admin only), **Discover from UniFi** builds a proposal from your UniFi console and shows it before anything is changed. It needs the UniFi API key (More → Configuration). Code: `discover.py` (`python3 discover.py` prints a preview; `--apply [--overwrite]` writes it).
+
+| Discovered | From |
+|---|---|
+| **zones** | one per enabled UniFi network that has a subnet (`rest/networkconf`), named from the network name (`Kubeworld` → `kubeworld`) or `vlanN`. A subnet that already has a zone keeps its name. |
+| **zone_roles** | the network name (dmz/untrusted, IPMI/mgmt, server/kube/AI/lab, IoT/camera/guest), UniFi's *guest* flag, then what lives in the network (mostly servers → `protected`). Anything else is `user`. |
+| **device_classes** | UniFi's device fingerprint category per client (camera, game console, TV/speaker, phone/tablet/watch, laptop, VM/server…), hostname hints (`kube-`/`talos` → `k8s`, `ipmi` → `infra`, `cam` → `camera`), and the zone role for unfingerprinted hosts. UniFi's own switches, access points and gateways are `infra`. |
+| **internal_prefixes** (Site) | prefixes that cover all discovered subnets, so non-10.x networks count as internal. |
+
+**Apply** only adds what is missing; **Apply & overwrite differences** also replaces existing roles and classes where UniFi disagrees. It never deletes. Fingerprints are a guess (a smart plug may show as a camera), so review the device table and correct anything in the Settings tables afterwards. **Not discovered:** `allow` rules, which are your exceptions; add them as you review segmentation violations.
+
+Zone roles drive the rules, so zone names are free-form: `dmz` = internet-exposed (flows from it into other zones are violations, higher risk factor), `protected` = servers/clusters (IoT/camera access and cross-zone access flagged, impact 5), `mgmt` = IPMI/infrastructure (impact 4), `user` (3), `iot` (2). Without `zone_roles`, the legacy names `dmz`, `servers`, `k8s`, `ai` are still recognised.
 
 Optional extras:
 
@@ -249,6 +264,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | Path | Role |
 |---|---|
 | `collect.py`, `extras.py`, `unifi.py`, `hosts.py`, `hostdetail.py`, `osq.py` | data collection (Elasticsearch, UniFi, endpoints) |
+| `discover.py` | Auto-discover zones, zone roles and device classes from UniFi (Settings → Network policy) |
 | `analyze.py`, `mitre.py` | baselines, findings, ATT&CK mapping |
 | `adminproto.py` | admin / lateral-movement protocol + tool catalog, session merger |
 | `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk ([RISK_SCORING.md](RISK_SCORING.md)) |
