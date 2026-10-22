@@ -236,11 +236,30 @@ editable pattern (the alert text with IPs, MACs and numbers replaced by `*`); **
 send* rule for it (scope *both*, so the research job skips it too) and deletes the alerts that already fired and match
 the rule. The rule is listed under **Never send** and can be removed there; the deleted alerts do not come back.
 
-**Cleared events.** An event that someone checks off (Alerts, Posture, Fix list, Lateral movement… listed on the
-Checked page) is remembered by its name and IPs: events with the same name and IPs are not sent to the reviewer or to
-research again, even after the cleared event has left the snapshot (store meta `cleared_sigs`, up to 5,000 signatures).
-The memory is only ever added to; to let such events through again, remove it from the store or use a *Never send* rule
-for the opposite effect.
+**Suppress findings.** Suppressing hides a finding like a check-off does, but as a *rule* by signature name, and it is
+listed in its own card on More → Checked. Nothing is bypassed: the event stays in correlation, research and review.
+
+- *How:* click the **🚫 button** next to the check-off box of an event (Posture, alarms, endpoint findings, fix list…), or
+  **🚫 suppress…** on an alert. Admins and defenders only.
+- *The rule:* a signature name (pre-filled from the event; `*` = any text, `?` = one character, otherwise "contains"),
+  optionally plus one artifact that must be involved. The artifact dropdown is filled from the event itself (**📍 This
+  event**) and from the events correlated with it (**🔗 Correlated events**, with the event each came from):
+  🌐 IP (source and destination), 🔗 domain, 👤 user, ⚙️ process, 📄 file, 🔌 port. *other…* takes a typed value (wildcards allowed).
+  A rule on a correlated artifact also covers findings and alerts correlated with it. Alerts get the same dropdown (🚫 suppress… on the alert).
+- *Effect:* matching events with a check-off list (baseline and endpoint findings, fix-list items, triage alarms, UniFi gateway events `gw|…`, whose check-off key is the event id itself) are checked
+  off with the note `suppressed: rule N: …` and leave their lists; matching alerts leave the feed and are not pushed (a new alert is checked against the rules when it arrives; its correlated artifacts are checked on the next correlation pass, a minute or so later).
+- *Checked page:* the **🚫 Suppressed** card lists the rules (with how many findings and alerts each hid; *remove rule* brings
+  everything back) and the suppressed findings (unticking one restores just that finding; the rule stays).
+- *Reviewer does not override:* suppressed events and alerts are still researched and reviewed (their verdicts and notes are
+  kept), but a *suspicious* verdict never un-suppresses them: only removing the rule (or unticking the single finding) does.
+  This differs from plain check-offs, which move back to the findings when the reviewer calls them suspicious.
+- *Storage:* store tables `suppress_rules` and `suppress_log`; API `GET /api/suppress`, `GET /api/suppress/suggest`, and
+  `suppress` / `unsuppress` on `POST /api/llm/review-limits`.
+
+**Checked events.** Checked-off events (Alerts, Posture, Fix list, Lateral movement… listed on the Checked page) are
+reviewed and researched like any other event; nothing is skipped because it was cleared. When the reviewer classifies a
+checked event as *suspicious*, it is un-checked and moves back from Checked into the findings (auto-close will not close it
+again).
 
 **Queue behaviour.** The worker pass repeats about every minute (every 5 seconds while it finds work). It reviews the
 newest snapshot first, then snapshots opened in the last hour. If the provider is down or rate-limited the links stay
@@ -545,7 +564,6 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |
 | Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
-| Remembered cleared events | – | store meta `cleared_sigs` |
 | Research job settings, modes, requests, dismissed queue | see the table in section 5 | store meta `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |

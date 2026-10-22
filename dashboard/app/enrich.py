@@ -44,7 +44,7 @@ def _db():
 def _alert_keys():
     try:
         import store
-        return {str(a["id"]): a.get("key") or "" for a in store.alerts_recent(2000)}
+        return {str(a["id"]): a.get("key") or "" for a in store.alerts_recent(2000, suppressed=True)}
     except Exception:  # noqa: BLE001
         return {}
 
@@ -264,7 +264,6 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     modes = RC.get()["modes"]  # admin-chosen research / review / skip per event category (AI review page)
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
-    CS = corr_llm.cleared_sigs(res["events"])  # events cleared on the Checked page: same name + IPs is not researched again
     rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the research job
     forced = _requested(E, notes, ak)  # note keys a person asked to have researched (not researched yet)
     if only:  # a single-event run (review.py --event): just that event's family, whatever its category or rules
@@ -275,7 +274,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
         if skey(eid, ak) in forced:
             groups.setdefault(skey(eid, ak), []).append(eid)
             continue
-        if not everything and (corr_llm.sig_cleared(CS, e) or (rules and corr_llm.suppressed(rules, "research", eid, e))):
+        if not everything and ((rules and corr_llm.suppressed(rules, "research", eid, e))):
             continue
         # host findings, gateway events, threat intel and store alarms are categories of their own; the rest is gated
         # on its severity (Suricata sev 1-2 is split off below, once the signature detail is known)

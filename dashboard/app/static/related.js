@@ -168,27 +168,75 @@
   const canMute = () => ["admin", "defender"].includes(S.me?.role);
   const alertName = (label) => { const g = String(label || "").replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, "*").replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, "*").replace(/\d+(?:[.,:]\d+)*/g, "*").replace(/\*(?:[\s,/()-]*\*)+/g, "*"); return "*" + g.replace(/…$/, "").trim().replace(/^\*+|\*+$/g, "") + "*"; };
   const alertHost = (label) => (String(label || "").match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/) || String(label || "").match(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/i) || [""])[0];
-  window.alertMuteHtml = (label) => { if (!canMute()) return ""; const h = alertHost(label);
+  window.alertMuteHtml = (label) => { return ""; /* never-send mute rules removed */ if (!canMute()) return ""; const h = alertHost(label);
     return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Mute alerts like this: never send them to the AI, clear the ones already raised and clear future ones automatically. You can edit the pattern.">mute name…</button>`
-      + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host…</button></span>`; };
+      + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host…</button>`
+      + `<button type="button" class="mute-btn" data-mute="suppress" title="Suppress: hide alerts like this from the feed but keep them in correlation, research and review. You can edit the pattern and pick an artifact of the alert or of its correlated events.">🚫 suppress…</button></span>`; };
+  // ---- Suppress dialog (button next to a check-off box): hide an event by signature name (+ one artifact), keep it in correlation
+  window.suppressDialog = async (type, key, fallbackLabel) => {
+    let sg = { label: fallbackLabel || "", artifacts: [] };
+    try { sg = { ...sg, ...(await api(`/api/suppress/suggest?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`)) }; } catch (_) {}
+    if (!sg.label) sg.label = fallbackLabel || "";
+    const A = sg.artifacts || [], TL = { ip: "🌐 IP", domain: "🔗 domain", user: "👤 user", process: "⚙️ process", port: "🔌 port", file: "📄 file" };
+    const grp = (src, title) => { const l = A.filter((a) => a.from === src); return l.length ? `<optgroup label="${src === "event" ? "📍" : "🔗"} ${title}">${l.map((a) => `<option value="${A.indexOf(a)}">${esc(TL[a.type] || a.type)}: ${esc(a.value.length > 70 ? a.value.slice(0, 70) + "…" : a.value)}</option>`).join("")}</optgroup>` : ""; };
+    const d = document.createElement("div");
+    d.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center";
+    d.innerHTML = `<div style="background:var(--card,#1c2128);color:inherit;border:1px solid var(--line,#555);border-radius:8px;padding:14px;max-width:600px;width:92vw;max-height:90vh;overflow:auto">
+      <h3 style="margin:0 0 6px">🚫 Suppress this finding</h3>
+      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked → Suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
+      <div class="small mono" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
+      <input class="sp-name" value="${esc(alertName(sg.label))}" style="width:100%;box-sizing:border-box" title="Signature name">
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small">Only when it involves</span>
+        <select class="sp-pick" style="max-width:100%"><option value="">(no artifact: name only)</option>${grp("event", "This event")}${grp("correlated", "Correlated events")}<option value="other">other…</option></select></div>
+      <div class="sp-other" style="display:none;gap:6px;margin-top:6px;flex-wrap:wrap"><select class="sp-type"><option value="ip">🌐 IP</option><option value="domain">🔗 domain</option><option value="user">👤 user</option><option value="process">⚙️ process</option><option value="port">🔌 port</option><option value="file">📄 file</option></select>
+        <input class="sp-val" placeholder="value (* ? allowed)" size="30"></div>
+      <div class="small muted sp-rel" style="margin-top:4px"></div>
+      <div style="margin-top:10px;display:flex;gap:6px;align-items:center"><button type="button" class="sp-ok">Suppress</button><button type="button" class="sp-cancel">Cancel</button><span class="small sp-msg"></span></div></div>`;
+    document.body.appendChild(d);
+    const q = (c) => d.querySelector(c), close = () => d.remove();
+    q(".sp-pick").onchange = () => { const v = q(".sp-pick").value; q(".sp-other").style.display = v === "other" ? "flex" : "none";
+      const a = v && v !== "other" ? A[+v] : null; q(".sp-rel").textContent = a?.from === "correlated" ? `From the correlated event: ${a.rel}` : ""; };
+    q(".sp-cancel").onclick = close; d.addEventListener("mousedown", (e) => { if (e.target === d) close(); });
+    q(".sp-ok").onclick = async () => {
+      const name = q(".sp-name").value.trim(), pv = q(".sp-pick").value;
+      const a = pv === "other" ? { type: q(".sp-type").value, value: q(".sp-val").value.trim() } : pv ? A[+pv] : { type: "", value: "" };
+      if (!name.replace(/[*?]/g, "").trim()) { q(".sp-msg").textContent = "Enter some text that is not just wildcards."; return; }
+      q(".sp-ok").disabled = true; q(".sp-msg").textContent = "saving…";
+      try { await apiPost("/api/llm/review-limits", { suppress: { name, art_type: a.type, art: a.value } }); S.acks = await api("/api/acks"); S.corr = null; close(); rerender(); }
+      catch (e) { q(".sp-ok").disabled = false; q(".sp-msg").textContent = "error: " + (e.message || e); }
+    };
+    q(".sp-name").focus();
+  };
   // Mute: opens an editable pattern (wildcards * ?, no wildcard = "contains"); saving also clears alerts already raised
   document.addEventListener("click", async (e) => {
     const b = e.target.closest(".mute-btn"), cancel = e.target.closest(".mute-cancel"), ok = e.target.closest(".mute-ok");
     if (!b && !cancel && !ok) return;
     e.preventDefault(); e.stopPropagation();
     const wrap = (b || cancel || ok).closest(".mute-btns"), label = wrap.dataset.label;
+    if (b && b.dataset.mute === "suppress") { window.suppressDialog("alert", label, label); return; }  // same dialog as findings: artifacts of the alert and of its correlated events
     if (b) {
       const host = b.dataset.mute === "host" ? alertHost(label) : "";
-      wrap.dataset.orig = wrap.innerHTML; wrap.dataset.host = host;
+      wrap.dataset.orig = wrap.innerHTML; wrap.dataset.host = host; wrap.dataset.mode = b.dataset.mute === "suppress" ? "suppress" : "";
       wrap.style.cssText = "display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center";
       wrap.innerHTML = `<input class="mute-pat" value="${esc(alertName(label))}" size="46" title="Part of the alert text. Use * for any text, ? for one character."> ${host ? `<span class="small">only host <b>${esc(host)}</b></span>` : ""}
-        <button type="button" class="mute-ok">Mute &amp; clear existing</button><button type="button" class="mute-cancel">Cancel</button>
+        ${b.dataset.mute === "suppress" ? `<select class="mute-art"><option value="">no artifact</option><option value="ip">IP</option><option value="user">user</option><option value="process">process</option><option value="port">port</option><option value="file">file</option></select><input class="mute-artv" placeholder="artifact value" size="16">` : ""}
+        <button type="button" class="mute-ok">${b.dataset.mute === "suppress" ? "Suppress" : "Mute &amp; clear existing"}</button><button type="button" class="mute-cancel">Cancel</button>
         <span class="muted small" style="flex-basis:100%">Edit the pattern to match less or more (e.g. <span class="mono">*New device*</span>). Saving keeps this as a mute rule (see Alerts › Alert mute rules): matching alerts are cleared now and automatically whenever they arrive; Show cleared lists them.</span>`;
       wrap.querySelector(".mute-pat").focus(); return;
     }
     if (cancel) { wrap.innerHTML = wrap.dataset.orig; return; }
     const pat = wrap.querySelector(".mute-pat").value.trim();
     if (!pat.replace(/[*?]/g, "").trim()) { alert("Enter some text that is not just wildcards."); return; }
+    if (wrap.dataset.mode === "suppress") {
+      ok.disabled = true;
+      try {
+        const sup = { name: pat, art_type: wrap.querySelector(".mute-art")?.value || "", art: wrap.querySelector(".mute-artv")?.value.trim() || "" };
+        const r = await apiPost("/api/llm/review-limits", { suppress: sup });
+        wrap.innerHTML = `<span class="muted">suppressed ✓ ${esc(pat)}${sup.art_type ? " + " + esc(sup.art_type) + " " + esc(sup.art) : ""} · hid ${r.cleared_alerts || 0} alert(s); still correlated</span>`; S.corr = null;
+        if (/^#\/(alerts|aireview)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
+      } catch (err) { ok.disabled = false; alert(String(err.message || err)); }
+      return;
+    }
     const rule = { name: pat, scope: "both" }; if (wrap.dataset.host) rule.host = wrap.dataset.host;
     ok.disabled = true;
     try {

@@ -278,6 +278,11 @@ def finding_last_seen():
 
 def snapshot(sid):
     res = _snapshot(sid)
+    if res and res.get("analysis"):
+        try:
+            res = dict(res, analysis=seg_filter(res["analysis"]))  # suppressed segmentation flows are not shown anywhere
+        except Exception as e:  # noqa: BLE001
+            print(f"segmentation suppress filter failed: {e}", file=sys.stderr)
     if res:
         try:
             seen = finding_last_seen()
@@ -352,10 +357,63 @@ def device_catalog():
     return out
 
 
+class ClearedSet(set):
+    """The cleared segmentation flow keys + the segmentation suppress rules: a flow key "<src IP or MAC>|<dst>|<port>" is
+    'in' the set when it was cleared or a suppress rule (source IP / destination IP / ports) covers it. Every consumer of
+    the cleared set (risk, lateral, correlation, fix list) therefore drops suppressed flows."""
+    rules, mac2ip = (), {}
+
+    def __contains__(self, key):
+        if set.__contains__(self, key):
+            return True
+        if not self.rules or not isinstance(key, str):
+            return False
+        p = key.split("|")
+        if len(p) != 3:
+            return False
+        s = p[0].lower()
+        return store.seg_suppress_match(self.rules, self.mac2ip.get(s, s), p[1], p[2])
+
+
+_MAC2IP = {"sid": None, "v": {}}
+
+
+def _mac2ip():
+    snaps = snapshots()
+    if not snaps:
+        return {}
+    sid = snaps[-1]["id"]
+    if _MAC2IP["sid"] != sid:
+        raw = load_json(os.path.join(DATA, sid + ".json")) or {}
+        _MAC2IP.update(sid=sid, v={str(d.get("mac")).lower(): ip for ip, d in (raw.get("devices") or {}).items() if d.get("mac")})
+    return _MAC2IP["v"]
+
+
+def seg_filter(analysis):
+    """analysis without the segmentation violations / findings a suppress rule covers (a copy; the file is untouched)."""
+    rules = store.seg_suppress_list()
+    if not rules or not analysis:
+        return analysis
+    m2i = _mac2ip()
+    hit = lambda s, d, p: store.seg_suppress_match(rules, m2i.get(str(s).lower(), s), d, p)  # noqa: E731
+    out = dict(analysis)
+    out["violations"] = [v for v in analysis.get("violations") or [] if not hit(v.get("src"), v.get("dst"), v.get("port"))]
+    keep = []
+    for f in analysis.get("findings") or []:
+        k = risk.seg_key_finding(f)
+        if k and hit(*k.split("|")):
+            continue
+        keep.append(f)
+    out["findings"] = keep
+    return out
+
+
 def with_cleared(pol):
     """policy + the set of segmentation flows people have cleared (ack type "seg"); see risk.seg_key."""
     try:
-        pol = dict(pol or {}); pol["_cleared_seg"] = set((store.acks_load().get("seg") or {}).keys())
+        pol = dict(pol or {}); cs = ClearedSet((store.acks_load().get("seg") or {}).keys())
+        cs.rules, cs.mac2ip = store.seg_suppress_list(), _mac2ip()
+        pol["_cleared_seg"] = cs
     except Exception as e:  # noqa: BLE001 - without the ack store nothing is cleared
         print(f"cleared segmentation lookup failed: {e}", file=sys.stderr)
     return pol
@@ -453,12 +511,12 @@ def correlation(sid):
     res = snapshot(sid)
     if not res:
         return None
-    alerts = store.alerts_recent(2000)
+    alerts = store.alerts_recent(2000, suppressed=True)  # suppressed alerts are hidden in the feed but still correlated
     it = issue_tracker()
-    _clr = with_cleared({}).get("_cleared_seg") or set()
+    _clr = with_cleared({}).get("_cleared_seg") or set()  # includes the segmentation suppress rules
     open_iss = [i for i in it.get("open", []) if (i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open"))
                 and risk.seg_key_issue(i["key"]) not in _clr]
-    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()))
+    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()), tuple(r["id"] for r in store.seg_suppress_list()))
     if _CORR.get("k") == ck:
         return _CORR["v"]
     pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
@@ -474,6 +532,11 @@ def correlation(sid):
     v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, adm,
                         SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=latest,
                         cleared=pol.get("_cleared_seg") or set(), triage=res.get("triage"))
+    try:  # suppress rules: check off what they cover (the events stay in the correlation)
+        import suppress
+        suppress.apply(v.get("events") or {}, res["raw"], res["analysis"], open_iss, v.get("related"))
+    except Exception as e:  # noqa: BLE001
+        print(f"suppress: apply failed: {e}", file=sys.stderr)
     try:  # profile what this pass knows (accounts, frequent IPs) and keep the host notes about them current
         import accounts
         accounts.record_users(sid, res["raw"], adm)
@@ -539,7 +602,14 @@ def issue_tracker():
                 rows.append((s["id"], raw.get("generated"), raw,
                              load_json(os.path.join(DATA, s["id"] + ".analysis.json"))))
         _issues["val"], _issues["sig"] = issues.track(rows), sig
-    return with_software_vulns(_issues["val"])
+    tr = with_software_vulns(_issues["val"])
+    try:  # segmentation fix-list items a suppress rule covers
+        cs = with_cleared({}).get("_cleared_seg")
+        if cs is not None and getattr(cs, "rules", None) and tr.get("open"):
+            tr = dict(tr, open=[i for i in tr["open"] if not (risk.seg_key_issue(i.get("key", "")) in cs)])
+    except Exception as e:  # noqa: BLE001
+        print(f"seg suppress (issues): {e}", file=sys.stderr)
+    return tr
 
 
 def with_software_vulns(tr):
@@ -966,6 +1036,35 @@ class H(BaseHTTPRequestHandler):
                     print(f"review-limits: {user}: rejected: {e}", file=sys.stderr)
                     return self._json({"error": str(e)[:300]}, 400)
                 cleared = 0
+                if body.get("seg_suppress") or body.get("unseg_suppress"):  # segmentation violations: hide by source IP / destination IP / ports; not correlated
+                    try:
+                        if body.get("unseg_suppress"):
+                            store.seg_suppress_remove(body["unseg_suppress"])
+                            print(f"seg suppress: {user} removed rule {body['unseg_suppress']}", file=sys.stderr)
+                        else:
+                            sp = body["seg_suppress"]
+                            rid = store.seg_suppress_add(sp.get("src"), sp.get("dst"), sp.get("ports"), user)
+                            print(f"seg suppress: {user} added rule {rid} {json.dumps(sp)[:200]}", file=sys.stderr)
+                        _CORR.clear()
+                    except ValueError as e:
+                        return self._json({"error": str(e)[:300]}, 400)
+                    return self._json({"ok": True, "seg_rules": store.seg_suppress_list()})
+                if body.get("suppress") or body.get("unsuppress"):  # suppress rules: hide a finding by signature (+ artifact), still correlated
+                    try:
+                        import suppress
+                        sp = body.get("suppress") or {}
+                        if body.get("unsuppress"):
+                            r = suppress.remove(body["unsuppress"])
+                            print(f"suppress: {user} removed rule {body['unsuppress']}: reopened {r[0]} item(s), restored {r[1]} alert(s)", file=sys.stderr)
+                        else:
+                            rid, cleared = store.suppress_add(sp.get("name"), sp.get("art_type"), sp.get("art"), user)
+                            print(f"suppress: {user} added rule {rid} {json.dumps(sp)[:200]}; hid {cleared} alert(s)", file=sys.stderr)
+                        _CORR.clear()
+                        sid0 = (snapshots() or [{"id": ""}])[-1]["id"]
+                        correlation(sid0)  # applies the rules to the events now
+                    except ValueError as e:
+                        return self._json({"error": str(e)[:300]}, 400)
+                    return self._json({"ok": True, "cleared_alerts": cleared, "limits": corr_llm.limits_view(correlation(sid0) or {})})
                 if body.get("rule") and body.get("clear_alerts"):  # muting an alert class: save the mute rule (applied to every future alert) and clear the alerts that already fired
                     try:
                         rl = {k: str(body["rule"].get(k) or "").strip() for k in ("name", "host")}
@@ -1322,6 +1421,38 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"subject": s_, "label": label})
             if path == "/api/kb/internet":  # Network > Internet notes: every external IP that has notes
                 return self._json({"ips": kb.internet_notes((q.get("q") or [""])[0])})
+            if path == "/api/suppress":  # Checked page: suppress rules + what they hid
+                import suppress
+                ce, ca = suppress.counts()
+                return self._json({"rules": [{**r, "events": ce.get(r["id"], 0), "alerts": ca.get(r["id"], 0)} for r in store.suppress_list()],
+                                   "seg_rules": store.seg_suppress_list(), "can_edit": role in ("admin", "defender")})
+            if path == "/api/suppress/suggest":  # the correlation event behind a check-off item: label + every artifact of it and of its correlated events
+                t, k = (q.get("type") or [""])[0], (q.get("key") or [""])[0]
+                sl = snapshots()
+                base = (correlation(sl[-1]["id"]) or {}) if sl else {}
+                E = base.get("events") or {}
+                for eid, ev in E.items():
+                    if t == "alert":  # a watcher alert: found by its text
+                        if not (eid.startswith("alert|") and str(ev.get("label") or "") == k[:160]):
+                            continue
+                    elif (t, k) not in corr_llm._ack_keys(eid):
+                        continue
+                    out, seen = [], set()
+
+                    def put(typ, val, src, rel=""):
+                        val = str(val).strip()
+                        if val and (typ, val.lower()) not in seen:
+                            seen.add((typ, val.lower()))
+                            out.append({"type": typ, "value": val, "from": src, "rel": rel[:80]})
+                    for src, e2, name in [("event", ev, "")] + [("correlated", E[r["id"]], E[r["id"]].get("label") or "") for r in (base.get("related") or {}).get(eid, []) if r["id"] in E]:
+                        for i in (e2.get("ips") or []) + (e2.get("dst_ips") or []):
+                            put("ip", i, src, name)
+                        for a in e2.get("arts") or []:
+                            put({"dns": "domain"}.get(a[0], a[0]), a[1], src, name)
+                        for pt in store._PORT_RE.findall(e2.get("label") or ""):
+                            put("port", pt, src, name)
+                    return self._json({"eid": eid, "label": ev.get("label"), "artifacts": out[:80]})
+                return self._json({"eid": "", "label": "", "artifacts": []})
             if path == "/api/kb/all":  # the Notes page
                 return self._json({"host_notes": kb.host_notes(), "event_notes": kb.all_event_notes()})
             if path == "/api/mitre":

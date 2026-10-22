@@ -374,6 +374,7 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
   .as-list td.lc-badge{order:-3;flex:0 0 auto}
   .as-list td.lc-act{order:-2;flex:0 0 auto;width:auto;max-width:none;padding:0}
   .as-list td.askcell,.as-list tr:not(:has(td.askcell)) td.lc-act:not(:has(input)){margin-left:auto}
+  .as-list td.askcell + td.askcell{margin-left:0}
   .as-list td.lc-title{order:-1;flex:1 1 100%;font-weight:600;font-size:14px}
   .as-list td:empty{display:none}
   .as-list td.empty{flex:1 1 100%;text-align:center}

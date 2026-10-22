@@ -71,6 +71,12 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
       if (b.name) L.push([`DNS lookups of ${b.name} by ${label(b.src)}`, kb(`event.dataset:"zeek.dns" and source.ip:${q(b.src)} and dns.query.name:${q(b.name)}`, t, COLS.dns)],
         [`TLS sessions to ${b.name}`, kb(`event.dataset:"zeek.ssl" and ssl.server_name:${q(b.name)}`, t, COLS.ssl)]);
       L.push([`All Zeek logs of ${label(b.src)}`, kb(`event.module:"zeek" and ${either(b.src)}`, t)]); return L; },
+    "DNS-tunnel domain": (x) => { const t = win(), d = String(x.domain || ""), base = `event.dataset:"zeek.dns" and dns.highest_registered_domain:${q(d)}`;
+      return [[`All DNS lookups of ${d} (whole window)`, kb(base, t, COLS.dns)],
+        [`NXDOMAIN answers for ${d}`, kb(`${base} and dns.response.code_name:"NXDOMAIN"`, t, COLS.dns)],
+        [`TXT / NULL / ANY queries for ${d}`, kb(`${base} and dns.query.type_name:("TXT" or "NULL" or "ANY")`, t, COLS.dns)],
+        ...sortDesc(x.sources || {}).slice(0, 4).map(([ip, n]) => [`… by ${label(ip)} (×${fn(n)})`, kb(`${base} and source.ip:${q(ip)}`, t, COLS.dns)]),
+        [`TLS sessions to ${d}`, kb(`event.dataset:"zeek.ssl" and ssl.server_name:(${q(d)} or *.${d})`, t, COLS.ssl)]]; },
     "baseline finding": (f) => { const t = win(), dev = String(f.device || ""), ip = /^[\d.]+$/.test(dev) ? dev : macIp(dev) || (/^[\d.]+$/.test(f.name || "") ? f.name : "");
       const L = ip ? ipLinks(ip, t) : [];
       if (ip) textIps(f.detail).filter((o) => o !== ip).forEach((o) => L.push([`Zeek connections ${label(ip)} ↔ ${o}`, kb(`event.dataset:"zeek.conn" and ${between(ip, o)}`, t, COLS.conn)]));

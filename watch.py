@@ -215,10 +215,4 @@ if fresh:  # queue for the dashboard's in-app feed + browser/phone push notifica
         fresh = [(k, t) for k, t in fresh if not any(store.mute_match(m, t.replace("**", ""), store.alert_targets(k, t.replace("**", ""))) for m in _mm)]
     except Exception as e:
         print(f"(mute rules unavailable: {e})", file=sys.stderr)
-if fresh:
-    print(f"🚨 **Urgent network alert** ({time.strftime('%H:%M', time.gmtime())} UTC)")
-    for _, t in fresh[:15]:
-        print("- " + t)
-    if len(fresh) > 15:
-        print(f"- ...and {len(fresh) - 15} more")
-    print("Full detail in tonight's report. Repeat alerts for the same item are muted for 12h.")
+# no chat message: detections are events for the correlation / AI review; an alarm is raised only when the review calls one suspicious (medium/high)

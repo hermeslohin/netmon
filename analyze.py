@@ -11,7 +11,7 @@ Baseline model (per device, keyed by MAC when known, else IP), rolling 30 snapsh
   active hours, countries, ASNs, external dst ports, top DNS domains, hourly byte shape.
 Deviation rules need >= MIN_DAYS of history; before that the run only seeds the baseline.
 """
-import datetime as dt, glob, json, os, statistics, sys
+import datetime as dt, glob, json, os, re as _re, statistics, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)
@@ -321,6 +321,27 @@ def main():
                          "kind": kind, "detail": msg})
 
     extras_findings(snap, today, ip2key, history, days, benign, add)
+
+    # --- new-device alarms raised by the watcher (DHCP MACs in neither inventory nor baseline): also baseline findings,
+    # so they can be checked off, correlated and reviewed like the rest (they used to exist only in the alert feed)
+    try:
+        import time as _t
+        sys.path.insert(0, NM)
+        import store as _store
+        _end = dt.datetime.fromisoformat(snap["generated"].replace("Z", "+00:00")).timestamp()
+        _beg = _end - float(snap.get("hours") or 24) * 3600
+        _seen = set()
+        for _r in _store.connect().execute("SELECT key, text, ts FROM alerts WHERE key LIKE 'newmac|%' AND ts BETWEEN ? AND ? ORDER BY ts",
+                                           (_beg, _end + 600)):
+            _mac = _r[0].split("|", 1)[1].lower()
+            if _mac in _seen:
+                continue
+            _seen.add(_mac)
+            _m = _re.search(r"host (\S+) got (\S+)", _r[1])
+            add("medium", _mac, "new-device-dhcp",
+                f"MAC {_mac} joined via DHCP" + (f" (host {_m.group(1)}, got {_m.group(2)})" if _m else "") + " - not in inventory or baseline")
+    except Exception as _e:  # noqa: BLE001
+        print(f"(new-device alarms not added to findings: {_e})", file=sys.stderr)
 
     # --- per-device deviation vs baseline ---
     for key, t in today.items():

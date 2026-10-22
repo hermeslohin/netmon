@@ -103,7 +103,7 @@ window.CARD_INFO = {
 "checked|Checked items": {
 "source": "Check-offs stored in the netmon SQLite store, including auto-closes when the AI research verdict is expected or benign (if enabled on the Configuration page).",
 "use": "Review 'still present' items now and then to make sure they really are fine, and check auto-closed ones. Uncheck an item to restore it to its original list.",
-"what": "Everything checked off elsewhere (baseline findings, fix-list items, endpoint findings), newest first, with whether each is still present, fixed or absent in the selected snapshot. Items closed automatically show an 'auto-closed' AI verdict badge."
+"what": "Everything checked off elsewhere (baseline findings, fix-list items, endpoint findings, gateway events), newest first, with whether each is still present, fixed or absent in the selected snapshot. Items closed automatically show an 'auto-closed' AI verdict badge."
 },
 "checked|Cleared segmentation": {
 "source": "Your check-offs, saved in the netmon SQLite store on the dashboard host, matched against the violations analyze.py found using the zone rules in policy.json.",
@@ -692,7 +692,7 @@ window.CARD_INFO = {
 },
 "security|Gateway events": {
 "source": "UniFi gateway API system log via the UniFi cloud connector: last 24 h of events plus 30 days of security events.",
-"use": "High-severity and blocked IPS detections against your devices matter most. Use the Kibana/UniFi button, Related and research notes to see what else happened around each event.",
+"use": "High-severity and blocked IPS detections against your devices matter most. Use the Kibana/UniFi button, Related and research notes to see what else happened around each event. Tick the box to check an event off (show N checked brings them back), or use 🚫 (admin / defender) to suppress events like it by name.",
 "what": "Security and gateway events from the UniFi system log in the window (IPS detections, high-severity events, device events), plus security events from the last 30 days."
 },
 "security|Gateway protection settings": {

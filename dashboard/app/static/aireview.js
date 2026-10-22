@@ -486,15 +486,6 @@
       <h3 style="margin:10px 0 4px">Correlation Event Type Pairs</h3>
       <div class="small muted">Each cell is the pair of its row and column type (the matrix is symmetric, so only the upper triangle is shown). Click a cell to switch it between <b>review</b> (on) and <b>skip</b> (off). The number is the candidate links.</div>
       <div class="rl-pairs" style="overflow-x:auto;margin-top:6px"></div>
-      <h3 style="margin:12px 0 4px">Events with the most links</h3><div class="rl-top"></div>
-      <h3 style="margin:12px 0 4px">Never send (${(Lm.rules || []).length} rules)</h3>
-      <div class="small muted">Stop sending a class of events to the AI by name, or by host and ID. Fill in one field or several (all must match). Name: part of the event text, or a pattern with * ?.
-        Host: an IP, or text that appears in the event. ID: the event id, e.g. <span class="mono">ids|ET DNS*</span> or <span class="mono">iss|seg|*</span>. Scope: the research job, the correlation reviewer, or both.</div>
-      <div class="rl-form" style="display:${D.can_limit ? "flex" : "none"};gap:6px;flex-wrap:wrap;margin:6px 0"><input name="name" placeholder="name contains…" style="width:14em"><input name="host" placeholder="host / IP" style="width:11em">
-        <input name="id" placeholder="event ID pattern" style="width:16em"><select name="scope"><option value="both">research + review</option><option value="research">research only</option><option value="review">review only</option></select>
-        <button type="button" class="rl-add">Add rule</button></div>
-      <div class="rl-rules"></div>
-      <h3 style="margin:12px 0 4px">Excluded (${(Lm.excluded || []).length})</h3><div class="rl-ex"></div>
       <div class="small muted rl-msg" style="margin-top:6px">${D.can_limit ? "" : "Only an admin or network defender can change these limits."}</div>`);
     c.id = "ai-limits";
     const msg = c.querySelector(".rl-msg");
@@ -565,22 +556,6 @@
         clearTimeout(pairs._t); pairs._t = setTimeout(() => { const c = pairs._chg; pairs._chg = {}; post({ pair_modes: c }, true); }, 250);  // saved at once (rapid clicks share one request); no page reload
       };
     }
-    const top = c.querySelector(".rl-top");
-    top.innerHTML = (Lm.top_events || []).map((e, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
-      <span style="width:3.5em;text-align:right"><b>${fn(e.links)}</b></span><span class="mono muted" style="width:6em">${esc(e.type)}${tip(e.type)}</span><span style="flex:1">${esc(e.label)}</span>
-      ${D.can_limit ? (e.excluded || e.family_excluded ? '<span class="muted">excluded</span>' : `<button type="button" data-i="${i}" data-mode="event">exclude</button><button type="button" data-i="${i}" data-mode="family" title="same kind of event: ports and alert numbers ignored">exclude similar</button>`) : ""}</div>`).join("");
-    for (const b of top.querySelectorAll("button")) b.onclick = () => { const e = Lm.top_events[+b.dataset.i]; post({ exclude: { id: e.id, mode: b.dataset.mode, label: e.label } }); };
-    const rf = c.querySelector(".rl-form"), rr = c.querySelector(".rl-rules");
-    c.querySelector(".rl-add").onclick = () => { const f = (n) => rf.querySelector(`[name=${n}]`).value; post({ rule: { name: f("name"), host: f("host"), id: f("id"), scope: f("scope") } }); };
-    rr.innerHTML = (Lm.rules || []).length ? Lm.rules.map((x, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
-      <span class="mono muted" style="width:9em">${esc(x.scope)}</span><span style="flex:1">${[x.name && `name: <b>${esc(x.name)}</b>`, x.host && `host: <b>${esc(x.host)}</b>`, x.id && `id: <b class="mono">${esc(x.id)}</b>`].filter(Boolean).join(" · ")}</span>
-      <span class="muted">${esc(x.by || "")}</span>${D.can_limit ? `<button type="button" data-i="${i}">remove</button>` : ""}</div>`).join("") : '<div class="small muted">None.</div>';
-    for (const b of rr.querySelectorAll("button")) b.onclick = () => post({ unrule: Lm.rules[+b.dataset.i].key });
-    const ex = c.querySelector(".rl-ex");
-    ex.innerHTML = (Lm.excluded || []).length ? Lm.excluded.map((x, i) => `<div class="small" style="display:flex;gap:8px;align-items:center;margin:2px 0">
-      <span class="mono muted" style="width:5em">${esc(x.mode)}</span><span style="flex:1">${esc(x.label)}</span><span class="muted">${esc(x.by || "")}</span>
-      ${D.can_limit ? `<button type="button" data-i="${i}">remove</button>` : ""}</div>`).join("") : '<div class="small muted">None.</div>';
-    for (const b of ex.querySelectorAll("button")) b.onclick = () => post({ unexclude: Lm.excluded[+b.dataset.i].key });
     return c;
   }
   // ---- AI providers (admin): any OpenAI-compatible or Anthropic API with a key, called by the dashboard itself

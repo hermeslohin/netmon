@@ -320,6 +320,7 @@ const ACK = {
   host: (f) => f.key,
   admin: (s) => `${s.src}|${s.dst}|${s.protocol}`,  // lateral admin sessions
   beacon: (b) => `${b.src}|${b.dst}|${b.port}`,
+  gw: (g) => gwId(g),  // UniFi gateway event (same id as the correlation event gw|...)
   dnstunnel: (t) => String(t.domain || "").toLowerCase(),  // by DNS name, so it stays checked across snapshots and sources
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
 };
@@ -332,7 +333,7 @@ const findHostIp = (f) => {
   return Object.keys(dev).find((ip) => String(dev[ip]?.mac || "").toLowerCase() === m) || "";
 };
 const baseFind = (an) => ((an && an.findings) || []).filter((f) => f.kind !== "segmentation").map((f) => (f.host_ip === undefined ? Object.assign(f, { host_ip: findHostIp(f) }) : f));
-const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", dnstunnel: "DNS-tunnel domain", seg: "Cleared segmentation flow" };
+const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", dnstunnel: "DNS-tunnel domain", seg: "Cleared segmentation flow", gw: "Gateway event" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
 const SEG_RE = /\s*(.*?)\s*\((\d+\.\d+\.\d+\.\d+)\)\s*(\d+)\/(\w+)/;
@@ -357,8 +358,14 @@ function ackBox(type, x, label) {
   if (t === "seg") { const [src, dst, port] = k.split("|"), macIp = (m) => entries(S.snap?.raw?.devices || {}).find(([, d]) => String(d.mac || "").toLowerCase() === m)?.[0];
     const sip = src.includes(":") ? macIp(src) || src : src; label = `Segmentation: ${S.idx?.nameOf?.(sip) || sip} → ${S.idx?.nameOf?.(dst) || dst}:${port}`; }
   if (t === "seg") return `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Cleared " + esc(ft(a.at)) + " — uncheck to bring it back" : "Clear: this flow is expected (hides it everywhere and stops it counting toward risk)"}">`;
-  return `<input type="checkbox" class="ack-cb" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Checked off " + esc(ft(a.at)) + " — uncheck to restore" : "Check off (hide)"}">`;
+  const sup = !a && type !== "seg" && ["admin", "defender"].includes(S.me?.role) && label !== undefined && window.suppressDialog
+    ? `<button type="button" class="sup-btn" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" title="Suppress: hide it like a check-off, but as a rule by signature name (and optionally an artifact). Listed under Checked → Suppressed; still correlated.">🚫</button>` : "";
+  return `<input type="checkbox" class="ack-cb" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Checked off " + esc(ft(a.at)) + " — uncheck to restore" : "Check off (hide)"}">${sup}`;
 }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".sup-btn:not(.seg-sup)"); if (!b) return;
+  e.preventDefault(); e.stopPropagation(); window.suppressDialog(b.dataset.t, b.dataset.k, b.dataset.l);
+}, true);
 // split rows into open / checked and decide what to show for a section
 function ackSplit(type, rows, sec) {
   const open = rows.filter((x) => !acked(type, x)), done = rows.filter((x) => acked(type, x));
@@ -660,7 +667,7 @@ V.device = (el, ip) => {
   if (viol.length) sec.push(card(`Segmentation violations (${viol.length})`, table(null, [{ k: "severity", t: "Sev", fmt: badge }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], viol, { search: false })));
   if (beacons.length) { const BD = ackSplit("beacon", beacons, "dev-beacon"); sec.push(card(`Beacon candidates (${BD.open.length} open of ${beacons.length})${BD.toggle}`, table(null, [ackCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), { k: "_piv", t: "", cls: "askcell", fmt: (v, b) => pivBtn("beacon", b) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)} <span class="muted small">${esc(b.name || "")}</span>` }, { k: "port", t: "Port" }, { k: "interval_s", t: "Interval s", num: true }, { k: "jitter_s", t: "Jitter s", num: true }, { k: "conns", t: "Conns", num: true }, { k: "score", t: "Score", num: true }], BD.show, { sort: "score", search: false, rowClass: ackRowCls("beacon") }))); }
   if (ti.length) sec.push(card("Threat-intel matches", `<pre>${esc(JSON.stringify(ti, null, 1))}</pre>`));
-  if (tunAllD.length) sec.push(card(`DNS-tunnel scoring${DTD.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), { k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }], tun, { sort: "score", search: false, rowClass: ackRowCls("dnstunnel") })));
+  if (tunAllD.length) sec.push(card(`DNS-tunnel scoring${DTD.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), { k: "domain", t: "Domain" }, { k: "score", t: "Score", num: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, pivotCol("DNS-tunnel domain")], tun, { sort: "score", search: false, rowClass: ackRowCls("dnstunnel") })));
   if (files.length) sec.push(card(`Files transferred (${files.length})`, table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "mime", t: "MIME" }, { k: "size", t: "Size", num: true, fmt: fb }, { k: "host", t: "Host" }, { k: "exec", t: "Exec", fmt: (v) => (v ? badge("high") : "") }, { k: "mhr_detect_pct", t: "MHR %", num: true }], files, { short: true })));
   if (sw.length) sec.push(card(`Software observed (${sw.length})`, table(null, [{ k: "name", t: "Name" }, { k: "version", t: "Version" }, { k: "type", t: "Type", cls: "small" }, { k: "unparsed", t: "Raw", cls: "small mono" }], sw, { short: true })));
   if (weird.length) sec.push(card("Zeek weird", kvTable(Object.fromEntries(weird.map((w) => [w.name, w.count])), "Name", "Count")));
@@ -948,12 +955,34 @@ function segClearedCard() {
   c.id = "seg-cleared"; return c;
 }
 
+/* ---------- suppressed findings (Checked page): rules by signature name (+ artifact) and what they hid ---------- */
+function suppressedCard(items) {
+  const c = card(`🚫 Suppressed (${items.length} findings)`, `<div class="small muted" style="margin-bottom:6px">Suppressed with the 🚫 button next to a check-off box. A rule hides every finding or alert with that signature name (and artifact, if set) and stops alerts like it from appearing. They still go through correlation, research and the reviewer. Remove a rule to bring everything it hid back.</div><div class="sup-rules small muted">loading rules…</div>`);
+  const box = c.querySelector(".sup-rules");
+  api("/api/suppress").then((D) => {
+    box.className = "sup-rules small";
+    const SR = (D.seg_rules || []).map((r) => `<div style="display:flex;gap:8px;align-items:center;margin:2px 0"><span style="flex:1">🚫 segmentation: <b>${esc(r.src || "any")}</b> → <b>${esc(r.dst || "any")}</b> : ports <b>${esc(r.ports || "any")}</b></span><span class="muted">${esc(r.by || "")}</span>${D.can_edit ? `<button type="button" class="segsup-rm" data-id="${r.id}">remove rule</button>` : ""}</div>`).join("");
+    box.insertAdjacentHTML("afterend", SR ? `<div class="small segsup-rules"><b>📋 Segmentation rules</b> (matching flows are hidden and not correlated)${SR}</div>` : "");
+    for (const b of c.querySelectorAll(".segsup-rm")) b.onclick = async () => { if (!confirm("Remove this rule? The flows it hid come back.")) return;
+      try { await apiPost("/api/llm/review-limits", { unseg_suppress: +b.dataset.id }); location.reload(); } catch (e) { alert(e.message || e); } };
+    box.innerHTML = (D.rules || []).length ? `<b>📋 Rules</b>` + D.rules.map((r) => `<div style="display:flex;gap:8px;align-items:center;margin:2px 0"><span style="flex:1">name: <b>${esc(r.name)}</b>${r.art_type ? ` · ${({ ip: "🌐", domain: "🔗", user: "👤", process: "⚙️", port: "🔌", file: "📄" })[r.art_type] || ""} ${esc(r.art_type)}: <b>${esc(r.art)}</b>` : ""}</span>
+      <span class="muted">${fn(r.events)} findings · ${fn(r.alerts)} alerts · ${esc(r.by || "")}</span>${D.can_edit ? `<button type="button" class="sup-rm" data-id="${r.id}">remove rule</button>` : ""}</div>`).join("") : '<div class="muted">No suppress rules.</div>';
+    for (const b of box.querySelectorAll(".sup-rm")) b.onclick = async () => { if (!confirm("Remove this rule? What it suppressed comes back.")) return;
+      try { await apiPost("/api/llm/review-limits", { unsuppress: +b.dataset.id }); S.acks = await api("/api/acks"); S.corr = null; rerender(); } catch (e) { alert(e.message || e); } };
+  }).catch(() => { box.textContent = "rules unavailable"; });
+  if (items.length) c.appendChild(table(null, [
+    { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="${r.type}" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Un-suppress this one (the rule stays)">` },
+    { k: "at", t: "Suppressed", fmt: ft }, { k: "type", t: "Type", fmt: (v) => esc(ACK_LABEL[v] || v) },
+    { k: "label", t: "Item", fmt: (v) => linkifyIps(v) }, { k: "note", t: "Rule", cls: "small", fmt: (v) => esc(v.replace(/^suppressed: /, "")) }], items, { sort: "at" }));
+  c.id = "suppressed"; return c;
+}
 V.checked = (el) => {
   el.innerHTML = `<h1>Checked off</h1><div class="sub">Everything you've checked off, newest first. Checked items are hidden from their lists; uncheck here (or use "show N checked" on any list) to bring them back. Saved on the dashboard host in the netmon SQLite store (<span class="mono">dashboard/state/netmon.db</span>), so it survives restarts and works from any browser.</div>`;
   // resolve current details where we can
   const tr = S.snap.triage || {}, an = S.snap.analysis || {}, I = S.issues || { open: [], fixed: [] };
   const lookup = { alarm: Object.fromEntries((tr.alarms || []).map((a) => [ACK.alarm(a), a])), finding: Object.fromEntries((an.findings || []).map((f) => [ACK.finding(f), f])),
     host: Object.fromEntries((S.snap.raw.hosts?.findings || []).map((f) => [f.key, f])),
+    gw: Object.fromEntries([...(S.snap.raw.unifi?.events?.high_severity || []), ...(S.snap.raw.unifi?.events?.threats || []), ...(S.snap.raw.unifi?.events?.devices || [])].map((g) => [gwId(g), g])),
     beacon: Object.fromEntries((S.snap.raw.beacons?.candidates || []).map((b) => [ACK.beacon(b), b])),
     dnstunnel: Object.fromEntries((S.snap.raw.dns_tunnel || []).map((t) => [ACK.dnstunnel(t), t])),
     admin: S.lateral && S.lateral._snap === S.snap.id ? Object.fromEntries((S.lateral.admin || []).map((s) => [ACK.admin(s), s])) : {},
@@ -966,7 +995,9 @@ V.checked = (el) => {
   rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
   el.insertAdjacentHTML("beforeend", kpis(Object.keys(ACK_LABEL).map((t) => [ACK_LABEL[t] + "s", rows.filter((r) => r.type === t).length])));
   const segC = segClearedCard(); if (segC) el.appendChild(segC);  // segmentation flows get their own section
-  rows.splice(0, rows.length, ...rows.filter((r) => r.type !== "seg"));
+  const supRows = rows.filter((r) => r.type !== "seg" && r.note.startsWith("suppressed:"));
+  rows.splice(0, rows.length, ...rows.filter((r) => r.type !== "seg" && !r.note.startsWith("suppressed:")));
+  const supC = suppressedCard(supRows); el.appendChild(supC);
   el.appendChild(card(`Checked items (${rows.length})`, table(null, [
     { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="${r.type}" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to restore">` },
     { k: "at", t: "Checked", fmt: ft }, { k: "type", t: "Type", fmt: (v) => esc(ACK_LABEL[v] || v) }, { k: "label", t: "Item", fmt: (v, r) => linkifyIps(v) + (r.note.startsWith("auto-closed:") ? ` <span class="badge sev-info" title="${esc(r.note)}">auto-closed · ${esc((r.note.match(/AI verdict (\w+)/) || [])[1] || "AI")}</span>` : "") },
@@ -1002,7 +1033,7 @@ V.security = (el) => {
   const SV = ackSplit("violation", an.violations || [], "sec-viol");
   el.appendChild(grid("g2",
     card(`Segmentation violations (${SV.open.length} open)${SV.toggle}`, SV.show.length ? table(null, [{ k: "_ack", t: "Clear", sort: (x) => (acked("violation", x) ? 1 : 0),
-      fmt: (v, x) => `<label class="seg-clr${acked("violation", x) ? " on" : ""}">${ackBox("violation", x, "")}<span>${acked("violation", x) ? "Cleared" : "Clear"}</span></label>` },
+      fmt: (v, x) => `<label class="seg-clr${acked("violation", x) ? " on" : ""}">${ackBox("violation", x, "")}<span>${acked("violation", x) ? "Cleared" : "Clear"}</span></label>${segSupBtn(x)}` },
       askCol("segmentation violation", (x) => `${x.src} → ${x.dst}:${x.port} ${x.reason || ""}`), { k: "severity", t: "Sev", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "proto", t: "Proto" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "answered", t: "Ans", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], SV.show, { sort: "severity", dir: 1, rowClass: ackRowCls("violation") }) : `<div class="empty">All segmentation violations cleared. Use “show checked” in the card title to bring them back.</div>`),
     (() => { const BC = ackSplit("beacon", raw.beacons?.candidates || [], "sec-beacon"); return card(`Beacon candidates (${BC.open.length} open of ${fn(raw.beacons?.pairs_scored)} pairs)${BC.toggle}`, table(null, [ackCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), askPivCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`, "beacon"), { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)}:${esc(b.port)}<br><span class="muted small">${esc(b.name || "")} ${esc(b.asn || "")}</span>` }, { k: "interval_s", t: "Every (s)", num: true }, { k: "jitter_s", t: "Jitter", num: true }, { k: "conns", t: "Conns", num: true }, { k: "coverage_h", t: "Hours", num: true }, { k: "score", t: "Score", num: true }], BC.show, { filter: true, sort: "score", rowClass: ackRowCls("beacon") })); })()));
   el.appendChild(grid("g3",
@@ -1012,7 +1043,7 @@ V.security = (el) => {
     card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => (v ? domFmt(v) : esc(r.ip)) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
       [...(ti.ip_hits_out || []), ...(ti.domain_hits || []), ...(ti.new_domains || [])], { search: false }))));
   el.appendChild(grid("g2",
-    (() => { const DT = ackSplit("dnstunnel", raw.dns_tunnel || [], "sec-dnstun"); return card(`DNS-tunnel scoring (${DT.open.length} open of ${(raw.dns_tunnel || []).length})${DT.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), askCol("DNS-tunnel candidate", (x) => x.domain), { k: "domain", t: "Domain", fmt: domFmt }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], DT.show, { sort: "score", rowClass: ackRowCls("dnstunnel") })); })(),
+    (() => { const DT = ackSplit("dnstunnel", raw.dns_tunnel || [], "sec-dnstun"); return card(`DNS-tunnel scoring (${DT.open.length} open of ${(raw.dns_tunnel || []).length})${DT.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), askCol("DNS-tunnel candidate", (x) => x.domain), pivotCol("DNS-tunnel domain"), { k: "domain", t: "Domain", fmt: domFmt }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], DT.show, { sort: "score", rowClass: ackRowCls("dnstunnel") })); })(),
     card("Malicious JA3 / internal scans / detections", `<h3>Malicious JA3</h3>` + ((raw.tls?.malicious_ja3 || []).map((m) => `<div class="small"><span class="mono">${esc(m.ja3)}</span> — ${esc(m.malware)} ×${fn(m.count)} from ${entries(m.sources).map(([k]) => ipLink(k)).join(", ")} → ${esc((m.servers || []).join(", "))}</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>Internal scans</h3>` + ((raw.internal?.scans || []).map((s) => `<div class="small">${ipLink(s.src)}: ${fn(s.failed_conns)} failed conns to ${s.hosts} hosts / ${s.ports} ports (top ${esc((s.top_ports || []).join(", "))})</div>`).join("") || '<div class="empty">none</div>') +
       `<h3>SO detections</h3>` + ((raw.detections || []).map((d) => `<div class="small">${ft(d.time)} ${esc(d.rule)} ${esc(d.host || "")} ${esc(d.message || "")}</div>`).join("") || '<div class="empty">none</div>'))));
@@ -1084,11 +1115,12 @@ function gatewaySecurity(el) {
   el.insertAdjacentHTML("beforeend", kpis([["Security events", fn(ev.counts?.SECURITY)], ["Admin logins", (U.admin?.logins || []).length], ["Config changes", (U.admin?.changes || []).length], ["IPS mode", esc(st.ips_mode ?? "?")]]));
   const evrows = [...(ev.high_severity || []), ...(ev.threats || []), ...(ev.devices || []), ...(U.threats_30d || []).map((t) => ({ ...t, key: "30d" }))];
   const seen = new Set(); const uniq = evrows.filter((e) => { const k = e.time + e.message; if (seen.has(k)) return false; seen.add(k); return true; });
+  const GE = ackSplit("gw", uniq, "gw-events");
   el.appendChild(grid("g2",
     card("Gateway protection settings", `<div class="idgrid"><span class="k">IPS mode</span><span>${esc(st.ips_mode)}</span><span class="k">Categories</span><span>${esc(st.categories)}</span><span class="k">Protected nets</span><span>${esc((st.protected_networks || []).join(", "))}</span>
       <span class="k">Honeypot</span><span>${esc(st.honeypot_enabled)} ${esc(JSON.stringify(st.honeypots || []))}</span><span class="k">DNS filtering</span><span>${esc(st.dns_filtering)}</span><span class="k">Ad blocking nets</span><span>${esc(st.ad_blocking_networks)}</span>
       <span class="k">Endpoint scanning</span><span>${esc(st.endpoint_scanning)}</span><span class="k">DPI</span><span>${esc(st.dpi)}</span></div>`),
-    card(`Gateway events (${uniq.length})`, table(null, [{ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivBtn("gateway", x) }, { k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], uniq, { sort: "time", short: true, evId: (x) => (x.key === "30d" ? "" : gwId(x)) }))));
+    card(`Gateway events (${GE.open.length} open of ${uniq.length})${GE.toggle}`, table(null, [ackCol("gw", (x) => `Gateway ${x.key || "event"}: ${x.message || ""}`), { k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivBtn("gateway", x) }, { k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], GE.show, { sort: "time", short: true, rowClass: ackRowCls("gw"), evId: (x) => (x.key === "30d" ? "" : gwId(x)) }))));
   el.appendChild(grid("g2",
     card("Gateway admin logins", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "admin", t: "Admin" }, { k: "ip", t: "From", cls: "mono" }, { k: "platform", t: "Platform" }, { k: "unexpected_source", t: "Unexpected", fmt: (v) => (v ? badge("high") : "") }], U.admin?.logins || [], { sort: "time", short: true })),
     card("Gateway config changes", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "actor", t: "Actor" }, { k: "section", t: "Section", cls: "small" }, { k: "object", t: "Object" }, { k: "operation", t: "Op" }], U.admin?.changes || [], { sort: "time", short: true }))));
@@ -1252,3 +1284,25 @@ V.my = async (el) => {
   el.appendChild(card("Urgent alerts", `<div class="small">Urgent alerts for your devices are on the <a href="#/alerts">Alerts</a> page, where you can also turn on push notifications.</div>`));
 };
 init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to load</h2><pre>${esc(e.stack || e)}</pre></div>`));
+
+/* ---------- suppress segmentation violations by IP address and ports ---------- */
+function segSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn seg-sup" data-src="${esc(x.src)}" data-dst="${esc(x.dst)}" data-port="${esc(x.port)}" title="Suppress segmentation violations by IP address and ports: hidden everywhere and never sent to the correlation">🚫</button>` : ""; }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".seg-sup"); if (!b) return;
+  const d = document.createElement("div");
+  d.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center";
+  d.innerHTML = `<div style="background:var(--card,#1c2128);color:inherit;border:1px solid var(--line,#555);border-radius:8px;padding:14px;max-width:560px;width:92vw">
+    <h3 style="margin:0 0 6px">🚫 Suppress segmentation violations</h3>
+    <div class="small muted" style="margin-bottom:8px">Every flow matching ALL fields you fill in is hidden everywhere (Posture, Risk, Lateral movement, Fix list) and is <b>not sent to the correlation, research or AI review</b>. Use <span class="mono">*</span> in an IP (e.g. <span class="mono">10.1.*</span>); several ports separated by commas; leave a field empty for any. Remove the rule under Checked → Suppressed.</div>
+    <div style="display:grid;grid-template-columns:9em 1fr;gap:6px;align-items:center"><label>Source IP</label><input class="ss-src"><label>Destination IP</label><input class="ss-dst"><label>Ports</label><input class="ss-ports"></div>
+    <div style="margin-top:10px;display:flex;gap:6px;align-items:center"><button type="button" class="ss-ok">Suppress</button><button type="button" class="ss-cancel">Cancel</button><span class="small ss-msg"></span></div></div>`;
+  document.body.appendChild(d);
+  const q = (c) => d.querySelector(c), close = () => d.remove();
+  q(".ss-src").value = b.dataset.src; q(".ss-dst").value = b.dataset.dst; q(".ss-ports").value = b.dataset.port;
+  q(".ss-cancel").onclick = close; d.addEventListener("mousedown", (ev) => { if (ev.target === d) close(); });
+  q(".ss-ok").onclick = async () => {
+    q(".ss-ok").disabled = true; q(".ss-msg").textContent = "saving…";
+    try { await apiPost("/api/llm/review-limits", { seg_suppress: { src: q(".ss-src").value.trim(), dst: q(".ss-dst").value.trim(), ports: q(".ss-ports").value.trim() } }); location.reload(); }
+    catch (err) { q(".ss-ok").disabled = false; q(".ss-msg").textContent = "error: " + (err.message || err); }
+  };
+});

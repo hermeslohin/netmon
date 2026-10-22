@@ -53,6 +53,12 @@ CREATE INDEX IF NOT EXISTS alerts_pushed ON alerts(pushed);
 CREATE TABLE IF NOT EXISTS alert_mutes (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', by TEXT, at REAL NOT NULL,
   limit_key TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS suppress_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, art_type TEXT NOT NULL DEFAULT '', art TEXT NOT NULL DEFAULT '',
+  by TEXT, at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS seg_suppress (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, src TEXT NOT NULL DEFAULT '', dst TEXT NOT NULL DEFAULT '', ports TEXT NOT NULL DEFAULT '',
+  by TEXT, at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS sec_findings (
   key TEXT PRIMARY KEY, tool TEXT, severity TEXT, title TEXT, location TEXT, fix TEXT, detail TEXT,
   first_seen TEXT, last_seen TEXT, status TEXT NOT NULL DEFAULT 'open', fixed_at TEXT, notified INTEGER DEFAULT 0);
@@ -87,7 +93,7 @@ def connect(path=None):
     if "targets" not in {r[1] for r in c.execute("PRAGMA table_info(alerts)")}:  # schema v2: devices an alert is about
         c.execute("ALTER TABLE alerts ADD COLUMN targets TEXT NOT NULL DEFAULT '[]'")
     have = {r[1] for r in c.execute("PRAGMA table_info(alerts)")}
-    for col, decl in (("cleared", "INTEGER NOT NULL DEFAULT 0"), ("cleared_rule", "INTEGER"), ("cleared_at", "REAL")):  # alerts a mute rule cleared (kept, hidden from the feed)
+    for col, decl in (("cleared", "INTEGER NOT NULL DEFAULT 0"), ("cleared_rule", "INTEGER"), ("cleared_at", "REAL"), ("held", "INTEGER NOT NULL DEFAULT 0")):  # alerts a mute rule cleared (kept, hidden from the feed)
         if col not in have:
             c.execute(f"ALTER TABLE alerts ADD COLUMN {col} {decl}")
     c.execute("INSERT OR IGNORE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
@@ -156,6 +162,9 @@ def mutes(c=None):
 
 
 # ------------------------------------------------------------------ urgent alerts feed + web-push subscriptions
+HELD_SOURCES = ("watcher", "secscan", "account", "report")  # detections: kept as events for the correlation / AI review, but not an alarm until promoted
+
+
 def alerts_add(items, source="watcher", c=None):
     """items: [(key, text, severity[, targets])]. targets = device identifiers the alert is about (IPs, MACs,
     host names); derived from key+text when omitted. Queued for web push by the dashboard (pushed=0).
@@ -164,14 +173,19 @@ def alerts_add(items, source="watcher", c=None):
     c = c or connect()
     now = time.time()
     mutes_ = mute_list(c)
+    sups_ = suppress_list(c)
     rows = []
     for it in items:
         tg = sorted(it[3] if len(it) > 3 and it[3] else alert_targets(it[0], it[1]))
         hit = next((m for m in mutes_ if mute_match(m, it[1], tg)), None)
+        sup = None if hit else next((r for r in sups_ if suppress_match(r, it[1], tg)), None)
+        if sup:  # suppressed (not muted): hidden from the feed and not pushed, but still correlated
+            hit = {"id": -sup["id"]}
+        held = 1 if source in HELD_SOURCES else 0  # an alarm is an event / finding that is medium or high AND reviewed as suspicious (alerts_promote)
         rows.append((now, it[0], it[1], it[2] if len(it) > 2 else "urgent", source, json.dumps(tg),
-                     1 if hit else 0, hit["id"] if hit else None, now if hit else None, 1 if hit else 0, 1 if hit else 0))
+                     1 if hit else 0, hit["id"] if hit else None, now if hit else None, 1 if (hit or held) else 0, 1 if (hit or held) else 0, held))
     with tx(c):
-        c.executemany("INSERT INTO alerts(ts,key,text,severity,source,targets,cleared,cleared_rule,cleared_at,pushed,read) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+        c.executemany("INSERT INTO alerts(ts,key,text,severity,source,targets,cleared,cleared_rule,cleared_at,pushed,read,held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         c.execute("DELETE FROM alerts WHERE ts < ?", (now - 30 * 86400,))  # keep 30 days
 
 
@@ -200,6 +214,7 @@ def mute_list(c=None):
 
 def mute_add(name, host, by, limit_key="", c=None):
     """Save a mute rule and clear every existing alert it matches -> (rule id, number cleared)."""
+    raise ValueError("never-send mute rules were removed")
     c = c or connect()
     name, host = str(name or "").strip()[:200], str(host or "").strip()[:200]
     if not name.replace("*", "").replace("?", "").strip():
@@ -246,16 +261,159 @@ def mute_counts(c=None):
     return {r[0]: r[1] for r in c.execute("SELECT cleared_rule, count(*) FROM alerts WHERE cleared=1 GROUP BY cleared_rule")}
 
 
+# ------------------------------------------------------------------ suppress rules (hide a finding, keep it in correlation)
+SUPPRESS_ARTS = ("ip", "domain", "user", "process", "port", "file")
+_PORT_RE = re.compile(r"(?:\bport\s*|[:/])(\d{1,5})\b", re.I)
+
+
+def suppress_match(r, label, ips=(), arts=(), ctx=""):
+    """Does a suppress rule cover an event / alert? name = signature (glob, or contains) over the event text; art_type + art
+    (ip, domain, user, process, port, file) must also be among the event's artifacts when the rule has them. ips: IPs / targets,
+    arts: [[kind, value, ...]] artifacts (kind file|process|user|dns), ctx: extra text (labels of correlated events) searched
+    for the artifact; for events, ips / arts / ctx also hold those of the correlated events."""
+    label = str(label or "")
+    if not r.get("name") or not _mglob(r["name"], label, True):
+        return False
+    t, v = r.get("art_type") or "", str(r.get("art") or "").strip()
+    if not t or not v:
+        return True
+    text = label + " " + str(ctx or "")
+    glob = "*" in v or "?" in v
+    if t == "ip":
+        if glob:
+            return any(_mglob(v, i, False) for i in ips or []) or _mglob(v, text, True)
+        return v.lower() in {str(i).lower() for i in ips or []} or bool(re.search(r"(?<![\d.])" + re.escape(v) + r"(?![\d.])", text))
+    if t == "port":
+        ports = set(_PORT_RE.findall(text)) | {str(a[1]) for a in arts or [] if a and a[0] == "port"}
+        return v in ports
+    kind = "dns" if t == "domain" else t
+    vals = [str(a[1]) for a in arts or [] if a and a[0] == kind]
+    if glob:
+        return any(_mglob(v, x, False) for x in vals) or _mglob(v, text, True)
+    return any(v.lower() in x.lower() for x in vals) or v.lower() in text.lower()
+
+
+def suppress_list(c=None):
+    c = c or connect()
+    return [dict(r) for r in c.execute("SELECT * FROM suppress_rules ORDER BY id")]
+
+
+def suppress_add(name, art_type, art, by, c=None):
+    """Save a suppress rule and hide the existing alerts it covers -> (rule id, alerts hidden)."""
+    c = c or connect()
+    name, art_type, art = str(name or "").strip()[:200], str(art_type or "").strip().lower(), str(art or "").strip()[:200]
+    if not name.replace("*", "").replace("?", "").strip():
+        raise ValueError("a suppress rule needs a signature name that is not just wildcards")
+    if art_type and art_type not in SUPPRESS_ARTS:
+        raise ValueError("artifact type must be one of " + ", ".join(SUPPRESS_ARTS))
+    if bool(art_type) != bool(art):
+        raise ValueError("give both the artifact type and its value, or neither")
+    with tx(c):
+        r = c.execute("SELECT id FROM suppress_rules WHERE lower(name)=lower(?) AND art_type=? AND lower(art)=lower(?)", (name, art_type, art)).fetchone()
+        if r:
+            rid = r[0]
+        else:
+            if c.execute("SELECT count(*) FROM suppress_rules").fetchone()[0] >= 200:
+                raise ValueError("too many suppress rules (200)")
+            rid = c.execute("INSERT INTO suppress_rules(name,art_type,art,by,at) VALUES (?,?,?,?,?)", (name, art_type, art, str(by)[:60], time.time())).lastrowid
+    rule = next(x for x in suppress_list(c) if x["id"] == rid)
+    now = time.time()
+    ids = [a["id"] for a in (_arow(x) for x in c.execute("SELECT * FROM alerts WHERE cleared=0")) if suppress_match(rule, a["text"], a["targets"])]
+    with tx(c):
+        c.executemany("UPDATE alerts SET cleared=1, cleared_rule=?, cleared_at=?, read=1, pushed=1 WHERE id=?", [(-rid, now, i) for i in ids])
+    return rid, len(ids)
+
+
+# ------------------------------------------------------------------ segmentation suppress rules (source IP / destination IP / ports)
+def seg_suppress_list(c=None):
+    c = c or connect()
+    return [dict(r) for r in c.execute("SELECT * FROM seg_suppress ORDER BY id")]
+
+
+def seg_suppress_add(src, dst, ports, by, c=None):
+    """Hide segmentation violations from source / destination (IP or glob like 10.1.*) / ports ("22,3389"); blank = any."""
+    c = c or connect()
+    src, dst = str(src or "").strip()[:100], str(dst or "").strip()[:100]
+    ports = ",".join(p.strip() for p in str(ports or "").replace(" ", ",").split(",") if p.strip())[:200]
+    if not (src or dst or ports):
+        raise ValueError("give a source IP, a destination IP or ports")
+    if not all(p.isdigit() and 0 < int(p) < 65536 or p == "*" for p in ports.split(",") if p):
+        raise ValueError("ports must be numbers like 22,3389")
+    if any(x.replace("*", "").replace("?", "") == "" and x for x in (src, dst)) or (src in ("*",) and dst in ("*",)):
+        raise ValueError("an IP of only wildcards would hide everything")
+    with tx(c):
+        r = c.execute("SELECT id FROM seg_suppress WHERE src=? AND dst=? AND ports=?", (src, dst, ports)).fetchone()
+        if r:
+            return r[0]
+        if c.execute("SELECT count(*) FROM seg_suppress").fetchone()[0] >= 500:
+            raise ValueError("too many segmentation suppress rules (500)")
+        return c.execute("INSERT INTO seg_suppress(src,dst,ports,by,at) VALUES (?,?,?,?,?)", (src, dst, ports, str(by)[:60], time.time())).lastrowid
+
+
+def seg_suppress_remove(rid, c=None):
+    c = c or connect()
+    with tx(c):
+        return c.execute("DELETE FROM seg_suppress WHERE id=?", (int(rid),)).rowcount
+
+
+def seg_suppress_match(rules, src, dst, port):
+    """True when any rule covers the flow src -> dst:port (all fields the rule has must match)."""
+    for r in rules or ():
+        if r.get("src") and not _mglob(r["src"], src, False):
+            continue
+        if r.get("dst") and not _mglob(r["dst"], dst, False):
+            continue
+        if r.get("ports") and str(port) not in r["ports"].split(","):
+            continue
+        return True
+    return False
+
+
+def suppress_remove(rid, c=None):
+    """Delete a suppress rule; the alerts it hid come back into the feed -> number restored."""
+    c = c or connect()
+    with tx(c):
+        n = c.execute("UPDATE alerts SET cleared=0, cleared_rule=NULL, cleared_at=NULL WHERE cleared_rule=?", (-int(rid),)).rowcount
+        c.execute("DELETE FROM suppress_rules WHERE id=?", (int(rid),))
+    return n
+
+
 def _arow(r):
     d = dict(r)
     d["targets"] = json.loads(d.get("targets") or "[]")
     return d
 
 
-def alerts_recent(limit=100, c=None, cleared=False):
-    """The alert feed (newest first). Alerts a mute rule cleared are left out unless cleared=True (then only those)."""
+def alerts_recent(limit=100, c=None, cleared=False, suppressed=False):
+    """The alert feed (newest first). Alerts a mute rule cleared are left out unless cleared=True (then only those).
+    suppressed=True (correlation, research, review) also returns the alerts a suppress rule hid: suppressing hides a
+    finding, it does not take the event out of correlation."""
     c = c or connect()
-    return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=? ORDER BY id DESC LIMIT ?", (1 if cleared else 0, limit))]
+    if suppressed and not cleared:
+        return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE (cleared=0 OR cleared_rule<0) AND source!='review' ORDER BY id DESC LIMIT ?", (limit,))]
+    return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=? AND held=0 ORDER BY id DESC LIMIT ?", (1 if cleared else 0, limit))]
+
+
+def alerts_promote(ids, c=None):
+    """Held detections the review calls suspicious (medium/high) become alarms: into the feed, unread, queued for push."""
+    c = c or connect()
+    ids = [int(i) for i in ids]
+    with tx(c):
+        n = 0
+        for i in ids:
+            n += c.execute("UPDATE alerts SET held=0, read=0, pushed=0 WHERE id=? AND held=1 AND cleared=0", (i,)).rowcount
+    return n
+
+
+def alerts_hold(ids, c=None):
+    """The opposite: no longer suspicious / medium+ -> out of the feed again (still an event)."""
+    c = c or connect()
+    ids = [int(i) for i in ids]
+    with tx(c):
+        n = 0
+        for i in ids:
+            n += c.execute("UPDATE alerts SET held=1, read=1, pushed=1 WHERE id=? AND held=0 AND source IN ('watcher','secscan','account','report')", (i,)).rowcount
+    return n
 
 
 def alerts_delete(ids, c=None):
