@@ -103,6 +103,21 @@ def upload_cfg():
     return extras.upload_cfg()
 
 
+_SP = None
+
+
+def sp(name, today_v, hist, card=False):
+    """Tunable spike (policy.spike_thresholds, see extras.SPIKES): returns the configured severity, or None when not a spike / switched off."""
+    global _SP
+    if _SP is None:
+        import extras
+        _SP = extras.spike_cfg()
+    c = _SP[name]
+    if c["severity"] == "off" or not spike(today_v, hist, c["min"], card=card, mult=c["times_normal"], madf=c["mad_factor"], min_days=c["min_days"]):
+        return None
+    return c["severity"]
+
+
 def spike(today, hist, floor, card=False, mult=3, madf=6, min_days=None):
     """True when today is far above the device's own normal and above an absolute floor.
     Time range: counts are scaled to 24 h; distinct counts (card=True) don't grow linearly, so they are only scaled
@@ -364,10 +379,10 @@ def main():
         if UP["severity"] != "off" and spike(t["sent"], [p["sent"] for p in past], UP["min_mb"] * MB, mult=UP["times_normal"], madf=UP["mad_factor"], min_days=UP["min_days"]):
             add(UP["severity"], key, "upload-spike",
                 f"sent {t['sent']/MB:.0f} MB vs normal {med([p['sent'] for p in past])/MB:.0f} MB (possible exfil/backup)")
-        if spike(t["ext_peers"], [p["ext_peers"] for p in past], 50, card=True):
-            add("medium", key, "fan-out", f"{t['ext_peers']} external peers vs normal {med([p['ext_peers'] for p in past]):.0f}")
-        if spike(t["rejected"], [p["rejected"] for p in past], 500):
-            add("medium", key, "failed-conns", f"{t['rejected']} rejected/unanswered conns vs normal {med([p['rejected'] for p in past]):.0f} (scanning?)")
+        if (sev := sp("fan_out", t["ext_peers"], [p["ext_peers"] for p in past], card=True)):
+            add(sev, key, "fan-out", f"{t['ext_peers']} external peers vs normal {med([p['ext_peers'] for p in past]):.0f}")
+        if (sev := sp("failed_conns", t["rejected"], [p["rejected"] for p in past])):
+            add(sev, key, "failed-conns", f"{t['rejected']} rejected/unanswered conns vs normal {med([p['rejected'] for p in past]):.0f} (scanning?)")
         if spike(t["nx"], [p["nx"] for p in past], 200):
             add("medium", key, "nxdomain-spike", f"{t['nx']} NXDOMAIN vs normal {med([p['nx'] for p in past]):.0f} (DGA/misconfig?)")
         if spike(t["inbound_ext_sources"], [p.get("inbound_ext_sources", 0) for p in past], 5, card=True):
@@ -411,13 +426,13 @@ def main():
             pd = [p.get("dns") or {} for p in past if p.get("dns")]
             if pd:
                 td = t["dns"]
-                if spike(t["dns_q"], [p["dns_q"] for p in past], 2000):
-                    add("medium", key, "dns-volume", f"{t['dns_q']:,} DNS queries vs normal {med([p['dns_q'] for p in past]):,.0f}")
+                if (sev := sp("dns_volume", t["dns_q"], [p["dns_q"] for p in past])):
+                    add(sev, key, "dns-volume", f"{t['dns_q']:,} DNS queries vs normal {med([p['dns_q'] for p in past]):,.0f}")
                 if spike(td["unique_names"], [x["unique_names"] for x in pd], 300, card=True):
                     add("medium", key, "dns-unique-names",
                         f"{td['unique_names']:,} distinct names looked up vs normal {med([x['unique_names'] for x in pd]):,.0f} (DGA/scanning?)")
-                if spike(td["long_names"], [x["long_names"] for x in pd], 100):
-                    add("medium", key, "dns-long-names", f"{td['long_names']:,} queries >= 60 chars vs normal {med([x['long_names'] for x in pd]):,.0f}")
+                if (sev := sp("dns_long_names", td["long_names"], [x["long_names"] for x in pd])):
+                    add(sev, key, "dns-long-names", f"{td['long_names']:,} queries >= 60 chars vs normal {med([x['long_names'] for x in pd]):,.0f}")
                 seen_qt = set().union(*[x["qtypes"] for x in pd])
                 tq = sum(td["qtypes"].values()) or 1
                 for qt, n in td["qtypes"].items():
@@ -467,8 +482,8 @@ def main():
         if days >= MIN_DAYS and not any(past):
             add("high" if s["severity"] <= 2 else "low", "-", "new-signature",
                 f"first time seen: '{s['name']}' x{s['count']} from {list(s['src'])[:3]}")
-        elif spike(s["count"], past, 50):
-            add("medium", "-", "signature-spike", f"'{s['name']}' x{s['count']} vs normal {med(past):.0f}")
+        elif (sev := sp("signature_spike", s["count"], past)):
+            add(sev, "-", "signature-spike", f"'{s['name']}' x{s['count']} vs normal {med(past):.0f}")
 
     # --- device registry: first/last seen ever (Zeek itself only retains ~2 days) ---
     import store

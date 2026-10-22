@@ -443,8 +443,13 @@ def tuning_info():
     import extras
     pol = store.cfg_load("policy")
     eff = {"upload_spike": extras.upload_cfg(), "beacon": extras.beacon_cfg(pol), "scan_thresholds": {**{"hosts": 20, "ports": 40}, **(pol.get("scan_thresholds") or {})}}
-    return {"settings": {key: {"title": title, "kinds": rx, "values": eff[key], "doc": pol.get("_doc_" + key) or "",
-                               "link": "#/settings/policy"} for rx, key, title in TUNING}}
+    out = {key: {"title": title, "kinds": rx, "values": eff[key], "doc": pol.get("_doc_" + key) or "",
+                 "link": "#/settings/policy"} for rx, key, title in TUNING}
+    for n, row in extras.spike_cfg(pol=pol).items():
+        d = extras.SPIKES[n]
+        out["spike_" + n] = {"title": d["title"] + " (spike_thresholds)", "kinds": "^" + d["kind"] + "$", "values": row,
+                             "doc": d["desc"] + " " + extras.SPIKE_COMMON, "link": "#/settings/policy"}
+    return {"settings": out}
 
 
 def cfg_validate(doc, data):
@@ -483,6 +488,29 @@ def cfg_validate(doc, data):
                             return f"upload_spike {k} must be a number of 0 or more"
                     else:
                         return f"upload_spike: unknown setting {k} (min_mb, times_normal, mad_factor, min_days, severity)"
+            st = data.get("spike_thresholds")
+            if st is not None:
+                import extras as _ex
+                if not isinstance(st, dict):
+                    return "spike_thresholds must be a table: one row per detection"
+                for n, row in st.items():
+                    if n.startswith("_"):
+                        continue
+                    if n not in _ex.SPIKES:
+                        return f"spike_thresholds: unknown detection {n} ({', '.join(_ex.SPIKES)})"
+                    if not isinstance(row, dict):
+                        return f"spike_thresholds[{n}] must be a table of settings"
+                    for k, v in row.items():
+                        if k.startswith("_"):
+                            continue
+                        if k == "severity":
+                            if v not in ("high", "medium", "low", "off"):
+                                return f"spike_thresholds[{n}] severity must be high, medium, low or off"
+                        elif k in ("min", "times_normal", "mad_factor", "min_days"):
+                            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                                return f"spike_thresholds[{n}] {k} must be a number of 0 or more"
+                        else:
+                            return f"spike_thresholds[{n}]: unknown setting {k} (min, times_normal, mad_factor, min_days, severity)"
             bc = data.get("beacon")
             if bc is not None:
                 if not isinstance(bc, dict):

@@ -339,6 +339,42 @@ def upload_cfg():
     return out
 
 
+SPIKES = {  # policy "spike_thresholds": one row per detection. min = absolute floor (a value below it is never a spike)
+    "dns_long_names": {"kind": "dns-long-names", "title": "DNS long-name queries", "min": 100,
+                       "desc": "Number of DNS queries with a name of 60 characters or more (DNS tunnelling / exfiltration encode data in long names). min = how many such queries a device must make in the range."},
+    "dns_volume": {"kind": "dns-volume", "title": "DNS query volume", "min": 2000,
+                   "desc": "Total DNS queries a device made in the range. min = the queries it must make before the jump counts."},
+    "signature_spike": {"kind": "signature-spike", "title": "IDS signature spike", "min": 50,
+                        "desc": "How often one Suricata/IDS rule fired in the range compared with its usual day. min = hits a rule needs before a jump counts."},
+    "fan_out": {"kind": "fan-out", "title": "External fan-out", "min": 50,
+                "desc": "Number of DIFFERENT internet hosts a device talked to in the range (a sudden jump is scanning, a worm or a botnet). min = distinct external peers needed."},
+    "failed_conns": {"kind": "failed-conns", "title": "Failed connections", "min": 500,
+                     "desc": "Connections a device made that were rejected or never answered (it tried things that are not there: scanning, a dead service or a blocked app). min = failed connections needed."},
+}
+SPIKE_DEFAULT = {"times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "medium"}
+SPIKE_COMMON = ("A device is flagged only when the value in the analysed range is ALL of: at least min; more than times_normal x its own normal (the median of its history); "
+                "and more than its normal plus mad_factor x its typical day-to-day variation (this keeps devices that naturally vary quiet). min_days = days of history needed before a device is judged. "
+                "severity = high, medium, low, or off to disable the finding. More sensitive: lower min, times_normal and mad_factor. Less sensitive: raise them.")
+
+
+def spike_cfg(name=None, pol=None):
+    """policy.spike_thresholds merged over the defaults: {name: {min, times_normal, mad_factor, min_days, severity}} (or one row)."""
+    p = (pol if pol is not None else load_policy()).get("spike_thresholds") or {}
+    out = {}
+    for n, d in SPIKES.items():
+        row = {"min": d["min"], **SPIKE_DEFAULT}
+        for k, v in (p.get(n) or {}).items():
+            if k in row and not str(k).startswith("_"):
+                try:
+                    row[k] = v if k == "severity" else float(v)
+                except (TypeError, ValueError):
+                    pass
+        if row["severity"] not in ("high", "medium", "low", "off"):
+            row["severity"] = SPIKE_DEFAULT["severity"]
+        out[n] = row
+    return out[name] if name else out
+
+
 BEACON = {"min_conns": 36, "min_score": 0.75, "min_coverage": 0.4, "min_intervals": 10, "unlabelled_min_score": 0.85,
           "ignore_ports": [3478, 19302]}  # defaults; policy "beacon" overrides (Settings > Network policy)
 
