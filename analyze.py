@@ -11,7 +11,7 @@ Baseline model (per device, keyed by MAC when known, else IP), rolling 30 snapsh
   active hours, countries, ASNs, external dst ports, top DNS domains, hourly byte shape.
 Deviation rules need >= MIN_DAYS of history; before that the run only seeds the baseline.
 """
-import datetime as dt, glob, json, os, re as _re, statistics, sys
+import datetime as dt, json, os, re as _re, statistics, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)

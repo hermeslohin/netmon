@@ -34,10 +34,6 @@ def load():
     return {k: dict(v, ts=_ts(v.get("at", ""))) for k, v in a.items() if now - _ts(v.get("at", "")) < ACK_DAYS * 86400}
 
 
-def is_acked(key, acks=None):
-    return key in (acks if acks is not None else load())
-
-
 def current(hours=24):
     d = hosts.gather(hours * 60, nightly=True)
     return [{"key": k, "priority": p, "text": t} for k, p, t in hosts.findings(d, hosts.load_base(), nightly=True)]

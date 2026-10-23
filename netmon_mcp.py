@@ -6,7 +6,7 @@ Exposes the latest snapshot/analysis, recent watcher alerts, notes and the devic
 It opens SQLite with mode=ro and only ever reads files, so the assistant can look at netmon data but cannot change
 anything.
 """
-import glob, json, os, re, sqlite3, sys
+import json, os, re, sqlite3, sys
 
 NM = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(NM, "data")

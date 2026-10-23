@@ -128,7 +128,7 @@ V.threatintel = async (el, arg) => {
   el.appendChild(lk);
   const runLookup = async () => {
     const q = document.getElementById("tiQ").value.trim(); TI.q = q; const box = document.getElementById("tiRes"); if (!q) { box.innerHTML = ""; return; }
-    box.innerHTML = '<div class="muted">Checking…</div>';
+    box.innerHTML = '<div class="loading inline">Checking…</div>';
     const r = await api("/api/ti/lookup?q=" + encodeURIComponent(q)).catch((e) => ({ error: String(e) }));
     box.innerHTML = tiLookupHtml(q.toLowerCase(), r);
   };
@@ -168,7 +168,9 @@ V.threatintel = async (el, arg) => {
   el.appendChild(grid("g2",
     card(`Files flagged by Team Cymru MHR (${mhr.length} of ${(raw.files?.files || []).length})`, mhr.length ? table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "receiver", t: "Receiver", fmt: (v) => ipLink(v) }, { k: "mime", t: "MIME" }, { k: "host", t: "From" }, { k: "mhr_detect_pct", t: "AV %", num: true }, { k: "sha1", t: "SHA1", cls: "mono small" }], mhr, { search: false }) : `<div class="empty" style="color:var(--good)">No transferred file matched known-malware hashes.</div>`),
     card(`DNS-tunnel suspects (${TS.open.length} open of ${tunAll.length} scored)${TS.toggle}`, tun.length ? table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), { k: "domain", t: "Domain" }, { k: "level", t: "Level", fmt: badge }, { k: "score", t: "Score", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => clientsHtml(v) }, pivotCol("DNS-tunnel domain")], tun, { search: false, rowClass: ackRowCls("dnstunnel") }) : `<div class="empty" style="color:var(--good)">None — ${tunAll.length} high-entropy domains were scored and all were cleared as benign (e.g. Team Cymru hash lookups, CDN names).</div>`)));
-  el.addEventListener("click", (e) => { const a = e.target.closest(".ti-q"); if (!a) return; e.preventDefault(); document.getElementById("tiQ").value = a.dataset.q; runLookup(); lk.scrollIntoView({ behavior: "smooth" }); });
+  TI.run = runLookup;  // one delegated handler for the page's lifetime (one per render piled up and ran the lookup N times)
+  if (!TI.bound) { TI.bound = true; document.addEventListener("click", (e) => { const a = e.target.closest(".ti-q"); if (!a || !document.getElementById("tiQ")) return; e.preventDefault();
+    document.getElementById("tiQ").value = a.dataset.q; TI.run(); document.getElementById("tiForm")?.closest(".card")?.scrollIntoView({ behavior: "smooth" }); }); }
 };
 
 function tiLookupHtml(q, r) {

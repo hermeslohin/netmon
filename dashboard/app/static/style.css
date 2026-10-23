@@ -1,4 +1,4 @@
-:root{--bg:#0e1116;--panel:#161b22;--panel2:#1c232c;--border:#2a323d;--fg:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;--crit:#ff7b72;--violet:#bc8cff}
+:root{--line:#2a323d;--card:#161b22;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--bg:#0e1116;--panel:#161b22;--panel2:#1c232c;--border:#2a323d;--fg:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;--crit:#ff7b72;--violet:#bc8cff}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
@@ -52,7 +52,9 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--panel2)}
 .note{background:#58a6ff14;border:1px solid #58a6ff44;border-radius:8px;padding:8px 12px;margin:8px 0}
 details{margin-top:8px}summary{cursor:pointer;color:var(--muted)}
 pre{white-space:pre-wrap;word-break:break-all;background:#0b0e13;border:1px solid var(--border);border-radius:6px;padding:10px;max-height:500px;overflow:auto;font-size:12px}
-.loading{padding:60px;text-align:center;color:var(--muted)}
+.loading{padding:60px 20px;text-align:center;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:12px}
+.loading::before{content:"";width:22px;height:22px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:secspin .8s linear infinite}
+.card .loading,.loading.inline{padding:18px 10px;flex-direction:row;justify-content:center;font-size:13px;gap:10px}.card .loading::before,.loading.inline::before{width:14px;height:14px;border-width:2px}
 .heat td.num{color:#fff}
 .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:1px 9px;font-size:12px}
 .crumbs{margin-bottom:6px;color:var(--muted)}
@@ -523,3 +525,27 @@ html,body,.rel-pop,.rel-pop *{-webkit-text-size-adjust:100%;text-size-adjust:100
 .cfg-tbl th,.cfg-tbl td{padding:3px 6px;vertical-align:top;border-bottom:1px solid var(--line,#30363d)}
 .cfg-tbl .cfg-tbl{min-width:0;margin:0}
 .cfg-tbl input[type=text],.cfg-tbl textarea{background:transparent;color:inherit;border:1px solid var(--line,#30363d);border-radius:4px;padding:2px 5px;font:inherit}
+
+/* ---- one look for every page: shared pieces (app.js) ---- */
+/* in-place re-render (app.js route/rerender): the old page stays on screen in #main_ghost while #main is rebuilt hidden */
+main.staging{position:absolute;visibility:hidden;pointer-events:none;margin:0;max-width:none;z-index:-1}
+#main_ghost{pointer-events:none}
+#main_ghost::after{content:"";position:fixed;left:0;right:0;top:0;height:2px;z-index:200;background:linear-gradient(90deg,transparent,var(--accent),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:ghostbar 1s linear infinite}
+@keyframes ghostbar{from{background-position:-40% 0}to{background-position:140% 0}}
+#busyPill,#secProg{position:fixed;right:14px;bottom:14px;z-index:50;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:6px 12px;font-size:12px;color:var(--muted);
+  box-shadow:0 2px 10px #0006;display:flex;align-items:center;gap:8px}
+#busyPill{bottom:52px}
+i.spin,#secProg i{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:secspin .8s linear infinite}
+/* boxes that changed in a re-render fade in (unchanged ones are left alone) */
+@media (prefers-reduced-motion:no-preference){#main .cc-in{animation:cardin .25s ease-out}}
+@keyframes cardin{from{opacity:.35}to{opacity:1}}
+/* dialogs (modal()) */
+.modal-back{position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.modal{background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:16px;max-width:600px;width:92vw;max-height:90vh;overflow:auto;box-shadow:0 12px 32px #000a}
+.modal>h3{margin:0 0 8px;font-size:15px;color:var(--fg);text-transform:none;letter-spacing:0}
+.modal .form-grid{display:grid;grid-template-columns:9em 1fr;gap:6px;align-items:center}
+.modal .actions{margin-top:12px;display:flex;gap:6px;align-items:center}
+/* buttons: one primary style everywhere */
+button.primary{background:var(--accent);color:#0e1116;border-color:var(--accent);font-weight:600}
+button.primary:hover{filter:brightness(1.1)}
+button:disabled{opacity:.55;cursor:default}

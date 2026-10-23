@@ -296,7 +296,7 @@ def reopen_checked(eid, why=""):
                 except Exception:  # noqa: BLE001
                     pass
                 try:
-                    c = store.connect()
+                    c = store._dc()
                     with store.tx(c):
                         c.execute("UPDATE autoclose_log SET state='reopened', at=? WHERE type=? AND key=?", (store.now_iso(), t, k))
                 except sqlite3.Error:
@@ -654,9 +654,20 @@ TYPE_DESC = {"alert": "real-time watcher alert", "finding": "baseline behaviour 
              "gw": "UniFi gateway event (IPS/IDS threat detection, WAN, device or VPN event from the router)"}
 
 
+_SCHEMA_DONE = False
+
+
 def _db():
     c = sqlite3.connect(DB, timeout=10)
     c.execute("PRAGMA temp_store=MEMORY")  # the container's / and /tmp are read-only: sorts must not spill to temp files
+    global _SCHEMA_DONE
+    if not _SCHEMA_DONE:  # tables / columns / indexes: once per process, not on every connection
+        _schema(c)
+        _SCHEMA_DONE = True
+    return c
+
+
+def _schema(c):
     c.execute("CREATE TABLE IF NOT EXISTS cleared_events (eid TEXT PRIMARY KEY)")
     c.execute("""CREATE TABLE IF NOT EXISTS pair_artifacts (pair TEXT, kind TEXT, value TEXT, relation TEXT, decision TEXT,
                  model TEXT, ts REAL, PRIMARY KEY (pair, kind, value))""")
@@ -689,7 +700,13 @@ def _db():
             c.execute("ALTER TABLE review_tokens ADD COLUMN " + col)
         except sqlite3.OperationalError:
             pass
-    return c
+    for ix in ("CREATE INDEX IF NOT EXISTS verdicts_ts ON verdicts(ts)", "CREATE INDEX IF NOT EXISTS review_tokens_ts ON review_tokens(ts)",
+               "CREATE INDEX IF NOT EXISTS review_events_ts ON review_events(ts)", "CREATE INDEX IF NOT EXISTS es_queries_src_ts ON es_queries(source, ts)"):
+        try:
+            c.execute(ix)
+        except sqlite3.OperationalError:
+            pass
+    c.commit()
 
 
 def _cleared():
@@ -1516,7 +1533,7 @@ def sync_alarms(base):
     with _db() as c:
         susp = {e: why for e, lab, why in c.execute("SELECT eid, label, reason FROM event_class") if lab == "suspicious"}
     ok = {e: why for e, why in susp.items() if e in E and sev_of(E[e]) in ("medium", "high")}
-    db = store.connect()
+    db = store._dc()
     rows = [dict(r) for r in db.execute("SELECT id, key, source, held, cleared FROM alerts")]
     have_ev = {r["key"] for r in rows if r["source"] == "review"}
     promote = [int(e.split("|", 1)[1]) for e in ok if e.startswith("alert|") and e.split("|", 1)[1].isdigit()]
@@ -1672,32 +1689,35 @@ def overview(events, applied):
     """Everything the AI-review page shows: worker status, queue for the current snapshot, totals, throughput,
     and all stored verdicts (labelled with the current snapshot's events where known)."""
     now = time.time()
-    with _db() as c:
-        rows = c.execute("SELECT pair, related, confidence, reason, model, ts FROM verdicts ORDER BY ts DESC").fetchall()
-    real = [r for r in rows if not str(r[4]).startswith("dismissed:")]  # queue-clear markers are not reviews
+    NOTDIS = "(model IS NULL OR substr(model, 1, 10) != 'dismissed:')"  # queue-clear markers are not reviews
+    with _db() as c:  # aggregates in SQL; only the newest 3000 verdicts are sent as rows (was: every verdict loaded into Python)
+        rows = c.execute("SELECT pair, related, confidence, reason, model, ts FROM verdicts ORDER BY ts DESC LIMIT 3000").fetchall()
+        n_all, n_rel, n_man, conf_sum = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(related != 0), 0), COALESCE(SUM(substr(model, 1, 7) = 'manual:'), 0), COALESCE(SUM(confidence), 0) FROM verdicts").fetchone()
+        models = {m: n for m, n in c.execute("SELECT model, COUNT(*) FROM verdicts GROUP BY model")}
+        day = [ts for (ts,) in c.execute(f"SELECT ts FROM verdicts WHERE ts >= ? AND {NOTDIS}", (now - 86400,))]
     hours = {}
-    for _, _, _, _, m, ts in real:
-        if now - ts <= 86400:
-            h = int((now - ts) // 3600)
-            hours[h] = hours.get(h, 0) + 1
-    last_hour = sum(1 for r in real if now - r[5] <= 3600)
-    per_min = round(sum(1 for r in real if now - r[5] <= 300) / 5, 1)  # reviews decided per minute, last 5 min
+    for ts in day:
+        h = int((now - ts) // 3600)
+        hours[h] = hours.get(h, 0) + 1
+    last_hour = sum(1 for ts in day if now - ts <= 3600)
+    per_min = round(sum(1 for ts in day if now - ts <= 300) / 5, 1)  # reviews decided per minute, last 5 min
     with _db() as c:
         tok5 = c.execute("SELECT COALESCE(SUM(tokens),0) FROM review_tokens WHERE ts > ?", (now - 300,)).fetchone()[0]
         tc, ts_ = c.execute("SELECT COALESCE(SUM(completion),0), COALESCE(SUM(secs),0) FROM review_tokens WHERE ts > ? AND secs > 0", (now - 3600,)).fetchone()
-    with _db() as c:
         ev_stats = {}
         for lab, since in (("day", now - 86400), ("all", 0)):
             n_, pi, po = c.execute("SELECT COUNT(*), COALESCE(AVG(prompt),0), COALESCE(AVG(completion),0) FROM review_events WHERE ts > ? AND prompt + completion > 0", (since,)).fetchone()
             nn, = c.execute("SELECT AVG(notes) FROM review_events WHERE ts > ? AND prompt + completion > 0 AND notes IS NOT NULL", (since,)).fetchone()
             ev_stats[lab] = {"n": n_, "in": round(pi), "out": round(po), "notes": None if nn is None else round(nn, 1)}
-    with _db() as c:  # events sent through the review phase per local day (one row per event review), newest first
+        # events sent through the review phase per local day (one row per event review), newest first
         daily = [{"day": d, "events": n, "links": int(l or 0)} for d, n, l in c.execute(
             "SELECT date(ts,'unixepoch','localtime') d, COUNT(*), SUM(cands) FROM review_events GROUP BY d ORDER BY d DESC LIMIT 30").fetchall()]
+
     tps = round(tc / ts_, 1) if ts_ > 0 and tc > 0 else None  # average output tokens per second of model time, last hour
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)
-    rate = sum(1 for r in real if now - r[5] <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
+    rate = sum(1 for ts in day if now - ts <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
     out = []
     for p, rel, conf, why, m, ts in rows:
         a, b = p.split("\x1f", 1)
@@ -1707,19 +1727,16 @@ def overview(events, applied):
                     "a_link": ea.get("link") or "", "b_link": eb.get("link") or "", "current": bool(ea and eb),
                     "related": bool(rel), "confidence": conf, "reason": why, "model": m, "ts": ts,
                     "manual": str(m).startswith("manual:")})
-    models = {}
-    for r in out:
-        models[r["model"]] = models.get(r["model"], 0) + 1
     return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "provider", "error", "busy", "last_run", "decided_this_run", "es_queries_this_run", "classified_this_run", "classifying")},
             "es_queries": es_overview(events),
             "config": config(),
             "url": URL, "workers": WORKERS, "reasoning": REASONING,
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
-            "totals": {"verdicts": len(out), "related": sum(r["related"] for r in out), "rejected": sum(not r["related"] for r in out),
-                       "manual": sum(r["manual"] for r in out), "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats, "events_per_day": daily,
-                       "avg_conf": round(sum(r["confidence"] or 0 for r in out) / len(out), 2) if out else None},
-            "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out[:3000]}
+            "totals": {"verdicts": n_all, "related": n_rel, "rejected": n_all - n_rel,
+                       "manual": n_man, "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats, "events_per_day": daily,
+                       "avg_conf": round(conf_sum / n_all, 2) if n_all else None},
+            "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out}
 
 
 def es_overview(events, limit=50):

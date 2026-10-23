@@ -31,3 +31,4 @@ sec_accepted.json
 *.pdf
 *.jsonl
 logs/
+tests/.last_results.json

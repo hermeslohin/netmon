@@ -34,7 +34,7 @@
   /* ---------- host / device notes card ---------- */
   // subjects: every subject whose notes belong on this page; primary: where a new note is stored
   window.kbCard = (subjects, primary) => {
-    const c = card(`Notes <span class="kb-n muted small"></span>`, `<div class="kb-list"><div class="muted small">Loading notes…</div></div>
+    const c = card(`Notes <span class="kb-n muted small"></span>`, `<div class="kb-list"><div class="loading inline">Loading notes…</div></div>
       <form class="kb-form"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select>
       <textarea class="kb-text" rows="2" maxlength="2000" placeholder="Add a note about this device (role, what is normal, decisions)…"></textarea>
       <button type="submit">Add note</button></form>
@@ -215,7 +215,7 @@
   function erender(btn) {
     const { v, subj, what } = extInfo(btn);
     epop.innerHTML = `<div class="rel-head"><b>Notes on ${esc(what)}</b> <span class="muted small mono">${esc(v)}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
-      <div class="note-body"><div class="muted small">Loading notes…</div></div>`;
+      <div class="note-body"><div class="loading inline">Loading notes…</div></div>`;
     epop.querySelector(".rel-x").onclick = eclose;
     api("/api/kb/host?s=" + encodeURIComponent(subj)).then((d) => {
       const ns = d.notes || [];

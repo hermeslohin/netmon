@@ -9,9 +9,7 @@ _lock = threading.Lock()
 
 
 def _c():
-    c = store.connect()
-    c.execute("""CREATE TABLE IF NOT EXISTS event_seen (eid TEXT PRIMARY KEY, first TEXT, last TEXT, n INTEGER NOT NULL DEFAULT 0, last_sid TEXT)""")
-    return c
+    return store.tl_conn("eventseen", lambda c: c.execute("""CREATE TABLE IF NOT EXISTS event_seen (eid TEXT PRIMARY KEY, first TEXT, last TEXT, n INTEGER NOT NULL DEFAULT 0, last_sid TEXT)"""))
 
 
 def bump(E, sid):

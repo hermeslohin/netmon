@@ -24,9 +24,7 @@ CREATE INDEX IF NOT EXISTS events_open ON events(resolved, type);"""
 
 
 def _c():
-    c = store.connect()
-    c.executescript(DDL)
-    return c
+    return store.tl_conn("eventstore", lambda c: c.executescript(DDL))
 
 
 def ack_refs(eid):
@@ -189,5 +187,4 @@ def k_in(acks, ref):
     return ref[1] in (acks.get(ref[0]) or {})
 
 
-def count_open():
-    return open_events(limit=0)["total"]
+

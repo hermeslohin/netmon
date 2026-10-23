@@ -315,7 +315,3 @@ def stream(user, cid, text, emit, ctx=None, model=None, rec=None, es=True, web=F
             c.execute("update chats set title=? where id=?", (title, cid))
         c.execute("update chats set updated=? where id=?", (time.time(), cid))
     return answer
-
-
-def history_len(cid):
-    return len(_load(cid)[0])

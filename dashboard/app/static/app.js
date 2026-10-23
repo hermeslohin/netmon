@@ -218,7 +218,8 @@ function table(id, cols, rows, opts = {}) {
       b.onclick = async () => { const it = unchecked(); if (!it.length) return;
         if (!confirm(`Check off ${it.length} item${it.length > 1 ? "s" : ""}${st.q || act.length ? " matching the current filter" : ""}?`)) return;
         b.disabled = true; let seg = false;
-        try { for (const a of it) { await setAck(a.t, a.k, true, a.l); for (const m of JSON.parse(a.more || "[]")) await setAck(m.type, m.key, true, a.l); if (a.t === "seg") seg = true; } } catch (err) { alert(err); }
+        try { const items = []; for (const a of it) { items.push({ type: a.t, key: a.k, label: a.l }); for (const m of JSON.parse(a.more || "[]")) items.push({ type: m.type, key: m.key, label: a.l }); if (a.t === "seg") seg = true; }
+          S.acks = await apiPost("/api/acks", { items, checked: true }); } catch (err) { alert(err); }
         if (seg) { S.lateral = null; S.corr = null; try { S.risk = await api("/api/risk?id=" + encodeURIComponent(S.snap.id)); } catch (_) {} }
         rerender(); };
       (wrap.querySelector(".tbltools") || wrap).appendChild(b); }
@@ -280,11 +281,15 @@ function card(title, body, cls = "") { const c = document.createElement("div"); 
 function takeWaiting() { if (!S._t || !S._t.size) return null; const w = [...S._t]; S._t.clear(); return w; }
 function markWaiting(c) { const w = takeWaiting(); if (w) { c.classList.add("sec-loading"); c.dataset.wait = w.join(","); } return c; }
 function grid(cls, ...cards) { const g = document.createElement("div"); g.className = "grid " + cls; cards.filter(Boolean).forEach((c) => g.appendChild(c)); return g; }
-function kpis(list) { const w = takeWaiting(); return `<div class="kpis${w ? " sec-loading-kpis" : ""}">${list.map(([l, v, c]) => `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>`; }
+function kpis(list) { const w = takeWaiting(); return `<div class="kpis${w ? " sec-loading-kpis" : ""}"${w ? ` data-wait="${w.join(",")}"` : ""}>${list.map(([l, v, c]) => `<div class="kpi ${c || ""}"><div class="v">${v}</div><div class="l">${esc(l)}</div></div>`).join("")}</div>`; }
 function chartCard(title, cfg, cls = "", h = "") { const c = card(title, `<div class="chart ${h}"><canvas></canvas></div>`, cls); if (!c.classList.contains("sec-loading")) queueChart(c.querySelector("canvas"), cfg); return c; }
 const _pending = [];
-function queueChart(canvas, cfg) { _pending.push([canvas, cfg]); }
-function flushCharts() { while (_pending.length) { const [cv, cfg] = _pending.shift(); if (cv.isConnected) S.charts.push(new Chart(cv, cfg)); } }
+// cv._sig: the chart's data, for morphSig() (a re-render keeps a chart whose data did not change). Charts built during a
+// re-render do not animate in: an animation there looks like the whole page reloading.
+function queueChart(canvas, cfg) { try { canvas._sig = JSON.stringify([cfg.type, cfg.data]); } catch (_) { canvas._sig = String(Math.random()); } _pending.push([canvas, cfg]); }
+function flushCharts() { while (_pending.length) { let [cv, cfg] = _pending.shift(); if (!cv.isConnected) continue;
+  if (S._morphing) cfg = { ...cfg, options: { ...(cfg.options || {}), animation: false } };
+  S.charts.push(new Chart(cv, cfg)); } }
 
 Chart.defaults.color = "#8b949e"; Chart.defaults.borderColor = "#2a323d"; Chart.defaults.font.family = "system-ui, sans-serif";
 Chart.defaults.maintainAspectRatio = false; Chart.defaults.resizeDelay = 150; Chart.defaults.plugins.legend.labels.boxWidth = 12;
@@ -391,16 +396,25 @@ function askClean(o, depth = 0) {  // compact copy of the item for the prompt: d
   const r = {}; for (const [k, v] of Object.entries(o)) if (!k.startsWith("_") && v !== "" && v != null && k !== "investigated") r[k] = askClean(v, depth + 1);
   return r;
 }
+// Button registries (ask / compare / pivot): the same item gets the same id on every render, so an unchanged box is
+// recognised as unchanged by the in-place re-render (morphSig) and the registries stop growing with every refresh.
+function regId(map, keys, prefix, rec) {
+  let k = null; try { k = JSON.stringify(rec); } catch (_) { /* cyclic: no reuse */ }
+  let id = k != null ? keys.get(k) : null;
+  if (!id || !map.has(id)) { id = prefix + (map._seq = (map._seq || 0) + 1); if (k != null) keys.set(k, id); }
+  map.set(id, rec);
+  if (map.size > 20000) { const old = map.keys().next().value; map.delete(old); }
+  return id;
+}
+const ASK_K = new Map(), CMP_K = new Map();
 function askBtn(kind, title, item) {
-  const id = "a" + ++askSeq; ASK.set(id, { kind, title: String(title || "").slice(0, 300), item });
-  if (ASK.size > 4000) ASK.delete(ASK.keys().next().value);
+  const id = regId(ASK, ASK_K, "a", { kind, title: String(title || "").slice(0, 300), item });
   return `<button type="button" class="askh" data-ask="${id}" title="Ask AI about this" aria-label="Ask AI about this">💬</button>`;
 }
 // "compare models" button (compare.js): same registry idea as askBtn
 const CMP = new Map(); let cmpSeq = 0;
 function cmpBtn(kind, title, item, eid) {
-  const id = "c" + ++cmpSeq; CMP.set(id, { kind, title: String(title || "").slice(0, 300), item, eid });
-  if (CMP.size > 4000) CMP.delete(CMP.keys().next().value);
+  const id = regId(CMP, CMP_K, "c", { kind, title: String(title || "").slice(0, 300), item, eid });
   return `<button type="button" class="cmph" data-icmp="${id}" title="Compare models on this" aria-label="Compare models on this">⇄</button>`;
 }
 const askCmpCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) });
@@ -487,7 +501,6 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest(".ack-toggle"); if (!t) return;
   e.preventDefault(); S.showAcked[t.dataset.s] = !S.showAcked[t.dataset.s]; rerender();
 });
-function rerender() { const y = window.scrollY; route(true).then(() => requestAnimationFrame(() => window.scrollTo(0, y))); }
 
 /* ---------- views ---------- */
 const V = {};
@@ -974,10 +987,10 @@ function suppressedCard(items) {
     const IR = (D.ids_rules || []).map((r) => `<div style="display:flex;gap:8px;align-items:center;margin:2px 0"><span style="flex:1">🚫 IDS: <b>${esc(r.sig)}</b> · host: <b>${esc(r.host || "all hosts")}</b></span><span class="muted">${esc(r.by || "")}</span>${D.can_edit ? `<button type="button" class="idssup-rm" data-id="${r.id}">remove rule</button>` : ""}</div>`).join("");
     box.insertAdjacentHTML("afterend", IR ? `<div class="small idssup-rules"><b>📋 IDS signature rules</b> (hidden everywhere in netmon)${IR}</div>` : "");
     for (const b of c.querySelectorAll(".idssup-rm")) b.onclick = async () => { if (!confirm("Remove this rule? The signature comes back.")) return;
-      try { await apiPost("/api/llm/review-limits", { unids_suppress: +b.dataset.id }); location.reload(); } catch (e) { alert(e.message || e); } };
+      try { await apiPost("/api/llm/review-limits", { unids_suppress: +b.dataset.id }); refreshData(); } catch (e) { alert(e.message || e); } };
     box.insertAdjacentHTML("afterend", SR ? `<div class="small segsup-rules"><b>📋 Segmentation rules</b> (matching flows are hidden and not correlated)${SR}</div>` : "");
     for (const b of c.querySelectorAll(".segsup-rm")) b.onclick = async () => { if (!confirm("Remove this rule? The flows it hid come back.")) return;
-      try { await apiPost("/api/llm/review-limits", { unseg_suppress: +b.dataset.id }); location.reload(); } catch (e) { alert(e.message || e); } };
+      try { await apiPost("/api/llm/review-limits", { unseg_suppress: +b.dataset.id }); refreshData(); } catch (e) { alert(e.message || e); } };
     box.innerHTML = (D.rules || []).length ? `<b>📋 Rules</b>` + D.rules.map((r) => `<div style="display:flex;gap:8px;align-items:center;margin:2px 0"><span style="flex:1">name: <b>${esc(r.name)}</b>${r.art_type ? ` · ${({ ip: "🌐", domain: "🔗", user: "👤", process: "⚙️", port: "🔌", file: "📄" })[r.art_type] || ""} ${esc(r.art_type)}: <b>${esc(r.art)}</b>` : ""}</span>
       <span class="muted">${fn(r.events)} findings · ${fn(r.alerts)} alerts · ${esc(r.by || "")}</span>${D.can_edit ? `<button type="button" class="sup-rm" data-id="${r.id}">remove rule</button>` : ""}</div>`).join("") : '<div class="muted">No suppress rules.</div>';
     for (const b of box.querySelectorAll(".sup-rm")) b.onclick = async () => { if (!confirm("Remove this rule? What it suppressed comes back.")) return;
@@ -1213,28 +1226,138 @@ function go(r) { location.hash = "#/" + r; }
 let _lastView = "";
 function auditView(h) { if (h === _lastView) return; _lastView = h;
   fetch("/api/audit/view", { method: "POST", headers: { "Content-Type": "application/json", "X-Netmon": "1" }, body: JSON.stringify({ route: String(h).slice(0, 200) }) }).catch(() => {}); }
+/* ---------- in-place re-render (rerender) ----------
+   A re-render (a setting saved, an item checked off, a section or a background refresh arriving) never blanks the page.
+   The page being shown is moved into a stand-in <main id="main_ghost"> that stays on screen, the view renders into the
+   real #main hidden underneath (async views can take their time), and then every box whose content did not change is
+   moved back from the old page in place of its freshly built twin. Only boxes that really changed are swapped, so they
+   update one at a time; unchanged boxes keep their charts, scroll position, sort order, filters and open/closed state.
+   The scroll position is kept. A real page change (route() without keep) still renders straight into #main. */
+const MORPH_DECOR = ".cc-grip,.cc-rs,.cc-more,.cc-fade,.ci-btn,.note-btn,.cls-btn,.unote-btn,.seen-flair,.pend-flair";
+const MORPH_CLS = /^(cc-|sc-)|^(collapsed|has)$/;
+// Content fingerprint of one box: its HTML without what cards.js / cardinfo_ui.js / related.js add afterwards, plus the
+// data of its charts (a <canvas> has no data in its HTML).
+function morphSig(n) {
+  if (n.nodeType !== 1) return n.nodeType === 3 ? "t:" + n.textContent : "";
+  const c = n.cloneNode(true);
+  c.querySelectorAll(MORPH_DECOR).forEach((x) => x.remove());
+  c.querySelectorAll(".cc-body").forEach((b) => b.replaceWith(...b.childNodes));
+  c.querySelectorAll(".rel-btn").forEach((b) => { b.textContent = ""; b.removeAttribute("disabled"); });
+  for (const e of [c, ...c.querySelectorAll("*")]) {
+    if (e.classList.length) [...e.classList].forEach((k) => MORPH_CLS.test(k) && e.classList.remove(k));
+    if (!e.classList.length) e.removeAttribute("class");
+    for (const a of ["data-cc", "data-cc-uid", "data-cc-key", "aria-expanded"]) e.removeAttribute(a);
+    if (e.tagName === "H2") { e.removeAttribute("role"); e.removeAttribute("tabindex"); e.normalize(); }
+    if (e.tagName === "CANVAS") [...e.attributes].forEach((a) => e.removeAttribute(a.name));
+  }
+  c.removeAttribute("style");  // box sizes set by cards.js
+  c.normalize();
+  return c.outerHTML + [...n.querySelectorAll("canvas")].map((cv) => cv._sig || "").join("\u0001");
+}
+// containers are rebuilt; the boxes (leaves) inside them are what gets reused
+const morphCont = (n) => n.nodeType === 1 && !n.classList.contains("card") && !n.classList.contains("kpis") &&
+  (n.classList.contains("grid") || (n.tagName === "DIV" && !n.id && !n.className && !!n.querySelector(":scope > .card, :scope > .grid")));
+function morphApply(main, oldNodes) {
+  const pool = new Map();
+  const leaves = (list, out) => { for (const n of list) { if (morphCont(n)) leaves([...n.children], out); else if (n.nodeType === 1) out.push(n); } return out; };
+  for (const n of leaves(oldNodes, [])) { const k = morphSig(n); if (!pool.has(k)) pool.set(k, []); pool.get(k).push(n); }
+  let kept = 0, fresh = 0;
+  const walk = (parent) => { for (const n of [...parent.children]) {
+    if (morphCont(n)) { walk(n); continue; }
+    const o = pool.get(morphSig(n))?.shift();
+    if (o) { n.replaceWith(o); kept++; } else { fresh++; n.classList.add("cc-in"); n.addEventListener("animationend", () => n.classList.remove("cc-in"), { once: true }); }
+  } };
+  walk(main);
+  return { kept, fresh };
+}
+// Moving a box between #main and the stand-in loses the scroll position of its inner scrollers: remember and put back.
+const SCROLLERS = ".cc-body, .tblwrap, pre, .scroll";
+function scrollSave(root) { const out = []; root.querySelectorAll(SCROLLERS).forEach((e) => { if (e.scrollTop || e.scrollLeft) out.push([e, e.scrollTop, e.scrollLeft]); }); return out; }
+function scrollRestore(list) { for (const [e, t, l] of list || []) if (e.isConnected) { e.scrollTop = t; e.scrollLeft = l; } }
+function ghostDrop() {  // a real page change while a re-render was pending: forget the stand-in
+  const g = document.getElementById("main_ghost"); if (!g) return;
+  (S._ghostCharts || []).forEach((c) => c.destroy()); S._ghostCharts = null; g.remove();
+  const m = $("#main"); m.classList.remove("staging"); m.style.cssText = ""; S._morphing = false;
+}
+let _rrBusy = false, _rrAgain = false;
+async function rerender() {
+  if (_rrBusy) { _rrAgain = true; return; }
+  _rrBusy = true;
+  try { await route(true); } catch (e) { console.error("rerender", e); }
+  finally { _rrBusy = false; if (_rrAgain) { _rrAgain = false; rerender(); } }
+}
+
 async function route(keep) {
-  S.charts.forEach((c) => c.destroy()); S.charts = []; S._scrolled = false; S._noScroll = !!keep;
+  const gen = (S._gen = (S._gen || 0) + 1);
+  S._scrolled = false; S._noScroll = !!keep;
   if (S.pending?.size) { S._t = new Set(); S._order = []; }  // sections.js: record which not-yet-loaded sections each card reads
   let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
   if (isUserRole() && !USER_VIEWS.has(view)) { view = "my"; rest = []; }
   const arg = decodeURIComponent(rest.join("/"));
-  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (a.dataset.r + "s" === view + "s" && false) || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
+  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
-  const el = $("#main"); el.innerHTML = "";
+  const el = $("#main");
+  const morph = !!keep && el.childElementCount > 0 && el.dataset.view === view && view !== "chat";  // chat keeps live stream state: plain render
+  if (morph) {
+    let g = document.getElementById("main_ghost");
+    if (!g) {  // the page on screen moves into the stand-in; #main is rebuilt hidden underneath
+      g = document.createElement("main"); g.id = "main_ghost"; g.setAttribute("aria-hidden", "true");
+      const sc = scrollSave(el);
+      g.append(...el.childNodes); el.after(g);  // after #main: getElementById() keeps finding the new page's elements first
+      scrollRestore(sc); S._ghostScroll = sc;
+      S._ghostCharts = S.charts; S._ghostY = window.scrollY;
+    } else { S.charts.forEach((c) => c.destroy()); el.innerHTML = ""; }  // a newer re-render replaces the half-built one
+    S.charts = [];
+    const r = g.getBoundingClientRect();
+    el.classList.add("staging"); el.style.cssText = `top:${r.top + window.scrollY}px;left:${r.left + window.scrollX}px;width:${r.width}px`;
+    S._morphing = true;
+  } else {
+    ghostDrop();
+    S.charts.forEach((c) => c.destroy()); S.charts = [];
+    el.innerHTML = "";
+  }
+  el.dataset.view = view;
   if (!keep) auditView(location.hash || "#/" + view);
   let p;
   try { p = (V[view] || V.overview)(el, arg); S._t = null; if (p && p.then) p.then(() => flushCharts(), () => {}); }  // async views queue charts after the first flush
   catch (e) { console.error(e); el.innerHTML = `<div class="card"><h2>Render error</h2><pre>${esc(e.stack || e)}</pre></div>`; }
-  flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
-  const at = !keep && hq().get("at"); if (at) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 0);
-  if (p && p.then) await p.catch(() => {});  // let callers (rerender) know the view's own content is actually in the DOM
+  try {
+    flushCharts(); if (!keep && !S._scrolled) window.scrollTo(0, 0);
+    const at = !keep && hq().get("at"); if (at) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 0);
+    if (p && p.then) await p.catch(() => {});  // let callers (rerender) know the view's own content is actually in the DOM
+  } catch (e) { console.error("route", e); }
+  if (morph && gen === S._gen) {  // newest render: swap unchanged boxes back in, show it (always - even after an error above)
+    const g = document.getElementById("main_ghost"), oldCharts = S._ghostCharts || [];
+    try { if (g) morphApply(el, [...g.childNodes]); } catch (e) { console.error("morph", e); }
+    const live = (c) => c.canvas && el.contains(c.canvas);
+    oldCharts.forEach((c) => { if (!live(c)) c.destroy(); });
+    S.charts.forEach((c) => { if (!live(c)) c.destroy(); });
+    S.charts = [...oldCharts.filter(live), ...S.charts.filter(live)];
+    S._ghostCharts = null; g?.remove();
+    el.classList.remove("staging"); el.style.cssText = ""; S._morphing = false;
+    window.scrollTo(0, S._ghostY ?? window.scrollY); scrollRestore(S._ghostScroll); S._ghostScroll = null;
+    window.dispatchEvent(new Event("resize"));  // charts kept from the old page re-measure if their box moved
+  }
 }
 
+// Small "working" pill (bottom right) for loads that keep the current page on screen.
+function busyPill(on, text) {
+  let b = document.getElementById("busyPill");
+  if (!on) { b?.remove(); return; }
+  if (!b) { b = document.createElement("div"); b.id = "busyPill"; b.setAttribute("role", "status"); document.body.appendChild(b); }
+  b.innerHTML = `<i class="spin"></i> ${esc(text || "Updating…")}`;
+}
+// Loading another snapshot / range (or the same one again, ⟳ or after a rule change) keeps the current page on screen
+// while the data downloads, then updates it in place (rerender): no blank "Loading…" page.
 async function loadSnap(id) {
-  $("#main").innerHTML = `<div class="loading">Loading ${id.startsWith("r") ? "time range" : "snapshot " + esc(id)}…</div>`;
-  const [snap, hist, reg, iss, rsk, acks] = await Promise.all([api("/api/snapshot?id=" + encodeURIComponent(id)), api("/api/history"), api("/api/registry"), api("/api/issues").catch(() => null), api("/api/risk?id=" + encodeURIComponent(id)).catch(() => null), api("/api/acks").catch(() => ({}))]);
-  S.acks = acks || {};
+  const soft = !!S.snap && $("#main").childElementCount > 0 && !$("#main > .loading:only-child");
+  if (soft) busyPill(true, `Loading ${id.startsWith("r") ? "time range" : "snapshot " + id}…`);
+  else $("#main").innerHTML = `<div class="loading">Loading ${id.startsWith("r") ? "time range" : "snapshot " + esc(id)}…</div>`;
+  let got;
+  try { got = await Promise.all([api("/api/snapshot?id=" + encodeURIComponent(id)), api("/api/history"), api("/api/registry"), api("/api/issues").catch(() => null), api("/api/risk?id=" + encodeURIComponent(id)).catch(() => null), api("/api/acks").catch(() => ({}))]); }
+  finally { if (soft) busyPill(false); }
+  const [snap, hist, reg, iss, rsk, acks] = got;
+  S.acks = acks || {}; S.corr = null; S.lateral = null;
   S.snap = snap; S.reg = reg; S.issues = iss; S.risk = rsk;
   window.sectionsSetup?.(snap);  // a time range still being collected: placeholders + proxies, sections arrive after the first render
   // the time range: a collected range carries its own; a nightly snapshot covers generated - hours .. generated
@@ -1249,9 +1372,11 @@ async function loadSnap(id) {
   $("#foot").textContent = snap.range
     ? `time range ${new Date(snap.range.start).toLocaleString()} – ${new Date(snap.range.end).toLocaleString()} (collected for this range) · alarms and AI triage from nightly report ${snap.base || "—"}`
     : `snapshot ${snap.id} · generated ${new Date(snap.raw.generated).toLocaleString()} · companions: ${["analysis", "sources"].filter((c) => snap[c]).join(", ") || "none"}`;
-  route();
+  if (soft) rerender(); else route();
   window.sectionsStart?.();
 }
+// Server-side data changed (a suppression rule added / removed): fetch the open snapshot again and update the page in place.
+const refreshData = () => (S.snap ? loadSnap(S.snap.id) : rerender());
 async function init() {
   try {  // site-specific names/IPs come from the server after login
     Object.assign(SITE, await api("/api/site")); Object.assign(HOST_IP_HINTS, SITE.host_ips || {});
@@ -1304,40 +1429,38 @@ init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to loa
 function idsSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn ids-sup" data-sig="${esc(x.name)}" title="Suppress this IDS signature: hidden everywhere in netmon (Security Onion and UniFi are not changed)">🚫</button>` : ""; }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".ids-sup"); if (!b) return;
-  const d = document.createElement("div");
-  d.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center";
-  d.innerHTML = `<div style="background:var(--card,#1c2128);color:inherit;border:1px solid var(--line,#555);border-radius:8px;padding:14px;max-width:560px;width:92vw">
-    <h3 style="margin:0 0 6px">🚫 Suppress IDS signature</h3>
+  const d = document.createElement("div"); d.className = "modal-back";
+  d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>🚫 Suppress IDS signature</h3>
     <div class="small muted" style="margin-bottom:8px">The signature is hidden everywhere in netmon (Posture, correlation, AI review). Security Onion and UniFi are not changed. Leave Host empty for <b>all hosts</b>, or enter one IP (<span class="mono">*</span> allowed) to hide it only for that host. Remove the rule under Checked/suppressed.</div>
-    <div style="display:grid;grid-template-columns:9em 1fr;gap:6px;align-items:center"><label>Signature</label><input class="is-sig"><label>Host (optional)</label><input class="is-host" placeholder="all hosts"></div>
-    <div style="margin-top:10px;display:flex;gap:6px;align-items:center"><button type="button" class="is-ok">Suppress</button><button type="button" class="is-cancel">Cancel</button><span class="small is-msg"></span></div></div>`;
+    <div class="form-grid"><label>Signature</label><input class="is-sig"><label>Host (optional)</label><input class="is-host" placeholder="all hosts"></div>
+    <div class="actions"><button type="button" class="is-ok primary">Suppress</button><button type="button" class="is-cancel">Cancel</button><span class="small is-msg"></span></div></div>`;
   document.body.appendChild(d);
   const q = (c) => d.querySelector(c), close = () => d.remove();
   q(".is-sig").value = b.dataset.sig;
   q(".is-cancel").onclick = close; d.addEventListener("mousedown", (ev) => { if (ev.target === d) close(); });
   q(".is-ok").onclick = async () => {
     q(".is-ok").disabled = true; q(".is-msg").textContent = "saving…";
-    try { await apiPost("/api/llm/review-limits", { ids_suppress: { sig: q(".is-sig").value.trim(), host: q(".is-host").value.trim() } }); location.reload(); }
+    try { await apiPost("/api/llm/review-limits", { ids_suppress: { sig: q(".is-sig").value.trim(), host: q(".is-host").value.trim() } }); close(); refreshData(); }
     catch (err) { q(".is-ok").disabled = false; q(".is-msg").textContent = "error: " + (err.message || err); }
   };
 });
 function segSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn seg-sup" data-src="${esc(x.src)}" data-dst="${esc(x.dst)}" data-port="${esc(x.port)}" title="Suppress segmentation violations by IP address and ports: hidden everywhere and never sent to the correlation">🚫</button>` : ""; }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".seg-sup"); if (!b) return;
-  const d = document.createElement("div");
-  d.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center";
-  d.innerHTML = `<div style="background:var(--card,#1c2128);color:inherit;border:1px solid var(--line,#555);border-radius:8px;padding:14px;max-width:560px;width:92vw">
-    <h3 style="margin:0 0 6px">🚫 Suppress segmentation violations</h3>
+  const d = document.createElement("div"); d.className = "modal-back";
+  d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>🚫 Suppress segmentation violations</h3>
     <div class="small muted" style="margin-bottom:8px">Every flow matching ALL fields you fill in is hidden everywhere (Posture, Risk, Lateral movement, Fix list) and is <b>not sent to the correlation, research or AI review</b>. Use <span class="mono">*</span> in an IP (e.g. <span class="mono">10.1.*</span>); several ports separated by commas; leave a field empty for any. Remove the rule under Checked/suppressed.</div>
-    <div style="display:grid;grid-template-columns:9em 1fr;gap:6px;align-items:center"><label>Source IP</label><input class="ss-src"><label>Destination IP</label><input class="ss-dst"><label>Ports</label><input class="ss-ports"></div>
-    <div style="margin-top:10px;display:flex;gap:6px;align-items:center"><button type="button" class="ss-ok">Suppress</button><button type="button" class="ss-cancel">Cancel</button><span class="small ss-msg"></span></div></div>`;
+    <div class="form-grid"><label>Source IP</label><input class="ss-src"><label>Destination IP</label><input class="ss-dst"><label>Ports</label><input class="ss-ports"></div>
+    <div class="actions"><button type="button" class="ss-ok primary">Suppress</button><button type="button" class="ss-cancel">Cancel</button><span class="small ss-msg"></span></div></div>`;
   document.body.appendChild(d);
   const q = (c) => d.querySelector(c), close = () => d.remove();
   q(".ss-src").value = b.dataset.src; q(".ss-dst").value = b.dataset.dst; q(".ss-ports").value = b.dataset.port;
   q(".ss-cancel").onclick = close; d.addEventListener("mousedown", (ev) => { if (ev.target === d) close(); });
   q(".ss-ok").onclick = async () => {
     q(".ss-ok").disabled = true; q(".ss-msg").textContent = "saving…";
-    try { await apiPost("/api/llm/review-limits", { seg_suppress: { src: q(".ss-src").value.trim(), dst: q(".ss-dst").value.trim(), ports: q(".ss-ports").value.trim() } }); location.reload(); }
+    try { await apiPost("/api/llm/review-limits", { seg_suppress: { src: q(".ss-src").value.trim(), dst: q(".ss-dst").value.trim(), ports: q(".ss-ports").value.trim() } }); close(); refreshData(); }
     catch (err) { q(".ss-ok").disabled = false; q(".ss-msg").textContent = "error: " + (err.message || err); }
   };
 });

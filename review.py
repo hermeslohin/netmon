@@ -272,20 +272,6 @@ class Run:
         store.jdump(led, self.ledger_path())
         return {"id": sid}
 
-    def t_benign(self, a):
-        sec, key, why = str(a.get("section") or ""), str(a.get("value") or "").strip()[:200], str(a.get("reason") or "").strip()[:300]
-        p = os.path.join(NM, "known_benign.json")
-        kb = jload(p, {})
-        if sec not in ("signatures", "names", "dns_domains", "beacon_domains") or not key or not why:
-            raise ValueError("section: signatures | names | dns_domains | beacon_domains; value and reason are required")
-        if sec in ("signatures", "names"):
-            kb.setdefault(sec, {})[key] = why
-        elif key not in kb.setdefault(sec, []):
-            kb[sec].append(key)
-        store.jdump(kb, p)
-        self.counts["known_benign_added"] = self.counts.get("known_benign_added", 0) + 1
-        return {"ok": True}
-
     def _links(self, links, where):
         out = []
         urls = self.known_urls()

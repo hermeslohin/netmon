@@ -1,17 +1,25 @@
 // More -> Configuration (#/config): Auto-close ("expected"/"benign" events) and Integrations (Elasticsearch, UniFi API).
 (() => {
-  const EXPLAIN = {
-    expected: `<b>Expected</b> — the activity is <i>supposed</i> to happen: a known device doing its known job, or something you did on purpose. Examples: a thermostat checking in with its vendor cloud, OneDrive keeping its push channel open, your own admin SSH logins, the dashboard sending web-push notifications. The detection is accurate (the traffic really is new or unusual against the baseline), it is just explained by normal, intended operation.`,
-    benign: `<b>Benign</b> — the activity <i>looked</i> suspicious and the research found it harmless, but it is not part of a device's planned behavior: an IDS rule misfiring (a false positive), a one-off anomaly, or a device reaching a new but legitimate service. Examples: Suricata flagging replies on a Mac's own outbound sessions as a "listening port", an Echo contacting a new Apple Music domain. Harmless, but less predictable than "expected", so closing it automatically is a slightly bigger leap of trust.`,
+  const SRC = {
+    reviewer: `the <b>correlation reviewer LLM</b> (it reviews related events and classifies each finished event as suspicious, benign or expected on the AI review page; runs often, on lighter evidence)`,
+    researcher: `the <b>research model</b> (a person clicked <b>Send to research</b>; it searched the logs and wrote a note with a verdict, the “✨” button; a deeper look, so the more conservative source)`,
   };
+  const KIND = {
+    expected: `<b>Expected</b> — the activity is <i>supposed</i> to happen: a known device doing its known job, or something you did on purpose (a thermostat checking in with its vendor cloud, your own admin SSH logins). The detection is accurate; normal operation explains it.`,
+    benign: `<b>Benign</b> — the activity <i>looked</i> suspicious but is harmless and not planned device behavior: an IDS false positive, a one-off anomaly, a device reaching a new but legitimate service. Less predictable than “expected”, so closing it is a bigger leap of trust.`,
+  };
+  const LBL = { reviewer: "the reviewer LLM", researcher: "the researcher" };
+  const lbl = (o) => { const [s, k] = o.split("_"); return `${LBL[s]} says ${k}`; };
+  const OPTS = ["reviewer_expected", "reviewer_benign", "researcher_expected", "researcher_benign"];
   const row = (k, D) => {
+    const [src, kind] = k.split("_");
     const r = D[k] || {}, on = !!D.settings?.[k];
     return `<div class="cfg-opt" style="border-top:1px solid var(--line,#333);padding:12px 0">
       <label style="display:flex;gap:10px;align-items:flex-start;cursor:${D.admin ? "pointer" : "default"}">
         <input type="checkbox" class="cfg-ac" data-k="${k}" ${on ? "checked" : ""} ${D.admin ? "" : "disabled"} style="margin-top:3px">
-        <span><b>Automatically move events deemed “${k}” to closed findings</b> ${on ? '<span class="badge sev-good">On</span>' : '<span class="badge sev-unknown">Off</span>'}
-          <div class="muted small" style="margin-top:4px">${EXPLAIN[k]}</div></span></label>
-      <div class="small" style="margin:8px 0 0 28px">In the newest snapshot: <b>${r.closable || 0}</b> closable “${k}” items ·
+        <span><b>Automatically move events to closed findings when ${LBL[src]} finds them ${kind}</b> ${on ? '<span class="badge sev-good">On</span>' : '<span class="badge sev-unknown">Off</span>'}
+          <div class="muted small" style="margin-top:4px">${KIND[kind]}<br>Source: ${SRC[src]}.</div></span></label>
+      <div class="small" style="margin:8px 0 0 28px">In the newest snapshot: <b>${r.closable || 0}</b> closable ${kind} items ·
         <b>${r.auto_closed || 0}</b> auto-closed · <b>${r.would_close || 0}</b> ${on ? "will close after the next review run (or Run now)" : "would be closed if turned on"}
         ${r.reopened_by_user ? ` · ${r.reopened_by_user} reopened by a person (left open)` : ""}
         ${r.no_checklist ? ` · <span class="muted">${r.no_checklist} more without a check-off list (IDS / alerts / gateway / threat intel — not closable)</span>` : ""}
@@ -32,18 +40,18 @@
           <span id="rv-msg" class="small"></span></div>
         <div class="muted small">5 to 1440 minutes. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h.
           Each run is a AI Research job pass (events are not researched on the schedule), so shorter intervals cost proportionally more tokens (caps: AI review > Research job limits).</div>`;
-    const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">AI event research (run when someone clicks <b>Send to research</b>${iv ? `; the scheduled job runs every ${ivTxt(iv)}` : ""}) writes a note with a verdict for an event
-      (malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event). These options check off the events whose verdict is
-      “expected” or “benign”, moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span>.
-      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after a research note is stored</b> (a Send to research click), and when you press “Run now”.
+    const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">Two AI sources judge an event: the <b>reviewer LLM</b> (classifies finished correlation reviews as suspicious, benign or expected) and the <b>researcher</b>
+      (event research, run when someone clicks <b>Send to research</b>${iv ? `; the scheduled job runs every ${ivTxt(iv)}` : ""}, writes a note with a verdict: malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event).
+      Turn on either or both: the options check off events that the chosen source found “expected” or “benign” (an event either source calls suspicious or malicious is never closed), moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span> naming the source.
+      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after a research note is stored</b> (a Send to research click), and when you press “Run now”. Reviewer verdicts are picked up on those runs too.
       Items you have already checked off are untouched; if you uncheck an auto-closed item it stays open; if a later review changes the verdict to something
       else (e.g. suspicious) the item reopens on that run. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
       ${sched}
-      ${row("expected", D)}${row("benign", D)}
+      ${OPTS.map((o) => row(o, D)).join("")}
       <div class="muted small" style="border-top:1px solid var(--line,#333);padding-top:8px">${D.admin ? "" : "Only an admin can change these settings. "}
         ${s.updated_by ? `Last changed by ${esc(s.updated_by)} ${esc(ft(s.updated_at))}.` : "Never changed (both off)."}
-        ${L ? ` Last auto-close pass ${esc(ft(L.at))} (${esc(L.trigger || "")}): closed ${Object.entries(L.closed || {}).map(([k, v]) => `${v} ${esc(k)}`).join(", ") || "nothing"}${L.reopened ? `, reopened ${L.reopened} (verdict changed)` : ""}.` : " No auto-close pass yet."}
-        ${D.admin && (s.expected || s.benign) ? ` <button id="cfg-run">Run now</button>` : ""}</div>`);
+        ${L ? ` Last auto-close pass ${esc(ft(L.at))} (${esc(L.trigger || "")}): closed ${Object.entries(L.closed || {}).map(([k, v]) => `${v} ${esc(k.replace("_", " "))}`).join(", ") || "nothing"}${L.reopened ? `, reopened ${L.reopened} (verdict changed)` : ""}.` : " No auto-close pass yet."}
+        ${D.admin && OPTS.some((o) => s[o]) ? ` <button id="cfg-run">Run now</button>` : ""}</div>`);
     c.id = "cfg-triage"; el.appendChild(c);
     const save = async (body, url = "/api/config/triage") => {
       c.style.opacity = 0.6;
@@ -51,9 +59,9 @@
       catch (e) { c.style.opacity = 1; alert(String(e)); }
     };
     c.querySelectorAll(".cfg-ac").forEach((cb) => (cb.onchange = () => {
-      const v = { expected: !!s.expected, benign: !!s.benign, [cb.dataset.k]: cb.checked };
+      const v = { ...Object.fromEntries(OPTS.map((o) => [o, !!s[o]])), [cb.dataset.k]: cb.checked };
       const n = D[cb.dataset.k]?.would_close || 0;
-      if (cb.checked && n && !confirm(`${n} “${cb.dataset.k}” item(s) will be closed after the next review run (or press Run now), and new ones after every run. Continue?`)) { cb.checked = false; return; }
+      if (cb.checked && n && !confirm(`${n} item(s) where ${lbl(cb.dataset.k)} will be closed after the next review run (or press Run now), and new ones after every run. Continue?`)) { cb.checked = false; return; }
       save(v);
     }));
     const rh = c.querySelector("#rv-h"), rm = c.querySelector("#rv-m"), rs = c.querySelector("#rv-save"), rmsg = c.querySelector("#rv-msg");
@@ -73,7 +81,7 @@
     const run = c.querySelector("#cfg-run");
     if (run) run.onclick = () => save({}, "/api/config/triage/run");
     c.querySelectorAll(".cfg-reopen").forEach((b) => (b.onclick = () => {
-      if (confirm(`Reopen every auto-closed “${b.dataset.k}” item? They will not be auto-closed again (the option stays ${s[b.dataset.k] ? "on for new items" : "off"}).`)) save({ kind: b.dataset.k }, "/api/config/triage/reopen");
+      if (confirm(`Reopen every item auto-closed because ${lbl(b.dataset.k)}? They will not be auto-closed again (the option stays ${s[b.dataset.k] ? "on for new items" : "off"}).`)) save({ kind: b.dataset.k }, "/api/config/triage/reopen");
     }));
   }
   /* ---------- Integrations: Elasticsearch (Security Onion) + UniFi API ---------- */

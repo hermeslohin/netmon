@@ -62,7 +62,7 @@
         if (t < 5 || t > 1440) { im.textContent = "between 5 and 1440 minutes"; return; }
         if (t === cur) { im.textContent = ""; return; }
         im.className = "small"; im.textContent = "saving…";
-        tm = setTimeout(async () => { try { await apiPost("/api/config/review-schedule", { hours: 0, minutes: t }); im.textContent = "saved ✓"; setTimeout(() => location.reload(), 600); }
+        tm = setTimeout(async () => { try { await apiPost("/api/config/review-schedule", { hours: 0, minutes: t }); im.textContent = "saved ✓"; setTimeout(() => rerender(), 600); }
           catch (e) { im.className = "small sev-high"; im.textContent = String(e.message || e); } }, 800); };
     }
     if (D.admin && J) {
@@ -916,7 +916,7 @@
       const go = async (path, warn) => {
         if (!confirm(warn)) return;
         msg.textContent = "clearing…";
-        try { const r = await apiPost(path, {}); msg.textContent = `done (${fn(r.dismissed || 0)} dismissed)`; setTimeout(() => location.reload(), 800); }
+        try { const r = await apiPost(path, {}); msg.textContent = `done (${fn(r.dismissed || 0)} dismissed)`; S.corr = null; setTimeout(() => rerender(), 800); }
         catch (e) { msg.textContent = "error: " + e.message; }
       };
       bar.querySelector(".clr-rq").onclick = () => go("/api/aireview/clear-research",
@@ -929,27 +929,27 @@
       ev.preventDefault();
       let box = el.querySelector("#ai-rq");
       if (box) { box.remove(); return; }
-      box = card("Events awaiting research", '<div class="small muted">Loading…</div>'); box.id = "ai-rq";
+      box = card("Events awaiting research", '<div class="loading inline">Loading…</div>'); box.id = "ai-rq";
       (el.querySelector(".kpis") || el.lastElementChild).after(box);
       try {
         const Q = await api("/api/aireview/research-queue");
-        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events the next run would send to the model (research mode, no note yet)${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}. Snapshot ${esc(Q.snapshot || "")}.</div>`;
+        box.querySelector(".loading").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events the next run would send to the model (research mode, no note yet)${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}. Snapshot ${esc(Q.snapshot || "")}.</div>`;
         if (Q.items?.length) box.appendChild(table(null, [
           { k: "type", t: "Type", cls: "mono small" }, { k: "sev", t: "Severity" },
           { k: "label", t: "Event", fmt: (v, r) => (r.testing ? '<span class="badge sev-unknown" title="test mode: never sent">testing</span> ' : "") + (r.link ? `<a href="${esc(r.link)}">${esc(v)}</a>` : esc(v)) },
           { k: "when", t: "When", cls: "small" }, { k: "repeats", t: "Repeats", num: true }], Q.items, { sort: "sev", limit: 50 }));
-      } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
+      } catch (e) { box.querySelector(".loading")?.remove(); box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
     const rva = el.querySelector(".rv-open");
     if (rva) rva.onclick = async (ev) => {
       ev.preventDefault();
       let box = el.querySelector("#ai-rv");
       if (box) { box.remove(); return; }
-      box = card("Links awaiting review", '<div class="small muted">Loading…</div>'); box.id = "ai-rv";
+      box = card("Links awaiting review", '<div class="loading inline">Loading…</div>'); box.id = "ai-rv";
       (el.querySelector("#ai-rq") || el.querySelector(".kpis") || el.lastElementChild).after(box);
       try {
         const Q = await api("/api/aireview/review-queue");
-        box.querySelector(".small").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
+        box.querySelector(".loading").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
         const ln = (l, lk, t, id) => `<span class="mono muted small">${esc(t)}</span> ${lk ? `<a href="${esc(lk)}">${esc(l)}</a>` : esc(l)}${id ? `<div class="mono muted small" style="word-break:break-all">${esc(id)}</div>` : ""}`;
         if (Q.items?.length) box.appendChild(table(null, [
           { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => esc(pairText(r.a_type, r.b_type)) },
@@ -957,7 +957,7 @@
           { k: "b_label", t: "Linked to", fmt: (v, r) => ln(v, r.b_link, TYPE[r.b_type] || r.b_type, r.b) + (r.b_type === "alert" ? " " + alertMuteHtml(v) : "") },
           { k: "why", t: "Why correlated", cls: "small", fmt: (v) => esc(Array.isArray(v) ? v.join(", ") : String(v || "")) }, { k: "score", t: "Score", num: true, fmt: (v) => esc(String(Math.round(v * 100) / 100)) }],
           Q.items, { sort: "score", limit: 50 }));
-      } catch (e) { box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
+      } catch (e) { box.querySelector(".loading")?.remove(); box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
     el.appendChild(reviewVolumeCard(D));
     el.appendChild(modelsCard(D));
@@ -1026,19 +1026,7 @@
   };
   // Page entry: build inside a wrapper so a background refresh can swap the whole page in one step.
   V.aireview = async (el) => { const w = document.createElement("div"); el.appendChild(w); await build(w); };
-  // Background refresh: build the new page off-screen, then replace the old one in a single step. No blank page, no flash,
-  // and the scroll position is kept (route()/rerender() would empty #main first, collapse the page and jump to the top).
-  let _busy = false;
-  async function refresh() {
-    const main = document.getElementById("main"); if (_busy || !main) return; _busy = true;
-    try {
-      const w = document.createElement("div"); await build(w, true);
-      if (!location.hash.startsWith("#/aireview") || main !== document.getElementById("main")) return;
-      const y = window.scrollY, anim = Chart.defaults.animation;
-      S.charts.forEach((c) => c.destroy()); S.charts = [];
-      main.replaceChildren(w);
-      Chart.defaults.animation = false; try { flushCharts(); } finally { Chart.defaults.animation = anim; }
-      window.scrollTo(0, y);
-    } catch (e) { console.error(e); } finally { _busy = false; }
-  }
+  // Background refresh: an in-place re-render (app.js rerender): only the boxes whose numbers changed are swapped, the rest
+  // (charts, open tables, scroll position) stay as they are.
+  const refresh = () => { if (location.hash.startsWith("#/aireview")) return rerender(); };
 })();

@@ -540,12 +540,6 @@ def all_event_notes(limit=500, ai=False):
         return rows
 
 
-def get_event_note(note_id):
-    with _db() as c:
-        r = c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE id=?", (int(note_id),)).fetchone()
-    return dict(zip(_ECOLS, r)) if r else None
-
-
 def add_event_note(eid, text, author, label="", role="admin"):
     """Notes by a User-role account start 'pending' (hidden from the AI until approved); others are approved at once."""
     eid, text = str(eid or "").strip()[:600], str(text or "").strip()[:MAX_TEXT]

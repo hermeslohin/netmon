@@ -13,7 +13,7 @@ Checks over the last WINDOW minutes:
      (lateral.admin_sessions levels: high = guessing or >=3 failures then success, medium = any failed login or >=5 refused)
 Each finding is suppressed for SUPPRESS_H hours after it is first sent.
 """
-import json, os, sys, time
+import json, os, sys
 
 sys.argv = [sys.argv[0], "1"]
 NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))

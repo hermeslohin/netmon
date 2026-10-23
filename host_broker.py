@@ -17,7 +17,7 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env).
 """
-import glob, hmac, json, os, subprocess, sys, threading, time
+import hmac, json, os, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NM = os.path.dirname(os.path.abspath(__file__))

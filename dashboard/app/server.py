@@ -20,7 +20,7 @@ import chat
 import kb
 import audit
 from http.cookies import SimpleCookie
-import base64, glob, gzip, hmac, json, os, re, ssl, sys, threading, time
+import glob, gzip, json, os, re, ssl, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -570,7 +570,8 @@ def write_ack(typ, key, checked, note="", label=""):
 _issues = {"sig": None, "val": None}
 
 
-_CORR = {}
+_CORR = {}  # sid -> (cache key, correlation map); .clear() drops them all
+_CORR_LOCK = threading.Lock()  # one build at a time: concurrent requests for a stale map wait for it instead of each rebuilding
 
 
 def snap_window(sid):
@@ -655,8 +656,21 @@ def correlation(sid):
     open_iss = [i for i in it.get("open", []) if (i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open"))
                 and risk.seg_key_issue(i["key"]) not in _clr]
     ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()), tuple(r["id"] for r in store.seg_suppress_list()), tuple(r["id"] for r in store.ids_suppress_list()))
-    if _CORR.get("k") == ck:
-        return _CORR["v"]
+    hit = _CORR.get(sid)
+    if hit and hit[0] == ck:
+        return hit[1]
+    with _CORR_LOCK:
+        hit = _CORR.get(sid)
+        if hit and hit[0] == ck:  # built by the request we waited for
+            return hit[1]
+        v = _correlation_build(sid, res, alerts, open_iss, ck)
+        while len(_CORR) >= 4:  # the latest report + a few time ranges / older reports people are looking at
+            _CORR.pop(next(iter(_CORR)))
+        _CORR[sid] = (ck, v)
+        return v
+
+
+def _correlation_build(sid, res, alerts, open_iss, ck):
     pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
     try:
         import mitre
@@ -695,7 +709,6 @@ def correlation(sid):
             accounts.write_notes(SITE.is_internal)
     except Exception as e:  # noqa: BLE001 - profiling must never break correlation
         print(f"accounts: profile pass failed: {e}", file=sys.stderr)
-    _CORR.update(k=ck, v=v)
     return v
 
 
@@ -811,6 +824,24 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript",
 class H(BaseHTTPRequestHandler):
     server_version = "netmon"
     sys_version = ""  # don't advertise the Python version
+    # HTTP/1.1 keep-alive: a page load makes 10-30 API calls; reusing the TLS connection saves a handshake per call (the
+    # handshake runs in the accept loop, so it also serialised concurrent requests). Every response sends Content-Length;
+    # the chat stream closes its connection. Idle connections are dropped after `timeout` seconds.
+    protocol_version = "HTTP/1.1"
+    timeout = 30
+
+    def setup(self):
+        super().setup()  # applies `timeout` to the socket first, so a stalled handshake cannot hold the thread forever
+        self._tls_ok = True
+        if isinstance(self.request, ssl.SSLSocket):
+            try:
+                self.request.do_handshake()
+            except (ssl.SSLError, OSError):  # scanners / plain-HTTP clients: drop quietly, as the accept loop used to
+                self._tls_ok = False
+
+    def handle(self):
+        if self._tls_ok:
+            super().handle()
 
     def log_message(self, fmt, *a):
         sys.stderr.write("%s %s\n" % (self.address_string(), fmt % a))
@@ -846,9 +877,6 @@ class H(BaseHTTPRequestHandler):
                 return fwd
         return peer
 
-    def _set_cookie(self, value, max_age):
-        self.send_header("Set-Cookie", f"{self.COOKIE}={value}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Strict")
-
     def _deny(self, path):
         if path.startswith("/api/"):
             return self._json({"error": "login required"}, 401)
@@ -860,6 +888,8 @@ class H(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype, cache="no-store"):
         if isinstance(body, str):
             body = body.encode()
+        if self.command == "POST" and not getattr(self, "_body_read", False):
+            self.close_connection = True  # body not (fully) read: don't reuse this connection
         gz = "gzip" in self.headers.get("Accept-Encoding", "") and len(body) > 1024
         if gz:
             body = gzip.compress(body, 5)
@@ -970,7 +1000,7 @@ class H(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, separators=(",", ":"), default=str), "application/json")
 
     def do_POST(self):
-        self._code, self._aud = None, {"path": urlparse(self.path).path}
+        self._code, self._aud, self._body_read = None, {"path": urlparse(self.path).path}, False
         try:
             self._do_post()
         finally:  # every POST is a user action: one audit entry with the outcome (status code), secrets redacted
@@ -992,6 +1022,7 @@ class H(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
+            self._body_read = n <= 65536  # keep-alive: an unread request body tail would be parsed as the next request
             self._aud["body"] = body
             if u.path == "/api/login":
                 cookie, err = auth.login(str(body.get("username", "")), str(body.get("password", "")), self._client_ip())
@@ -1113,11 +1144,11 @@ class H(BaseHTTPRequestHandler):
                     print(f"research schedule: {user} -> every {mins} min", file=sys.stderr)
                 inp = autoclose_inputs()
                 if u.path == "/api/config/triage":
-                    autoclose.set_settings(body.get("expected"), body.get("benign"), user)
-                    print(f"autoclose settings: {user} expected={bool(body.get('expected'))} benign={bool(body.get('benign'))}", file=sys.stderr)
+                    autoclose.set_settings(body, user)
+                    print(f"autoclose settings: {user} on={[o for o in autoclose.OPTS if body.get(o)]}", file=sys.stderr)
                 elif u.path == "/api/config/triage/reopen":
                     k = body.get("kind")
-                    autoclose.reopen_all(user, k if k in autoclose.KINDS else None)
+                    autoclose.reopen_all(user, k if k in autoclose.OPTS else None)
                 elif u.path == "/api/config/triage/run" and inp:
                     autoclose.run(*inp, trigger=f"run now ({user})")
                 r = autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}
@@ -1441,6 +1472,12 @@ class H(BaseHTTPRequestHandler):
                 n = store.cfg_save(doc, data)
                 print(f"settings: {user} changed {doc} / {'/'.join(map(str, kp))} ({n} rows)", file=sys.stderr)
                 return self._json({"ok": True, "rows": n})
+            if u.path == "/api/acks" and isinstance(body.get("items"), list):  # bulk (Check all)
+                its = [(str(i.get("type", ""))[:40], str(i.get("key", ""))[:600], str(i.get("label") or ""))
+                       for i in body["items"][:20000] if isinstance(i, dict)]
+                its = [i for i in its if i[0] and i[1]]
+                with _ack_lock:
+                    return self._json(store.ack_set_many(its, bool(body.get("checked"))))
             if u.path == "/api/acks":
                 typ, key = str(body.get("type", ""))[:40], str(body.get("key", ""))[:600]
                 if not typ or not key:
@@ -1838,7 +1875,8 @@ def main():
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_cert_chain(CERT, KEY)
-    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)  # handshake on first read, in the request thread, not the accept loop
+    srv.daemon_threads = True
     print(f"netmon dashboard on https://0.0.0.0:{PORT} (data {ROOT}, users={len(auth.load())})",
           flush=True)
     srv.serve_forever()

@@ -4,7 +4,7 @@ which now lives in the SQLite cfg table (edited on the dashboard Settings page; 
 
 Lookup: store.cfg_load("site") (the DB is found like store.py does: $NETMON_DB / $STATE_DIR / dashboard/state).
 """
-import json, os, sys, time
+import json, os, time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULTS = {

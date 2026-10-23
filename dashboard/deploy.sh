@@ -18,5 +18,5 @@ docker run -d --name netmon-dashboard --restart unless-stopped \
   -v "$(cd .. && pwd):/netmon:ro" \
   -v "$PWD/certs:/certs:ro" \
   -v "$PWD/state:/state:rw" \
-  --memory 512m \
+  --memory 2g --ulimit nofile=4096:4096 \
   "$IMAGE"

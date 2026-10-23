@@ -16,7 +16,7 @@ API keys are never sent back to the browser (public() returns a masked hint only
 
 CLI: integrations.py show            effective settings (keys masked) and where each value comes from
 """
-import json, os, ssl, sys, tempfile, time, urllib.error, urllib.request
+import json, os, ssl, sys, time, urllib.error, urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)

@@ -1,11 +1,10 @@
 // Pivot links: a 🔎 button on Security rows (baseline findings, IDS signatures, host findings, beacons, triage alarms,
 // gateway events) that opens a popover of deep links into Kibana Discover - and, for gateway events, the UniFi web app.
 // Base URLs come from /api/site (the site settings (More → Settings): kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
-const PIV = new Map(); let pivSeq = 0;
+const PIV = new Map(), PIV_K = new Map();
 function pivotBtn(kind, item) {
   if (!SITE.kibana_url && !(kind === "gateway" && SITE.unifi_web_url)) return "";
-  const id = "p" + ++pivSeq; PIV.set(id, { kind, item });
-  if (PIV.size > 4000) PIV.delete(PIV.keys().next().value);
+  const id = regId(PIV, PIV_K, "p", { kind, item });
   return `<button type="button" class="pivh" data-piv="${id}" title="Open the related events in Kibana${kind === "gateway" ? " / UniFi" : ""}" aria-label="Open related events">🔎</button>`;
 }
 const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivotBtn(kind, x) });

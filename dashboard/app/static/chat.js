@@ -150,7 +150,7 @@
     ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); send(ta.value); } });
     form.onsubmit = (e) => { e.preventDefault(); send(ta.value); };
     el.querySelector(".chat-listbtn").onclick = () => document.body.classList.toggle("chat-list-open");
-    el.addEventListener("click", async (e) => {
+    el.querySelector(".chat-wrap").addEventListener("click", async (e) => {  // on the page's own wrapper: #main outlives renders, listeners on it piled up
       const s = e.target.closest("[data-sugg]"); if (s) return send(s.dataset.sugg);
       const d = e.target.closest("[data-del]");
       if (d) { e.stopPropagation(); if (!confirm("Delete this chat?")) return; await post({ action: "delete", id: d.dataset.del }).catch(() => {});

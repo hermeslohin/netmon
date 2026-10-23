@@ -22,7 +22,10 @@ _lock = threading.Lock()
 
 
 def _c():
-    c = store.connect()
+    return store.tl_conn("suppress", _suppress_init)
+
+
+def _suppress_init(c):
     c.execute("""CREATE TABLE IF NOT EXISTS suppress_log (type TEXT NOT NULL, key TEXT NOT NULL, rule INTEGER, eid TEXT,
                  at TEXT, state TEXT NOT NULL, PRIMARY KEY (type, key))""")
     for col, ddl in (("hits", "INTEGER DEFAULT 0"), ("last_sid", "TEXT")):  # match counter: once per snapshot the item is seen matching
@@ -30,7 +33,6 @@ def _c():
             c.execute(f"ALTER TABLE suppress_log ADD COLUMN {col} {ddl}")
         except Exception:  # noqa: BLE001 - already there
             pass
-    return c
 
 
 def _targets(raw, analysis, open_issues, E):

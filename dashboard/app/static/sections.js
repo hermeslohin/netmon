@@ -2,7 +2,7 @@
 // The server sends a placeholder snapshot (snap.pending = section names). Every view is rendered as usual; S.snap.raw,
 // S.snap.analysis and S.idx are Proxies that record which not-yet-loaded sections a card read while it was being built, so
 // that card gets a spinner (app.js markWaiting) and the page's sections are fetched in the order the cards appear - top to
-// bottom, two at a time. Each arrival re-renders the page (scroll kept); sections no card on this page reads follow, and
+// bottom, two at a time. Each arrival updates just the boxes that waited for it; sections no card on this page reads follow, and
 // "analysis" (needs all the others) is last.
 (() => {
   const CONCURRENCY = 2, IDX_SECS = ["devices", "hosts"];
@@ -39,9 +39,16 @@
     return !others && free.includes("analysis") ? "analysis" : null;
   }
 
+  // Each card loads on its own: an arrival re-renders the page in place (app.js rerender): boxes whose content did not
+  // change - loaded ones and ones still waiting - stay exactly as they are (spinners keep running, nothing flashes), and only
+  // the boxes that were waiting for the arrived sections are swapped for their filled-in versions.
+  const partial = () => rerender();
   function renderSoon() {
     if (timer) return;
-    timer = setTimeout(() => { timer = null; window.sectionsBuildIndex(); progress(); rerender(); }, 40);
+    timer = setTimeout(() => {
+      timer = null; window.sectionsBuildIndex(); progress();
+      partial();
+    }, 150);  // coalesces near-simultaneous arrivals into one pass
   }
 
   async function worker(id) {
@@ -64,7 +71,7 @@
         if (n === "analysis" && d) {  // risk needs the analysis
           const sid = S.snap.id; S.risk = await api("/api/risk?id=" + encodeURIComponent(sid)).catch(() => null);
         }
-        renderSoon();
+        renderSoon(n);
         const bad = Object.keys(S.secErr);
         if (bad.length) { const f = document.getElementById("foot"); if (f && !f.dataset.secErr) { f.dataset.secErr = "1"; f.textContent += ` · failed to load: ${bad.join(", ")}`; } }
       }

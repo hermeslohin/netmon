@@ -3,7 +3,7 @@
 Run by the nightly collector (hosts.gather -> d["details"]) so the dashboard can drill down without any
 Elasticsearch credentials of its own. Read-only (_search only). Uses the same key as the rest of netmon.
 """
-import collections, json, os, re, ssl, sys, time, urllib.request
+import json, os, re, ssl, sys, time, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import site_cfg as SITE  # noqa: E402  network-specific values live in site.json (git-ignored)

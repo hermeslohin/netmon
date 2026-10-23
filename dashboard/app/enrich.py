@@ -114,12 +114,18 @@ def for_acks(acks):
             for r in c.execute(f"SELECT {cols} FROM notes WHERE skey IN ({','.join('?' * len(ch))})", ch):
                 for k in want[r[0]]:
                     out[k] = note(r, True)
-        if fl:
-            rows = [r for r in c.execute(f"SELECT {cols} FROM notes WHERE skey LIKE 'f|%' ORDER BY ts DESC")]
+        if fl:  # labels are normalised once per note (not once per note x checked finding), then matched by kind
+            rows, bykind = [], {}
+            for r in c.execute(f"SELECT {cols} FROM notes WHERE skey LIKE 'f|%' ORDER BY ts DESC"):
+                nl = _NUM.sub("#", str(r[11] or ""))
+                rows.append((nl, r))
+                kd, sep, _ = nl.partition(": ")
+                if sep:
+                    bykind.setdefault(kd, []).append((nl, r))
             for k, lab in fl.items():
-                kind, _, detail = lab.partition(": ")
-                for r in rows:
-                    nl = _NUM.sub("#", str(r[11] or ""))
+                kind, sep, detail = lab.partition(": ")
+                cand = bykind.get(kind, ()) if sep else rows  # labels without "kind: " (rare): scan them all, as before
+                for nl, r in cand:  # newest first, as before
                     if nl == lab or (nl.startswith(kind + ": ") and nl.endswith(" - " + detail)):
                         out[k] = note(r, False)
                         break
@@ -264,7 +270,7 @@ def status(event_ids=()):
     queue = None
     try:  # events the next run would send out: research-mode, no note yet, not dismissed (cached briefly: it is a full work-list build)
         if time.time() - _QCACHE.get("t", 0) > 30:
-            r = _events()
+            r = _events_cached()
             _QCACHE.update(t=time.time(), v=None if r.get("error") else {"count": r["research_queue"], "testing": r["research_testing"], "review_only": r["review_only"],
                                                                    "review_covered": r["review_covered"]})
         queue = _QCACHE.get("v")
@@ -414,6 +420,15 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
 _QCACHE = {}
 
 
+def _events_cached(ttl=30):
+    """_events() shared by the AI-review status, the research queue list and the test-mode ids for `ttl` seconds: the
+    work-list build (difflib similarity over earlier notes) costs ~0.5 s and all three read the same result.
+    _QCACHE.clear() (settings changes, research requests) drops it."""
+    if time.time() - _QCACHE.get("ev_t", 0) > ttl or "ev" not in _QCACHE:
+        _QCACHE.update(ev=_events(), ev_t=time.time())
+    return _QCACHE["ev"]
+
+
 def _requested(E, notes, ak):
     """Note keys with a pending 'send to research' request whose event has no note yet; satisfied requests are dropped."""
     import research_cfg as RC
@@ -431,7 +446,7 @@ def _testing_ids():
     """Ids of events currently held in test mode (queued and tagged, never sent); cached with the queue numbers."""
     try:
         if time.time() - _QCACHE.get("ti_t", 0) > 30:
-            _QCACHE.update(ti_t=time.time(), ti={i for x in _events()["events"] if x.get("mode") == "test" and not x["note"] for i in [x["id"]] + x["other_ids"]})
+            _QCACHE.update(ti_t=time.time(), ti={i for x in _events_cached()["events"] if x.get("mode") == "test" and not x["note"] for i in [x["id"]] + x["other_ids"]})
         return _QCACHE.get("ti") or set()
     except Exception:  # noqa: BLE001
         return set()
@@ -471,7 +486,7 @@ def request_research(eid, user, send=True):
 
 def queue_items():
     """Events the next research run would send out (research mode, no note yet, not dismissed or suppressed)."""
-    r = _events()
+    r = _events_cached()
     if r.get("error"):
         return {"error": r["error"], "items": []}
     items = [{"id": x["id"], "type": x["type"], "sev": x.get("sev"), "label": x["label"], "link": x.get("link"), "when": x["when"],

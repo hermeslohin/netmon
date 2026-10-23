@@ -54,10 +54,6 @@ def from_norm(norm, total=None, by="reviewer"):
             "why": str(norm.get("why") or "")[:200], "group_by": norm.get("group_by") or "", "approx": False, "by": by}
 
 
-class _Approx(Exception):
-    pass
-
-
 def _lst(x):
     return x if isinstance(x, list) else [x] if x else []
 

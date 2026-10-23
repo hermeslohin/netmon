@@ -160,6 +160,20 @@ def _dc():
     return c
 
 
+def tl_conn(tag, init=None):
+    """Per-thread shared connection (one fd per thread, never one per call); init(c) runs once per thread+tag."""
+    c = _dc()
+    done = getattr(_dl, "inited", None)
+    if done is None or getattr(_dl, "inited_c", None) is not c:
+        done = _dl.inited = set()
+        _dl.inited_c = c
+    if tag not in done:
+        if init:
+            init(c)
+        done.add(tag)
+    return c
+
+
 def doc_put(name, obj, c=None):
     raw = json.dumps(obj, default=str, separators=(",", ":")).encode()
     c = c or _dc()
@@ -361,7 +375,7 @@ def _cfg_ver(c, doc):
 
 
 def cfg_save(doc, data, c=None):
-    c = c or connect()
+    c = c or _dc()
     rows = [(doc, i, p, vt, v) for i, (p, vt, v) in enumerate(cfg_flatten(data))]
     with tx(c):
         c.execute("DELETE FROM cfg WHERE doc=?", (doc,))
@@ -396,7 +410,7 @@ def cfg_has(doc, c=None):
 
 # ------------------------------------------------------------------ acks (dashboard check-offs)
 def acks_load(c=None):
-    c = c or connect()
+    c = c or _dc()
     out = {"issue": {}, "alarm": {}, "finding": {}, "host": {}}
     for r in c.execute("SELECT type, key, at, note, label FROM acks"):
         out.setdefault(r["type"], {})[r["key"]] = {"at": r["at"], "note": r["note"], "label": r["label"]}
@@ -404,7 +418,7 @@ def acks_load(c=None):
 
 
 def ack_set(typ, key, checked, note="", label="", c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         if checked:
             c.execute("INSERT INTO acks(type,key,at,note,label) VALUES (?,?,?,?,?) "
@@ -416,10 +430,26 @@ def ack_set(typ, key, checked, note="", label="", c=None):
     return acks_load(c)
 
 
+def ack_set_many(items, checked, note="", c=None):
+    """Bulk check-off/restore in ONE transaction; items: [(type, key, label)]. Returns the full ack map once."""
+    c = c or _dc()
+    at = now_iso()
+    with tx(c):
+        for typ, key, label in items:
+            if checked:
+                c.execute("INSERT INTO acks(type,key,at,note,label) VALUES (?,?,?,?,?) "
+                          "ON CONFLICT(type,key) DO UPDATE SET at=excluded.at, note=excluded.note, "
+                          "label=CASE WHEN excluded.label!='' THEN excluded.label ELSE acks.label END",
+                          (typ, key, at, (note or "")[:500], (label or "")[:300]))
+            else:
+                c.execute("DELETE FROM acks WHERE type=? AND key=?", (typ, key))
+    return acks_load(c)
+
+
 # ------------------------------------------------------------------ watcher mute state
 def mute_filter(alerts, hours, c=None):
     """alerts: [(key, text)]. Returns the ones not muted in the last `hours`, and mutes them (atomically)."""
-    c = c or connect()
+    c = c or _dc()
     now = time.time()
     with tx(c):
         c.execute("DELETE FROM watch_mute WHERE ts < ?", (now - hours * 3600,))
@@ -435,7 +465,7 @@ def mute_filter(alerts, hours, c=None):
 
 
 def mutes(c=None):
-    c = c or connect()
+    c = c or _dc()
     return {r["key"]: r["ts"] for r in c.execute("SELECT key, ts FROM watch_mute")}
 
 
@@ -448,7 +478,7 @@ def alerts_add(items, source="watcher", c=None):
     host names); derived from key+text when omitted. Queued for web push by the dashboard (pushed=0).
     An alert that matches a saved mute rule (alert_mutes) is stored already cleared: not pushed, not read-counted, hidden
     from the feed and the correlation, but kept so "show cleared" can list it."""
-    c = c or connect()
+    c = c or _dc()
     now = time.time()
     mutes_ = mute_list(c)
     sups_ = suppress_list(c)
@@ -487,14 +517,14 @@ def mute_match(m, text, targets=()):
 
 
 def mute_list(c=None):
-    c = c or connect()
+    c = c or _dc()
     return [dict(r) for r in c.execute("SELECT * FROM alert_mutes ORDER BY id")]
 
 
 def mute_add(name, host, by, limit_key="", c=None):
     """Save a mute rule and clear every existing alert it matches -> (rule id, number cleared)."""
     raise ValueError("never-send mute rules were removed")
-    c = c or connect()
+    c = c or _dc()
     name, host = str(name or "").strip()[:200], str(host or "").strip()[:200]
     if not name.replace("*", "").replace("?", "").strip():
         raise ValueError("a mute rule needs some text that is not just wildcards")
@@ -512,7 +542,7 @@ def mute_add(name, host, by, limit_key="", c=None):
 
 def mute_apply(mid, c=None):
     """Clear the not-yet-cleared alerts a saved rule matches."""
-    c = c or connect()
+    c = c or _dc()
     m = next((x for x in mute_list(c) if x["id"] == mid), None)
     if not m:
         return 0
@@ -525,7 +555,7 @@ def mute_apply(mid, c=None):
 
 def mute_remove(mid, c=None):
     """Delete a rule; the alerts it cleared come back into the feed (as read, never pushed) -> (limit_key, restored)."""
-    c = c or connect()
+    c = c or _dc()
     r = c.execute("SELECT limit_key FROM alert_mutes WHERE id=?", (int(mid),)).fetchone()
     if not r:
         return None, 0
@@ -536,7 +566,7 @@ def mute_remove(mid, c=None):
 
 
 def mute_counts(c=None):
-    c = c or connect()
+    c = c or _dc()
     return {r[0]: r[1] for r in c.execute("SELECT cleared_rule, count(*) FROM alerts WHERE cleared=1 GROUP BY cleared_rule")}
 
 
@@ -573,13 +603,13 @@ def suppress_match(r, label, ips=(), arts=(), ctx=""):
 
 
 def suppress_list(c=None):
-    c = c or connect()
+    c = c or _dc()
     return [dict(r) for r in c.execute("SELECT * FROM suppress_rules ORDER BY id")]
 
 
 def suppress_add(name, art_type, art, by, c=None):
     """Save a suppress rule and hide the existing alerts it covers -> (rule id, alerts hidden)."""
-    c = c or connect()
+    c = c or _dc()
     name, art_type, art = str(name or "").strip()[:200], str(art_type or "").strip().lower(), str(art or "").strip()[:200]
     if not name.replace("*", "").replace("?", "").strip():
         raise ValueError("a suppress rule needs a signature name that is not just wildcards")
@@ -605,13 +635,13 @@ def suppress_add(name, art_type, art, by, c=None):
 
 # ------------------------------------------------------------------ segmentation suppress rules (source IP / destination IP / ports)
 def seg_suppress_list(c=None):
-    c = c or connect()
+    c = c or _dc()
     return [dict(r) for r in c.execute("SELECT * FROM seg_suppress ORDER BY id")]
 
 
 def seg_suppress_add(src, dst, ports, by, c=None):
     """Hide segmentation violations from source / destination (IP or glob like 10.1.*) / ports ("22,3389"); blank = any."""
-    c = c or connect()
+    c = c or _dc()
     src, dst = str(src or "").strip()[:100], str(dst or "").strip()[:100]
     ports = ",".join(p.strip() for p in str(ports or "").replace(" ", ",").split(",") if p.strip())[:200]
     if not (src or dst or ports):
@@ -630,7 +660,7 @@ def seg_suppress_add(src, dst, ports, by, c=None):
 
 
 def seg_suppress_remove(rid, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         return c.execute("DELETE FROM seg_suppress WHERE id=?", (int(rid),)).rowcount
 
@@ -650,13 +680,13 @@ def seg_suppress_match(rules, src, dst, port):
 
 # ------------------------------------------------------------------ IDS signature suppress rules (signature, optional host)
 def ids_suppress_list(c=None):
-    c = c or connect()
+    c = c or _dc()
     return [dict(r) for r in c.execute("SELECT * FROM ids_suppress ORDER BY id")]
 
 
 def ids_suppress_add(sig, host, by, c=None):
     """Hide an IDS signature (exact name, or glob with * ?) everywhere in netmon; host blank = all hosts, else only alerts with that IP."""
-    c = c or connect()
+    c = c or _dc()
     sig, host = str(sig or "").strip()[:300], str(host or "").strip()[:100]
     if not sig or sig.replace("*", "").replace("?", "") == "":
         raise ValueError("give a signature name")
@@ -670,7 +700,7 @@ def ids_suppress_add(sig, host, by, c=None):
 
 
 def ids_suppress_remove(rid, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         return c.execute("DELETE FROM ids_suppress WHERE id=?", (int(rid),)).rowcount
 
@@ -703,7 +733,7 @@ def ids_filter(raw, rules):
 
 def suppress_remove(rid, c=None):
     """Delete a suppress rule; the alerts it hid come back into the feed -> number restored."""
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         n = c.execute("UPDATE alerts SET cleared=0, cleared_rule=NULL, cleared_at=NULL WHERE cleared_rule=?", (-int(rid),)).rowcount
         c.execute("DELETE FROM suppress_rules WHERE id=?", (int(rid),))
@@ -720,7 +750,7 @@ def alerts_recent(limit=100, c=None, cleared=False, suppressed=False):
     """The alert feed (newest first). Alerts a mute rule cleared are left out unless cleared=True (then only those).
     suppressed=True (correlation, research, review) also returns the alerts a suppress rule hid: suppressing hides a
     finding, it does not take the event out of correlation."""
-    c = c or connect()
+    c = c or _dc()
     if suppressed and not cleared:
         return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE (cleared=0 OR cleared_rule<0) AND source!='review' ORDER BY id DESC LIMIT ?", (limit,))]
     return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=? AND held=0 ORDER BY id DESC LIMIT ?", (1 if cleared else 0, limit))]
@@ -728,7 +758,7 @@ def alerts_recent(limit=100, c=None, cleared=False, suppressed=False):
 
 def alerts_promote(ids, c=None):
     """Held detections the review calls suspicious (medium/high) become alarms: into the feed, unread, queued for push."""
-    c = c or connect()
+    c = c or _dc()
     ids = [int(i) for i in ids]
     with tx(c):
         n = 0
@@ -739,7 +769,7 @@ def alerts_promote(ids, c=None):
 
 def alerts_hold(ids, c=None):
     """The opposite: no longer suspicious / medium+ -> out of the feed again (still an event)."""
-    c = c or connect()
+    c = c or _dc()
     ids = [int(i) for i in ids]
     with tx(c):
         n = 0
@@ -750,7 +780,7 @@ def alerts_hold(ids, c=None):
 
 def alerts_delete(ids, c=None):
     """Remove these watcher alerts (used when an analyst mutes an alert class and clears what already fired)."""
-    c = c or connect()
+    c = c or _dc()
     ids = [int(i) for i in ids]
     if not ids:
         return 0
@@ -760,7 +790,7 @@ def alerts_delete(ids, c=None):
 
 
 def alerts_unpushed(c=None):
-    c = c or connect()
+    c = c or _dc()
     return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE pushed=0 ORDER BY id")]
 
 
@@ -809,13 +839,13 @@ def device_ids(dev):
 
 
 def prefs_get(user, c=None):
-    c = c or connect()
+    c = c or _dc()
     r = c.execute("SELECT mode, devices FROM push_prefs WHERE user=?", (user,)).fetchone()
     return {"mode": r["mode"], "devices": json.loads(r["devices"])} if r else {"mode": "all", "devices": []}
 
 
 def prefs_set(user, mode, devices, c=None):
-    c = c or connect()
+    c = c or _dc()
     if mode not in ("all", "some"):
         raise ValueError("mode must be all or some")
     with tx(c):
@@ -827,7 +857,7 @@ def prefs_set(user, mode, devices, c=None):
 
 def watch_ids(user, c=None, reg=None):
     """None = all devices; else the identifier set of the user's chosen devices (resolved now, so DHCP changes follow)."""
-    c = c or connect()
+    c = c or _dc()
     p = prefs_get(user, c)
     if p["mode"] == "all":
         return None
@@ -849,7 +879,7 @@ def alert_for(alert, ids):
 
 
 def alerts_mark(ids, field="pushed", c=None):
-    c = c or connect()
+    c = c or _dc()
     if field not in ("pushed", "read") or not ids:
         return
     with tx(c):
@@ -857,13 +887,13 @@ def alerts_mark(ids, field="pushed", c=None):
 
 
 def alerts_read_all(c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         c.execute("UPDATE alerts SET read=1 WHERE read=0")
 
 
 def push_sub_save(sub, user, ua="", c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         c.execute("INSERT INTO push_subs(endpoint,user,keys,ua,created,fails) VALUES (?,?,?,?,?,0) "
                   "ON CONFLICT(endpoint) DO UPDATE SET user=excluded.user, keys=excluded.keys, ua=excluded.ua, fails=0",
@@ -871,18 +901,18 @@ def push_sub_save(sub, user, ua="", c=None):
 
 
 def push_sub_delete(endpoint, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         c.execute("DELETE FROM push_subs WHERE endpoint=?", (endpoint,))
 
 
 def push_subs(c=None):
-    c = c or connect()
+    c = c or _dc()
     return [dict(r, keys=json.loads(r["keys"])) for r in c.execute("SELECT * FROM push_subs")]
 
 
 def push_sub_result(endpoint, ok, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         if ok:
             c.execute("UPDATE push_subs SET last_ok=?, fails=0 WHERE endpoint=?", (now_iso(), endpoint))
@@ -895,7 +925,7 @@ def push_sub_result(endpoint, ok, c=None):
 def sec_sync(findings, c=None):
     """findings: [{key, tool, severity, title, location, fix, detail}] = everything currently open (accepted ones removed).
     Upserts them, marks previously-open keys that disappeared as fixed. Returns (new, still_open, fixed) lists of keys."""
-    c = c or connect()
+    c = c or _dc()
     now = now_iso()
     cur = {f["key"]: f for f in findings}
     with tx(c):
@@ -914,25 +944,25 @@ def sec_sync(findings, c=None):
 
 
 def sec_list(status=None, c=None):
-    c = c or connect()
+    c = c or _dc()
     q = "SELECT * FROM sec_findings" + (" WHERE status=?" if status else "") + " ORDER BY last_seen DESC"
     return [dict(r) for r in c.execute(q, (status,) if status else ())]
 
 
 def sec_mark_notified(keys, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         c.executemany("UPDATE sec_findings SET notified=1 WHERE key=?", [(k,) for k in keys])
 
 
 # ------------------------------------------------------------------ device registry
 def registry_load(c=None):
-    c = c or connect()
+    c = c or _dc()
     return {r["key"]: json.loads(r["doc"]) for r in c.execute("SELECT key, doc FROM devices")}
 
 
 def registry_save(reg, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         c.executemany("INSERT INTO devices(key,mac,name,first_seen,last_seen,known,doc) VALUES (?,?,?,?,?,?,?) "
                       "ON CONFLICT(key) DO UPDATE SET mac=excluded.mac, name=excluded.name, first_seen=excluded.first_seen, "
@@ -942,7 +972,7 @@ def registry_save(reg, c=None):
 
 
 def registry_ips(c=None):
-    c = c or connect()
+    c = c or _dc()
     ips = set()
     for r in c.execute("SELECT doc FROM devices"):
         ips.update(json.loads(r[0]).get("ips") or [])
@@ -952,7 +982,7 @@ def registry_ips(c=None):
 # ------------------------------------------------------------------ host baseline (hosts.py / osq.py)
 def hosts_load(c=None):
     """Same shape as the old hosts_seen.json: {host: {kind: dict|str}, "_meta": {...}}."""
-    c = c or connect()
+    c = c or _dc()
     out = {}
     for r in c.execute("SELECT host, kind, doc FROM host_baseline"):
         out.setdefault(r["host"], {})[r["kind"]] = json.loads(r["doc"])
@@ -961,7 +991,7 @@ def hosts_load(c=None):
 
 def hosts_save(base, c=None):
     """Upsert every (host, kind) document in one transaction. A kind's document is replaced whole (osq removals work)."""
-    c = c or connect()
+    c = c or _dc()
     ts = now_iso()
     rows = [(h, k, json.dumps(v, sort_keys=True), ts) for h, kinds in base.items() if isinstance(kinds, dict) for k, v in kinds.items()]
     with tx(c):
@@ -972,14 +1002,14 @@ def hosts_save(base, c=None):
 
 # ------------------------------------------------------------------ per-snapshot history (analyze.py baseline)
 def history_load(c=None, limit=None):
-    c = c or connect()
+    c = c or _dc()
     sql = "SELECT doc FROM history ORDER BY generated"
     rows = [json.loads(r[0]) for r in c.execute(sql)]
     return rows[-limit:] if limit else rows
 
 
 def history_has(generated, c=None):
-    c = c or connect()
+    c = c or _dc()
     return c.execute("SELECT 1 FROM history WHERE generated=?", (generated,)).fetchone() is not None
 
 
@@ -993,7 +1023,7 @@ def _served_rows(rec):
 
 
 def history_append(rec, keep=None, c=None):
-    c = c or connect()
+    c = c or _dc()
     with tx(c):
         c.execute("INSERT OR REPLACE INTO history(generated,hours,doc) VALUES (?,?,?)", (rec["generated"], rec.get("hours"), json.dumps(rec)))
         c.executemany("INSERT OR IGNORE INTO served_ports VALUES (?,?,?)", list(_served_rows(rec)))
@@ -1003,7 +1033,7 @@ def history_append(rec, keep=None, c=None):
 
 def served_ports(c=None):
     """{ip: {port,...}} across retained history - what the watcher needs, without parsing the history docs."""
-    c = c or connect()
+    c = c or _dc()
     out = {}
     for r in c.execute("SELECT DISTINCT ip, port FROM served_ports"):
         out.setdefault(r["ip"], set()).add(r["port"])
@@ -1011,7 +1041,7 @@ def served_ports(c=None):
 
 
 def history_count(c=None):
-    c = c or connect()
+    c = c or _dc()
     return c.execute("SELECT COUNT(*) FROM history").fetchone()[0]
 
 
@@ -1020,7 +1050,7 @@ def migrate(base_dir=None, acks_file=None, c=None, overwrite=False):
     """One-time import of the legacy JSON files. Idempotent; refuses to clobber existing rows unless overwrite."""
     base_dir = base_dir or os.path.join(HERE, "baseline")
     acks_file = acks_file or os.path.join(HERE, "dashboard", "state", "acks.json")
-    c = c or connect()
+    c = c or _dc()
     done = {}
     if not overwrite and c.execute("SELECT v FROM meta WHERE k='migrated_at'").fetchone():
         raise SystemExit("already migrated (meta.migrated_at set); pass overwrite=True to re-import")
@@ -1061,7 +1091,7 @@ def migrate(base_dir=None, acks_file=None, c=None, overwrite=False):
 
 
 def stats(c=None):
-    c = c or connect()
+    c = c or _dc()
     t = {r[0]: c.execute(f"SELECT COUNT(*) FROM {r[0]}").fetchone()[0]
          for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     t["_file_bytes"] = os.path.getsize(db_path()) if os.path.exists(db_path()) else 0
@@ -1071,7 +1101,7 @@ def stats(c=None):
 
 def backup(dest_dir=None, keep=14, c=None):
     """Consistent online copy (sqlite backup API) to baseline/backup/netmon-YYYYmmdd.db; keeps the last `keep`."""
-    c = c or connect()
+    c = c or _dc()
     dest_dir = dest_dir or os.environ.get("NETMON_BACKUP_DIR") or os.path.join(HERE, "baseline", "backup")
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"netmon-{time.strftime('%Y%m%d')}.db")
@@ -1085,13 +1115,13 @@ def backup(dest_dir=None, keep=14, c=None):
 
 
 def integrity(c=None):
-    c = c or connect()
+    c = c or _dc()
     return c.execute("PRAGMA integrity_check").fetchone()[0]
 
 
 def export(dest_dir, c=None):
     """Rollback path: write the legacy JSON files back out."""
-    c = c or connect()
+    c = c or _dc()
     os.makedirs(dest_dir, exist_ok=True)
     json.dump(registry_load(c), open(os.path.join(dest_dir, "devices_seen.json"), "w"), indent=1)
     json.dump(hosts_load(c), open(os.path.join(dest_dir, "hosts_seen.json"), "w"), indent=1, sort_keys=True)

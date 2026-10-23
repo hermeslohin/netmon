@@ -226,10 +226,9 @@
     if (!sg.label) sg.label = fallbackLabel || "";
     const A = sg.artifacts || [], TL = { ip: "🌐 IP", domain: "🔗 domain", user: "👤 user", process: "⚙️ process", port: "🔌 port", file: "📄 file" };
     const grp = (src, title) => { const l = A.filter((a) => a.from === src); return l.length ? `<optgroup label="${src === "event" ? "📍" : "🔗"} ${title}">${l.map((a) => `<option value="${A.indexOf(a)}">${esc(TL[a.type] || a.type)}: ${esc(a.value.length > 70 ? a.value.slice(0, 70) + "…" : a.value)}</option>`).join("")}</optgroup>` : ""; };
-    const d = document.createElement("div");
-    d.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center";
-    d.innerHTML = `<div style="background:var(--card,#1c2128);color:inherit;border:1px solid var(--line,#555);border-radius:8px;padding:14px;max-width:600px;width:92vw;max-height:90vh;overflow:auto">
-      <h3 style="margin:0 0 6px">🚫 Suppress this finding</h3>
+    const d = document.createElement("div"); d.className = "modal-back";
+    d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+      <h3>🚫 Suppress this finding</h3>
       <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked/suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
       <div class="small mono" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
       <input class="sp-name" value="${esc(alertName(sg.label))}" style="width:100%;box-sizing:border-box" title="Signature name">
@@ -238,7 +237,7 @@
       <div class="sp-other" style="display:none;gap:6px;margin-top:6px;flex-wrap:wrap"><select class="sp-type"><option value="ip">🌐 IP</option><option value="domain">🔗 domain</option><option value="user">👤 user</option><option value="process">⚙️ process</option><option value="port">🔌 port</option><option value="file">📄 file</option></select>
         <input class="sp-val" placeholder="value (* ? allowed)" size="30"></div>
       <div class="small muted sp-rel" style="margin-top:4px"></div>
-      <div style="margin-top:10px;display:flex;gap:6px;align-items:center"><button type="button" class="sp-ok">Suppress</button><button type="button" class="sp-cancel">Cancel</button><span class="small sp-msg"></span></div></div>`;
+      <div class="actions"><button type="button" class="sp-ok primary">Suppress</button><button type="button" class="sp-cancel">Cancel</button><span class="small sp-msg"></span></div></div>`;
     document.body.appendChild(d);
     const q = (c) => d.querySelector(c), close = () => d.remove();
     q(".sp-pick").onchange = () => { const v = q(".sp-pick").value; q(".sp-other").style.display = v === "other" ? "flex" : "none";
@@ -287,7 +286,7 @@
         const sup = { name: pat, art_type: wrap.querySelector(".mute-art")?.value || "", art: wrap.querySelector(".mute-artv")?.value.trim() || "" };
         const r = await apiPost("/api/llm/review-limits", { suppress: sup });
         wrap.innerHTML = `<span class="muted">suppressed ✓ ${esc(pat)}${sup.art_type ? " + " + esc(sup.art_type) + " " + esc(sup.art) : ""} · hid ${r.cleared_alerts || 0} alert(s)${r.cleared_open ? ", closed " + r.cleared_open + " open finding(s)" : ""}; still correlated</span>`; S.corr = null;
-        if (/^#\/(alerts|aireview|events)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
+        if (/^#\/(alerts|aireview|events)/.test(location.hash)) setTimeout(() => refreshData(), 1200);
       } catch (err) { ok.disabled = false; alert(String(err.message || err)); }
       return;
     }
@@ -296,7 +295,7 @@
     try {
       const r = await apiPost("/api/llm/review-limits", { rule, clear_alerts: true });
       wrap.innerHTML = `<span class="muted">muted ✓ ${esc(pat)}${rule.host ? " @ " + esc(rule.host) : ""} · cleared ${r.cleared_alerts || 0} alert(s)</span>`; S.corr = null;
-      if (/^#\/(alerts|aireview|events)/.test(location.hash)) setTimeout(() => location.reload(), 1200);
+      if (/^#\/(alerts|aireview|events)/.test(location.hash)) setTimeout(() => refreshData(), 1200);
     } catch (err) { ok.disabled = false; alert(String(err.message || err)); }
   }, true);
   // Triage alarm title -> the best-matching underlying event (host finding, new device, IDS, gateway, TI, admin ...)
