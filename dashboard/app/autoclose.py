@@ -169,6 +169,8 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
             a = (acks.get(typ) or {}).get(key)
             lg = log.get((typ, key))
             auto = bool(a and str(a.get("note") or "").startswith(NOTE_PREFIX))
+            if not vs and not auto:
+                return False  # no verdict for this variant: let another variant of the same event decide
             if not good or bad:
                 if auto and lg and lg["state"] == "closed" and not dry:  # verdict changed since: bring it back
                     lab = label or str((a or {}).get("label") or "")
@@ -223,11 +225,13 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                     res[k]["auto_closed"] += 1 if k == hit else 0
                 res[hit]["closed_now"] += 1
 
+        tried = set()
         for eid, typ, key, label in items:
-            if (typ, key) in seen:
+            if (typ, key) in tried:
                 continue
-            seen.add((typ, key))
-            handle(eid, [(typ, key)], label)
+            tried.add((typ, key))
+            if handle(eid, [(typ, key)], label) is not False:
+                seen.add((typ, key))
         if with_open:  # every event on the Open events page, any age, closed with the check-offs that page writes
             import eventstore
             oe = eventstore.open_events(limit=10 ** 6)["events"]
