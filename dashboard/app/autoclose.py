@@ -157,6 +157,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                for o in OPTS}
         res["reopened_verdict_changed"] = 0
         seen, handled = set(), set()
+        rules = store.suppress_list(c)  # suppression outranks auto-close: a covered item is never reopened
 
         def handle(eid, refs, label, members=()):
             """One closable event: refs[0] is its own check-off (logged); the rest are checked off with it."""
@@ -170,6 +171,11 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
             auto = bool(a and str(a.get("note") or "").startswith(NOTE_PREFIX))
             if not good or bad:
                 if auto and lg and lg["state"] == "closed" and not dry:  # verdict changed since: bring it back
+                    lab = label or str((a or {}).get("label") or "")
+                    if lab and any(store.suppress_match(r, lab) for r in rules):  # a suppress rule covers it: stays hidden
+                        with store.tx(c):
+                            c.execute("UPDATE autoclose_log SET state='suppressed', at=? WHERE type=? AND key=?", (store.now_iso(), typ, key))
+                        return
                     for t, k in dict.fromkeys([(typ, key), *_refs_of(lg)]):
                         b = (acks.get(t) or {}).get(k)
                         if b and str(b.get("note") or "").startswith(NOTE_PREFIX):

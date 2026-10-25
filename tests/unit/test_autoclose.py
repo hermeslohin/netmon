@@ -90,6 +90,18 @@ class AutoCloseOpenEvents(unittest.TestCase):
         self.assertEqual(autoclose.reopen_all("test"), 1)
         self.assertIn(GW, {e["eid"] for e in eventstore.open_events()["events"]})
 
+    def test_suppressed_item_is_never_reopened(self):
+        """An auto-closed event that a suppress rule covers stays hidden when its verdict turns suspicious.
+        REQ: STO-08, STO-05
+        """
+        _classify(IDS, "expected")
+        autoclose.run({}, {}, [], trigger="test")
+        store.suppress_add("*ET POLICY Example*", "", "", by="t")
+        _classify(IDS, "suspicious")
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["reopened_verdict_changed"], 0)
+        self.assertNotIn(IDS, {e["eid"] for e in eventstore.open_events()["events"]})
+
 
 if __name__ == "__main__":
     unittest.main()
