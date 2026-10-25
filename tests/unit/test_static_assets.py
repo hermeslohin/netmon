@@ -108,6 +108,16 @@ class HtmlReferencesTest(unittest.TestCase):
             scripts = [urlparse(u).path for k, u in refs(_read(page)) if k == "script"]
             self.assertEqual(len(scripts), len(set(scripts)), page)
 
+    def test_modals_survive_touch(self):
+        """Dialogs never close on a bare backdrop mousedown (iOS shifts the dialog under the finger) and the suppress
+        dialog does not pop the keyboard on touch devices.
+        REQ: DASH-06"""
+        for f in glob.glob(os.path.join(STATIC, "*.js")):
+            src = _read(f)
+            self.assertNotRegex(src, r'addEventListener\("mousedown", \((?:e|ev)\) => \{ if \((?:e|ev)\.target === d\) close\(\)', f)
+        self.assertIn("function backdropClose(", _read(APP_JS))
+        self.assertIn('if (!window.touchUI()) q(".sp-name").focus()', _read(os.path.join(STATIC, "related.js")))
+
     def test_cache_busting_query_is_numeric(self):
         """Where an asset URL carries a ?v= build hash it is a plain token, never a path or script.
         REQ: DASH-01"""

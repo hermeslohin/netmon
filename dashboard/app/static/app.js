@@ -369,7 +369,7 @@ function ackBox(type, x, label) {
 }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".sup-btn:not(.seg-sup)"); if (!b) return;
-  e.preventDefault(); e.stopPropagation(); window.suppressDialog(b.dataset.t, b.dataset.k, b.dataset.l);
+  e.preventDefault(); e.stopPropagation(); window.suppressDialog(b.dataset.t, b.dataset.k, b.dataset.l, b);
 }, true);
 // split rows into open / checked and decide what to show for a section
 function ackSplit(type, rows, sec) {
@@ -1426,6 +1426,16 @@ V.my = async (el) => {
 init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to load</h2><pre>${esc(e.stack || e)}</pre></div>`));
 
 /* ---------- suppress segmentation violations by IP address and ports ---------- */
+// close a modal by tapping its backdrop: only when the press both starts and ends on the backdrop, so a tap on a
+// button that moves under the finger (iOS keyboard / toolbar resizing the viewport) never dismisses the dialog
+function backdropClose(d, close) {
+  let down = false;
+  d.addEventListener("pointerdown", (ev) => { down = ev.target === d; });
+  d.addEventListener("click", (ev) => { if (down && ev.target === d) close(); down = false; });
+}
+window.backdropClose = backdropClose;
+const touchUI = () => matchMedia("(pointer: coarse)").matches;
+window.touchUI = touchUI;
 function idsSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn ids-sup" data-sig="${esc(x.name)}" title="Suppress this IDS signature: hidden everywhere in netmon (Security Onion and UniFi are not changed)">🚫</button>` : ""; }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".ids-sup"); if (!b) return;
@@ -1438,7 +1448,7 @@ document.addEventListener("click", (e) => {
   document.body.appendChild(d);
   const q = (c) => d.querySelector(c), close = () => d.remove();
   q(".is-sig").value = b.dataset.sig;
-  q(".is-cancel").onclick = close; d.addEventListener("mousedown", (ev) => { if (ev.target === d) close(); });
+  q(".is-cancel").onclick = close; backdropClose(d, close);
   q(".is-ok").onclick = async () => {
     q(".is-ok").disabled = true; q(".is-msg").textContent = "saving…";
     try { await apiPost("/api/llm/review-limits", { ids_suppress: { sig: q(".is-sig").value.trim(), host: q(".is-host").value.trim() } }); close(); refreshData(); }
@@ -1457,7 +1467,7 @@ document.addEventListener("click", (e) => {
   document.body.appendChild(d);
   const q = (c) => d.querySelector(c), close = () => d.remove();
   q(".ss-src").value = b.dataset.src; q(".ss-dst").value = b.dataset.dst; q(".ss-ports").value = b.dataset.port;
-  q(".ss-cancel").onclick = close; d.addEventListener("mousedown", (ev) => { if (ev.target === d) close(); });
+  q(".ss-cancel").onclick = close; backdropClose(d, close);
   q(".ss-ok").onclick = async () => {
     q(".ss-ok").disabled = true; q(".ss-msg").textContent = "saving…";
     try { await apiPost("/api/llm/review-limits", { seg_suppress: { src: q(".ss-src").value.trim(), dst: q(".ss-dst").value.trim(), ports: q(".ss-ports").value.trim() } }); close(); refreshData(); }

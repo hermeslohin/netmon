@@ -1869,6 +1869,13 @@ def main():
                     correlation(ss[-1]["id"])
             except Exception as e:  # noqa: BLE001
                 print(f"eventstore ingest: {e}", file=sys.stderr)
+            try:  # apply new AI verdicts (reviewer classifications arrive continuously, not only with the review job)
+                if any(autoclose.settings()[o] for o in autoclose.OPTS):
+                    inp = autoclose_inputs()
+                    if inp:
+                        autoclose.run(*inp, trigger="timer")
+            except Exception as e:  # noqa: BLE001
+                print(f"autoclose timer: {e}", file=sys.stderr)
             time.sleep(300)
     threading.Thread(target=_ingest, daemon=True, name="eventstore-ingest").start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)

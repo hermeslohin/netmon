@@ -43,6 +43,7 @@ REQUIREMENTS = {
     "STO-05": ("Store", "Suppression rules (artifact, segmentation flow, IDS signature) hide only what they match.", "PLAYBOOKS.md §17"),
     "STO-06": ("Store", "Alerts are stored once, can be promoted/held/deleted, and track pushed/read state.", "USER_GUIDE.md §4"),
     "STO-07": ("Store", "Per-user device assignment (push prefs) decides which alerts a user is targeted by.", "ACCESS_CONTROL.md"),
+    "STO-08": ("Store", "Auto-close checks off every open event (any type or age) an enabled AI source calls expected/benign, never one called suspicious, never re-closes one a person reopened, and reopens it when the verdict turns bad.", "autoclose.py"),
     # ---- analysis / scoring ----
     "ANA-01": ("Baseline analysis", "analyze.py learns a per-device baseline (keyed by MAC) and flags volume/upload/count spikes only after MIN_DAYS of history.", "analyze.py / RISK_SCORING.md"),
     "RISK-01": ("Risk scoring", "Vulnerability risk is 0-100 from severity base x kind factor x host exposure, plus recurrence.", "RISK_SCORING.md"),

@@ -217,8 +217,8 @@
   // ---- Suppress dialog (button next to a check-off box): hide an event by signature name (+ one artifact), keep it in correlation
   let lastClick = null; document.addEventListener("click", (e) => { lastClick = e.target; }, true);
   const globRe = (g) => new RegExp("^" + String(g).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
-  window.suppressDialog = async (type, key, fallbackLabel) => {
-    const trig = lastClick && lastClick.isConnected ? lastClick : null;
+  window.suppressDialog = async (type, key, fallbackLabel, from) => {
+    const trig = from && from.isConnected ? from : lastClick && lastClick.isConnected ? lastClick : null;
     const cardOf = () => trig && (trig.closest(".card") || trig.closest("section, details, .panel") || null);
     const card = cardOf();
     let sg = { label: fallbackLabel || "", artifacts: [] };
@@ -242,7 +242,7 @@
     const q = (c) => d.querySelector(c), close = () => d.remove();
     q(".sp-pick").onchange = () => { const v = q(".sp-pick").value; q(".sp-other").style.display = v === "other" ? "flex" : "none";
       const a = v && v !== "other" ? A[+v] : null; q(".sp-rel").textContent = a?.from === "correlated" ? `From the correlated event: ${a.rel}` : ""; };
-    q(".sp-cancel").onclick = close; d.addEventListener("mousedown", (e) => { if (e.target === d) close(); });
+    q(".sp-cancel").onclick = close; window.backdropClose(d, close);
     q(".sp-ok").onclick = async () => {
       const name = q(".sp-name").value.trim(), pv = q(".sp-pick").value;
       const a = pv === "other" ? { type: q(".sp-type").value, value: q(".sp-val").value.trim() } : pv ? A[+pv] : { type: "", value: "" };
@@ -258,7 +258,7 @@
         close(); rerender(); }
       catch (e) { q(".sp-ok").disabled = false; q(".sp-msg").textContent = "error: " + (e.message || e); }
     };
-    q(".sp-name").focus();
+    if (!window.touchUI()) q(".sp-name").focus();  // phones: no keyboard pop-up / zoom that shifts the dialog under the finger
   };
   // Mute: opens an editable pattern (wildcards * ?, no wildcard = "contains"); saving also clears alerts already raised
   document.addEventListener("click", async (e) => {
