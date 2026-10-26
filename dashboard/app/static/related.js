@@ -217,23 +217,29 @@
   // ---- Suppress dialog (button next to a check-off box): hide an event by signature name (+ one artifact), keep it in correlation
   let lastClick = null; document.addEventListener("click", (e) => { lastClick = e.target; }, true);
   const globRe = (g) => new RegExp("^" + String(g).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
-  window.suppressDialog = async (type, key, fallbackLabel, from) => {
+  window.suppressDialog = (type, key, fallbackLabel, from) => suppressOpen(type, key, fallbackLabel, from).catch((e) => {
+    try { fetch("/api/audit/view", { method: "POST", headers: { "Content-Type": "application/json", "X-Netmon": "1" }, body: JSON.stringify({ route: `suppress:error ${type}|${String(key).slice(0, 80)} ${String(e && (e.stack || e.message) || e).slice(0, 300)}` }) }).catch(() => {}); } catch (_) {}
+    alert("Could not open the suppress dialog: " + (e.message || e));
+  });
+  const suppressOpen = async (type, key, fallbackLabel, from) => {
     const trig = from && from.isConnected ? from : lastClick && lastClick.isConnected ? lastClick : null;
     const cardOf = () => trig && (trig.closest(".card") || trig.closest("section, details, .panel") || null);
     const card = cardOf();
-    let sg = { label: fallbackLabel || "", artifacts: [] };
-    try { sg = { ...sg, ...(await api(`/api/suppress/suggest?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`)) }; } catch (_) {}
-    if (!sg.label) sg.label = fallbackLabel || "";
-    const A = sg.artifacts || [], TL = { ip: "🌐 IP", domain: "🔗 domain", user: "👤 user", process: "⚙️ process", port: "🔌 port", file: "📄 file" };
+    // open the dialog right away (inside the tap) and fill the artifact list when /suggest answers: on iPhone the
+    // 0.5-3 s wait before anything appeared left the tap looking dead, and the dialog sometimes never showed
+    const diag = (stage, info) => { try { fetch("/api/audit/view", { method: "POST", headers: { "Content-Type": "application/json", "X-Netmon": "1" }, body: JSON.stringify({ route: `suppress:${stage} ${type}|${String(key).slice(0, 80)}${info ? " " + String(info).slice(0, 200) : ""}` }) }).catch(() => {}); } catch (_) {} };
+    const sg = { label: fallbackLabel || "", artifacts: [] };
+    let A = [];
+    const TL = { ip: "🌐 IP", domain: "🔗 domain", user: "👤 user", process: "⚙️ process", port: "🔌 port", file: "📄 file" };
     const grp = (src, title) => { const l = A.filter((a) => a.from === src); return l.length ? `<optgroup label="${src === "event" ? "📍" : "🔗"} ${title}">${l.map((a) => `<option value="${A.indexOf(a)}">${esc(TL[a.type] || a.type)}: ${esc(a.value.length > 70 ? a.value.slice(0, 70) + "…" : a.value)}</option>`).join("")}</optgroup>` : ""; };
     const d = document.createElement("div"); d.className = "modal-back";
     d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
       <h3>🚫 Suppress this finding</h3>
       <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked/suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
-      <div class="small mono" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
+      <div class="small mono sp-label" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
       <input class="sp-name" value="${esc(alertName(sg.label))}" style="width:100%;box-sizing:border-box" title="Signature name">
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small">Only when it involves</span>
-        <select class="sp-pick" style="max-width:100%"><option value="">(no artifact: name only)</option>${grp("event", "This event")}${grp("correlated", "Correlated events")}<option value="other">other…</option></select></div>
+        <select class="sp-pick" style="max-width:100%"><option value="">(no artifact: name only)</option><option value="" disabled class="sp-loading">loading artifacts…</option><option value="other">other…</option></select></div>
       <div class="sp-other" style="display:none;gap:6px;margin-top:6px;flex-wrap:wrap"><select class="sp-type"><option value="ip">🌐 IP</option><option value="domain">🔗 domain</option><option value="user">👤 user</option><option value="process">⚙️ process</option><option value="port">🔌 port</option><option value="file">📄 file</option></select>
         <input class="sp-val" placeholder="value (* ? allowed)" size="30"></div>
       <div class="small muted sp-rel" style="margin-top:4px"></div>
@@ -259,6 +265,16 @@
       catch (e) { q(".sp-ok").disabled = false; q(".sp-msg").textContent = "error: " + (e.message || e); }
     };
     if (!window.touchUI()) q(".sp-name").focus();  // phones: no keyboard pop-up / zoom that shifts the dialog under the finger
+    if (window.touchUI()) { const r = d.querySelector(".modal").getBoundingClientRect(); diag("open", `vp=${innerWidth}x${innerHeight} vv=${Math.round(visualViewport?.width || 0)}x${Math.round(visualViewport?.height || 0)}@${(visualViewport?.scale || 1).toFixed(2)} top=${Math.round(r.top)} h=${Math.round(r.height)}`); }
+    let edited = false; q(".sp-name").addEventListener("input", () => { edited = true; }, { once: true });
+    try {
+      const got = await api(`/api/suppress/suggest?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`);
+      if (!d.isConnected) return;
+      if (got.label) { sg.label = got.label; q(".sp-label").textContent = got.label; if (!edited) q(".sp-name").value = alertName(got.label); }
+      A = got.artifacts || [];
+      q(".sp-loading").insertAdjacentHTML("afterend", grp("event", "This event") + grp("correlated", "Correlated events"));
+    } catch (e) { diag("suggest-error", e.message || e); }
+    if (d.isConnected) q(".sp-loading").remove();
   };
   // Mute: opens an editable pattern (wildcards * ?, no wildcard = "contains"); saving also clears alerts already raised
   document.addEventListener("click", async (e) => {
