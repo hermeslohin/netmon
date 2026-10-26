@@ -115,7 +115,7 @@ def _build_hash():
 
 
 BUILD = _build_hash()  # changes whenever any static file changes (image rebuild)
-ASSET_RE = re.compile(r'(?:src|href)="/[\w.-]+\.(?:js|css)"')
+ASSET_RE = re.compile(r'((?:src|href)="/[\w.-]+\.(?:js|css))(?:\?[^"]*)?"')  # any hand-written ?v= is replaced too
 PORT = int(os.environ.get("PORT", "8443"))
 CERT = os.environ.get("CERT", "/certs/dashboard.crt")
 KEY = os.environ.get("KEY", "/certs/dashboard.key")
@@ -1801,7 +1801,7 @@ class H(BaseHTTPRequestHandler):
                         self._extra_headers = [("Service-Worker-Allowed", "/")]
                         return self._send(200, body, MIME[".js"], "no-cache")
                     if ext == ".html":  # stamp asset URLs with the build hash so browsers / Cloudflare never serve stale JS/CSS
-                        body = ASSET_RE.sub(lambda m: m.group(0)[:-1] + "?v=" + BUILD + '"', body.decode()).encode()
+                        body = ASSET_RE.sub(lambda m: m.group(1) + "?v=" + BUILD + '"', body.decode()).encode()
                         return self._send(200, body, MIME[".html"], "no-store")
                     versioned = "v=" in (u.query or "")
                     return self._send(200, body, MIME.get(ext, "application/octet-stream"),
