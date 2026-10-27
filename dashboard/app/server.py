@@ -773,17 +773,25 @@ def acks_load_all():
         return {}
 
 
+class _LazySnaps:
+    """Re-iterable (sid, generated, raw, analysis) over every snapshot, loading one at a time (bypassing the doc cache).
+    issues.track walks it twice; holding every parsed snapshot at once took >1 GB and OOM-killed the container."""
+
+    def __init__(self, ids):
+        self.ids = ids
+
+    def __iter__(self):
+        for sid in self.ids:
+            raw = store.jload(os.path.join(DATA, sid + ".json"))
+            if raw:
+                yield sid, raw.get("generated"), raw, store.jload(os.path.join(DATA, sid + ".analysis.json"))
+
+
 def issue_tracker():
     snaps = snapshots()
     sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
     if _issues["sig"] != sig:
-        rows = []
-        for s in snaps:
-            raw = load_json(os.path.join(DATA, s["id"] + ".json"))
-            if raw:
-                rows.append((s["id"], raw.get("generated"), raw,
-                             load_json(os.path.join(DATA, s["id"] + ".analysis.json"))))
-        _issues["val"], _issues["sig"] = issues.track(rows), sig
+        _issues["val"], _issues["sig"] = issues.track(_LazySnaps([s["id"] for s in snaps])), sig
     tr = with_software_vulns(_issues["val"])
     try:  # segmentation fix-list items a suppress rule covers
         cs = with_cleared({}).get("_cleared_seg")

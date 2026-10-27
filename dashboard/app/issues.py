@@ -231,7 +231,7 @@ def sources_of(raw, analysis):
 
 
 def track(snaps, min_occ=2):
-    """snaps: ordered list of (sid, generated, raw, analysis). Returns tracker dict."""
+    """snaps: ordered, re-iterable (walked twice) (sid, generated, raw, analysis). Returns tracker dict."""
     hist = {}
     per = []
     IP2MAC.clear()
