@@ -33,8 +33,16 @@ def _mac_index(raw):
 IP2MAC = {}  # filled by track(): ip -> mac learned across all snapshots
 
 
+_LOOK = None  # while track() evaluates one snapshot: {ip: IP2MAC value used}, so a cached result knows what it depended on
+
+
 def _dkey(ip, d=None):
-    return (d or {}).get("mac") or IP2MAC.get(ip) or ip
+    m = (d or {}).get("mac")
+    if m:
+        return m
+    if _LOOK is not None:
+        _LOOK[ip] = IP2MAC.get(ip)
+    return IP2MAC.get(ip) or ip
 
 
 def _resolve(raw, macidx, dev):
@@ -230,21 +238,86 @@ def sources_of(raw, analysis):
     return s
 
 
-def track(snaps, min_occ=2):
-    """snaps: ordered, re-iterable (walked twice) (sid, generated, raw, analysis). Returns tracker dict."""
-    hist = {}
-    per = []
-    IP2MAC.clear()
-    for _, _, raw, _ in snaps:
-        for ip, d in (raw.get("devices") or {}).items():
-            if d.get("mac"):
-                IP2MAC[ip] = d["mac"]
-    present = {}
-    for sid, gen, raw, an in snaps:
-        present[sid] = {_dkey(ip, d) for ip, d in (raw.get("devices") or {}).items()}
+def _devmap(raw):
+    return {ip: d["mac"] for ip, d in (raw.get("devices") or {}).items() if d.get("mac")}
+
+
+def _eval(raw, an):
+    """One snapshot's tracker inputs (needs IP2MAC filled): devices present, issues, sources, full-day flag, IP2MAC lookups."""
+    global _LOOK
+    _LOOK = {}
+    try:
+        present = {_dkey(ip, d) for ip, d in (raw.get("devices") or {}).items()}
         cur = check_snapshot(raw, an)
         srcs = sources_of(raw, an)
-        per.append((sid, gen, srcs, cur, float(raw.get("hours") or 24) >= 23))
+        full = float(raw.get("hours") or 24) >= 23
+        return {"present": present, "cur": cur, "srcs": srcs, "full": full, "look": _LOOK}
+    finally:
+        _LOOK = None
+
+
+def _site_sig():
+    try:
+        return repr(sorted(SITE.load().items()))
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def track(snaps, min_occ=2):
+    """snaps: ordered, re-iterable (walked twice) (sid, generated, raw, analysis). Returns tracker dict."""
+    IP2MAC.clear()
+    for _, _, raw, _ in snaps:
+        IP2MAC.update(_devmap(raw))
+    return _aggregate([(sid, gen, _eval(raw, an)) for sid, gen, raw, an in snaps], min_occ)
+
+
+def track_incremental(items, cache, min_occ=2, keep=8):
+    """track() over [(sid, mtime, load)] where load() -> (generated, raw, analysis) or None, reusing `cache` (a dict the
+    caller keeps): a snapshot is parsed again only when it is new/changed or an IP2MAC value / site setting it used changed.
+    Same result as track(); at most `keep` freshly parsed snapshots are held at once."""
+    site = _site_sig()
+    fresh = {}
+    for sid, mt, load in items:
+        c = cache.get(sid)
+        if c and c["mt"] == mt:
+            continue
+        got = load()
+        if not got or not got[1]:
+            cache.pop(sid, None)
+            continue
+        cache[sid] = {"mt": mt, "gen": got[0], "dev": _devmap(got[1]), "ev": None}
+        if len(fresh) < keep:
+            fresh[sid] = got
+    live = [sid for sid, _, _ in items if sid in cache]
+    for sid in set(cache) - set(live):
+        cache.pop(sid)
+    IP2MAC.clear()
+    for sid in live:
+        IP2MAC.update(cache[sid]["dev"])
+    loads = {sid: load for sid, _, load in items}
+    rows = []
+    for sid in live:
+        c = cache[sid]
+        ev = c["ev"]
+        if ev is None or c.get("site") != site or any(IP2MAC.get(ip) != v for ip, v in ev["look"].items()):
+            got = fresh.pop(sid, None) or loads[sid]()
+            if not got or not got[1]:
+                continue
+            ev = c["ev"] = _eval(got[1], got[2])
+            c["site"] = site
+        rows.append((sid, c["gen"], ev))
+    return _aggregate(rows, min_occ)
+
+
+def _aggregate(rows, min_occ):
+    """rows: ordered (sid, generated, _eval result)."""
+    hist = {}
+    per = []
+    present = {}
+    for sid, gen, ev in rows:
+        present[sid] = ev["present"]
+        cur = ev["cur"]
+        per.append((sid, gen, ev["srcs"], cur, ev["full"]))
         for k, iss in cur.items():
             h = hist.setdefault(k, {**iss, "first_seen": gen, "first_snap": sid, "occurrences": 0, "seen_in": []})
             h.update({k2: v for k2, v in iss.items()})  # latest evidence/target wins

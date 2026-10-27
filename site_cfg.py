@@ -28,8 +28,8 @@ def load():
         try:
             import store
             data = store.cfg_load("site", shared=True)
-        except Exception:  # noqa: BLE001
-            data = {}
+        except Exception:  # noqa: BLE001 - DB not reachable (yet): never cache the fallback, retry on the next call
+            return _cache if _cache is not None else dict(DEFAULTS)
         if _cache is None or data is not _src:
             _cache = {**DEFAULTS, **{k: v for k, v in data.items() if not k.startswith("_")}}
             globals()["_src"] = data

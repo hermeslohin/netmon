@@ -323,3 +323,38 @@ class TrackTests(_CleanIP2MAC):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IncrementalTrackTests(_CleanIP2MAC):
+    """track_incremental(): same result as track(), parsing only new/changed snapshots."""
+
+    def _items(self, snaps, mts, loads):
+        def mk(s):
+            def load():
+                loads.append(s[0])
+                return s[1], copy.deepcopy(s[2]), s[3]
+            return load
+        return [(s[0], mts.get(s[0], 1), mk(s)) for s in snaps]
+
+    def test_incremental_matches_full_and_reuses_cache(self):
+        """Cached per-snapshot results give the identical tracker; a new snapshot is the only one parsed again,
+        and a snapshot whose IP->MAC lookup changed is re-evaluated.
+        REQ: ISS-02, OPS-05"""
+        r1 = raw_with(); r1["devices"][IP["laptop"]]["services_out"] = {"telnet": {"conns": 3}}
+        r2 = raw_with(); del r2["devices"][IP["phone"]]["mac"]; r2["devices"][IP["phone"]]["services_out"] = {"ftp": {"conns": 1}}
+        r3 = raw_with()
+        s1, s2, s3 = snap("2026-01-01T0000Z", r1), snap("2026-01-02T0000Z", r2), snap("2026-01-03T0000Z", r3)
+        cache, loads = {}, []
+        full = lambda ss: issues.track([(a, b, copy.deepcopy(c), d) for a, b, c, d in ss])
+        self.assertEqual(issues.track_incremental(self._items([s1, s2], {}, loads), cache), full([s1, s2]))
+        loads.clear()
+        self.assertEqual(issues.track_incremental(self._items([s1, s2, s3], {}, loads), cache), full([s1, s2, s3]))
+        self.assertEqual(loads, ["2026-01-03T0000Z"])  # only the new one
+        # the phone's MAC disappears from every snapshot -> s2's lookup result changes -> s2 is re-evaluated
+        r3b = copy.deepcopy(r3); del r3b["devices"][IP["phone"]]["mac"]
+        r1b = copy.deepcopy(r1); del r1b["devices"][IP["phone"]]["mac"]
+        s1b, s3b = snap(s1[0], r1b), snap(s3[0], r3b)
+        loads.clear()
+        got = issues.track_incremental(self._items([s1b, s2, s3b], {s1[0]: 2, s3[0]: 2}, loads), cache)
+        self.assertEqual(got, full([s1b, s2, s3b]))
+        self.assertIn(s2[0], loads)

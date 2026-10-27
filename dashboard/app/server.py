@@ -298,10 +298,14 @@ def finding_last_seen():
     snaps = snapshots()
     sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
     if _fseen["sig"] != sig:
-        seen = {}
-        for s in snaps:  # oldest -> newest, so the last write wins
-            raw = load_json(os.path.join(DATA, s["id"] + ".json")) or {}
-            an = load_json(os.path.join(DATA, s["id"] + ".analysis.json")) or {}
+        old = _fseen["sig"] or ()
+        if old and sig[:len(old)] == old:  # only newer snapshots appended: apply just those (the last write wins anyway)
+            seen, todo = dict(_fseen["val"]), snaps[len(old):]
+        else:
+            seen, todo = {}, snaps
+        for s in todo:  # oldest -> newest, so the last write wins; parsed one at a time, outside the doc cache
+            raw = store.jload(os.path.join(DATA, s["id"] + ".json")) or {}
+            an = store.jload(os.path.join(DATA, s["id"] + ".analysis.json")) or {}
             gen = raw.get("generated")
             if not gen:
                 continue
@@ -773,25 +777,17 @@ def acks_load_all():
         return {}
 
 
-class _LazySnaps:
-    """Re-iterable (sid, generated, raw, analysis) over every snapshot, loading one at a time (bypassing the doc cache).
-    issues.track walks it twice; holding every parsed snapshot at once took >1 GB and OOM-killed the container."""
-
-    def __init__(self, ids):
-        self.ids = ids
-
-    def __iter__(self):
-        for sid in self.ids:
-            raw = store.jload(os.path.join(DATA, sid + ".json"))
-            if raw:
-                yield sid, raw.get("generated"), raw, store.jload(os.path.join(DATA, sid + ".analysis.json"))
-
-
 def issue_tracker():
     snaps = snapshots()
     sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
-    if _issues["sig"] != sig:
-        _issues["val"], _issues["sig"] = issues.track(_LazySnaps([s["id"] for s in snaps])), sig
+    if _issues["sig"] != sig:  # per-snapshot results are cached (issues.track_incremental): a new snapshot parses only itself
+        def loader(sid):
+            def load():
+                raw = store.jload(os.path.join(DATA, sid + ".json"))
+                return (raw.get("generated"), raw, store.jload(os.path.join(DATA, sid + ".analysis.json"))) if raw else None
+            return load
+        _issues["val"] = issues.track_incremental([(sid, mt, loader(sid)) for sid, mt in sig], _issues.setdefault("per", {}))
+        _issues["sig"] = sig
     tr = with_software_vulns(_issues["val"])
     try:  # segmentation fix-list items a suppress rule covers
         cs = with_cleared({}).get("_cleared_seg")
