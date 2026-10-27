@@ -75,4 +75,5 @@ REQUIREMENTS = {
     "OPS-02": ("Operations", "The dashboard container runs read-only, non-root, with a passing health check.", "SETUP.md §6"),
     "OPS-03": ("Operations", "The scheduler runs the watcher every 15 minutes, the research job on its grid and the weekly rebuild on Sunday.", "SETUP.md §7"),
     "OPS-04": ("Operations", "store.py CLI (check / stats) verifies and reports on the database.", "store.py"),
+    "OPS-05": ("Operations", "The dashboard's parsed-document cache is bounded (LRU), so walking every snapshot cannot exhaust the container's memory.", "server.py"),
 }

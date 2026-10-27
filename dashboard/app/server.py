@@ -124,7 +124,26 @@ PASS = os.environ.get("DASH_PASS", "")
 SNAP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{4}Z$")
 COMPANIONS = ("analysis", "sources")
 
-_cache = {}
+import collections
+_CACHE_MAX = 32  # parsed JSON docs kept in memory (LRU): a snapshot parses to ~5-10x its JSON size, so an unbounded cache OOMs once the backfill walks every snapshot
+_cache = collections.OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _cache_get(path):
+    with _cache_lock:
+        hit = _cache.get(path)
+        if hit:
+            _cache.move_to_end(path)
+        return hit
+
+
+def _cache_put(path, mt, val):
+    with _cache_lock:
+        _cache[path] = (mt, val)
+        _cache.move_to_end(path)
+        while len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
 
 
 def load_json(path, default=None):
@@ -136,7 +155,7 @@ def load_json(path, default=None):
         mt = store.doc_mtime(dn)
         if mt is None:
             return default
-        hit = _cache.get(path)
+        hit = _cache_get(path)
         if hit and hit[0] == mt:
             return hit[1]
         try:
@@ -144,13 +163,13 @@ def load_json(path, default=None):
         except Exception as e:  # noqa: BLE001
             print("load error", path, e, file=sys.stderr)
             return hit[1] if hit else default
-        _cache[path] = (mt, val)
+        _cache_put(path, mt, val)
         return val
     try:
         st = os.stat(path)
     except OSError:
         return default
-    hit = _cache.get(path)
+    hit = _cache_get(path)
     if hit and hit[0] == st.st_mtime:
         return hit[1]
     try:
@@ -162,7 +181,7 @@ def load_json(path, default=None):
     except Exception as e:  # partially written file etc.
         print("load error", path, e, file=sys.stderr)
         return hit[1] if hit else default
-    _cache[path] = (st.st_mtime, val)
+    _cache_put(path, st.st_mtime, val)
     return val
 
 
@@ -1861,9 +1880,13 @@ def main():
         while True:
             try:
                 ss = snapshots()
-                if not done:
+                if not done:  # resume where the last run left off (marker in the docs table): a restart must not re-walk every snapshot
+                    mark = (store.doc_get("state/ingest_backfill", {}) or {}).get("sid") or ""
                     for sn in ss:
+                        if sn["id"] <= mark and sn is not ss[-1]:
+                            continue
                         correlation(sn["id"])
+                        store.doc_put("state/ingest_backfill", {"sid": sn["id"]})
                     done = True
                 elif ss:
                     correlation(ss[-1]["id"])
