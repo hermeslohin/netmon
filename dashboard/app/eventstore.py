@@ -180,6 +180,46 @@ def extras(rows):
                 if m in src and r["eid"] not in out[dst]:
                     out[dst][r["eid"]] = src[m]
         out["seen"][r["eid"]] = {"n": r["n"], "first": r["first_seen"], "last": r["last_seen"]}
+    # related events from the stored (decision model / reviewer) verdicts, so rows older than the loaded snapshot
+    # still get their Related count, the linked events, their artifacts and the decision model's confidence
+    try:
+        import corr_llm
+        R, _ = corr_llm.related_view({r["eid"]: set(r["members"]) | {r["eid"]} for r in rows}, detail=False)
+        CE = corr_llm.clef_events_view(allids)
+        out["related_n"] = {k: len(v) for k, v in R.items()}
+        for r in rows:
+            for m in reversed(r["members"]):
+                if m in CE:
+                    out.setdefault("clef_ev", {})[r["eid"]] = CE[m]
+                    break
+    except Exception as e:  # noqa: BLE001 - the page works without them
+        print(f"eventstore related: {e}", file=sys.stderr)
+    return out
+
+
+def related(eid, members):
+    """Related popover of one Open events row: linked events (stored verdicts), artifacts, decision model confidence."""
+    import corr_llm
+    ms = [*members, eid]  # oldest -> newest
+    R, partners = corr_llm.related_view({eid: set(ms)})
+    CE = corr_llm.clef_events_view(ms)
+    return {"related": R.get(eid, []), "events": _ev_view(partners | {eid}), "clef_ev": next((CE[m] for m in reversed(ms) if m in CE), None)}
+
+
+def _ev_view(eids):
+    """Minimal event records (type, label, link, time, host IPs) for the Related popover."""
+    eids, out = list(eids), {}
+    c = _c()
+    for i in range(0, len(eids), 500):
+        ch = eids[i:i + 500]
+        for r in c.execute(f"SELECT eid, type, label, sev, link, t0, t1, doc FROM events WHERE eid IN ({','.join('?' * len(ch))})", ch):
+            try:
+                ips = (json.loads(r["doc"] or "{}").get("ips") or [])[:6]
+            except ValueError:
+                ips = []
+            out[r["eid"]] = {"type": r["type"], "label": r["label"], "sev": r["sev"], "link": r["link"] or "", "t0": r["t0"], "t1": r["t1"], "host_ips": ips}
+    for e in eids:  # partner gone from the store (pruned): still list it by id
+        out.setdefault(e, {"type": e.split("|")[0], "label": e, "link": "", "t0": None, "t1": None})
     return out
 
 

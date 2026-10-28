@@ -173,7 +173,7 @@ class Review(aijob.Job):
                                   {"decisions": {"type": "array", "items": {"type": "object"}}}, ["decisions"])
             try:
                 self.converse(f"review{bn}", prompt("analyst") + "\n\n" + prompt("reviewer"), user, T, ("submit_review",),
-                              max_turns=12, max_tokens=3000)
+                              max_turns=12, max_tokens=8000)  # Gemma thinks before it calls submit_review; 3000 ran out
             except agent.BudgetExceeded:
                 raise
             except Exception as e:  # noqa: BLE001

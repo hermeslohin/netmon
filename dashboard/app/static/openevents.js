@@ -81,6 +81,7 @@
     el.innerHTML = `<div class="loading">Loading…</div>`;
     let r; try { r = await api("/api/events/open?limit=5000"); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     window.__oeExtra = r.extra || {};
+    window.__oeMembers = Object.fromEntries(r.events.map((x) => [x.eid, x.members || []]));
     el.innerHTML = "";
     const f = OE.f, c = r.counts || {};
     const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev));

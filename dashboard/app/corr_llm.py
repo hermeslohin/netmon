@@ -935,7 +935,11 @@ def apply(base):
         cl = classes((base.get("events") or {}).keys())
     except sqlite3.Error:
         cl = {}
-    return {**base, "related": out, "llm": st, "testing": tests, "classes": cl}
+    try:
+        ce = clef_events_view((base.get("events") or {}).keys())
+    except sqlite3.Error:
+        ce = {}
+    return {**base, "related": out, "llm": st, "testing": tests, "classes": cl, "clef_ev": ce}
 
 
 def pending_list(base, limit=500):
@@ -1471,6 +1475,55 @@ def classes(eids):
             for e, lab, conf, why, m, ts in c.execute(f"SELECT eid, label, confidence, reason, model, ts FROM event_class WHERE eid IN ({','.join('?' * len(ch))})", ch):
                 out[e] = {"label": lab, "confidence": conf, "reason": why, "model": m, "at": ts}
     return out
+
+
+def clef_events_view(eids):
+    """Decision model (clef) event labels: {eid: {label, p_suspicious, p_expected, model, at}}."""
+    eids, out = list(eids), {}
+    with _db() as c:
+        for i in range(0, len(eids), 500):
+            ch = eids[i:i + 500]
+            for e, ps, pe, lab, m, ts in c.execute(f"SELECT eid, p_suspicious, p_expected, label, model, ts FROM clef_event WHERE eid IN ({','.join('?' * len(ch))})", ch):
+                out[e] = {"label": lab, "p_suspicious": ps, "p_expected": pe, "model": m, "at": ts}
+    return out
+
+
+def related_view(groups, cap=40, detail=True):
+    """Stored related links for events that may no longer be in the loaded snapshot (Open events page).
+    groups = {row eid: [member eids]} (a row's repeats). Returns ({row eid: [related rows shaped like apply()]},
+    {partner eid}) - newest verdict per partner, best confidence first, at most `cap` per row (detail=False: no cap,
+    no artifacts / decision model lookups - for counts)."""
+    want = {}
+    for r, ms in groups.items():
+        for m in ms:
+            want.setdefault(m, set()).add(r)
+    best = {}
+    with _db() as c:
+        for p, conf, why, m, ts in c.execute("SELECT pair, confidence, reason, model, ts FROM verdicts WHERE related=1"):
+            a, _, b = p.partition("\x1f")
+            for x, y in ((a, b), (b, a)):
+                for r in want.get(x, ()):
+                    if y in groups[r]:
+                        continue
+                    k = (r, y)
+                    if k not in best or (ts or 0) > (best[k][4] or 0):
+                        best[k] = (p, conf, why, m, ts)
+    rows = {}
+    for (r, y), v in best.items():
+        rows.setdefault(r, []).append((y, v))
+    if not detail:
+        return rows, set()
+    keys = set()
+    for r in rows:
+        rows[r] = sorted(rows[r], key=lambda x: -(x[1][1] or 0))[:cap]
+        keys.update(v[0] for _, v in rows[r])
+    AR, CD = artifacts(keys), clef_decisions(keys)
+    out, partners = {}, set()
+    for r, lst in rows.items():
+        out[r] = [{"id": y, "score": 0, "why": [], "llm": "yes", "llm_reason": why, "llm_conf": conf, "llm_model": m,
+                   "llm_artifacts": AR.get(p, []), "clef": CD.get(p), "stored": True} for y, (p, conf, why, m, ts) in lst]
+        partners.update(y for y, _ in lst)
+    return out, partners
 
 
 def class_counts():

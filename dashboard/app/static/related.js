@@ -51,10 +51,11 @@
     if (!S.corr || S.corr._snap !== S.snap?.id) return;
     for (const [k, v] of Object.entries(orphanNotes)) if (!S.corr.notes?.[k] && !S.corr.events?.[k]) (S.corr.notes = S.corr.notes || {})[k] = v;
     const X = location.hash.startsWith("#/events") ? window.__oeExtra : null;  // Open events page: AI notes, classifications, your notes, times seen
-    if (X) for (const m of ["notes", "classes", "unotes", "seen"]) S.corr[m] = { ...(S.corr[m] || {}), ...(X[m] || {}) };
+    if (X) for (const m of ["notes", "classes", "unotes", "seen", "clef_ev"]) S.corr[m] = { ...(S.corr[m] || {}), ...(X[m] || {}) };
     fetchOrphans();
     main.querySelectorAll(".rel-btn").forEach((b) => {
-      const n = (S.corr.related?.[b.dataset.rel] || []).length;
+      // rows older than the loaded snapshot (Open events): the count of stored related verdicts; details load on click
+      const n = (S.corr.related?.[b.dataset.rel] || []).length || (X?.related_n?.[b.dataset.rel] || 0);
       const t = n ? String(n) : "–";
       if (b.textContent !== t) b.textContent = t;
       b.classList.toggle("has", n > 0); b.disabled = !n;
@@ -134,22 +135,42 @@
     if (e.type === "vuln" || !e.t0) return "ongoing (no event time)";
     return e.t1 && e.t1 - e.t0 >= 60 ? `${f(e.t0)} → ${f(e.t1)}` : f(e.t0);
   };
+  // decision model (clef) chips: event label (p suspicious / p expected) and per-link p(related)
+  const pct = (p) => Math.round((p || 0) * 100) + "%";
+  const clefEvHtml = (c) => !c ? "" : `<span class="note-v v-${esc(String(c.label || "").replace(/[^a-z-]/g, ""))}" title="Decision model (${esc(c.model || "clef")}) event label: p(suspicious) ${pct(c.p_suspicious)}, p(expected) ${pct(c.p_expected)}">clef: ${esc(c.label || "?")}</span> <span class="small muted">p sus ${pct(c.p_suspicious)} · p exp ${pct(c.p_expected)}</span>`;
+  const clefLinkHtml = (r) => r.clef ? `<span class="rel-ai ${r.clef.related ? "yes" : "pend"}" title="Decision model (${esc(r.clef.model || "clef")}) p(related) = ${(r.clef.p_related || 0).toFixed(3)}">clef ${pct(r.clef.p_related)} related</span>`
+    : `<span class="rel-ai pend" title="Decided before the decision model (clef) ran: ${esc(r.llm_model || "reviewer")} verdict">no clef decision</span>`;
+  const loadingRel = new Set();
+  function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
+    const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);
+    const ms = (window.__oeMembers?.[id] || []).slice(-12);
+    btn.textContent = "…";
+    api("/api/events/related?e=" + encodeURIComponent(id) + ms.map((m) => "&m=" + encodeURIComponent(m)).join("")).then((d) => {
+      if (!S.corr) return;
+      S.corr.related = S.corr.related || {}; S.corr.events = S.corr.events || {};
+      if (d.related?.length) S.corr.related[id] = d.related;
+      for (const [k, v] of Object.entries(d.events || {})) if (!S.corr.events[k]) S.corr.events[k] = v;
+      if (d.clef_ev) (S.corr.clef_ev = S.corr.clef_ev || {})[id] = d.clef_ev;
+    }).catch(() => {}).finally(() => { loadingRel.delete(id); fill(); if (btn.isConnected && S.corr?.related?.[id]?.length) { open(btn); if (pop) pop._for = btn; } });
+  }
   function open(btn) {
     close();
     const id = btn.dataset.rel, rel = S.corr?.related?.[id] || [], me = S.corr?.events?.[id];
-    if (!rel.length) return;
+    if (!rel.length) { if (window.__oeExtra?.related_n?.[id] && location.hash.startsWith("#/events")) openStored(btn); return; }
+    const cev = S.corr?.clef_ev?.[id];
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
+      ${cev ? `<div class="small" style="padding:4px 10px">${clefEvHtml(cev)}</div>` : ""}
       ${tuneHtml(id) ? `<div style="padding:4px 10px">${tuneHtml(id)}</div>` : ""}
-      ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || [e.type, ""];
-        const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
-          : `<span class="rel-ai pend" title="The local LLM has not reviewed this link yet">AI review pending</span>`;
-        return `<a class="rel-item" href="${esc(e.link)}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-pair small muted" title="event pair">${esc(pairText(me?.type, e.type))}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
+      ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding" }[e.type]] || [e.type, ""];
+        const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${clefLinkHtml(r)} ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
+          : `<span class="rel-ai pend" title="The decision model has not decided this link yet">AI review pending</span>`;
+        return `<a class="rel-item" href="${esc(e.link || "#")}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-pair small muted" title="event pair">${esc(pairText(me?.type, e.type))}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
           <span class="rel-time small muted">🕒 ${esc(evTime(e))}</span>
           ${tuneHtml(r.id)}
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
           ${artifactsHtml(ipArts(e, r.llm_artifacts))}
-          <span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span></a>`; }).join("")}
+          ${(r.why || []).length ? `<span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span>` : ""}</a>`; }).join("")}
       <div class="small muted" style="padding:6px 10px">${esc(llmLine())}</div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(520, innerWidth - 16);
@@ -193,8 +214,9 @@
     pop.innerHTML = `<div class="rel-head"><b>AI classification</b> ${aiFlare({ model: c.model, via: "event classification", at: c.at ? new Date(c.at * 1000).toISOString() : "" })}
         <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body"><div><span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span></div>
+        ${S.corr?.clef_ev?.[id] ? `<div style="margin-top:4px">${clefEvHtml(S.corr.clef_ev[id])}</div>` : ""}
         <p>${esc(c.reason || "")}</p>
-        <div class="small muted">Decided by the reviewer after all of this event's correlations were reviewed (AI review > Review limits > Classify events). Verify before acting.</div></div>`;
+        <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the reviewer's. Verify before acting.</div></div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
     pop.style.width = w + "px";
@@ -346,5 +368,5 @@
   addEventListener("scroll", close, { passive: true });
   addEventListener("hashchange", close);
   let q = false;
-  new MutationObserver(() => { if (q) return; q = true; requestAnimationFrame(() => { q = false; if (main.querySelector(".rel-btn")) ensure(); }); }).observe(main, { childList: true, subtree: true });
+  new MutationObserver(() => { if (q) return; q = true; setTimeout(() => { q = false; if (main.querySelector(".rel-btn")) ensure(); }, 30); }).observe(main, { childList: true, subtree: true });
 })();
