@@ -76,8 +76,8 @@ else
 fi
 grep -q '^NETMON_BROKER_KEY=.\+' "$NM/dashboard/.env" 2>/dev/null && ok "host broker key" || bad "NETMON_BROKER_KEY missing in dashboard/.env (any long random string; also NETMON_BROKER_URL=http://127.0.0.1:8650)"
 
-echo "== systemd user units (scheduler + host broker)"
-for u in netmon-scheduler netmon-broker; do
+echo "== systemd user units (scheduler + host broker + decision model)"
+for u in netmon-scheduler netmon-broker netmon-clef; do
   if [ -f "$UNITS/$u.service" ]; then ok "$u.service"
   elif [ $CHECK = 1 ]; then bad "$u.service not installed"
   else mkdir -p "$UNITS"; sed "s|%h/netmon|$NM|g" "$NM/systemd/$u.service" > "$UNITS/$u.service"; ok "installed $UNITS/$u.service"; fi
@@ -85,7 +85,7 @@ done
 if [ $CHECK = 0 ]; then
   systemctl --user daemon-reload
   loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q yes || warn "user lingering is off: jobs stop when you log out - run: sudo loginctl enable-linger $(id -un)"
-  echo "   start them with: systemctl --user enable --now netmon-broker netmon-scheduler   (after the first collection works)"
+  echo "   start them with: systemctl --user enable --now netmon-broker netmon-scheduler netmon-clef   (after the first collection works)"
 fi
 
 echo

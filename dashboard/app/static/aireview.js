@@ -705,6 +705,40 @@
 
   // ---- review job cost caps (research_cfg.py): $ per run / per day, tokens per run, research batches per run
   // events sent through the review phase per day (review_events: one row per event review, kept 30 days)
+  // Decision model (clef-flash): yes/no on related for every candidate link, then suspicious for the related ones; the reviewer writes the notes
+  function clefCard(D) {
+    const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {};
+    const pc = (n, t) => (t ? Math.round((100 * n) / t) + "%" : "—"), ms = (v) => (v == null ? "—" : fn(v) + " ms");
+    const c = card("Decision model", K.error ? `<div class="bad">Unavailable: ${esc(K.error)}</div>` : `
+      <div class="small muted">Correlation review in three stages: the correlation script proposes links → <b>${esc(cfg.model || "clef-flash")}</b> answers yes/no
+        <i>related?</i> for every link (a no is final) → once all links of the pass are answered it answers yes/no <i>suspicious?</i> for every related
+        link → the selected reviewer model (${esc(D.status?.model || "")}) gets both answers and writes the reason, artifacts and host notes.</div>
+      ${kpis([["Links decided (24 h)", fn(d.pairs || 0)], ["Related (24 h)", `${fn(d.related || 0)} · ${pc(d.related || 0, d.pairs)}`],
+              ["Rejected by decision model (24 h)", fn(d.not_related || 0)], ["Suspicious (24 h)", `${fn(d.suspicious || 0)} of ${fn(d.suspicious_asked || 0)}`],
+              ["Avg time related / suspicious", `${ms(d.ms_related)} / ${ms(d.ms_suspicious)}`], ["All time", `${fn(a.pairs || 0)} links · ${fn(a.suspicious || 0)} suspicious`],
+              ["Reviewer disagreed", `${fn(K.reviewer_disagreed || 0)} of ${fn(K.noted || 0)}`]])}
+      <div class="idgrid" style="margin-top:8px">
+        <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (host unit netmon-clef)</span>'}</span>
+        <span class="k">Now</span><span>${s.clef_stage ? `stage <b>${esc(s.clef_stage)}</b>${s.clef_todo ? ` · ${fn(s.clef_todo)} left` : ""}` : "idle"} · this pass ${fn(s.clef_related_this_run || 0)} related / ${fn(s.clef_suspicious_this_run || 0)} suspicious answers</span>
+      </div>
+      <div class="llm-row" style="margin-top:8px"><span class="k">Settings</span>
+        <label class="small"><input type="checkbox" name="en" ${cfg.enabled ? "checked" : ""}> use the decision model</label>
+        <label class="small">related if p ≥ <input type="number" name="rm" min="0.05" max="0.95" step="0.05" value="${cfg.related_min ?? 0.5}" style="width:5em"></label>
+        <label class="small">suspicious if p ≥ <input type="number" name="sm" min="0.05" max="0.95" step="0.05" value="${cfg.suspicious_min ?? 0.5}" style="width:5em"></label>
+        <button type="button" name="save" disabled>Save</button><span class="small muted msg">${D.admin ? "" : "only an admin can change this"}</span></div>`);
+    c.id = "ai-clef";
+    if (!K.error) {
+      const q = (n) => c.querySelector(`[name="${n}"]`), btn = q("save"), msg = c.querySelector(".msg");
+      ["en", "rm", "sm"].forEach((n) => { q(n).disabled = !D.admin; q(n).addEventListener("input", () => { btn.disabled = !D.admin; }); });
+      btn.onclick = async () => {
+        btn.disabled = true; msg.textContent = "saving…";
+        try { const r = await apiPost("/api/llm/clef", { enabled: q("en").checked, related_min: +q("rm").value, suspicious_min: +q("sm").value });
+              msg.textContent = `saved · ${r.clef.enabled ? "on" : "off"} (from the next pass)`; }
+        catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+      };
+    }
+    return c;
+  }
   function reviewVolumeCard(D) {
     const days = ((D.totals || {}).events_per_day || []), today = new Date().toLocaleDateString("sv");
     const full = days.filter((d) => d.day !== today);  // today is partial: left out of the averages
@@ -960,6 +994,7 @@
       } catch (e) { box.querySelector(".loading")?.remove(); box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
     el.appendChild(reviewVolumeCard(D));
+    el.appendChild(clefCard(D));
     el.appendChild(modelsCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
@@ -991,6 +1026,8 @@
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
       { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
       { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
+      { k: "clef", t: "Decision model", cls: "small", sort: (r) => (r.clef ? (r.clef.suspicious ? 2 : 1) : 0),
+        fmt: (v) => (!v ? "" : `${v.related ? "related" : "not related"} ${Math.round(v.p_related * 100)}%${v.p_suspicious == null ? "" : ` · ${v.suspicious ? '<span class="badge sev-high">suspicious</span>' : "not suspicious"} ${Math.round(v.p_suspicious * 100)}%`}`) },
       { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
       { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
       { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },

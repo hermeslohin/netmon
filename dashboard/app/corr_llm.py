@@ -690,6 +690,9 @@ def _schema(c):
                  related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
+    # decision model (clef) answers per pair: p_related always, p_suspicious for pairs it judged related; ms = call time
+    c.execute("""CREATE TABLE IF NOT EXISTS clef (pair TEXT PRIMARY KEY, p_related REAL, related INTEGER, p_suspicious REAL,
+                 suspicious INTEGER, model TEXT, ts REAL, ms_related REAL, ms_suspicious REAL)""")
     c.execute("CREATE TABLE IF NOT EXISTS review_events (ts REAL, prompt INTEGER, completion INTEGER, cands INTEGER)")
     try:
         c.execute("ALTER TABLE review_events ADD COLUMN notes INTEGER")  # notes passed in with the review (owner + AI)
@@ -867,6 +870,10 @@ def apply(base):
     V = verdicts(keys)
     _touch_seen(V)
     AR = artifacts([k for k, v in V.items() if v["related"]])
+    try:
+        CD = clef_decisions([k for k, v in V.items() if v["related"]])
+    except sqlite3.Error:
+        CD = {}
     CL = _cleared()
     skipped = _limit_fn(base)
     out, P, C, X, T = {}, set(), set(), set(), []  # unique pairs (each link appears under both of its events); T = testing
@@ -896,7 +903,7 @@ def apply(base):
                 keep.append({**r, "llm": "pending"}); P.add(pair(a, r["id"]))
             elif v["related"]:
                 keep.append({**r, "llm": "yes", "llm_reason": v["reason"], "llm_conf": v["confidence"], "llm_model": v["model"],
-                              "llm_artifacts": AR.get(pair(a, r["id"]), [])}); C.add(pair(a, r["id"]))
+                              "llm_artifacts": AR.get(pair(a, r["id"]), []), "clef": CD.get(pair(a, r["id"]))}); C.add(pair(a, r["id"]))
             else:
                 X.add(pair(a, r["id"]))
         keep.sort(key=lambda r: (r["llm"] != "yes", -(r.get("llm_conf") or 0) * 2 - r["score"]))
@@ -1130,15 +1137,15 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, p
     return _json(txt)["decisions"], usage, round(secs, 2)
 
 
-def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None, usage_out=None):
+def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None, usage_out=None, system=None):
     t = model if isinstance(model, dict) else {"provider": "lmstudio", "model": model}
     try:
-        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query)
+        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query, system=system)
     except urllib.error.HTTPError as e:  # 400 from LM Studio = prompt + answer did not fit its context window: retry with far fewer notes
         if e.code != 400:
             raise
         print("corr_llm: context exceeded, retrying with fewer notes", file=sys.stderr)
-        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, note_cap=2, es_max=es_max, on_query=on_query)
+        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, note_cap=2, es_max=es_max, on_query=on_query, system=system)
     if usage_out is not None:
         usage_out.update(usage or {})
     return dec
@@ -1293,7 +1300,18 @@ def _review(model, aid, base, todo):
     used = {}
     own_n, ai_n = _owner_notes(aid, ids, E), _ai_notes(aid, ids, E)
     n_notes = sum(len(v) for v in own_n.values()) + sum(len(v) for v in ai_n.values())
-    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, own_n, es["max"] if es["enabled"] else 0, logq, ai_notes=ai_n, usage_out=used)}
+    CD = clef_decisions([pair(aid, r["id"]) for _, r in cands])
+    if CD:  # decision-model stage ran: the reviewer gets its answers and writes the notes; relatedness is already decided
+        cands = [(e, {**r, "why": [*(r.get("why") or []), _clef_line(CD.get(pair(aid, r["id"])))]}) for e, r in cands]
+    dec = {d.get("id"): d for d in _ask(model, E[aid], cands, own_n, es["max"] if es["enabled"] else 0, logq, ai_notes=ai_n, usage_out=used,
+                                        system=SYSTEM + CLEF_SYSTEM if CD else None)}
+    for i, (e, r) in enumerate(cands, 1):
+        cd, d = CD.get(pair(aid, r["id"])), dec.get(f"c{i}")
+        if cd and d is not None:  # the decision model's yes stands; the reviewer's own view is kept in the reason when it differs
+            if not d.get("related"):
+                d["reason"] = f"[reviewer disagreed: {str(d.get('reason') or '')[:150]}]"
+                d["artifacts"] = []
+            d["related"], d["confidence"] = True, round(cd["p_related"], 3)
     try:  # tokens this one event review used (all its model rounds), for the AI review page's average in / out per event
         with _lock, _db() as c:
             c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes) VALUES (?,?,?,?,?)", (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands), n_notes))
@@ -1504,6 +1522,9 @@ def classify_pass(model, base):
         if have.get(a) == sig:
             continue
         todo.append((a, sig, [(i, v["confidence"], v["reason"]) for i, v in dec if v["related"]]))
+    CD = clef_decisions({pair(a, i) for a, _, conf in todo for i, _, _ in conf})
+    if CD:  # the decision model's suspicious answer goes to the classifier with each confirmed link
+        todo = [(a, sig, [(i, c_, f"{w} [{_clef_line(CD[pair(a, i)])}]" if pair(a, i) in CD else w) for i, c_, w in conf]) for a, sig, conf in todo]
     todo.sort(key=lambda t: (t[0] in have, -len(t[2])))  # never-classified first, then the best-connected
     todo = todo[:CLASS_PER_PASS]
     n = 0
@@ -1557,11 +1578,147 @@ def sync_alarms(base):
         print(f"alarms: promoted {len(promote)}, held {len(hold)}, new {len(new)}, removed {len(stale)}", file=sys.stderr, flush=True)
 
 
+# ---------------------------------------------------------------- decision model stage (clef.py)
+CLEF_SYSTEM = """
+DECISION MODEL: every candidate here was already judged RELATED to the anchor by a decision model (see the
+"decision model:" line in its script evidence, with its probabilities that the pair is related and that the linked
+activity is suspicious). Do not re-decide relatedness: answer related=true for each candidate. Your job is the notes:
+a reason that explains HOW the two events are linked and, when the decision model marked the pair suspicious, what
+about it needs a person's eye (or, when notes explain it, why it is expected); and the artifacts with their
+benign / expected / suspicious decision, consistent with the evidence. If you are certain a candidate is NOT related,
+you may still answer related=false and say why - that disagreement is recorded for the owner."""
+
+
+def _clef_line(cd):
+    if not cd:
+        return "decision model: no answer"
+    s = "" if cd.get("p_suspicious") is None else f"; suspicious: {'YES' if cd.get('suspicious') else 'no'} (p={cd['p_suspicious']:.2f})"
+    return f"decision model: related {'YES' if cd.get('related') else 'no'} (p={cd['p_related']:.2f}){s}"
+
+
+def clef_decisions(keys):
+    keys = list(keys)
+    out = {}
+    if not keys:
+        return out
+    with _db() as c:
+        for i in range(0, len(keys), 500):
+            ch = keys[i:i + 500]
+            for p, pr, r, ps, s, m, ts in c.execute(f"SELECT pair, p_related, related, p_suspicious, suspicious, model, ts FROM clef WHERE pair IN ({','.join('?' * len(ch))})", ch):
+                out[p] = {"p_related": pr, "related": bool(r), "p_suspicious": ps, "suspicious": None if s is None else bool(s), "model": m, "at": ts}
+    return out
+
+
+def _clef_state(E, a, b, r, ON, link=None):
+    import clef
+    return clef.state(E[a], E[b], r, lambda e: _when(e.get("t0"), e.get("type")), lambda t: TYPE_DESC.get(t, ""),
+                      ON.get(a), ON.get(b), link)
+
+
+def clef_pass(base, jobs):
+    """Stages 1 and 2 of a review pass for these (anchor, [candidate rows]) jobs.
+    1. related: every pair without a clef answer is asked; a no is written straight to verdicts (the reviewer never sees it).
+    2. suspicious: once ALL pairs of stage 1 are answered, every pair judged related is asked whether it is suspicious.
+    Returns jobs trimmed to the pairs the reviewer still has to write notes for (related, both stages done)."""
+    import clef
+    cfg = clef.config()
+    E = base["events"]
+    allk = {pair(a, r["id"]): (a, r) for a, todo in jobs for r in todo if a in E and r["id"] in E}
+    have = clef_decisions(allk)
+    ON = {}
+    try:  # owner notes on the events (approved only), so "expected - my backup job" reaches the decision model too
+        import kb
+        ON = {k: [n["text"] for n in v] for k, v in kb.event_notes(list({x for a, r in allk.values() for x in (a, r["id"])}), ai=True).items()}
+    except Exception as e:  # noqa: BLE001
+        print(f"clef: owner notes unavailable: {e}", file=sys.stderr)
+    STATUS.update(clef_stage="related", clef_todo=sum(1 for k in allk if k not in have))
+
+    def rel(k):
+        a, r = allk[k]
+        try:
+            p, ms = clef.ask(_clef_state(E, a, r["id"], r, ON), {"related": clef.Q_RELATED}, cfg["url"])
+        except Exception as e:  # noqa: BLE001
+            STATUS["error"] = f"decision model: {type(e).__name__}: {str(e)[:200]}"
+            return 0
+        yes = p["related"] >= cfg["related_min"]
+        with _lock, _db() as c:
+            c.execute("INSERT OR REPLACE INTO clef (pair, p_related, related, model, ts, ms_related) VALUES (?,?,?,?,?,?)",
+                      (k, p["related"], int(yes), cfg["model"], time.time(), ms))
+            if not yes:  # final: rejected links never reach the reviewer
+                c.execute("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)",
+                          (k, 0, round(1 - p["related"], 3), f"Decision model: not related (p related {p['related']:.2f})", cfg["model"], time.time()))
+                store_artifacts(c, k, [], cfg["model"], time.time())
+        STATUS["clef_related_this_run"] = STATUS.get("clef_related_this_run", 0) + 1
+        STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
+        return 1
+    with ThreadPoolExecutor(clef.WORKERS) as ex:
+        list(ex.map(rel, [k for k in allk if k not in have]))
+    have = clef_decisions(allk)
+    if any(k not in have for k in allk):  # stage 1 incomplete (model errors): no stage 2 or notes this pass
+        STATUS.update(clef_stage="")
+        return []
+    sus = [k for k, d in have.items() if d["related"] and d["p_suspicious"] is None]
+    STATUS.update(clef_stage="suspicious", clef_todo=len(sus))
+
+    def susp(k):
+        a, r = allk[k]
+        link = f"the decision model judged these two events related (p={have[k]['p_related']:.2f})"
+        try:
+            p, ms = clef.ask(_clef_state(E, a, r["id"], r, ON, link), {"suspicious": clef.Q_SUSPICIOUS}, cfg["url"])
+        except Exception as e:  # noqa: BLE001
+            STATUS["error"] = f"decision model: {type(e).__name__}: {str(e)[:200]}"
+            return 0
+        with _lock, _db() as c:
+            c.execute("UPDATE clef SET p_suspicious=?, suspicious=?, ms_suspicious=? WHERE pair=?",
+                      (p["suspicious"], int(p["suspicious"] >= cfg["suspicious_min"]), ms, k))
+        STATUS["clef_suspicious_this_run"] = STATUS.get("clef_suspicious_this_run", 0) + 1
+        STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
+        return 1
+    with ThreadPoolExecutor(clef.WORKERS) as ex:
+        list(ex.map(susp, sus))
+    have = clef_decisions(allk)
+    STATUS.update(clef_stage="notes", clef_todo=0)
+    out = []
+    for a, todo in jobs:
+        keep = [r for r in todo if (have.get(pair(a, r["id"])) or {}).get("related") and have[pair(a, r["id"])]["p_suspicious"] is not None]
+        if keep:
+            out.append((a, keep))
+    return out
+
+
+def clef_overview():
+    """Numbers for the AI review page's decision-model card."""
+    import clef
+    now = time.time()
+    with _db() as c:
+        def agg(since):
+            n, rel, sus, nsus, msr, mss = c.execute(
+                "SELECT COUNT(*), COALESCE(SUM(related),0), COALESCE(SUM(suspicious),0), COALESCE(SUM(p_suspicious IS NOT NULL),0), "
+                "AVG(ms_related), AVG(ms_suspicious) FROM clef WHERE ts >= ?", (since,)).fetchone()
+            return {"pairs": n, "related": rel, "not_related": n - rel, "suspicious_asked": nsus, "suspicious": sus,
+                    "ms_related": round(msr) if msr else None, "ms_suspicious": round(mss) if mss else None}
+        recent = [{"pair": p, "p_related": pr, "related": bool(r), "p_suspicious": ps, "suspicious": None if s is None else bool(s), "ts": ts}
+                  for p, pr, r, ps, s, ts in c.execute("SELECT pair, p_related, related, p_suspicious, suspicious, ts FROM clef ORDER BY ts DESC LIMIT 200")]
+        agree = c.execute("SELECT COUNT(*), COALESCE(SUM(v.reason LIKE '[reviewer disagreed:%'),0) FROM clef k JOIN verdicts v ON v.pair=k.pair "
+                          "WHERE k.related=1 AND v.model NOT LIKE 'manual:%'").fetchone()
+    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0),
+            "noted": agree[0], "reviewer_disagreed": agree[1], "recent": recent,
+            "status": {k: STATUS.get(k) for k in ("clef_stage", "clef_todo", "clef_related_this_run", "clef_suspicious_this_run")}}
+
+
 def run_once(get_base, latest_sid):
-    """One pass: review every undecided candidate of the newest snapshot (and recently opened ones)."""
+    """One pass: review every undecided candidate of the newest snapshot (and recently opened ones).
+    With the decision model on: clef decides related for every pair, then suspicious for the related ones, then the
+    selected reviewer writes the notes for those (clef_pass)."""
     sids = [latest_sid] + [s for s, t in sorted(_wanted.items(), key=lambda x: -x[1]) if s != latest_sid and time.time() - t < 3600][:2]
     model = _target()
-    STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0, es_queries_this_run=0, classified_this_run=0)
+    STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0, es_queries_this_run=0, classified_this_run=0,
+                  clef_related_this_run=0, clef_suspicious_this_run=0, clef_stage="", clef_todo=0)
+    import clef
+    use_clef = clef.config()["enabled"]
+    if use_clef and not clef.healthy():  # never fall back silently to the old flow: wait until the decision model is back
+        STATUS.update(busy=False, last_run=time.time(), error=f"decision model unreachable at {clef.config()['url']} (host unit netmon-clef) - reviews wait; switch it off on AI review > Decision model to review without it")
+        return 0
     done = 0
     try:  # alarms follow the verdicts already made, before a long review pass starts
         if latest_sid:
@@ -1580,7 +1737,11 @@ def run_once(get_base, latest_sid):
             todo = [r for r in rel[a] if pair(a, r["id"]) not in V and pair(a, r["id"]) not in seen]
             if todo:
                 seen.update(pair(a, r["id"]) for r in todo[:MAX_CAND])
-                jobs.append((a, todo))
+                jobs.append((a, todo[:MAX_CAND]))
+        if use_clef:
+            before = sum(len(t) for _, t in jobs)
+            jobs = clef_pass(base, jobs)
+            done += len(verdicts(seen))  # every pair here was undecided: what has a verdict now was rejected by the decision model
         with ThreadPoolExecutor(WORKERS) as ex:
             for n in ex.map(_safe_review, [model] * len(jobs), [j[0] for j in jobs], [base] * len(jobs), [j[1] for j in jobs]):
                 done += n
@@ -1719,6 +1880,10 @@ def overview(events, applied):
     pend = llm.get("pending", 0)
     rate = sum(1 for ts in day if now - ts <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
     out = []
+    try:
+        CDv = clef_decisions([r[0] for r in rows])
+    except sqlite3.Error:
+        CDv = {}
     for p, rel, conf, why, m, ts in rows:
         a, b = p.split("\x1f", 1)
         ea, eb = events.get(a) or {}, events.get(b) or {}
@@ -1726,9 +1891,11 @@ def overview(events, applied):
                     "a_type": ea.get("type") or a.split("|")[0], "b_type": eb.get("type") or b.split("|")[0],
                     "a_link": ea.get("link") or "", "b_link": eb.get("link") or "", "current": bool(ea and eb),
                     "related": bool(rel), "confidence": conf, "reason": why, "model": m, "ts": ts,
-                    "manual": str(m).startswith("manual:")})
-    return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "provider", "error", "busy", "last_run", "decided_this_run", "es_queries_this_run", "classified_this_run", "classifying")},
+                    "manual": str(m).startswith("manual:"), "clef": CDv.get(p)})
+    return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "provider", "error", "busy", "last_run", "decided_this_run", "es_queries_this_run", "classified_this_run", "classifying",
+                                                 "clef_stage", "clef_todo", "clef_related_this_run", "clef_suspicious_this_run")},
             "es_queries": es_overview(events),
+            "clef": _clef_ov_safe(),
             "config": config(),
             "url": URL, "workers": WORKERS, "reasoning": REASONING,
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
@@ -1737,6 +1904,13 @@ def overview(events, applied):
                        "manual": n_man, "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats, "events_per_day": daily,
                        "avg_conf": round(conf_sum / n_all, 2) if n_all else None},
             "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out}
+
+
+def _clef_ov_safe():
+    try:
+        return clef_overview()
+    except Exception as e:  # noqa: BLE001 - the page works without the card
+        return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
 def es_overview(events, limit=50):
@@ -1769,8 +1943,9 @@ def override(p, related, user):
     if "\x1f" not in p or len(p) > 2000:
         raise ValueError("bad pair")
     with _lock, _db() as c:
-        if related is None:
+        if related is None:  # "ask again" starts the whole chain over: decision model first, then the reviewer's notes
             c.execute("DELETE FROM verdicts WHERE pair=?", (p,))
+            c.execute("DELETE FROM clef WHERE pair=?", (p,))
         else:
             c.execute("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)",
                       (p, 1 if related else 0, 1.0, f"Set by {user}", f"manual:{user}", time.time()))

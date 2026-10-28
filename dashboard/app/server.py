@@ -32,7 +32,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/notes", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -1195,6 +1195,15 @@ class H(BaseHTTPRequestHandler):
                 res = corr_llm.set_chat_es(bool(body.get("enabled")), user)
                 print(f"llm chat-es: {user} set enabled={res['enabled']}", file=sys.stderr)
                 return self._json({"ok": True, "chat_es": res})
+            if u.path == "/api/llm/clef":  # decision model stage of the correlation review: on/off and yes thresholds
+                import clef
+                try:
+                    res = clef.set_config(user, body.get("enabled"), body.get("related_min"), body.get("suspicious_min"))
+                except (TypeError, ValueError) as e:
+                    return self._json({"error": str(e)[:200]}, 400)
+                pass  # logged by the generic POST audit
+                print(f"llm clef: {user} set enabled={res['enabled']} related_min={res['related_min']} suspicious_min={res['suspicious_min']}", file=sys.stderr)
+                return self._json({"ok": True, "clef": res})
             if u.path == "/api/llm/esqueries":  # may the correlation reviewer search Elasticsearch, and how often per event
                 try:
                     res = corr_llm.set_es_queries(bool(body.get("enabled")), body.get("max"), user)

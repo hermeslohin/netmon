@@ -1,0 +1,12 @@
+[Unit]
+Description=netmon decision model (clef-flash on llama-server /v1/systemone) for the correlation review
+After=network-online.target
+
+[Service]
+ExecStart=%h/netmon/clef.sh
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

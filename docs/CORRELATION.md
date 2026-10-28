@@ -152,6 +152,31 @@ providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mod
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
 its own calls-per-hour cap.
 
+### Decision model stage (clef-flash)
+
+Before the reviewer sees anything, every undecided candidate link goes through a **decision model**:
+Cloudflare `clef-flash` (LM Studio id `cloudflare_clef-flash:2`). It is a "System One" model: it never writes text, it
+returns a probability for a yes/no question. LM Studio cannot run it, so it is served by LM Studio's bundled
+llama.cpp `llama-server` on `http://127.0.0.1:8091/v1/systemone` (host unit `netmon-clef`, script `clef.sh`;
+loopback only). Each pass of the review worker runs three stages:
+
+1. **Related?** — for every candidate pair of the pass (after the normal statistical correlation): both events
+   (type, time, severity, description, hosts, artifacts, approved owner notes) and the script's score/evidence as a
+   JSON state. `p ≥ related_min` (default 0.5) = related; anything lower is written straight to the verdicts as
+   *Not related* (model `cloudflare_clef-flash:2`) and never reaches the reviewer.
+2. **Suspicious?** — only after **all** pairs of the pass have a related answer: every related pair is asked whether
+   the linked activity looks suspicious (`p ≥ suspicious_min`, default 0.5).
+3. **Notes** — the selected correlation model (AI review > Models) gets the related pairs with a
+   `decision model: related YES (p=…); suspicious: YES/no (p=…)` line in each candidate's evidence and writes the
+   reason, artifacts (benign/expected/suspicious) and host/internet/DNS notes as before. Relatedness stays the
+   decision model's; if the reviewer answers *not related* the verdict is kept and its reason is stored as
+   `[reviewer disagreed: …]` (counted on the card). The event classifier also receives the suspicious answer.
+
+Answers are stored per pair in `corr_llm.db` table `clef`. *Ask again* (↻) clears both the verdict and the
+decision-model answer. If the decision model is unreachable the pass waits (status error) rather than silently
+falling back; switching it off on **AI review > Decision model** restores the reviewer-only flow. Verdicts made
+before the stage existed are not re-decided.
+
 ### What the reviewer is given
 
 Each event in a request carries its type, time, severity, label and **known artifacts** (users, processes, files, DNS
