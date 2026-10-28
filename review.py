@@ -23,6 +23,38 @@ import agent  # noqa: E402
 import review_cfg as RC  # noqa: E402
 
 MAX_TOKENS = 25_000_000  # safety stop for one run (a local model costs nothing, but a loop must not run forever)
+BATCH_CHARS = 14_000  # work-item JSON per reviewer call: fits a local model's context (e.g. Gemma at ~25k tokens) with prompt + answer
+BATCH_MAX = 8  # items per reviewer call
+
+
+def compact(x):
+    """What the reviewer needs to match an event with a prior note: no host-note dump, short prior texts."""
+    keep = {k: x[k] for k in ("id", "type", "sev", "label", "when", "repeats", "user_notes", "dns_notes") if x.get(k) not in (None, "", [], {})}
+    for k in ("evidence", "detail", "summary"):
+        if x.get(k):
+            keep[k] = str(x[k])[:600]
+    hn = x.get("host_notes") or {}  # {ip: [note, ...]}: people's notes first, at most 2 short ones per host
+    if isinstance(hn, dict) and hn:
+        keep["host_notes"] = {ip: [str(n.get("text") if isinstance(n, dict) else n)[:200]
+                                   for n in sorted(ns or [], key=lambda n: not (isinstance(n, dict) and n.get("authoritative")))[:2]]
+                              for ip, ns in list(hn.items())[:3]}
+    keep["prior"] = [{"id": p.get("id"), "how": p.get("how"), "label": str(p.get("label") or "")[:120], "verdict": p.get("verdict"),
+                      "summary": str(p.get("summary") or "")[:300], "research": str(p.get("research") or "")[:300], "age_h": p.get("age_h")}
+                     for p in (x.get("prior") or [])[:4]]
+    return keep
+
+
+def batches(items):
+    """Split compacted items into reviewer calls of at most BATCH_MAX items / BATCH_CHARS of JSON (never cut mid-item)."""
+    out, cur, size = [], [], 0
+    for x in items:
+        n = len(json.dumps(x, ensure_ascii=False))
+        if cur and (len(cur) >= BATCH_MAX or size + n > BATCH_CHARS):
+            out.append(cur)
+            cur, size = [], 0
+        cur.append(x)
+        size += n
+    return out + ([cur] if cur else [])
 
 
 def reviewer_target():
@@ -113,9 +145,11 @@ class Review(aijob.Job):
         if not review:
             return []
         decided = {}
-        for b in range(0, len(review), BATCH * 2):
-            batch = review[b:b + BATCH * 2]
-            ids = {x["id"]: x for x in batch}
+        for x in review:
+            if not x.get("prior"):
+                decided[x["id"]] = None  # nothing earlier to compare with
+        for bn, cand in enumerate(batches([compact(x) for x in review if x.get("prior")]), 1):
+            ids = {x["id"]: x for x in cand}
 
             def submit(a, ids=ids):
                 n = 0
@@ -131,26 +165,19 @@ class Review(aijob.Job):
                     n += 1
                 missing = [i for i in ids if i not in decided]
                 return {"ok": True, "decided": n} if not missing else f"error: stored, but no decision yet for: {missing}"
-            cand = [x for x in batch if x.get("prior")]
-            for x in batch:
-                if not x.get("prior"):
-                    decided[x["id"]] = None  # nothing earlier to compare with
-            if not cand:
-                continue
-            ids = {x["id"]: x for x in cand}
             user = (f"Snapshot {os.path.basename(self.stem)}. {len(cand)} items to review against earlier notes:\n"
-                    f"<work_items>\n{json.dumps(cand, ensure_ascii=False)[:60000]}\n</work_items>")
+                    f"<work_items>\n{json.dumps(cand, ensure_ascii=False)}\n</work_items>")
             T = self.tools(cand)
             T = {k: T[k] for k in ("es_search", "device_lookup", "notes_kb") if k in T}
             T["submit_review"] = (submit, "Store the copy / queue decision for every item (call once).",
                                   {"decisions": {"type": "array", "items": {"type": "object"}}}, ["decisions"])
             try:
-                self.converse(f"review{b // (BATCH * 2) + 1}", prompt("analyst") + "\n\n" + prompt("reviewer"), user, T, ("submit_review",),
-                              max_turns=20, max_tokens=6000)
+                self.converse(f"review{bn}", prompt("analyst") + "\n\n" + prompt("reviewer"), user, T, ("submit_review",),
+                              max_turns=12, max_tokens=3000)
             except agent.BudgetExceeded:
                 raise
             except Exception as e:  # noqa: BLE001
-                self.errors.append(f"reviewer batch {b // (BATCH * 2) + 1}: {str(e)[:200]}")
+                self.errors.append(f"reviewer batch {bn}: {str(e)[:200]}")
         copies = [v for v in decided.values() if v]
         if copies:
             rc, out, err = sh([os.path.join(NM, "enrich.sh"), "copy", "-"], timeout=300,
