@@ -1754,7 +1754,6 @@ def event_pass(base):
             continue
         todo.append((a, sig, [i for i, v in dec if v["related"]]))
     todo.sort(key=lambda t: (t[0] in have, -len(t[2])))  # never-reviewed first, then the best-connected
-    clef_events(base, todo)  # the decision model's own suspicious / expected call for every event (cheap: all of them, not capped)
     todo = todo[:CLASS_PER_PASS]
     STATUS.update(classifying=len(todo), clef_stage="events" if todo else "")
 
@@ -1842,11 +1841,7 @@ def clef_overview():
         per_min = c.execute("SELECT COUNT(*) FROM clef WHERE ts >= ?", (now - 300,)).fetchone()[0] / 5
         ev = {lab: n for lab, n in c.execute("SELECT label, COUNT(*) FROM event_class WHERE ts >= ? GROUP BY label", (now - 86400,))}
         ev_min = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ?", (now - 600,)).fetchone()[0] / 10
-    try:
-        cmp_ = clef_compare(now - 7 * 86400)
-    except sqlite3.Error:
-        cmp_ = {}
-    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0), "compare": cmp_,
+    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0),
             "per_min": round(per_min, 1), "events_day": ev, "events_per_min": round(ev_min, 1), "timeouts": clef.STATS["timeouts"],
             "status": {k: STATUS.get(k) for k in ("clef_stage", "clef_todo", "clef_related_this_run", "classifying", "classified_this_run", "event_secs")}}
 

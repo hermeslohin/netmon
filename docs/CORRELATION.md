@@ -171,11 +171,7 @@ loopback only; `-b/-ub 8192` because the whole input must fit one micro-batch).
    the verdict's reason) and its artifacts; expected-artifact host notes, internet notes and DNS notes follow from those.
    An event is reviewed again when its set of link decisions changes. Suspicious medium/high events become alarms as before.
 
-   Before the reviewer's call, the decision model makes its own event decision: one request with the event, all its
-   related events (with their link probabilities) and owner notes, asking *suspicious?* and *expected?* —
-   `p(suspicious) ≥ suspicious_min` → suspicious, else `p(expected) ≥ 0.5` → expected, else benign (table `clef_event`).
-   It is not shown to the reviewer; the card's confusion matrix compares the two on the same events. The reviewer's
-   label drives alarms.
+   The decision model does not label events: suspicious / benign / expected comes only from the reviewer.
 
 Answers are stored per pair in `corr_llm.db` table `clef`. *Ask again* (↻) clears the verdict and the clef answer.
 If the decision model is unreachable the pass waits (status error) instead of falling back; switching it off restores

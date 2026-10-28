@@ -93,10 +93,7 @@ class ClefStageTest(unittest.TestCase):
         self.assertTrue(v["related"]); self.assertTrue(v["reason"].startswith("same ssh target nas"))
         with corr_llm._db() as c:
             self.assertEqual(c.execute("SELECT label FROM event_class WHERE eid='a'").fetchone()[0], "suspicious")
-        # the decision model made its own event call first (one request, both questions), compared with the reviewer's
-        self.assertEqual([q for q, _ in CALLS][-1], "suspicious")
-        cmp_ = corr_llm.clef_compare()
-        self.assertEqual((cmp_["n"], cmp_["agree"]), (1, 1))
+        self.assertEqual([q for q, _ in CALLS], ["related", "related"])  # the decision model never labels events
 
     def test_rereview_clears_decision(self):
         """Asking again removes the decision-model answer so the whole chain runs again.
