@@ -570,18 +570,38 @@ const DEV_FILTERS = {
   proto: ["Uses protocol / service", (r, v) => !!devRaw(r).protocols?.[v]], qtype: ["DNS query type", (r, v) => !!devRaw(r).dns?.qtypes?.[v]],
   tls: ["TLS version", (r, v) => !!S.snap.raw.tls?.devices?.[r.ip]?.versions?.[v]],
 };
+/* every host ever seen: the snapshot's rows plus registry devices with no traffic in this range */
+function allHostRows() {
+  const snapEnd = S.snap.raw?.generated || "", seen = S.reg.devices_seen || {};
+  const later = (a, b) => (!a ? b || "" : !b ? a : (new Date(a) > new Date(b) ? a : b));
+  const regFor = (r) => (r.mac && seen[r.mac.toLowerCase()]) || S.idx.seenByIp[r.ip] || null;
+  const rows = S.idx.rows.map((r) => ({ ...r, active: true, last: later(regFor(r)?.last_seen, snapEnd) }));
+  const macs = new Set(rows.map((r) => (r.mac || "").toLowerCase()).filter(Boolean)), ips = new Set(rows.map((r) => r.ip));
+  for (const [k, v] of entries(seen)) {
+    const mac = (v.mac || "").toLowerCase(), vips = v.ips || [];
+    if ((mac && macs.has(mac)) || vips.some((ip) => ips.has(ip))) continue;
+    const ip = vips[vips.length - 1] || (/^\d+\.\d+\.\d+\.\d+$/.test(k) ? k : "");
+    if (!ip) continue;
+    ips.add(ip); if (mac) macs.add(mac);
+    rows.push({ ip, name: v.name || v.hostname || S.snap.raw?.inventory_ips?.[ip] || HOST_NAME_BY_IP()[ip] || "", mac: v.mac || "", oui: v.oui || "", hostname: v.hostname || "",
+      known: !!v.known, zone: zoneOf(ip), cls: deviceClass(ip, v.mac), total: 0, sent: 0, recv: 0, conns: 0, ext_peers: 0, ext_out: 0, peers: 0, rejected: 0, dnsq: 0, nx: 0,
+      findings: 0, worst: "", note: "", hosts: S.idx.ipHosts[ip] || [], first: v.first_seen || "", last: v.last_seen || "", active: false });
+  }
+  return rows;
+}
 V.devices = (el) => {
-  const rows = S.idx.rows;
-  el.innerHTML = `<h1>Hosts</h1><div class="sub">${rows.length} internal addresses with traffic in this time range. Click a row for full detail.</div>` +
+  const rows = allHostRows(), act = rows.filter((r) => r.active).length;
+  el.innerHTML = `<h1>Hosts</h1><div class="sub">${rows.length} internal hosts ever seen, ${act} with traffic in this time range. Click a row for full detail.</div>` +
     kpis([["Known", `<a href="#/devices?known=true">${rows.filter((r) => r.known).length}</a>`, "good"], ["Unknown", `<a href="#/devices?known=false">${rows.filter((r) => !r.known).length}</a>`, rows.some((r) => !r.known) ? "warn" : ""],
       ["New in this range", (S.snap.analysis?.new_devices || []).length], ["With high findings", `<a href="#/devices?severity=high">${rows.filter((r) => r.worst === "high").length}</a>`, "bad"]]);
   el.appendChild(card(`All hosts (${rows.length})`, table("devs", [
-    { k: "name", t: "Name", fmt: (v, r) => `<a href="#/device/${r.ip}">${esc(v || "(unnamed)")}</a>${r.known ? "" : ' <span class="badge sev-medium">unknown</span>'}${r.hosts.length ? ' <span class="badge sev-info">agent</span>' : ""}` },
+    { k: "name", t: "Name", fmt: (v, r) => `<a href="#/device/${r.ip}">${esc(v || "(unnamed)")}</a>${r.known ? "" : ' <span class="badge sev-medium">unknown</span>'}${r.hosts.length ? ' <span class="badge sev-info">agent</span>' : ""}${r.active ? "" : ' <span class="badge muted" title="No traffic in this time range">not in range</span>'}` },
     { k: "ip", t: "IP", cls: "mono", sort: (r) => ip2n(r.ip) }, { k: "mac", t: "MAC", cls: "mono" }, { k: "oui", t: "Vendor", cls: "small" },
     { k: "zone", t: "Zone" }, { k: "cls", t: "Class" },
     { k: "total", t: "Total", num: true, bar: true, fmt: fb }, { k: "sent", t: "Sent", num: true, fmt: fb }, { k: "recv", t: "Recv", num: true, fmt: fb },
     { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "ext_peers", t: "Ext peers", num: true, fmt: fn }, { k: "dnsq", t: "DNS q", num: true, fmt: fn },
     { k: "findings", t: "Findings", num: true, fmt: (v, r) => (v ? `${v} ${badge(r.worst)}` : "") , sort: (r) => r.findings * 10 + (5 - sevRank(r.worst)) },
+    { k: "last", t: "Last seen", fmt: (v) => ft(v), sort: (r) => (r.last ? new Date(r.last).getTime() : 0) },
   ], rows, { sort: "total", onclick: (r) => go("device/" + r.ip), urlFilter: DEV_FILTERS })));
   const nd = S.snap.analysis?.new_devices || [], ud = S.snap.analysis?.unknown_devices || [];
   el.appendChild(grid("g2",

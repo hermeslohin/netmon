@@ -370,7 +370,7 @@ The tables show how many notes of each domain or IP are accepted (✓) or reject
 
 ### Devices → Hosts
 
-Every internal address with traffic in the selected time range, plus devices first seen in the range or not in the inventory. Click a host for its full page:
+Every internal host ever seen (from the long-term device registry), with a **Last seen** column. Traffic columns cover the selected time range; hosts without traffic in it are marked *not in range* and show zero counts. Below are devices first seen in the range and devices not in the inventory. Click a host for its full page:
 
 - **Identity and risk.**
 - **Traffic:** by country, ASN, service and port, and its internal flows.

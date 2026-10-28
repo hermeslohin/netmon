@@ -113,7 +113,7 @@ window.CARD_INFO = {
 "devices|All hosts": {
 "source": "Zeek conn and DNS logs from Security Onion for the last 24 h (collect.py), names from DHCP/DNS and the DHCP-export inventory, zones and classes from the network policy (More → Settings), finding counts from analyze.py baselines.",
 "use": "Sort by Total or Ext peers to spot unusually busy devices; use the Known/Unknown/high-findings tiles above to filter. Click a row to open the per-host page with full detail, findings and charts.",
-"what": "Every internal address that had traffic in the selected snapshot, with name, MAC, vendor, zone, device class, bytes sent/received, connections, external peers, DNS queries and finding count. An 'unknown' badge marks devices not in the inventory; 'agent' marks hosts running Elastic Agent."
+"what": "Every internal host netmon has ever seen (the long-term device registry), with name, MAC, vendor, zone, device class, bytes sent/received, connections, external peers, DNS queries, finding count and last seen time. Traffic columns cover the selected time range; hosts with no traffic in it show a 'not in range' badge and zero counts. An 'unknown' badge marks devices not in the inventory; 'agent' marks hosts running Elastic Agent."
 },
 "devices|Gateway clients first seen in window": {
 "source": "UniFi gateway API (known and currently online clients), filtered on the gateway's own first-seen timestamp falling inside the snapshot window.",
