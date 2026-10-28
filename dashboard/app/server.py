@@ -1060,8 +1060,12 @@ class H(BaseHTTPRequestHandler):
             return self._json({"error": "bad request"}, 400)
         try:
             n = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(min(n, 65536)) or b"{}")
-            self._body_read = n <= 65536  # keep-alive: an unread request body tail would be parsed as the next request
+            # 64 KB cap, except a signed-in bulk check-off ("Check all" on thousands of rows sends ~100 B per row)
+            cap = 8 * 1024 * 1024 if u.path == "/api/acks" and self._user() else 65536
+            if n > cap:  # never parse a truncated body (that gave "Unterminated string ..." errors)
+                return self._json({"error": f"request too large ({n} bytes, limit {cap})"}, 413)
+            body = json.loads(self.rfile.read(n) or b"{}")
+            self._body_read = True  # keep-alive: an unread request body tail would be parsed as the next request
             self._aud["body"] = body
             if u.path == "/api/login":
                 cookie, err = auth.login(str(body.get("username", "")), str(body.get("password", "")), self._client_ip())
