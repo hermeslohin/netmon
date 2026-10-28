@@ -1,15 +1,11 @@
 """Decision-model stage of the correlation review (Cloudflare clef-flash, a "System One" decision model).
 
 The model does not write text: it reads a state (JSON) and typed questions and returns a probability per answer,
-served by llama.cpp's llama-server on /v1/systemone (host unit netmon-clef, clef.sh). netmon asks it only yes/no
-("noul") questions:
-
-  1. related    - for every candidate pair the correlation script proposed: are the two events related?
-                  No = the pair is rejected without the reviewer model ever seeing it.
-  2. suspicious - for every pair it judged related: does the linked pair look suspicious?
-
-Both answers are stored per unordered pair in corr_llm.db table `clef` and handed to the selected correlation model,
-which writes the notes (reason, artifacts, host notes) and the event classification.
+served by llama.cpp's llama-server on /v1/systemone (host unit netmon-clef, clef.sh). netmon asks it one yes/no
+("noul") question per candidate link the correlation script proposed: are the two events related? That answer is the
+verdict (corr_llm.db tables `clef` + `verdicts`). The selected correlation model never decides a link: once every link
+is decided it makes one call per event with all its related events and notes (corr_llm.event_pass) and writes the
+suspicious / benign / expected decision and the link notes.
 Settings live in llm_config (key `clef`), edited on AI review > Decision model.
 """
 import json
@@ -20,17 +16,46 @@ import urllib.request
 URL_DEFAULT = os.environ.get("NETMON_CLEF_URL", "http://127.0.0.1:8091").rstrip("/")
 MODEL_DEFAULT = os.environ.get("NETMON_CLEF_MODEL", "cloudflare_clef-flash:2")
 WORKERS = max(1, int(os.environ.get("NETMON_CLEF_WORKERS", "4")))
-TIMEOUT = 30
+TIMEOUT = 15  # a single answer takes well under a second; longer = a lost request, retried
+STATS = {"timeouts": 0}
 STATE_MAX = 12000  # characters of state per request (the server's slot holds ~8k tokens)
 
 Q_RELATED = ("Are EVENT A and EVENT B genuinely related: the same incident or activity chain, cause and effect, the same "
              "underlying problem seen by two different detectors, or a vulnerability or misconfiguration that the other "
              "event's activity could exploit or is explained by? Answer no when they merely share a busy host, a common "
              "service or the same time window with no logical connection.")
-Q_SUSPICIOUS = ("EVENT A and EVENT B are related. Taken together, does this linked activity look suspicious: possible "
-                "compromise, misuse, an unknown actor, or a real weakness being exploited, so that a person should look "
-                "at it? Owner notes saying the activity is normal or expected count against suspicious; a note is "
-                "never more important than concrete evidence of harm.")
+
+Q_EVENT_SUSPICIOUS = ("Taking EVENT and all of its RELATED EVENTS together, does this activity look suspicious: possible compromise, "
+                      "misuse, an unknown actor, or a real weakness being exploited, so that a person should look at it? Owner notes "
+                      "saying it is normal count against suspicious, but never above concrete evidence of harm.")
+Q_EVENT_EXPECTED = ("Is EVENT normal, expected activity for this device, user or task (routine service behaviour, a known job, "
+                    "what the owner notes describe)?")
+
+
+def event_state(e, related, when, desc, notes=None, rel_notes=None):
+    """JSON state for one event with all of its related events (each: event + the decision model's link probability)."""
+    rel = []
+    for x, p in related[:20]:
+        d = _ev(x, when(x), desc(x.get("type")), (rel_notes or {}).get(id(x)))
+        d["link probability"] = round(p, 2)
+        rel.append(d)
+    s = {"EVENT": _ev(e, when(e), desc(e.get("type")), notes), "RELATED EVENTS": rel}
+    txt = json.dumps(s, ensure_ascii=False, default=str)
+    while len(txt) > STATE_MAX and len(rel) > 1:
+        rel.pop()
+        txt = json.dumps(s, ensure_ascii=False, default=str)
+    if len(txt) > STATE_MAX:
+        for d in [s["EVENT"], *rel]:
+            d.pop("owner_notes", None); d["description"] = d["description"][:250]
+        txt = json.dumps(s, ensure_ascii=False, default=str)[:STATE_MAX]
+    return txt
+
+
+def label(p_sus, p_exp, cfg=None):
+    cfg = cfg or config()
+    if p_sus >= cfg["suspicious_min"]:
+        return "suspicious"
+    return "expected" if p_exp >= 0.5 else "benign"
 
 
 def _cfg_raw():
@@ -78,8 +103,15 @@ def ask(state, questions, url=None, timeout=TIMEOUT):
     body = json.dumps({"state": state, "questions": {k: {"type": "noul", "instructions": q} for k, q in questions.items()}}).encode()
     req = urllib.request.Request(url + "/v1/systemone", data=body, headers={"Content-Type": "application/json"})
     t = time.time()
-    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - loopback URL enforced in config()
-        d = json.loads(r.read().decode())
+    for attempt in range(3):  # llama-server occasionally never answers one request (seen under load): retry it, never stall the pass
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - loopback URL enforced in config()
+                d = json.loads(r.read().decode())
+            break
+        except TimeoutError:
+            STATS["timeouts"] += 1
+            if attempt == 2:
+                raise
     ms = (time.time() - t) * 1000
     ans = d.get("answers") or {}
     out = {}

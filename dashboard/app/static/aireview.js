@@ -705,26 +705,34 @@
 
   // ---- review job cost caps (research_cfg.py): $ per run / per day, tokens per run, research batches per run
   // events sent through the review phase per day (review_events: one row per event review, kept 30 days)
-  // Decision model (clef-flash): yes/no on related for every candidate link, then suspicious for the related ones; the reviewer writes the notes
+  // Decision model (clef-flash) decides every link; the reviewer model makes one pass per event (suspicious / benign / expected + link notes)
   function clefCard(D) {
-    const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {};
-    const pc = (n, t) => (t ? Math.round((100 * n) / t) + "%" : "—"), ms = (v) => (v == null ? "—" : fn(v) + " ms");
+    const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {}, ev = K.events_day || {};
+    const pc = (n, t) => (t ? Math.round((100 * n) / t) + "%" : "—");
     const c = card("Decision model", K.error ? `<div class="bad">Unavailable: ${esc(K.error)}</div>` : `
-      <div class="small muted">Correlation review in three stages: the correlation script proposes links → <b>${esc(cfg.model || "clef-flash")}</b> answers yes/no
-        <i>related?</i> for every link (a no is final) → once all links of the pass are answered it answers yes/no <i>suspicious?</i> for every related
-        link → the selected reviewer model (${esc(D.status?.model || "")}) gets both answers and writes the reason, artifacts and host notes.</div>
-      ${kpis([["Links decided (24 h)", fn(d.pairs || 0)], ["Related (24 h)", `${fn(d.related || 0)} · ${pc(d.related || 0, d.pairs)}`],
-              ["Rejected by decision model (24 h)", fn(d.not_related || 0)], ["Suspicious (24 h)", `${fn(d.suspicious || 0)} of ${fn(d.suspicious_asked || 0)}`],
-              ["Avg time related / suspicious", `${ms(d.ms_related)} / ${ms(d.ms_suspicious)}`], ["All time", `${fn(a.pairs || 0)} links · ${fn(a.suspicious || 0)} suspicious`],
-              ["Reviewer disagreed", `${fn(K.reviewer_disagreed || 0)} of ${fn(K.noted || 0)}`]])}
+      <div class="small muted">Correlation review in two stages. <b>1.</b> The correlation script proposes links → <b>${esc(cfg.model || "clef-flash")}</b>
+        answers yes/no <i>related?</i> for every link; that answer is the verdict. <b>2.</b> Once no link is left undecided, the reviewer model
+        (${esc(D.status?.model || "")}) makes one call per event with all its related events and notes: suspicious / benign / expected for the event,
+        plus a link note and artifacts for each related event. The reviewer never decides a link. The decision model also makes its own
+        suspicious / benign / expected call per event (yes/no <i>suspicious?</i> and <i>expected?</i>), compared below with the reviewer's; the reviewer's label drives alarms.</div>
+      ${kpis([["Links decided / min (5 min)", fn(K.per_min || 0)], ["Links decided (24 h)", fn(d.pairs || 0)],
+              ["Related (24 h)", `${fn(d.related || 0)} · ${pc(d.related || 0, d.pairs)}`], ["Not related (24 h)", fn(d.not_related || 0)],
+              ["Avg time per link", d.ms_related == null ? "—" : fn(d.ms_related) + " ms"], ["Events reviewed / min (10 min)", fn(K.events_per_min || 0)],
+              ["Events 24 h: suspicious / benign / expected", `${fn(ev.suspicious || 0)} / ${fn(ev.benign || 0)} / ${fn(ev.expected || 0)}`],
+              ["All time", `${fn(a.pairs || 0)} links · ${fn(a.related || 0)} related`],
+              ["Event decision: decision model = reviewer (7 d)", K.compare?.n ? `${pc(K.compare.agree, K.compare.n)} of ${fn(K.compare.n)}` : "—"],
+              ["Agree when either says suspicious", K.compare?.suspicious_any ? `${fn(K.compare.suspicious_agree)} of ${fn(K.compare.suspicious_any)}` : "—"]])}
+      ${K.compare?.n ? `<div class="small" style="margin-top:6px"><b>Decision model vs reviewer, last 7 days</b> (rows: decision model, columns: ${esc(D.status?.model || "reviewer")})
+        <table class="mini"><tr><th></th>${["suspicious", "benign", "expected"].map((l) => `<th>${l}</th>`).join("")}</tr>
+        ${["suspicious", "benign", "expected"].map((r) => `<tr><th>${r}</th>${["suspicious", "benign", "expected"].map((g) => `<td class="num${r === g ? " good" : ""}">${fn((K.compare.matrix || {})[r + "|" + g] || 0)}</td>`).join("")}</tr>`).join("")}</table></div>` : ""}
       <div class="idgrid" style="margin-top:8px">
-        <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (host unit netmon-clef)</span>'}</span>
-        <span class="k">Now</span><span>${s.clef_stage ? `stage <b>${esc(s.clef_stage)}</b>${s.clef_todo ? ` · ${fn(s.clef_todo)} left` : ""}` : "idle"} · this pass ${fn(s.clef_related_this_run || 0)} related / ${fn(s.clef_suspicious_this_run || 0)} suspicious answers</span>
+        <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (host unit netmon-clef)</span>'}${K.timeouts ? ` · ${fn(K.timeouts)} retried time-outs` : ""}</span>
+        <span class="k">Now</span><span>${s.clef_stage === "related" ? `deciding links · ${fn(s.clef_todo || 0)} left` : s.clef_stage === "events" ? `event pass · ${fn(s.classifying || 0)} events left${s.event_secs ? ` · last took ${s.event_secs} s` : ""}` : "idle"} · this pass ${fn(s.clef_related_this_run || 0)} links, ${fn(s.classified_this_run || 0)} events</span>
       </div>
       <div class="llm-row" style="margin-top:8px"><span class="k">Settings</span>
         <label class="small"><input type="checkbox" name="en" ${cfg.enabled ? "checked" : ""}> use the decision model</label>
         <label class="small">related if p ≥ <input type="number" name="rm" min="0.05" max="0.95" step="0.05" value="${cfg.related_min ?? 0.5}" style="width:5em"></label>
-        <label class="small">suspicious if p ≥ <input type="number" name="sm" min="0.05" max="0.95" step="0.05" value="${cfg.suspicious_min ?? 0.5}" style="width:5em"></label>
+        <label class="small">event suspicious if p ≥ <input type="number" name="sm" min="0.05" max="0.95" step="0.05" value="${cfg.suspicious_min ?? 0.5}" style="width:5em"></label>
         <button type="button" name="save" disabled>Save</button><span class="small muted msg">${D.admin ? "" : "only an admin can change this"}</span></div>`);
     c.id = "ai-clef";
     if (!K.error) {
@@ -1026,8 +1034,8 @@
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
       { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
       { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
-      { k: "clef", t: "Decision model", cls: "small", sort: (r) => (r.clef ? (r.clef.suspicious ? 2 : 1) : 0),
-        fmt: (v) => (!v ? "" : `${v.related ? "related" : "not related"} ${Math.round(v.p_related * 100)}%${v.p_suspicious == null ? "" : ` · ${v.suspicious ? '<span class="badge sev-high">suspicious</span>' : "not suspicious"} ${Math.round(v.p_suspicious * 100)}%`}`) },
+      { k: "clef", t: "Decision model", cls: "small", sort: (r) => (r.clef ? r.clef.p_related : -1),
+        fmt: (v) => (!v ? "" : `${v.related ? "related" : "not related"} ${Math.round(v.p_related * 100)}%`) },
       { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
       { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
       { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },

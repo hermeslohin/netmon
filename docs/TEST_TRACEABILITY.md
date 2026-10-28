@@ -57,7 +57,7 @@ Last run: 4 expected failure (known bug), 568 pass
 | [MIT-01](#mit-01) | ATT&CK | Findings map to MITRE ATT&CK techniques by rule; every rule references a technique in the catalog. | README.md | 15 | 1 |
 | [LLM-01](#llm-01) | AI | Model answers are parsed defensively: the first JSON object is used and unknown verdicts/priorities fall back to safe values. | USER_GUIDE.md §7 | 40 | 0 |
 | [LLM-02](#llm-02) | AI | The dashboard runs fully with the local LLM switched off (NETMON_LLM=off). | SETUP.md §6 | 0 | 3 |
-| [LLM-03](#llm-03) | AI | Correlation review runs in stages: the decision model (clef) answers related yes/no for every candidate link (a no is final), then suspicious yes/no for every related link once all links are answered, and only then the selected reviewer writes the notes with both answers. | CORRELATION.md | 4 | 0 |
+| [LLM-03](#llm-03) | AI | With the decision model on, clef decides every candidate link (related yes/no is the verdict); only once no link is undecided does the selected reviewer make one call per event with all its related events and notes, classifying the event and writing link notes - it never decides a link. | CORRELATION.md | 4 | 0 |
 | [CFG-01](#cfg-01) | Configuration | Site settings fall back to safe defaults; the browser receives only the public subset. | SETUP.md §2 | 18 | 1 |
 | [CFG-02](#cfg-02) | Configuration | The research lookback is an integer number of hours within 1-24; invalid values are rejected. | CORRELATION.md §5 | 5 | 0 |
 | [CFG-03](#cfg-03) | Configuration | Collection windows end 'now' or at NETMON_WINDOW_END and produce Elasticsearch range filters. | SETUP.md (Time ranges) | 4 | 0 |
@@ -956,14 +956,14 @@ Last run: 4 expected failure (known bug), 568 pass
 
 ### LLM-03
 
-**AI:** Correlation review runs in stages: the decision model (clef) answers related yes/no for every candidate link (a no is final), then suspicious yes/no for every related link once all links are answered, and only then the selected reviewer writes the notes with both answers. _(source: CORRELATION.md)_
+**AI:** With the decision model on, clef decides every candidate link (related yes/no is the verdict); only once no link is undecided does the selected reviewer make one call per event with all its related events and notes, classifying the event and writing link notes - it never decides a link. _(source: CORRELATION.md)_
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
 | unit | `test_clef_stage.ClefStageTest.test_config_is_loopback_only` | A non-loopback URL in the settings is ignored (event data never leaves the host). | pass |
+| unit | `test_clef_stage.ClefStageTest.test_decision_model_decides_every_link` | Only related questions are asked; the decision model's answer is the verdict for every link, yes and no. | pass |
+| unit | `test_clef_stage.ClefStageTest.test_event_pass_one_call_with_all_related_events` | After every link is decided the reviewer gets ONE call per event with all its related events, classifies the | pass |
 | unit | `test_clef_stage.ClefStageTest.test_rereview_clears_decision` | Asking again removes the decision-model answer so the whole chain runs again. | pass |
-| unit | `test_clef_stage.ClefStageTest.test_reviewer_gets_answers_and_writes_notes` | The reviewer prompt carries the decision model's answers; its reason is stored, relatedness stays the decision model's. | pass |
-| unit | `test_clef_stage.ClefStageTest.test_stages_in_order_and_rejection_is_final` | All related questions come before any suspicious question; a no is written as a final verdict and only the | pass |
 
 ### CFG-01
 
@@ -1272,8 +1272,8 @@ Last run: 4 expected failure (known bug), 568 pass
 | `unit.test_autoclose.AutoCloseOpenEvents.test_dry_run_and_disabled_option_change_nothing` | STO-08 |
 | `unit.test_autoclose.AutoCloseOpenEvents.test_person_reopen_is_respected_and_verdict_change_reopens` | STO-08 |
 | `unit.test_autoclose.AutoCloseOpenEvents.test_suppressed_item_is_never_reopened` | STO-08, STO-05 |
-| `unit.test_clef_stage.ClefStageTest.test_stages_in_order_and_rejection_is_final` | LLM-03 |
-| `unit.test_clef_stage.ClefStageTest.test_reviewer_gets_answers_and_writes_notes` | LLM-03 |
+| `unit.test_clef_stage.ClefStageTest.test_decision_model_decides_every_link` | LLM-03 |
+| `unit.test_clef_stage.ClefStageTest.test_event_pass_one_call_with_all_related_events` | LLM-03 |
 | `unit.test_clef_stage.ClefStageTest.test_rereview_clears_decision` | LLM-03 |
 | `unit.test_clef_stage.ClefStageTest.test_config_is_loopback_only` | LLM-03 |
 | `unit.test_config.TestSiteCfg.test_defaults_without_site_config` | CFG-01 |

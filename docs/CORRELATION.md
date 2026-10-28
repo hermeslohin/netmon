@@ -154,28 +154,32 @@ its own calls-per-hour cap.
 
 ### Decision model stage (clef-flash)
 
-Before the reviewer sees anything, every undecided candidate link goes through a **decision model**:
-Cloudflare `clef-flash` (LM Studio id `cloudflare_clef-flash:2`). It is a "System One" model: it never writes text, it
-returns a probability for a yes/no question. LM Studio cannot run it, so it is served by LM Studio's bundled
-llama.cpp `llama-server` on `http://127.0.0.1:8091/v1/systemone` (host unit `netmon-clef`, script `clef.sh`;
-loopback only). Each pass of the review worker runs three stages:
+With the decision model on (default; **AI review > Decision model**), the reviewer model never decides a link.
+The decision model is Cloudflare `clef-flash` (LM Studio id `cloudflare_clef-flash:2`), a "System One" model: it never
+writes text, it returns the probability of *yes* for a question. LM Studio cannot run it, so it is served by LM Studio's
+bundled llama.cpp `llama-server` on `http://127.0.0.1:8091/v1/systemone` (host unit `netmon-clef`, script `clef.sh`;
+loopback only; `-b/-ub 8192` because the whole input must fit one micro-batch).
 
-1. **Related?** — for every candidate pair of the pass (after the normal statistical correlation): both events
-   (type, time, severity, description, hosts, artifacts, approved owner notes) and the script's score/evidence as a
-   JSON state. `p ≥ related_min` (default 0.5) = related; anything lower is written straight to the verdicts as
-   *Not related* (model `cloudflare_clef-flash:2`) and never reaches the reviewer.
-2. **Suspicious?** — only after **all** pairs of the pass have a related answer: every related pair is asked whether
-   the linked activity looks suspicious (`p ≥ suspicious_min`, default 0.5).
-3. **Notes** — the selected correlation model (AI review > Models) gets the related pairs with a
-   `decision model: related YES (p=…); suspicious: YES/no (p=…)` line in each candidate's evidence and writes the
-   reason, artifacts (benign/expected/suspicious) and host/internet/DNS notes as before. Relatedness stays the
-   decision model's; if the reviewer answers *not related* the verdict is kept and its reason is stored as
-   `[reviewer disagreed: …]` (counted on the card). The event classifier also receives the suspicious answer.
+1. **Links (clef)** — every undecided candidate link of the snapshot (after the normal statistical correlation; the
+   review limits' skipped type pairs, excluded/cleared events and test mode still apply, the per-event cap does not)
+   gets one yes/no *related?* question with both events (type, time, severity, description, hosts, artifacts, approved
+   owner notes) and the script's score/evidence. `p ≥ related_min` (default 0.5) = related. That answer **is** the
+   verdict (model `cloudflare_clef-flash:2`); 4 requests in parallel, ~0.2–1 s each.
+2. **Events (reviewer model)** — only once no link of the newest snapshot is undecided: one call per event with
+   **all** of its clef-related events, owner/AI/artifact notes and (if enabled) Elasticsearch look-ups. The model
+   classifies the event **suspicious / benign / expected** and writes, for every related event, a link note (stored as
+   the verdict's reason) and its artifacts; expected-artifact host notes, internet notes and DNS notes follow from those.
+   An event is reviewed again when its set of link decisions changes. Suspicious medium/high events become alarms as before.
 
-Answers are stored per pair in `corr_llm.db` table `clef`. *Ask again* (↻) clears both the verdict and the
-decision-model answer. If the decision model is unreachable the pass waits (status error) rather than silently
-falling back; switching it off on **AI review > Decision model** restores the reviewer-only flow. Verdicts made
-before the stage existed are not re-decided.
+   Before the reviewer's call, the decision model makes its own event decision: one request with the event, all its
+   related events (with their link probabilities) and owner notes, asking *suspicious?* and *expected?* —
+   `p(suspicious) ≥ suspicious_min` → suspicious, else `p(expected) ≥ 0.5` → expected, else benign (table `clef_event`).
+   It is not shown to the reviewer; the card's confusion matrix compares the two on the same events. The reviewer's
+   label drives alarms.
+
+Answers are stored per pair in `corr_llm.db` table `clef`. *Ask again* (↻) clears the verdict and the clef answer.
+If the decision model is unreachable the pass waits (status error) instead of falling back; switching it off restores
+the old flow (reviewer decides links, optional classification). Verdicts made before the stage existed are not re-decided.
 
 ### What the reviewer is given
 
