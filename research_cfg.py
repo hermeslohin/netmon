@@ -1,29 +1,22 @@
 #!/usr/bin/env python3
-"""Settings, schedule and status of the research job (review.py): event research.
+"""Settings and usage of on-demand event research (research.py): a person sends one event to research.
 
-Settings live in the netmon store's meta table (key "research_job"), so the dashboard container (which writes them
-from the AI review / Configuration pages) and the host scheduler read the same values:
+Nothing here runs on a schedule: research starts only when a person clicks Send to research (the dashboard asks the
+host broker, which starts research.py --event; a click that has to wait is started by the scheduler once the running
+research ends). The scheduled review job has its own settings (review_cfg.py).
+Settings live in the netmon store's meta table (key "research_job"):
   provider, model       which AI does the research ("api:<id>" from llm_providers, or "lmstudio")
-  interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily 24 h run)
-  enabled               the scheduler skips the job when off
-  max_run_usd           stop a run when its estimated cost passes this (needs a price for the model; 0 = no cap)
-  max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
-  max_run_tokens        stop a run after this many tokens (input + output; 0 = no cap) - works without prices
-  max_searches          web searches allowed per event in event research (a batch of 8 events shares 8x this; 0 = no cap)
-  es_search             True/False (default True): let the research AI search Elasticsearch (es_search tool); separate from the correlation reviewer's own setting (llm_config.json es_queries)
-  web_research          True/False (new deployments: False): let the job search and read web pages (and cite them). Off = local data only; the daily news briefing is skipped
-  max_batches           event-research conversations per run (8 work items each)
-  modes                 per event category what the job does: "test" (queued and tagged "testing" but never sent: shows what a mode would send, filters apply; the default on new deployments), "research" (send to the model; events that already have
-                         a note are only rewritten if the new run contradicts it), "review" (never sent to the model:
-                         the work list is matched against earlier research - the event's own note and the notes of
-                         correlated events - and anything already researched is left alone) or "skip" (ignored).
-                         Categories: host, ids12, gw, ti, alert (by kind) and high, medium, low, info (all other events
-                         by severity) - see MODE_CATS and enrich.py:_events
-  severities            legacy view of modes: the severity categories that are not "skip"
-A "run now" request from the dashboard is meta key "research_request"; the scheduler starts the job and clears it.
-review.py writes its state to <state>/research_job.json (running / last runs / token use), read by the dashboard.
+  max_run_usd           stop a research run when its estimated cost passes this (needs a price for the model; 0 = no cap)
+  max_day_usd           no new research once today's research (UTC) cost this much (0 = no cap)
+  max_run_tokens        stop a research run after this many tokens (input + output; 0 = no cap) - works without prices
+  max_searches          web searches allowed per event (0 = no cap)
+  max_batches           research conversations per run (8 events each)
+  es_search             True/False (default True): let the research model search Elasticsearch (es_search tool)
+  web_research          True/False (new deployments: False): let it search and read web pages (and cite them)
+Pending clicks are meta key "research_requests" (enrich.request_research). research.py writes token use and cost per
+researched event to <state>/research_job.json, read by the dashboard.
 
-Usage: research_cfg.py show | due | request
+Usage: research_cfg.py show
 """
 import json
 import os
@@ -34,21 +27,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import store  # noqa: E402
 
-KEY, REQ = "research_job", "research_request"
-DAILY_HOUR = 5
-SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
-MODES = ("research", "review", "skip", "test")
-MODE_CATS = (("host", "Endpoint host findings"), ("ids12", "Suricata severity 1-2 signatures"), ("gw", "UniFi gateway events"),
-             ("seg_high", "Segmentation: high (admin ports)"), ("seg_medium", "Segmentation: medium (odd ports)"),
-             ("seg_low", "Segmentation: low (standard ports)"), ("ti", "Threat-intel hits"), ("alert", "Urgent alarms (watcher)"), ("high", "Other events: high"),
-             ("medium", "Other events: medium"), ("low", "Other events: low"), ("info", "Other events: info"))
-LEGACY_MODES = {"host": "research", "ids12": "research", "gw": "research", "seg_high": "research", "seg_medium": "research", "seg_low": "research", "ti": "research", "alert": "research",
-                "high": "research", "medium": "research", "low": "skip", "info": "skip"}  # what deployments made before modes existed do
-DEFAULT_MODES = {k: "test" for k in LEGACY_MODES}  # new deployments start in test mode: nothing is sent until an admin turns it on
-DEFAULTS = {"provider": "", "model": "", "interval_minutes": 240, "enabled": True, "max_run_usd": 5.0, "max_day_usd": 20.0,
-            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": False, "es_search": True, "severities": ["high", "medium"],
-            "modes": DEFAULT_MODES}
-LIMITS = {"interval_minutes": (5, 1440), "max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
+KEY = "research_job"
+DEFAULTS = {"provider": "", "model": "", "max_run_usd": 5.0, "max_day_usd": 20.0,
+            "max_run_tokens": 25_000_000, "max_batches": 10, "max_searches": 3, "web_research": False, "es_search": True}
+LIMITS = {"max_run_usd": (0, 1000), "max_day_usd": (0, 5000), "max_run_tokens": (0, 100_000_000),
           "max_batches": (0, 40), "max_searches": (0, 20)}
 STATE = os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state"))
 STATUS = os.path.join(STATE, "research_job.json")
@@ -74,8 +56,8 @@ def _meta_put(k, v):
 def get():
     v = _meta(KEY)
     out = {k: v.get(k, d) for k, d in DEFAULTS.items()}
-    if v:  # a deployment that already has settings keeps its behaviour: web research was on before they became options
-        out.update({k: v.get(k, True) for k in ("web_research",)})
+    if v:  # a deployment that already has settings keeps its behaviour: web research was on before it became an option
+        out["web_research"] = v.get("web_research", True)
     for k, (lo, hi) in LIMITS.items():
         try:
             out[k] = type(DEFAULTS[k])(out[k])
@@ -83,45 +65,23 @@ def get():
                 out[k] = DEFAULTS[k]
         except (TypeError, ValueError):
             out[k] = DEFAULTS[k]
-    modes = dict(DEFAULT_MODES if not v else LEGACY_MODES)  # a deployment that already has settings keeps its behaviour
-    if isinstance(v.get("severities"), list) and not isinstance(v.get("modes"), dict):  # settings saved before modes existed
-        for s_ in SEVERITIES:
-            modes[s_] = "research" if s_ in v["severities"] else "skip"
-    if isinstance(v.get("modes"), dict):
-        old = v["modes"].get("seg")  # one segmentation category before it was split by severity
-        if old in MODES:
-            modes.update({k: old for k in ("seg_high", "seg_medium", "seg_low")})
-        modes.update({k: m for k, m in v["modes"].items() if k in DEFAULT_MODES and m in MODES})
-    out["modes"] = modes
-    out["severities"] = [s_ for s_ in SEVERITIES if modes[s_] in ("research", "review")]
-    out.update(by=v.get("by"), at=v.get("at"), daily_hour=DAILY_HOUR, limits=LIMITS, severity_options=list(SEVERITIES),
-               mode_options=list(MODES), mode_cats=[{"key": k, "label": l} for k, l in MODE_CATS])
+    out["web_research"], out["es_search"] = bool(out["web_research"]), bool(out["es_search"])
+    out.update(by=v.get("by"), at=v.get("at"), limits=LIMITS)
     return out
 
 
 def put(fields, user, check_model=None):
     """Update some settings. check_model(provider, model) -> bool validates a model change."""
-    cur = {k: v for k, v in _meta(KEY).items() if k in DEFAULTS}
+    cur = dict(_meta(KEY))  # keeps keys of the old combined record (schedule, modes) that review_cfg migrates from
+    if "web_research" not in cur:
+        cur["web_research"] = get()["web_research"]  # pin it: saving another setting must not switch web access on
     for k, v in fields.items():
         if k not in DEFAULTS:
             continue
         if k in ("provider", "model"):
             cur[k] = str(v or "")[:120]
-        elif k in ("enabled", "web_research", "es_search"):
+        elif k in ("web_research", "es_search"):
             cur[k] = bool(v)
-        elif k == "modes":
-            if not isinstance(v, dict) or any(a not in DEFAULT_MODES or b not in MODES for a, b in v.items()):
-                raise ValueError(f"modes must map {', '.join(DEFAULT_MODES)} to one of {', '.join(MODES)}")
-            m = get()["modes"]
-            m.update(v)
-            if all(x == "skip" for x in m.values()):
-                raise ValueError("at least one category must be research or review")
-            cur[k] = m
-        elif k == "severities":  # legacy API: a list of severities to research
-            m = get()["modes"]
-            for s_ in SEVERITIES:
-                m[s_] = "research" if s_ in (v or []) else "skip"
-            cur["modes"] = m
         else:
             lo, hi = LIMITS[k]
             try:
@@ -133,42 +93,9 @@ def put(fields, user, check_model=None):
             cur[k] = n
     if ("provider" in fields or "model" in fields) and check_model and not check_model(cur.get("provider"), cur.get("model")):
         raise ValueError("unknown provider or model")
-    cur.setdefault("modes", get()["modes"])  # pin the effective modes so a later default change never alters this deployment
     cur.update(by=str(user)[:64], at=time.time())
     _meta_put(KEY, cur)
     return get()
-
-
-def slot(now=None, interval=None):
-    """Index of the schedule slot `now` falls in (grid of `interval` minutes anchored at 05:00 UTC)."""
-    now = time.time() if now is None else now
-    interval = interval or get()["interval_minutes"]
-    return int((now - DAILY_HOUR * 3600) // (interval * 60))
-
-
-def slot_start(n, interval):
-    return n * interval * 60 + DAILY_HOUR * 3600
-
-
-def next_run(now=None):
-    s = get()
-    now = time.time() if now is None else now
-    return slot_start(slot(now, s["interval_minutes"]) + 1, s["interval_minutes"]) if s["enabled"] else None
-
-
-def request(user):
-    _meta_put(REQ, {"by": str(user)[:64], "at": time.time()})
-
-
-def take_request():
-    r = _meta(REQ)
-    if r:
-        _meta_put(REQ, None)
-    return r or None
-
-
-def pending_request():
-    return _meta(REQ) or None
 
 
 def status():
@@ -180,16 +107,11 @@ def write_status(d):
 
 
 def spent_today():
+    """Cost of today's (UTC) event research."""
     day = time.strftime("%Y-%m-%d", time.gmtime())
-    return sum(u.get("cost_usd") or 0 for u in status().get("usage") or [] if time.strftime("%Y-%m-%d", time.gmtime(u.get("at") or 0)) == day)
+    return sum(u.get("cost_usd") or 0 for u in status().get("usage") or []
+               if u.get("event_run") and time.strftime("%Y-%m-%d", time.gmtime(u.get("at") or 0)) == day)
 
 
 if __name__ == "__main__":
-    a = sys.argv[1:2]
-    if a == ["due"]:
-        print(json.dumps({"slot": slot(), "next_run": next_run()}))
-    elif a == ["request"]:
-        request("cli")
-        print("requested")
-    else:
-        print(json.dumps(get(), indent=1))
+    print(json.dumps(get(), indent=1))

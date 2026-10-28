@@ -1,5 +1,5 @@
 #!/bin/bash
-# AI event research storage for the research job (review.py). Runs dashboard/app/enrich.py / kb.py inside the
+# AI note storage for the review job (review.py) and event research (research.py). Runs dashboard/app/enrich.py / kb.py inside the
 # netmon-dashboard container, which owns /state.
 #   enrich.sh events OUT.json [--all] [--max N] [--hosts N] [--ids N] [--gw N]   work items: host findings (60), Suricata sev 1-2 (40), gateway events (30), other events
 #   enrich.sh put NOTES.json|-                    store notes + correlation verdicts (+ "host_notes" / "host_notes_delete"), prints counts, then runs

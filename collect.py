@@ -21,7 +21,7 @@ def _iso(s):
 
 
 RANGE_START, RANGE_END, OUT = _arg("--start"), _arg("--end"), _arg("--out")
-LOOKBACK = None  # set by `collect.py auto` (research job lookback window)
+LOOKBACK = None  # set by `collect.py auto` (review job lookback window)
 if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries [start, end] (window.py)
     _s, _e = _iso(RANGE_START), _iso(RANGE_END)
     if _e <= _s:
@@ -31,7 +31,7 @@ if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries
     HOURS = round((_e - _s).total_seconds() / 3600, 3)
 else:
     RANGE_START = RANGE_END = None
-    if sys.argv[1:2] == ["auto"]:  # research job: the lookback window set on the dashboard's AI review page (lookback.py)
+    if sys.argv[1:2] == ["auto"]:  # review job: the lookback window set on the dashboard's AI review page (lookback.py)
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import lookback  # noqa: E402
         HOURS, _why = lookback.for_run()

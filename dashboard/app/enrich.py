@@ -1,12 +1,13 @@
-"""AI research notes on dashboard events, plus the research job's correlation verdicts.
+"""AI notes on dashboard events: the review job's work list and copied notes, and event research results.
 
-On each run the research job (review.py on the host, model chosen on the AI review page) triages the newest snapshot.
-Besides the triage alarms it writes:
-  - a research note per event (verdict, summary, research text, links it actually read), shown by related.js
+The review job (review.py on the host, scheduled) asks here for the work list of the newest snapshot (_events); its
+reviewer copies earlier notes onto matching events (copy_notes). Everything else waits in the queue (queue_items) until
+a person clicks Send to research (request_research -> host broker -> research.py). Event research writes:
+  - a note per event (verdict, summary, research text, links it actually read), shown by related.js
     as a "✨ notes" button next to the event's Related column;
-  - correlation verdicts for candidate links (corr_llm.db, same table the correlation reviewer uses). Research job
+  - correlation verdicts for candidate links (corr_llm.db, same table the correlation reviewer uses). Research
     verdicts replace the reviewer's; manual verdicts (model "manual:<user>") are never overwritten, and
-    the reviewer only asks about undecided pairs, so it never overwrites the research job.
+    the reviewer only asks about undecided pairs, so it never overwrites research.
 
 Notes are keyed by a stable event key so they carry over to later snapshots: finding ids embed the detail text
 (numbers change every run), so the key masks the numbers in the detail; watcher alerts are stored per alert
@@ -224,18 +225,24 @@ def put(doc, events=None):
 
 
 def job():
-    """The research job as one record for the AI review page: settings (research_cfg) + run state (research_job.json)."""
-    import research_cfg as RC
-    cfg, st = RC.get(), RC.status()
+    """The review job as one record for the AI review page: settings (review_cfg) + run state (review_job.json), plus the
+    token use of event research (research_job.json) for the usage chart."""
+    import review_cfg as VC, research_cfg as RC, corr_llm
+    cfg, st, rs = VC.get(), VC.status(), RC.status()
     runs = st.get("runs") or []
     last = next((r for r in runs if r.get("status") != "running"), {})
-    return {"id": "research", "name": "Review job: collect + analyze, reviewer",
-            "model": cfg.get("model"), "provider": cfg.get("provider"), "enabled": cfg.get("enabled"),
-            "interval_minutes": cfg.get("interval_minutes"), "next_run": RC.next_run(),
+    try:
+        tgt = corr_llm._target()
+    except Exception:  # noqa: BLE001 - shown as "no reviewer model"
+        tgt = {}
+    return {"id": "review", "name": "Review job: collect + analyze, reviewer",
+            "model": tgt.get("model"), "provider": tgt.get("provider"), "enabled": cfg.get("enabled"),
+            "interval_minutes": cfg.get("interval_minutes"), "next_run": VC.next_run(),
             "severities": cfg.get("severities"), "severity_options": cfg.get("severity_options"),
-            "requested": RC.pending_request(), "last_run": st.get("last_run"), "last_status": st.get("last_status"),
+            "requested": VC.pending_request(), "last_run": st.get("last_run"), "last_status": st.get("last_status"),
             "last_error": st.get("last_error"), "failure_streak": st.get("failure_streak") or 0,
-            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "chat_usage": _chat_usage(), "researched": st.get("researched") or [], "summary": st.get("summary"),
+            "running": st.get("running"), "runs": runs[:12], "usage": st.get("usage") or [], "research_usage": [u for u in rs.get("usage") or [] if u.get("event_run")],
+            "chat_usage": _chat_usage(), "researched": rs.get("researched") or [], "summary": st.get("summary"),
             "last": last, "exported": st.get("exported")}
 
 
@@ -249,8 +256,8 @@ def _chat_usage():
 
 
 def status(event_ids=()):
-    """Research job status for the AI review page: job state, the enrichment run log, note coverage of the current
-    snapshot and the research job's correlation verdicts."""
+    """Review job status for the AI review page: job state, the note-run log, note coverage of the current
+    snapshot and the correlation verdicts written with notes."""
     import corr_llm
     try:
         j = job()
@@ -268,14 +275,14 @@ def status(event_ids=()):
         cv = c.execute(f"SELECT count(*), sum(related), sum(ts > ?), max(ts), group_concat(DISTINCT model) FROM verdicts "
                        f"WHERE model IN ({','.join('?' * len(models))})", (now - 86400, *models)).fetchone()
     queue = None
-    try:  # events the next run would send out: research-mode, no note yet, not dismissed (cached briefly: it is a full work-list build)
+    try:  # events waiting in the queue: no note yet, not dismissed (cached briefly: it is a full work-list build)
         if time.time() - _QCACHE.get("t", 0) > 30:
             r = _events_cached()
-            _QCACHE.update(t=time.time(), v=None if r.get("error") else {"count": r["research_queue"], "testing": r["research_testing"], "review_only": r["review_only"],
+            _QCACHE.update(t=time.time(), v=None if r.get("error") else {"count": r["queued"], "testing": r["testing"], "review_only": r["review_only"],
                                                                    "review_covered": r["review_covered"]})
         queue = _QCACHE.get("v")
     except Exception as e:  # noqa: BLE001
-        print(f"research queue: {e}", file=sys.stderr)
+        print(f"queue: {e}", file=sys.stderr)
     ids = list(event_ids)
     covered = len(load(ids)) if ids else 0
     return {"jobs": jobs.get("jobs") or [], "exported": jobs.get("exported"), "runs": runs,
@@ -302,20 +309,20 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     """Work list for the enrichment run: one entry per note key (alert families and repeat findings collapse),
     events without a note first, most severe first, capped at `limit` (0 = no cap). Endpoint host findings
     (hf|..., the Posture "Host findings" box) are always included, whatever their severity, in their own
-    quota of `hosts` items on top of `limit`, so they are researched every run instead of losing to network events.
+    quota of `hosts` items on top of `limit`, so they are listed every run instead of losing to network events.
     Suricata severity 1 and 2 signatures (ids|...) get the same treatment with their own quota of `idsq_max` items,
     and so do UniFi gateway events (gw|..., the Posture "Gateway events" card; quota `gw_max`, any severity)."""
-    import server, corr_llm, research_cfg as RC
+    import server, corr_llm, research_cfg as RC, review_cfg as VC
     sid = sid or (server.snapshots() or [{"id": ""}])[-1]["id"]
     res = corr_llm.apply(server.correlation(sid))
     if not res or res.get("error"):
         return {"snapshot": sid, "error": "no correlation for snapshot"}
-    modes = RC.get()["modes"]  # admin-chosen research / review / skip per event category (AI review page)
+    modes = VC.get()["modes"]  # admin-chosen review / queue / test / skip per event category (AI review page)
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
-    rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the research job
+    rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the review job
     forced = _requested(E, notes, ak)  # note keys a person asked to have researched (not researched yet)
-    if only:  # a single-event run (review.py --event): just that event's family, whatever its category or rules
+    if only:  # event research (research.py --event): just that event's family, whatever its category or rules
         forced = {skey(only, ak)} if only in E else set()
         E = {i: e for i, e in E.items() if skey(i, ak) in forced}
         notes = {i: n for i, n in notes.items() if i in E}
@@ -323,7 +330,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
         if skey(eid, ak) in forced:
             groups.setdefault(skey(eid, ak), []).append(eid)
             continue
-        if not everything and ((rules and corr_llm.suppressed(rules, "research", eid, e))):
+        if not everything and ((rules and corr_llm.suppressed(rules, "queue", eid, e))):
             continue
         # host findings, gateway events, threat intel and store alarms are categories of their own; the rest is gated
         # on its severity (Suricata sev 1-2 is split off below, once the signature detail is known)
@@ -331,7 +338,7 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
                 and e["type"] != "ids":
             continue
         groups.setdefault(skey(eid, ak), []).append(eid)
-    if not everything:  # queue cleared by an admin (clear_queue): those note keys are not researched until reset
+    if not everything:  # queue cleared by an admin (clear_queue): those note keys stay out of the queue until reset
         dismissed = set(RC._meta("research_dismissed").get("keys") or [])
         groups = {k: v for k, v in groups.items() if k not in dismissed or k in forced}
     out = []
@@ -358,8 +365,8 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     if not everything:  # drop the categories set to skip (Suricata sev 3 falls through to its severity)
         out = [x for x in out if modes.get(cat(x), "skip") != "skip" or skey(x["id"], ak) in forced]
     for x in out:
-        m = modes.get(cat(x)) if skey(x["id"], ak) not in forced else "research"
-        x["mode"] = m if m in ("review", "test") else "research"
+        m = modes.get(cat(x)) if skey(x["id"], ak) not in forced else "queue"
+        x["mode"] = m if m in ("review", "test") else "queue"
         x["requested"] = skey(x["id"], ak) in forced
     todo = sum(1 for x in out if not x["note"])
     hostq = [x for x in out if x["type"] == "host"]
@@ -408,8 +415,8 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             "host_findings": len(hostq), "host_without_note": sum(1 for x in hostq if not x["note"]),
             "review_only": sum(1 for x in pick if x.get("mode") == "review"),
             "review_covered": sum(1 for x in pick if x.get("mode") == "review" and x.get("researched")),
-            "research_queue": sum(1 for x in out if x["mode"] == "research" and not x["note"]),
-            "research_testing": sum(1 for x in out if x["mode"] == "test" and not x["note"]),
+            "queued": sum(1 for x in out if x["mode"] in ("queue", "review") and not x["note"]),
+            "testing": sum(1 for x in out if x["mode"] == "test" and not x["note"]),
             "ids_sev12": len(idsq), "ids_sev12_without_note": sum(1 for x in idsq if not x["note"]),
             "gateway": len(gwq), "gateway_without_note": sum(1 for x in gwq if not x["note"]),
             "events_with_user_notes": sum(1 for x in pick if x.get("user_notes")), "hosts_with_notes": hn_count,
@@ -421,7 +428,7 @@ _QCACHE = {}
 
 
 def _events_cached(ttl=30):
-    """_events() shared by the AI-review status, the research queue list and the test-mode ids for `ttl` seconds: the
+    """_events() shared by the AI-review status, the queue list and the test-mode ids for `ttl` seconds: the
     work-list build (difflib similarity over earlier notes) costs ~0.5 s and all three read the same result.
     _QCACHE.clear() (settings changes, research requests) drops it."""
     if time.time() - _QCACHE.get("ev_t", 0) > ttl or "ev" not in _QCACHE:
@@ -454,7 +461,8 @@ def _testing_ids():
 
 def request_research(eid, user, send=True):
     """A person asks for one event to be researched. State: researched (a note exists), queued (requested or already due),
-    idle. Sending adds it to the next run whatever its category mode, dismissals or rules."""
+    idle. Research starts at once on the host (research.py); when the research model is busy the click waits and the
+    host scheduler starts it as soon as the running research ends."""
     import research_cfg as RC
     ak = _alert_keys()
     k = skey(eid, ak)
@@ -471,11 +479,11 @@ def request_research(eid, user, send=True):
     reqs[k] = {"eid": eid[:300], "by": str(user)[:64], "at": time.time()}
     RC._meta_put("research_requests", {"items": reqs})
     _QCACHE.clear()
-    try:  # start the research now on the host; if that fails the request stays queued for the next scheduled run
+    try:  # start the research now on the host (research.py); if that fails the request stays queued
         import corr_llm
         r = corr_llm.broker("/research-event", {"eid": eid, "user": str(user)[:64]}, timeout=20)
         if r.get("started"):
-            reqs[k]["started"] = time.time()
+            reqs[k].update(started=time.time(), tries=1)
             RC._meta_put("research_requests", {"items": reqs})
             return {"state": "running", "by": reqs[k]["by"]}
         return {"state": "queued", "by": reqs[k]["by"], "note": r.get("reason") or "another research run is in progress"}
@@ -485,13 +493,13 @@ def request_research(eid, user, send=True):
 
 
 def queue_items():
-    """Events the next research run would send out (research mode, no note yet, not dismissed or suppressed)."""
+    """Events waiting for a person (no note yet, not dismissed or suppressed); Send to research researches one."""
     r = _events_cached()
     if r.get("error"):
         return {"error": r["error"], "items": []}
     items = [{"id": x["id"], "type": x["type"], "sev": x.get("sev"), "label": x["label"], "link": x.get("link"), "when": x["when"],
               "repeats": x["repeats"], "requested": x.get("requested"), "testing": x.get("mode") == "test"}
-             for x in r["events"] if x.get("mode") in ("research", "test") and not x["note"]]
+             for x in r["events"] if x.get("mode") in ("queue", "review", "test") and not x["note"]]
     return {"snapshot": r["snapshot"], "count": sum(1 for x in items if not x["testing"]), "testing": sum(1 for x in items if x["testing"]), "items": items}
 
 
@@ -517,8 +525,8 @@ def _similar(x, skeys, limit=4, min_ratio=0.6):
 def _prior(pick, E, res, notes):
     """Review-mode items: what was researched before. Own note (same family), the notes of correlated events and notes on
     events with a similar label. Sets x["prior"] (list of {id, how, verdict, priority, summary, research, label, age_h}) and
-    x["researched"]; research-mode items are untouched. The research job's reviewer (review.py) decides from these whether
-    an item can reuse a prior note (copy_notes) or must go back to research."""
+    x["researched"]; queue-mode items are untouched. The review job's reviewer (review.py) decides from these whether
+    an item can reuse a prior note (copy_notes) or stays in the queue."""
     rel_ids = {r["id"] for x in pick if x.get("mode") == "review" and not x["note"] for r in (res["related"].get(x["id"]) or [])}
     rn = load(rel_ids) if rel_ids else {}
     ak = _alert_keys()
@@ -548,7 +556,7 @@ def _prior(pick, E, res, notes):
 
 
 def copy_notes(doc, events=None):
-    """The research job's reviewer judged an event the same as one researched before: store the earlier note for it, with a
+    """The review job's reviewer judged an event the same as one researched before: store the earlier note for it, with a
     line saying it was copied. doc = {model, snapshot, copies: [{id, from, reason}]} -> {copied, rejected_ids}."""
     model = str(doc.get("model") or "unknown")[:80]
     sid = str(doc.get("snapshot") or "")[:40]
@@ -573,8 +581,8 @@ def copy_notes(doc, events=None):
 
 
 def clear_queue(user, wipe=False):
-    """Start fresh: every event family in the current snapshot is dismissed from the research queue (new events and new
-    note keys are researched as usual); wipe=True also deletes all event notes and the model's correlation verdicts
+    """Start fresh: every event family in the current snapshot is dismissed from the queue (new events and new
+    note keys are queued as usual); wipe=True also deletes all event notes and the model's correlation verdicts
     (manual verdicts are kept). Databases are copied to <state>/backup-<ts>/ first."""
     import server, corr_llm, research_cfg as RC, shutil
     sid = (server.snapshots() or [{"id": ""}])[-1]["id"]
@@ -600,10 +608,11 @@ def clear_queue(user, wipe=False):
 
 
 def _audit(purpose, model, message, prompt=None, response=None, error=None):
-    """The research job (review.py on the host) reads work items and stores results here: log what goes in and comes back."""
+    """The review job (review.py) and event research (research.py) read work items and store results here: log what goes in and comes back."""
+    job = "event research" if purpose.startswith("research") else "review job"
     try:
         import audit
-        audit.llm(purpose, "research job", model, user="netmon (research job)", prompt=prompt, response=response, error=error, message=message)
+        audit.llm(purpose, job, model, user=f"netmon ({job})", prompt=prompt, response=response, error=error, message=message)
         audit.flush(drain=False)
     except Exception as e:  # noqa: BLE001 - the job must not fail because the audit log is down (entries spool)
         print(f"audit: {e}", file=sys.stderr)
@@ -618,7 +627,7 @@ def main(argv):
         iq = int(argv[argv.index("--ids") + 1]) if "--ids" in argv else 40
         gq = int(argv[argv.index("--gw") + 1]) if "--gw" in argv else 30
         res = _events(sid, "--all" in argv, lim, hq, iq, gq, argv[argv.index("--only") + 1] if "--only" in argv else None)
-        _audit("research-input", "", f"research job: work list handed to the LLM ({res.get('listed')} events, snapshot {res.get('snapshot')})",
+        _audit("research-input" if "--only" in argv else "review-input", "", f"{'event research' if '--only' in argv else 'review job'}: work list ({res.get('listed')} events, snapshot {res.get('snapshot')})",
                prompt=json.dumps(res, default=str), error=res.get("error"))
         print(json.dumps(res, indent=1, default=str))
     elif argv[:1] == ["clear-queue"]:
@@ -632,7 +641,7 @@ def main(argv):
         import server
         sid = doc.get("snapshot") or (server.snapshots() or [{"id": ""}])[-1]["id"]
         out = copy_notes({**doc, "snapshot": sid}, (server.correlation(sid) or {}).get("events") or {})
-        _audit("research-copy", str(doc.get("model") or ""), f"research job reviewer: {out['copied']} earlier notes reused", response=json.dumps(doc, default=str))
+        _audit("review-copy", str(doc.get("model") or ""), f"review job reviewer: {out['copied']} earlier notes reused", response=json.dumps(doc, default=str))
         print(json.dumps(out))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
@@ -640,7 +649,7 @@ def main(argv):
         sid = doc.get("snapshot") or (server.snapshots() or [{"id": ""}])[-1]["id"]
         res = server.correlation(sid)
         out = put({**doc, "snapshot": sid}, (res or {}).get("events") or {})
-        _audit("research-result", str(doc.get("model") or ""), f"research job: LLM results stored ({len(doc.get('notes') or [])} notes, "
+        _audit("research-result", str(doc.get("model") or ""), f"event research: LLM results stored ({len(doc.get('notes') or [])} notes, "
                f"{len(doc.get('links') or [])} links) -> {json.dumps(out, default=str)[:200]}", response=json.dumps(doc, default=str))
         print(json.dumps(out))
     else:

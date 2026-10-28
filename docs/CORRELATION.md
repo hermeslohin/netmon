@@ -264,7 +264,7 @@ shown is not repeated):
 |---|---|---|
 | `<owner_note>` | Approved event notes (📝), host notes written by a person for the hosts the event involves, and **user notes** for the accounts it names (subject `art:user:<account>`, 300 characters each) | trusted guidance |
 | `<artifact_note>` | A person's notes on a file, process, user, IP or DNS artifact (📝 beside the artifact in the Related popover, subject `art:<kind>:<value>`), up to 25, those named in these events first | authoritative |
-| `<ai_note>` | The research job's verdict and summary for the event, AI-written and profile host notes (including the *expected behavior* notes below), and each named account's profile from **Network → Users** (usual hosts, sources, methods, hours) | informed but unverified |
+| `<ai_note>` | The research verdict and summary for the event, AI-written and profile host notes (including the *expected behavior* notes below), and each named account's profile from **Network → Users** (usual hosts, sources, methods, hours) | informed but unverified |
 
 **Notes are chosen by artifact first.** Every host note (people's, AI-written, reviewer, internet and profile notes) is indexed
 by the artifacts it is about: IPs (internal and internet), DNS names, ports, processes / files (by base name) and accounts. They
@@ -280,7 +280,7 @@ matched across hosts. Each note's artifacts are refreshed whenever it is added o
 at upgrade. Artifacts a reviewer writes into its notes (the `[reviewer:…]` tag and the value in the text) are what make the next
 reviews find them. On the Notes page, the Internet notes pages and the notes cards, each note shows its artifacts as chips under the text (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port), so you can see what the reviewer will match on.
 
-**DNS notes.** Notes on `dom:<domain>` (or `art:dns:<domain>`) apply by suffix: a note on `example.com` covers `a.b.example.com`; a note on `b.example.com` covers only that name and below. For each event the DNS names are taken from its dns artifacts and its label (`kb.dns_names`), the matching notes are found with `kb.dns_notes_for` (most specific first, up to 6) and are shown to the reviewer as `dns note [domain]` (or `dns note [example.com covers a.b.example.com]`) and to the research job as `dns_notes` on each work item. When the reviewer judges a `dns` artifact and adds a `note`, `corr_llm._note_dns` writes a host note on `dom:<name>` (one per name, tagged `[reviewer:dns:<name>]`, updated in place; the name must appear in one of the two events). `GET /api/kb/dns` lists domains with their notes.
+**DNS notes.** Notes on `dom:<domain>` (or `art:dns:<domain>`) apply by suffix: a note on `example.com` covers `a.b.example.com`; a note on `b.example.com` covers only that name and below. For each event the DNS names are taken from its dns artifacts and its label (`kb.dns_names`), the matching notes are found with `kb.dns_notes_for` (most specific first, up to 6) and are shown to the reviewer as `dns note [domain]` (or `dns note [example.com covers a.b.example.com]`) and to event research as `dns_notes` on each work item. When the reviewer judges a `dns` artifact and adds a `note`, `corr_llm._note_dns` writes a host note on `dom:<name>` (one per name, tagged `[reviewer:dns:<name>]`, updated in place; the name must appear in one of the two events). `GET /api/kb/dns` lists domains with their notes.
 
 **Note review (accept / reject).** `host_notes` has `status` ('' not reviewed, `approved`, `rejected`), `reviewed_by`, `reviewed_at` (added to `kb.db` automatically). An admin or defender sets it with `POST /api/kb/host {action: approve|reject|clear, id}`. `approved` makes `corr_llm._human()` true, so the note goes in the owner-notes group and research items carry `authoritative: true`. `rejected` notes are dropped by every AI-facing read (`kb.host_notes(..., ai=True)`, `notes_by_artifacts`, `dns_notes_for`, `kb.dump`, `netmon_mcp`) but stay on the pages. `add_host_note` raises for an `ai` author changing an approved/rejected note, and `kb.put` will not delete one, so the AI can neither edit nor recreate them. A person editing a note clears its status.
 
@@ -299,7 +299,7 @@ never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evid
   host note (category *behavior*, author `ai`, tagged `[reviewer:<kind>:<value>]`) on the host both events involve
   (up to two hosts, the shared IPs first). One note per host and artifact, updated in place, marked unverified; delete
   one on the Notes page if it is wrong. Notes whose value does not appear in either event, or that name the host's own
-  IP, are not written. Later reviews and the research job read them as `<ai_note>`s. Turn this off with
+  IP, are not written. Later reviews and event research read them as `<ai_note>`s. Turn this off with
   `NETMON_REVIEW_HOST_NOTES=off` in `dashboard/.env`; a host holds at most 40 notes.
 - **Elasticsearch searches as artifacts** (when searches are enabled, below). Every successful search is kept as a
   `query` artifact on the links it was run for (up to 12 per link): the search in KQL, its time range, the hit count
@@ -339,7 +339,7 @@ candidate links each setting affects.
 **Mute alerts.** Watcher alerts are by far the most numerous event type. An admin or network defender sees **mute
 name…** and **mute name + host…** beside an alert on the Alerts page and on the AI review decisions. Both open an
 editable pattern (the alert text with IPs, MACs and numbers replaced by `*`); **Mute & clear existing** saves a *never
-send* rule for it (scope *both*, so the research job skips it too) and deletes the alerts that already fired and match
+send* rule for it (scope *both*, so it stays out of the queue too) and deletes the alerts that already fired and match
 the rule. The rule is listed under **Never send** and can be removed there; the deleted alerts do not come back.
 
 **Suppress findings.** Suppressing hides a finding like a check-off does, but as a *rule* by signature name, and it is
@@ -382,7 +382,7 @@ newest snapshot first, then snapshots opened in the last hour. If the provider i
 python /app/enrich.py clear-review`) gives every undecided link of the newest three snapshots the verdict *not related* by
 `dismissed:<user>` ("review queue cleared by an admin") and remembers those events: undecided links between two
 remembered events are never asked again, links to *new* events are. Undo by deleting verdicts whose model starts with
-`dismissed:`. **Clear research queue** dismisses the current snapshot's event families from the research queue (new
+`dismissed:`. **Clear event queue** dismisses the current snapshot's event families from the queue (new
 events and **Send to research** are unaffected). `python /app/enrich.py clear-queue --wipe` (inside the dashboard container) additionally deletes all research notes
 and the model's verdicts after backing up both databases.
 
@@ -395,13 +395,13 @@ behind an IDS alert also made the failed SSH logins, or whether a domain was res
 | Setting (AI review → Models, admin only) | Default | |
 |---|---|---|
 | **Elasticsearch queries · correlation review** (checkbox) | off | lets the reviewer search the logs |
-| **Elasticsearch queries · AI research** (checkbox) | on | separate switch: lets the AI Research job search the logs while researching events (`es_search` tool) |
+| **Elasticsearch queries · event research** (checkbox) | on | separate switch: lets event research (Send to research) search the logs (`es_search` tool) |
 | **Max per event** | 3 | the total number of searches the reviewer may run for one event review (one anchor event and its up to 10 candidates), 1–20; classification uses the same budget |
 | **Note characters** | 6000 | total characters of notes in one review request (1,000–100,000, `context_notes.chars`), set below Notes per event; the re-check of a single link uses a third of it |
 | **Notes per event** | 7 | host + user notes the reviewer is given for each event, 1–100 (the `llm_config` settings `context_notes`); more notes = more tokens in |
 
 The reviewer's switch and **Max per event** are stored in the netmon database (settings document `llm_config`) (`"es_queries": {"enabled",
-"max"}`, with who changed them and when); the research switch is part of the research job's settings in the netmon
+"max"}`, with who changed them and when); the event research switch is part of the event research settings in the netmon
 store (`es_search`). Both take effect from the next review or run. Model comparisons (⇄) never search, so every model gets exactly the
 same prompt.
 
@@ -423,8 +423,8 @@ How a review works with searches on:
 5. Every search is kept in `corr_llm.db` (`es_queries`: time, event, candidates, model, query, hit count, error),
    written to the audit log (`aireview.esquery`), and every model round is in the audit log as usual
    (`llm.correlation-review`, with the search results in the prompt). Successful searches also become clickable
-   Kibana artifacts on the links they were run for (see *What the reviewer writes back*). The research job's own
-   searches (DSL through its `es_search` tool, listed on the same page as *Research AI searches*) are attached the
+   Kibana artifacts on the links they were run for (see *What the reviewer writes back*). Event research's own
+   searches (DSL through its `es_search` tool, listed on the same page as *Event research searches*) are attached the
    same way to the research notes and links of that batch, shown under **Elasticsearch searches (open in Kibana)** in
    the notes popup.
 
@@ -441,25 +441,25 @@ reachable again (or an admin picks a different model on AI review → Models).
 
 ### AI review page (More → AI review)
 
-Shows the AI Research job (status, schedule, last run, note coverage, token and cost history), the correlation
+Shows the review job (status, schedule, last run, note coverage, token and cost history), the correlation
 reviewer's status (reviewing / waiting / idle / error / off), the queue for the current snapshot with % reviewed and
 an ETA, verdicts per hour, tokens per minute and the average tokens in / out per event review, and every decision
 with both events (linked), the verdict, confidence and the model's reason. Boxes, top to bottom:
 
 | Box | What it holds |
 |---|---|
-| **AI Research job** | Health, model, schedule, Run now / Pause, latest run summary, note coverage of the current snapshot |
-| **Time and tokens per research job** | Tokens and estimated cost per run and per day |
+| **Review job** | Health, reviewer model, schedule, Run now / Pause, latest run summary, note coverage of the current snapshot |
+| **Time and tokens: review job, event research and Ask AI chat** | Tokens and estimated cost per day, and per researched event |
 | **Decision model** | clef's speed (links / min, time per link), related / not related, event labels per day, on/off and the related threshold |
 | **Decision model server** | (admins) The `netmon-clef` server: status, served model, model file / runtime / parallel / context / batch / port, Save & restart, start / stop, log, stand-up instructions |
 | **Reviewer** | The correlation reviewer's status, speed (verdicts per hour, tokens per minute, average tokens in / out per event review) and error |
-| **Events awaiting research** / **Links awaiting review** | The two queues. **Clear research queue** and **Clear review queue** (admins) sit under them and ask for confirmation |
-| **Models** | Provider and model for the correlation reviewer, the AI Research job and chat; the Elasticsearch switches (reviewer, research) and **Max per event**; **Notes per event** |
+| **Queue: events without a note** / **Links awaiting review** | The two queues. **Clear event queue** and **Clear review queue** (admins) sit under them and ask for confirmation |
+| **Models** | Provider and model for the correlation reviewer (also the review job's reviewer), event research and chat; the Elasticsearch switches (reviewer, event research) and **Max per event**; **Notes per event** |
 | **AI providers** | Added API providers, calls-per-hour caps, Local (LM Studio) on/off |
 | **Review limits** | Link types grid, time window, max links per event, never-send events and rules, verdict retention, event classification (above) |
-| **Research job limits** | Cost and size caps of the research job (section 5) |
+| **Event research limits** | Cost and size caps of event research (section 5) |
 | **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again, **⇄** compares models |
-| **Reviewer searches** / **Research AI searches** | The newest Elasticsearch searches of each AI |
+| **Reviewer searches** / **Event research searches** | The newest Elasticsearch searches of each AI |
 
 ## 4. Working through it on the dashboard
 
@@ -485,17 +485,23 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 - **Users** page: admins assign devices to each person. That sets which devices they get push notifications and the
   🔔 count for (the same setting people edit on their own Alerts page).
 
-## 5. The review job (`review.py`) — what it does and where it looks
+## 5. The review job (`review.py`) and event research (`research.py`)
 
-`review.py` is the scheduled (or on-demand) **review job**: it collects and analyzes a fresh snapshot, lets the reviewer
-reuse earlier notes for events that repeat. It does **not** research events
-on a schedule, to keep token cost down: a model researches an event only when a person clicks **Send to research**
-(`review.py --event ID`). The model steps use a small set of **read-only lookup tools** plus a few **validated submit
-tools** they must call to write anything.
+There are two separate host jobs:
+
+- **The review job** (`review.py`) runs on the schedule (or **Run now**). It collects and analyzes a fresh snapshot, then
+  its **reviewer**, which is the correlation reviewer's model (e.g. Gemma on LM Studio), copies earlier notes onto events
+  that repeat. Everything else waits in the **queue**. It never researches an event, has no web access and never writes
+  a note of its own.
+- **Event research** (`research.py --event ID`) runs only when a person clicks **Send to research**. It uses the
+  research model chosen on AI review → Models. It is never scheduled.
+
+Both use a small set of **read-only lookup tools** (shared in `aijob.py`) plus a **validated submit tool** they must call
+to write anything.
 
 ```mermaid
 flowchart LR
-    subgraph SRC["Where it gets information from"]
+    subgraph SRC["Where they get information from"]
         SNAP["Snapshot & analysis\nsnapshots and analysis (netmon.db docs table)"]
         KB["Notes KB\nenrich.sh kb (host + event notes)"]
         DEV["Device lookup\nnetmon_mcp (traffic, services, findings)"]
@@ -504,18 +510,17 @@ flowchart LR
         PRIOR["Earlier notes\nsame family, correlated,\nsimilar label"]
     end
 
-    subgraph JOB["Scheduled run — review.py"]
+    subgraph JOB["Review job — review.py (scheduled / Run now)"]
         C["Collect + analyze\ncollect.py, analyze.py (no model)"]
-        RV{"Reviewer\nreview-mode events vs prior notes"}
-        Q["Research queue\nwaits for a click"]
-        B["Briefing\n(daily run only)"]
+        RV{"Reviewer\n(correlation reviewer's model)\nreview-mode events vs prior notes"}
+        Q["Queue\nwaits for a person"]
     end
 
-    subgraph REQ["On request — Send to research (review.py --event ID)"]
-        R["Event research\none event and its correlated events"]
+    subgraph REQ["Event research — research.py --event ID (Send to research only)"]
+        R["Research\none event and its correlated events"]
     end
 
-    subgraph OUT["What it writes (validated submit_* tools only)"]
+    subgraph OUT["What they write (validated submit_* tools only)"]
         COPY["Copied note\n(marked 'Copied by the reviewer')\nenrich.sh copy"]
         NOTES["Research note, link verdicts,\nhost notes -> enrich.sh put"]
         SRC2["sources documents (netmon.db)\ncited pages only"]
@@ -533,64 +538,72 @@ flowchart LR
     DEV --> R
     ES --> R
     WEB --> R
-    WEB --> B
     R --> NOTES
     R --> SRC2
-    B --> BJ
 ```
 
 - **Collect + analyze** (`collect.py`, `analyze.py`) build the snapshot and fold it into the baseline. No model is involved.
-- **Reviewer** handles events whose category is set to **review** (a per-category setting kept in the store; no longer on the AI review page) and that
-  have no note of their own. `enrich.py` attaches the candidate prior notes to each such event: the note of the same
-  event family, notes of correlated events, and notes on same-type events whose label is at least 60 % similar (numbers
-  masked). The reviewer model (prompt `prompts/reviewer.md`; tools: Elasticsearch, device lookup, notes KB) answers per
-  event with `submit_review`: **copy** (naming which prior note and why) or **research** (leave it queued). A copy is stored by
-  `enrich.sh copy` / `enrich.py copy_notes`: the earlier verdict, priority, summary, links and research are reused, with a
-  first line `[Copied by the reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
-  re-researched.]`, and the note's source shows "reviewer (copied note)". Everything else stays in the research queue
-  until someone clicks **Send to research** on it. The reviewer is told to leave an event queued when unsure, when a
-  malicious/suspicious prior doesn't clearly match, or when the prior is old; events with no prior at all stay queued. If the
-  reviewer fails, its events stay queued too, so nothing is dropped. The run summary shows how many notes were copied and
-  how many stayed queued.
-- **Event research** (`enrich`) runs only on request, for one event, with the broadest toolset: it can query
-  Elasticsearch, look up a device's full history, read the notes KB, and search/fetch the open web — but it may only *cite*
-  a page after fetching it, and may only link pages it actually read. Results go through `submit_notes`, which shells out
-  to `enrich.sh put` to store the note, link verdicts and host notes.
-- **Briefing** (daily run only) only has web search/fetch and writes the security news items.
+- **Reviewer** (review job) handles events whose category is set to **review** and that have no note of their own.
+  `enrich.py` attaches the candidate prior notes to each such event: the note of the same event family, notes of
+  correlated events, and notes on same-type events whose label is at least 60 % similar (numbers masked). The reviewer
+  (prompt `prompts/reviewer.md`; tools: Elasticsearch, device lookup, notes KB) answers per event with `submit_review`:
+  **copy** (naming which prior note and why) or **queue** (leave it for a person). A copy is stored by `enrich.sh copy` /
+  `enrich.py copy_notes`: the earlier verdict, priority, summary, links and research text are reused, with a first line
+  `[Copied by the reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
+  re-researched.]`, and the note's source shows "reviewer (copied note)". The reviewer is told to queue an event when
+  unsure, when a malicious/suspicious prior doesn't clearly match, or when the prior is old; events with no prior at all
+  are queued without asking it. If the reviewer fails, or no reviewer model is usable, its events stay queued, so nothing
+  is dropped. The run summary shows how many notes were copied and how many stayed queued.
+- **Event research** (`research.py`) runs only on a Send to research click, for one event, with the broadest toolset:
+  it can query Elasticsearch, look up a device's full history, read the notes KB, and search/fetch the open web (when
+  web access is on). It may only *cite* a page after fetching it, and may only link pages it actually read. Results go
+  through `submit_notes`, which shells out to `enrich.sh put` to store the note, link verdicts and host notes. The host
+  broker starts it at once; if another research is running, the click waits in `research_requests` and the scheduler
+  starts it as soon as the running one ends (at most two tries per click).
 - Every write path is a `submit_*` tool that validates its input (ids must exist, URLs must have been fetched,
-  verdicts/priorities must be from a fixed list) — the model proposes, the tool enforces the schema before anything
+  verdicts/priorities must be from a fixed list): the model proposes, the tool enforces the schema before anything
   lands on disk.
 
-### Research job limits and schedule
+### Review job schedule and categories
 
-The caps below are the **Research job limits** box on the AI review page (admins; they apply from the next run).
-A run stops at its next model call once a cap is passed; what it found until then is kept. `0` = no limit.
+| Setting | Default | What it sets |
+|---|---|---|
+| Interval | 240 min | How often the review job runs, 5–1440 min, on a grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day is the **daily run** (24 h of logs) |
+| Lookback | 24 h | Hours of logs a non-daily run collects, 1–24 |
+| On / off | on | **Pause** on the Review job card stops scheduled runs |
+
+The per-event-category setting (**review** / **queue** / **test** / **skip**, categories `host`, `ids12`, `gw`, `ti`,
+`alert`, the three `seg_*` severities and `high` / `medium` / `low` / `info` for the rest) decides what the reviewer
+considers and what shows in the queue: *review* events go to the reviewer first, *queue* events go straight to the
+queue, *test* events are listed and tagged *testing*, *skip* events are ignored. New deployments start every category in
+**test**. These live in the netmon store (`netmon.db`, `meta` table, keys `review_job` and `review_lookback`;
+`review_cfg.py`, `lookback.py`), so the dashboard container and the host scheduler read the same values. Settings
+saved before the review / research split are read from the old `research_job` record, with the old *research* mode
+read as *queue*.
+
+### Event research limits
+
+The caps below are the **Event research limits** box on the AI review page (admins; they apply to the next Send to
+research). A research run stops at its next model call once a cap is passed; what it found until then is kept.
+`0` = no limit. Store meta key `research_job` (`research_cfg.py`).
 
 | Setting | Default | What it limits |
 |---|---|---|
-| $ per run | 5.00 | Estimated cost of one run (needs a price for the model on AI review → AI providers) |
-| $ per day | 20.00 | No new run starts once today's runs (UTC) cost this much |
-| Tokens per run | 25,000,000 | Input + output tokens of all calls in a run; works without prices |
-| Research batches | 10 | Event-research conversations per run (8 events each), max 40 |
-| Searches per event | 3 | Web searches per event (a batch of 8 shares 8×), max 20; ignored when web research is off |
-| Web research | off on new deployments | Lets the model search and read web pages and cite them; off = local data only  |
-| Elasticsearch (Models box) | on | Lets the job's `es_search` tool run (separate from the correlation reviewer's switch) |
-| Interval | 240 min | How often the review job runs, 30–1440 min, on a grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day is the **daily run** (24 h of logs) |
-| Lookback | 24 h | Hours of logs a non-daily run collects, 1–24 |
-
-The per-event-category setting (**research** / **review** / **test** / **skip**, categories `host`, `ids12`, `gw`,
-`ti`, `alert`, the three `seg_*` severities and `high` / `medium` / `low` / `info` for the rest) decides what the
-reviewer step considers and what shows in the research queue. New deployments start every category in **test**: events
-are queued and tagged *testing* but never sent. All of this is kept in the netmon store (`netmon.db`, `meta` table, keys
-`research_job` and `research_lookback`), so the dashboard container and the host scheduler read the same values.
+| $ per research | 5.00 | Estimated cost of one research run (needs a price for the model on AI review → AI providers) |
+| $ per day | 20.00 | Send to research is refused once today's research (UTC) cost this much |
+| Tokens per research | 25,000,000 | Input + output tokens of all calls in a research run; works without prices |
+| Research batches | 10 | Research conversations per run (8 events each), max 40 |
+| Searches per event | 3 | Web searches per researched event, max 20; ignored when web access is off |
+| Web access | off on new deployments | Lets the research model search and read web pages and cite them; off = local data only |
+| Elasticsearch (Models box) | on | Lets event research's `es_search` tool run (separate from the correlation reviewer's switch) |
 
 ## 6. The reviewer — copy an earlier note or leave the event queued
 
-The reviewer is the last model step of a scheduled run inside `review.py` (`Review.review_items`). Its job is to avoid
+The reviewer is the model step of a review-job run inside `review.py` (`Review.review_items`), using the correlation reviewer's model. Its job is to avoid
 paying for research twice: when an event is the same activity as one already researched, the earlier note is reused;
 everything else stays in the queue until a person sends it to research. Only events whose category is **review**
-(the per-category setting kept in the store) and that have **no note of their own** enter this phase. Events set to *research*
-skip it; events set to *test* are only listed on the dashboard.
+(the per-category setting kept in the store) and that have **no note of their own** enter this phase. Events set to *queue*
+skip it and go straight to the queue; events set to *test* are only listed on the dashboard.
 
 ```mermaid
 flowchart LR
@@ -613,7 +626,7 @@ flowchart LR
 
     subgraph OUT["What happens next"]
         CP["enrich.sh copy -> copy_notes\nverdict, priority, summary, links, research reused\nfirst line: Copied by the reviewer ... Not re-researched\nsource: reviewer (copied note)"]
-        RS["Research queue\nwaits for Send to research"]
+        RS["Queue\nwaits for a person\n(Send to research)"]
         STAT["Run summary\nnotes copied / left queued"]
     end
 
@@ -627,7 +640,7 @@ flowchart LR
     RM --> SUB
     SUB --> DEC
     DEC -- "copy (from = prior id, reason)" --> CP
-    DEC -- "research = leave queued (different / unsure / old / loose match)" --> RS
+    DEC -- "queue (different / unsure / old / loose match)" --> RS
     SUB -. "batch fails or copy step fails" .-> RS
     CP --> STAT
     RS --> STAT
@@ -644,18 +657,18 @@ flowchart LR
 3. **No prior, no model call.** Items with nothing to compare against stay queued.
 4. **Ask the reviewer.** The rest go to the model in batches of 16 (system prompt: analyst + `prompts/reviewer.md`),
    with `es_search`, `device_lookup` and `notes_kb` available to check the item's evidence against the prior note.
-   It answers once through `submit_review` with `{id, action: "copy"|"research", from?, reason}` for every item.
+   It answers once through `submit_review` with `{id, action: "copy"|"queue", from?, reason}` for every item.
 5. **Rules the reviewer follows.** Copy only when it is the same activity: same signature or rule, same kind of
    source and destination, same behaviour, nothing in the item's evidence or `user_notes` that contradicts the prior
    verdict. Leave it queued when hosts, ports or behaviour differ, when a malicious/suspicious prior does not clearly
    match, when the prior is old, when the match is loose, or when unsure. A wrong copy hides a real event.
-6. **Validation.** `submit_review` rejects ids outside the batch, actions other than copy/research, and a `from`
+6. **Validation.** `submit_review` rejects ids outside the batch, actions other than copy/queue, and a `from`
    that is not one of that item's prior note ids. If some items get no decision, the tool tells the model to fill
    them in.
 7. **Store copies.** Copy decisions go to `enrich.sh copy` (`copy_notes`), which reuses the earlier verdict,
    priority, summary, links and research, prefixed with `[Copied by the reviewer (<model>) from the note on <id>
    (<date>), researched by <model>: <reason>. Not re-researched.]`. The note's source reads "reviewer (copied note)".
-8. **Leave the rest queued.** Every item not copied waits in the research queue; only a click on **Send to research** researches it.
+8. **Leave the rest queued.** Every item not copied waits in the queue; only a click on **Send to research** researches it (`research.py`).
 
 **Failure behaviour.** Nothing is dropped. If a reviewer batch errors, its items stay queued and the error is
 listed in the run's errors. If the copy step fails, no copies are stored and all items stay queued. A budget
@@ -682,7 +695,7 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 | Decision model on/off, related threshold, event suspicious threshold | on, 0.5, 0.5 | `llm_config` → `clef` |
 | Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
 | Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `clef_event`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
-| Research job settings, modes, requests, dismissed queue | see the table in section 5 | store meta `research_job`, `research_requests`, `research_dismissed` |
+| Review job schedule and modes; event research settings, pending clicks, dismissed queue | see section 5 | store meta `review_job`, `review_lookback`, `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |
 | `NETMON_LLM`, `_URL`, `_MODEL`, `_REASONING`, `_WORKERS`, `NETMON_REVIEW_HOST_NOTES` | see section 3 | `dashboard/.env` |

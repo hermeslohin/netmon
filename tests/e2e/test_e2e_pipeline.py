@@ -224,12 +224,12 @@ class OperatorCli(unittest.TestCase):
         self.assertGreaterEqual(stats.get("docs", 0), 2)
 
     def test_scheduler_status(self):
-        """scheduler.py status prints the next run of the watcher, research, weekly and UniFi jobs without running them.
+        """scheduler.py status prints the next run of the watcher, review, weekly and UniFi jobs without running them.
         REQ: OPS-03"""
         sb = Sandbox()
         r = sb.run(["scheduler.py", "status"], timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
-        for job in ("watch", "research", "weekly"):
+        for job in ("watch", "review", "weekly"):
             self.assertIn(job, r.stdout)
 
     def test_repo_guard_cli_blocks_forbidden_and_passes_clean(self):

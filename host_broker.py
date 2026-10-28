@@ -189,14 +189,14 @@ _ev_proc = [None]
 
 
 def research_event(b):
-    """Start a research run for one event now (review.py --event). One at a time; the dashboard keeps the request queued otherwise."""
+    """Start research of one event now (research.py --event; a person clicked Send to research). One at a time; the dashboard keeps the request queued otherwise."""
     eid = str(b.get("eid") or "")
     if not eid or len(eid) > 300 or "\x00" in eid:
         raise ValueError("eid required")
     if _ev_proc[0] and _ev_proc[0].poll() is None:
         return {"started": False, "reason": "another single-event research is running"}
     log = open(os.path.join(NM, "logs", "research-event.log"), "a")
-    _ev_proc[0] = subprocess.Popen([PY, os.path.join(NM, "review.py"), "--event", eid, "--trigger", "event:" + str(b.get("user") or "")[:40]],  # noqa: S603
+    _ev_proc[0] = subprocess.Popen([PY, os.path.join(NM, "research.py"), "--event", eid, "--trigger", "event:" + str(b.get("user") or "")[:40]],  # noqa: S603
                                    cwd=NM, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     return {"started": True}
 

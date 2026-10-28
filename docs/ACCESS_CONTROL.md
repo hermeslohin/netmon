@@ -33,8 +33,8 @@ what a role can't use. Hiding a button is never the protection.
 | Add / delete users, reset passwords, change roles, assign devices | ✓ | ✗ | ✗ |
 | Integrations (Elasticsearch, UniFi, web search): view and change | ✓ | ✗ | ✗ |
 | Audit log (More → Audit log): read, set its Elasticsearch key | ✓ | ✗ | ✗ |
-| Auto-close settings, research-job schedule and limits, "Run now" / Pause, reopen auto-closed | ✓ | ✗ | ✗ |
-| AI providers and API keys, AI models (correlation reviewer, research job, chat), Elasticsearch-search switches, notes per event, model comparisons, "Use this" | ✓ | ✗ | ✗ |
+| Auto-close settings, review-job schedule, "Run now" / Pause, event research limits, reopen auto-closed | ✓ | ✗ | ✗ |
+| AI providers and API keys, AI models (correlation reviewer / review job, event research, chat), Elasticsearch-search switches, notes per event, model comparisons, "Use this" | ✓ | ✗ | ✗ |
 
 **"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
 roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items
@@ -56,7 +56,7 @@ off, writing notes, confirming or rejecting an AI link, limiting which links the
 - A User can add 📝 notes to the security events on **My devices** (only events that involve one of their assigned
   devices; the server re-checks this) and delete their own notes. They see only their own notes, never the notes
   admins or defenders wrote on the same event.
-- **AI gate:** a User's note is stored as *pending* and is never given to any AI (research run, correlation reviewer,
+- **AI gate:** a User's note is stored as *pending* and is never given to any AI (review job, event research, correlation reviewer,
   Ask AI / `netmon_notes`, `kb.py dump`) until an admin or network defender approves it. Pending notes show ⏳ on the
   event's 📝 button and in **Notes → Event notes awaiting approval**, with Approve / Reject. Rejected notes are kept for
   the record but never reach the AI. Notes written by admins and defenders are approved when written. Approval applies

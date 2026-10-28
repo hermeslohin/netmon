@@ -1,4 +1,4 @@
-"""Web search + page fetch for the AI research job and the dashboard chat (stdlib only).
+"""Web search + page fetch for event research (research.py) and the dashboard chat (stdlib only).
 
 search(query, n)  -> [{title, url, snippet}]  via the backend set in Configuration > Integrations > Web search
                      (integrations.web()): DuckDuckGo (no key), Firecrawl, Brave or Tavily.

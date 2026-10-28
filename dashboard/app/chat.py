@@ -112,7 +112,7 @@ def _record_usage(user, cid, target, budget, secs):
 
 
 def chat_usage(days=60):
-    """Ask AI turns of the last `days` days, shaped like the research job's usage rows (chat=True)."""
+    """Ask AI turns of the last `days` days, shaped like the review job's usage rows (chat=True)."""
     try:
         with _db() as c:
             c.execute("create table if not exists chat_usage (at real, user text, chat text, provider text, model text, prompt integer, completion integer,"

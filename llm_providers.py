@@ -1,8 +1,8 @@
 """AI providers: any OpenAI-compatible or Anthropic API reached with an API key, plus the local LM Studio server.
 
 Admins add providers on the dashboard's AI review page. Everything that uses an AI model goes through this module:
-the correlation reviewer and model comparisons (dashboard container), the dashboard chat, and the scheduled research
-job on the host (review.py). Providers are stored in llm_providers.json on the dashboard's state volume (mode 0600,
+the correlation reviewer and model comparisons (dashboard container), the dashboard chat, and the review job (review.py) and
+event research (research.py) on the host. Providers are stored in llm_providers.json on the dashboard's state volume (mode 0600,
 atomic writes; the host reads the same file at dashboard/state/):
   {"id": "a1b2c3", "name": "OpenAI (work key)", "type": "openai" | "anthropic", "base_url": "https://api.openai.com/v1",
    "api_key": "...", "models": ["gpt-5-mini", ...], "prices": {"gpt-5-mini": [0.25, 2.0, 0.025]},

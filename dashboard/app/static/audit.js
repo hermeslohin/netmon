@@ -4,8 +4,8 @@
   const KIND = { action: "User action", llm: "AI conversation" };
   const RANGES = [["1h", "Last hour"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["all", "All time"]];
   const PURPOSE = { "llm.chat": "Ask AI chat", "llm.correlation-review": "Correlation review (background)", "llm.correlation-compare": "Correlation compare",
-    "llm.item-compare": "Item compare", "llm.research-input": "AI Research job: work list", "llm.research-result": "AI Research job: results",
-    "llm.research-hostnotes": "AI Research job: host notes" };
+    "llm.item-compare": "Item compare", "llm.research-input": "Event research: work list", "llm.research-result": "Event research: results",
+    "llm.research-hostnotes": "Event research: host notes", "llm.review-input": "Review job: work list", "llm.review-copy": "Review job: copied notes" };
   const outBadge = (o) => `<span class="badge ${o === "failure" ? "sev-high" : "sev-low"}">${esc(o || "—")}</span>`;
   const kindBadge = (k) => `<span class="badge ${k === "llm" ? "sev-medium" : "sev-info"}">${esc(KIND[k] || k)}</span>`;
   const when = (t) => { const d = new Date(t); return isNaN(d) ? esc(t) : esc(d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })); };
@@ -32,7 +32,7 @@
     facts.forEach(([k, v]) => { const a = document.createElement("div"); a.className = "muted small"; a.textContent = k; const b = document.createElement("div"); b.textContent = v; dl.append(a, b); });
     box.append(dl);
     if (L.system_prompt) box.append(section("System prompt (instructions the app gave the model)", pre(L.system_prompt)));
-    if (g.prompt) box.append(section(ev.action === "llm.research-input" ? "Data handed to the AI Research job's LLM" : "Prompt (sent by the app)", pre(g.prompt)));
+    if (g.prompt) box.append(section(ev.action === "llm.research-input" ? "Data handed to the research model" : ev.action === "llm.review-input" ? "Review job work list" : "Prompt (sent by the app)", pre(g.prompt)));
     if (g.completion) box.append(section(ev.action?.startsWith("llm.research") ? "Returned by the LLM" : "Answer (from the model)", pre(g.completion)));
     if ((D.netmon || {}).params) box.append(section("Request parameters (secrets redacted)", pre(JSON.stringify(D.netmon.params, null, 2))));
     const raw = document.createElement("details"); const s = document.createElement("summary"); s.textContent = "Raw Elasticsearch document";

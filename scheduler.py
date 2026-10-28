@@ -2,10 +2,11 @@
 """netmon scheduler: runs the pipeline's recurring jobs on the host (systemd user unit netmon-scheduler.service).
 
   watcher        every 15 minutes            watch.py (urgent alerts -> dashboard + Web Push)
-  research job   grid set on the dashboard   review.py (research_cfg: interval, anchored at 05:00 UTC; on/off)
+  review job     grid set on the dashboard   review.py (review_cfg: interval, anchored at 05:00 UTC; on/off)
                  + "Run now" requests from the AI review page
+Event research (research.py) is never scheduled: the host broker starts it when a person clicks Send to research.
   weekly         Sunday 03:00 UTC            weekly_rebuild.sh (dashboard image rebuild + security scan)
-Jobs never overlap with themselves; a slot missed while the host was down is not made up, except the research job,
+Jobs never overlap with themselves; a slot missed while the host was down is not made up, except the review job,
 which starts late within its own slot. Output of each job goes to logs/<job>.log (rotated at 5 MB).
 
 Usage: scheduler.py            run forever (the systemd unit)
@@ -20,7 +21,7 @@ import time
 
 NM = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, NM)
-import research_cfg as RC  # noqa: E402
+import review_cfg as RC  # noqa: E402
 import store  # noqa: E402
 
 PY = os.environ.get("NETMON_PYTHON") or "/usr/bin/python3"
@@ -28,7 +29,7 @@ LOGS = os.path.join(NM, "logs")
 STATE = os.path.join(RC.STATE, "scheduler.json")
 JOBS = {
     "watch": [PY, os.path.join(NM, "watch.py")],
-    "research": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
+    "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
     "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
@@ -89,20 +90,44 @@ def tick(now=None):
     if t.weekday() == 6 and t.hour == 3 and s.get("weekly") != wk:
         if start("weekly", why="(Sunday 03 UTC)"):
             s["weekly"] = wk
-    # research job: manual request, else once per grid slot
+    # Send to research clicks that could not start at once (research model busy): one at a time, never on a schedule
+    _dispatch_research()
+    # review job: manual request, else once per grid slot
+    if "research" in s:  # state saved before the review / research split
+        s.setdefault("review", s.pop("research"))
     req = RC.pending_request()
-    if req and not (running.get("research") and running["research"].poll() is None):
+    if req and not (running.get("review") and running["review"].poll() is None):
         RC.take_request()
-        start("research", [PY, os.path.join(NM, "review.py"), "--trigger", "manual"], f"(requested by {req.get('by')})")
+        start("review", [PY, os.path.join(NM, "review.py"), "--trigger", "manual"], f"(requested by {req.get('by')})")
     cfg = RC.get()
-    if cfg["enabled"] and cfg["model"]:
+    if cfg["enabled"]:
         st = RC.slot_start(RC.slot(now, cfg["interval_minutes"]), cfg["interval_minutes"])
-        if "research" not in s:
-            s["research"] = st  # first start: wait for the next slot instead of running at once
-        elif st > float(s.get("research") or 0):  # a new slot began (an interval change never re-runs an earlier slot)
-            if start("research", why=f"(slot {dt.datetime.fromtimestamp(st, dt.timezone.utc):%H:%M} UTC)"):
-                s["research"] = st
+        if "review" not in s:
+            s["review"] = st  # first start: wait for the next slot instead of running at once
+        elif st > float(s.get("review") or 0):  # a new slot began (an interval change never re-runs an earlier slot)
+            if start("review", why=f"(slot {dt.datetime.fromtimestamp(st, dt.timezone.utc):%H:%M} UTC)"):
+                s["review"] = st
     _save(s)
+
+
+def _dispatch_research():
+    """Start research.py for the oldest Send to research click that has not started (or whose run died without a note).
+    Each click is tried at most twice; a click that produced a note is removed by the dashboard (enrich.request_research)."""
+    p = running.get("research")
+    if p and p.poll() is None:
+        return
+    import research_cfg as RS
+    reqs = dict(RS._meta("research_requests").get("items") or {})
+    now = time.time()
+    due = sorted(((k, r) for k, r in reqs.items() if int(r.get("tries") or 0) < 2 and (not r.get("started") or now - float(r["started"]) > 1800)),
+                 key=lambda kr: kr[1].get("at") or 0)
+    if not due:
+        return
+    k, r = due[0]
+    if start("research", [PY, os.path.join(NM, "research.py"), "--event", r["eid"], "--trigger", "event:" + str(r.get("by") or "")[:40]],
+             f"(Send to research by {r.get('by')}, queued)"):
+        reqs[k] = {**r, "started": now, "tries": int(r.get("tries") or 0) + 1}
+        RS._meta_put("research_requests", {"items": reqs})
 
 
 def status():
@@ -114,8 +139,8 @@ def status():
     wk = (t + dt.timedelta(days=days)).replace(hour=3, minute=0, second=0, microsecond=0)
     if wk <= t:
         wk += dt.timedelta(days=7)
-    return {"watch": nxt_q, "research": RC.next_run(), "research_interval_minutes": cfg["interval_minutes"],
-            "research_enabled": cfg["enabled"], "weekly": wk.timestamp(), "last": _state()}
+    return {"watch": nxt_q, "review": RC.next_run(), "review_interval_minutes": cfg["interval_minutes"],
+            "review_enabled": cfg["enabled"], "weekly": wk.timestamp(), "last": _state()}
 
 
 def main():

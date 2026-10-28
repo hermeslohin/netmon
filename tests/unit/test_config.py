@@ -1,4 +1,4 @@
-"""Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, research_cfg.py."""
+"""Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E402
 
 import datetime as dt  # noqa: E402
@@ -9,6 +9,7 @@ from unittest import mock  # noqa: E402
 
 import lookback  # noqa: E402
 import research_cfg as rc  # noqa: E402
+import review_cfg as vc  # noqa: E402
 import site_cfg  # noqa: E402
 import store  # noqa: E402
 import window  # noqa: E402
@@ -24,7 +25,7 @@ def _reset_site():
 def _clean_meta():
     """fresh_db() keeps the meta table: drop the keys these modules own."""
     with store.connect() as c:
-        c.execute("DELETE FROM meta WHERE k IN (?, ?, ?)", (lookback.KEY, rc.KEY, rc.REQ))
+        c.execute("DELETE FROM meta WHERE k IN (?, ?, ?, ?, ?, ?)", (lookback.KEY, lookback._OLD_KEY, rc.KEY, vc.KEY, vc.REQ, vc._OLD_REQ))
 
 
 def _meta_raw(k, v):
@@ -226,8 +227,8 @@ class TestLookback(unittest.TestCase):
         self.assertIn(lookback.for_run()[0], (4, 24))
 
 
-class TestResearchCfg(unittest.TestCase):
-    """research_cfg: research job settings, schedule grid and run requests."""
+class TestReviewCfg(unittest.TestCase):
+    """review_cfg: review job schedule, on/off, event modes and Run now requests."""
 
     def setUp(self):
         _env.fresh_db()
@@ -238,118 +239,163 @@ class TestResearchCfg(unittest.TestCase):
         _env.fresh_db()
 
     def test_fresh_defaults(self):
-        """A new deployment gets DEFAULTS with every category in test mode, web research off and no severities.
+        """A new deployment gets every category in test mode, 240 min, enabled, no severities.
         REQ: CFG-01
         """
-        g = rc.get()
+        g = vc.get()
         self.assertEqual(g["interval_minutes"], 240)
-        self.assertFalse(g["web_research"])
         self.assertTrue(g["enabled"])
         self.assertEqual(set(g["modes"].values()), {"test"})
-        self.assertEqual(set(g["modes"]), {k for k, _ in rc.MODE_CATS})
+        self.assertEqual(set(g["modes"]), {k for k, _ in vc.MODE_CATS})
         self.assertEqual(g["severities"], [])
         self.assertEqual(g["daily_hour"], 5)
-        self.assertEqual(len(g["mode_cats"]), len(rc.MODE_CATS))
+        self.assertNotIn("research", g["mode_options"])
 
-    def test_existing_deployment_keeps_legacy_behaviour(self):
-        """Settings saved before modes/web_research existed get the legacy modes and web research on.
+    def test_migrates_from_combined_research_record(self):
+        """Settings saved before the review / research split (one research_job record) are read: schedule, on/off and
+        modes, with the old "research" mode becoming "queue"; a record without modes keeps the legacy modes.
         REQ: CFG-01
         """
-        _meta_raw(rc.KEY, {"model": "m"})
-        g = rc.get()
-        self.assertTrue(g["web_research"])
-        self.assertEqual(g["modes"], rc.LEGACY_MODES)
-        self.assertEqual(g["severities"], ["high", "medium"])
+        _meta_raw(vc._OLD_KEY, {"model": "m"})
+        self.assertEqual(vc.get()["modes"], vc.LEGACY_MODES)
+        _meta_raw(vc._OLD_KEY, {"interval_minutes": 15, "enabled": False, "modes": {"host": "research", "ids12": "review", "low": "skip"}})
+        g = vc.get()
+        self.assertEqual((g["interval_minutes"], g["enabled"]), (15, False))
+        self.assertEqual((g["modes"]["host"], g["modes"]["ids12"], g["modes"]["low"]), ("queue", "review", "skip"))
 
     def test_legacy_severities_and_seg_split(self):
-        """A legacy severities list maps to research/skip; an old single 'seg' mode is applied to all three seg categories.
+        """A legacy severities list maps to queue/skip; an old single 'seg' mode is applied to all three seg categories.
         REQ: CFG-01
         """
-        _meta_raw(rc.KEY, {"severities": ["low"]})
-        m = rc.get()["modes"]
-        self.assertEqual((m["high"], m["low"], m["info"]), ("skip", "research", "skip"))
-        _meta_raw(rc.KEY, {"modes": {"seg": "review", "seg_low": "skip", "bogus": "research", "host": "nonsense"}})
-        m = rc.get()["modes"]
+        _meta_raw(vc.KEY, {"severities": ["low"]})
+        m = vc.get()["modes"]
+        self.assertEqual((m["high"], m["low"], m["info"]), ("skip", "queue", "skip"))
+        _meta_raw(vc.KEY, {"modes": {"seg": "review", "seg_low": "skip", "bogus": "queue", "host": "nonsense"}})
+        m = vc.get()["modes"]
         self.assertEqual((m["seg_high"], m["seg_medium"], m["seg_low"]), ("review", "review", "skip"))
         self.assertNotIn("bogus", m)
-        self.assertEqual(m["host"], "research")
+        self.assertEqual(m["host"], "queue")
 
-    def test_get_clamps_invalid_stored_limits(self):
-        """Stored numbers outside LIMITS or of the wrong type read back as the defaults.
+    def test_put_validates(self):
+        """put() coerces, range-checks the interval, merges valid modes, maps "research" to "queue" and refuses all-skip.
         REQ: CFG-01
         """
-        _meta_raw(rc.KEY, {"interval_minutes": 2, "max_batches": "x", "max_run_usd": "7.5", "max_searches": None})
-        g = rc.get()
-        self.assertEqual(g["interval_minutes"], 240)
-        self.assertEqual(g["max_batches"], 10)
-        self.assertEqual(g["max_run_usd"], 7.5)
-        self.assertEqual(g["max_searches"], 3)
-
-    def test_put_validates_and_coerces(self):
-        """put() coerces numbers and booleans, truncates provider/model, ignores unknown keys and records the author.
-        REQ: CFG-01
-        """
-        g = rc.put({"interval_minutes": "60", "enabled": 0, "model": "m" * 200, "max_run_usd": 2, "bogus": 1}, "admin")
-        self.assertEqual(g["interval_minutes"], 60)
-        self.assertFalse(g["enabled"])
-        self.assertEqual(len(g["model"]), 120)
-        self.assertIsInstance(g["max_run_usd"], float)
+        g = vc.put({"interval_minutes": "60", "enabled": 0, "bogus": 1}, "admin")
+        self.assertEqual((g["interval_minutes"], g["enabled"], g["by"]), (60, False, "admin"))
         self.assertNotIn("bogus", g)
-        self.assertEqual(g["by"], "admin")
-        for bad in ({"interval_minutes": 4}, {"interval_minutes": "x"}, {"max_batches": 41}, {"max_day_usd": -1}):
+        for bad in ({"interval_minutes": 4}, {"interval_minutes": "x"}, {"modes": {"nope": "queue"}}, {"modes": {"high": "maybe"}},
+                    {"modes": {k: "skip" for k in vc.DEFAULT_MODES}}):
             with self.assertRaises(ValueError, msg=bad):
-                rc.put(bad, "a")
-        self.assertEqual(rc.get()["interval_minutes"], 60)
+                vc.put(bad, "a")
+        g = vc.put({"modes": {"high": "research", "low": "review"}}, "a")
+        self.assertEqual((g["modes"]["high"], g["modes"]["low"], g["modes"]["host"]), ("queue", "review", "test"))
 
     def test_put_pins_modes(self):
         """The first put() pins the effective modes so later default changes don't alter the deployment.
         REQ: CFG-01
         """
-        rc.put({"interval_minutes": 30}, "a")
+        vc.put({"interval_minutes": 30}, "a")
         with store.connect() as c:
-            stored = json.loads(c.execute("SELECT v FROM meta WHERE k=?", (rc.KEY,)).fetchone()[0])
-        self.assertEqual(stored["modes"], rc.DEFAULT_MODES)
-        self.assertEqual(rc.get()["modes"], rc.DEFAULT_MODES)
+            stored = json.loads(c.execute("SELECT v FROM meta WHERE k=?", (vc.KEY,)).fetchone()[0])
+        self.assertEqual(stored["modes"], vc.DEFAULT_MODES)
 
-    def test_explicit_web_research_off_persists(self):
-        """Explicitly switching web research off is stored and read back as off.
+    def test_slot_grid(self):
+        """Slots form a grid of interval minutes anchored at 05:00 UTC; next_run is the next slot start or None when disabled.
+        REQ: OPS-03
+        """
+        day = dt.datetime(2026, 1, 5, tzinfo=dt.timezone.utc).timestamp()
+        at5 = day + 5 * 3600
+        self.assertEqual(vc.slot(at5, 60), vc.slot(at5 + 3599, 60))
+        self.assertEqual(vc.slot(at5, 60) + 1, vc.slot(at5 + 3600, 60))
+        self.assertEqual(vc.slot_start(vc.slot(at5 + 100, 60), 60), at5)
+        vc.put({"interval_minutes": 240}, "a")
+        self.assertEqual(vc.next_run(at5 + 1), at5 + 4 * 3600)
+        vc.put({"enabled": False}, "a")
+        self.assertIsNone(vc.next_run(at5))
+
+    def test_requests(self):
+        """request() queues a run, pending_request() shows it and take_request() returns it once and clears it.
+        REQ: OPS-03
+        """
+        self.assertIsNone(vc.pending_request())
+        vc.request("u" * 80)
+        self.assertEqual(vc.pending_request()["by"], "u" * 64)
+        self.assertEqual(vc.take_request()["by"], "u" * 64)
+        self.assertIsNone(vc.take_request())
+
+    def test_status_reads_old_review_runs(self):
+        """Before review_job.json exists, status() takes the review runs from the old research_job.json, without research usage.
+        REQ: STO-01
+        """
+        new, old = os.path.join(_env.TMP, "review_job_t.json"), os.path.join(_env.TMP, vc._OLD_STATUS)
+        store.jdump({"runs": [{"status": "completed"}], "usage": [{"cost_usd": 0}, {"cost_usd": 1, "event_run": True}], "researched": [1]}, old)
+        with mock.patch.object(vc, "STATUS", new), mock.patch.object(vc, "STATE", _env.TMP):
+            d = vc.status()
+            self.assertEqual(d["runs"], [{"status": "completed"}])
+            self.assertEqual(d["usage"], [{"cost_usd": 0}])
+            self.assertNotIn("researched", d)
+            vc.write_status({"runs": []})
+            self.assertEqual(vc.status(), {"runs": []})
+
+
+class TestResearchCfg(unittest.TestCase):
+    """research_cfg: event research (Send to research) model, cost caps, web / Elasticsearch access."""
+
+    def setUp(self):
+        _env.fresh_db()
+        _clean_meta()
+
+    def tearDown(self):
+        _clean_meta()
+        _env.fresh_db()
+
+    def test_fresh_defaults_have_no_schedule(self):
+        """A new deployment has web access off, no model and no schedule / run-request settings at all.
+        REQ: CFG-01, OPS-06
+        """
+        g = rc.get()
+        self.assertFalse(g["web_research"])
+        self.assertEqual(g["model"], "")
+        for k in ("interval_minutes", "enabled", "modes"):
+            self.assertNotIn(k, g)
+        self.assertFalse(hasattr(rc, "request") or hasattr(rc, "next_run"))
+
+    def test_existing_deployment_keeps_web_research(self):
+        """Settings saved before web_research existed read back with web research on.
         REQ: CFG-01
         """
-        rc.put({"web_research": False}, "a")
+        _meta_raw(rc.KEY, {"model": "m"})
+        self.assertTrue(rc.get()["web_research"])
+
+    def test_saving_on_new_install_keeps_web_off(self):
+        """Saving another research setting on a new install does not switch web access on.
+        REQ: CFG-01
+        """
+        rc.put({"max_batches": 2}, "a")
         self.assertFalse(rc.get()["web_research"])
 
-    @unittest.expectedFailure
-    def test_first_unrelated_put_keeps_web_research_off(self):
-        """KNOWN BUG: on a new deployment (web_research default False) saving any other setting, e.g. the interval,
-        silently turns web research ON, because get() treats any stored settings without a web_research key as a
-        pre-option deployment (default True) and put() does not pin web_research the way it pins modes.
+    def test_get_clamps_invalid_stored_limits(self):
+        """Stored numbers outside LIMITS or of the wrong type read back as the defaults.
         REQ: CFG-01
         """
-        self.assertFalse(rc.get()["web_research"])
-        rc.put({"interval_minutes": 30}, "a")
-        self.assertFalse(rc.get()["web_research"])
+        _meta_raw(rc.KEY, {"max_batches": "x", "max_run_usd": "7.5", "max_searches": None})
+        g = rc.get()
+        self.assertEqual((g["max_batches"], g["max_run_usd"], g["max_searches"]), (10, 7.5, 3))
 
-    def test_put_modes_validation(self):
-        """put(modes=...) merges valid modes, rejects unknown categories/modes and an all-skip configuration.
+    def test_put_validates_and_coerces(self):
+        """put() coerces numbers and booleans, truncates provider/model, ignores unknown keys and records the author.
         REQ: CFG-01
         """
-        g = rc.put({"modes": {"high": "research", "low": "review"}}, "a")
-        self.assertEqual((g["modes"]["high"], g["modes"]["low"], g["modes"]["host"]), ("research", "review", "test"))
-        self.assertEqual(g["severities"], ["high", "low"])
-        for bad in ({"nope": "research"}, {"high": "maybe"}, ["high"]):
-            with self.assertRaises(ValueError):
-                rc.put({"modes": bad}, "a")
-        with self.assertRaises(ValueError):
-            rc.put({"modes": {k: "skip" for k in rc.DEFAULT_MODES}}, "a")
-
-    def test_put_legacy_severities(self):
-        """The legacy severities field sets severity categories to research/skip and leaves others alone.
-        REQ: CFG-01
-        """
-        g = rc.put({"severities": ["info"]}, "a")
-        self.assertEqual([g["modes"][s] for s in rc.SEVERITIES], ["skip", "skip", "skip", "research"])
-        self.assertEqual(g["modes"]["host"], "test")
-        self.assertEqual(g["severities"], ["info"])
+        g = rc.put({"model": "m" * 200, "max_run_usd": 2, "web_research": 0, "interval_minutes": 5, "bogus": 1}, "admin")
+        self.assertEqual(len(g["model"]), 120)
+        self.assertIsInstance(g["max_run_usd"], float)
+        self.assertFalse(g["web_research"])
+        self.assertNotIn("bogus", g)
+        self.assertNotIn("interval_minutes", g)
+        self.assertEqual(g["by"], "admin")
+        for bad in ({"max_batches": 41}, {"max_day_usd": -1}, {"max_run_tokens": "x"}):
+            with self.assertRaises(ValueError, msg=bad):
+                rc.put(bad, "a")
 
     def test_put_check_model(self):
         """A provider/model change is validated by check_model; failing validation raises and saves nothing.
@@ -361,38 +407,10 @@ class TestResearchCfg(unittest.TestCase):
         with self.assertRaises(ValueError):
             rc.put({"model": "bad"}, "a", check_model=lambda p, m: False)
         self.assertEqual(rc.get()["model"], "good")
-        rc.put({"interval_minutes": 60}, "a", check_model=lambda p, m: False)  # no model change: not checked
-
-    def test_slot_grid(self):
-        """Slots form a grid of interval minutes anchored at 05:00 UTC; next_run is the next slot start or None when disabled.
-        REQ: OPS-03
-        """
-        day = dt.datetime(2026, 1, 5, tzinfo=dt.timezone.utc).timestamp()
-        at5 = day + 5 * 3600
-        self.assertEqual(rc.slot(at5, 60), rc.slot(at5 + 3599, 60))
-        self.assertEqual(rc.slot(at5, 60) + 1, rc.slot(at5 + 3600, 60))
-        self.assertEqual(rc.slot_start(rc.slot(at5 + 100, 60), 60), at5)
-        self.assertEqual(rc.slot_start(0, 240), 5 * 3600)
-        rc.put({"interval_minutes": 240}, "a")
-        self.assertEqual(rc.next_run(at5 + 1), at5 + 4 * 3600)
-        self.assertEqual(rc.next_run(at5), at5 + 4 * 3600)
-        self.assertEqual(rc.slot(at5), rc.slot(at5, 240))
-        rc.put({"enabled": False}, "a")
-        self.assertIsNone(rc.next_run(at5))
-
-    def test_requests(self):
-        """request() queues a run, pending_request() shows it and take_request() returns it once and clears it.
-        REQ: OPS-03
-        """
-        self.assertIsNone(rc.pending_request())
-        self.assertIsNone(rc.take_request())
-        rc.request("u" * 80)
-        self.assertEqual(rc.pending_request()["by"], "u" * 64)
-        self.assertEqual(rc.take_request()["by"], "u" * 64)
-        self.assertIsNone(rc.take_request())
+        rc.put({"max_batches": 2}, "a", check_model=lambda p, m: False)  # no model change: not checked
 
     def test_status_and_spent_today(self):
-        """write_status/status round-trip and spent_today sums only today's (UTC) run costs.
+        """write_status/status round-trip and spent_today sums only today's (UTC) research costs.
         REQ: STO-01
         """
         path = os.path.join(_env.TMP, "research_job_test.json")
@@ -400,9 +418,8 @@ class TestResearchCfg(unittest.TestCase):
             self.assertEqual(rc.status(), {})
             self.assertEqual(rc.spent_today(), 0)
             now = time.time()
-            rc.write_status({"usage": [{"at": now, "cost_usd": 1.5}, {"at": now, "cost_usd": None},
-                                       {"at": now - 3 * 86400, "cost_usd": 9}, {"cost_usd": 4}]})
-            self.assertEqual(rc.status()["usage"][0]["cost_usd"], 1.5)
+            rc.write_status({"usage": [{"at": now, "cost_usd": 1.5, "event_run": True}, {"at": now, "cost_usd": 7},
+                                       {"at": now, "cost_usd": None, "event_run": True}, {"at": now - 3 * 86400, "cost_usd": 9, "event_run": True}]})
             self.assertEqual(rc.spent_today(), 1.5)
         if os.path.exists(path):
             os.remove(path)

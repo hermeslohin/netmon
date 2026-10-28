@@ -1,6 +1,6 @@
 // Notes knowledge base (kb.py): host/device notes (written mostly by the AI, people may add/delete) shown on the host
 // and endpoint pages and on the Notes page, plus people's event notes behind the 📝 button next to every event's
-// Related count (related.js adds the button). The AI reads both before deciding (twice-daily research, correlation
+// Related count (related.js adds the button). The AI reads both before deciding (the review job, event research, correlation
 // reviewer, chat assistant).
 (() => {
   const CATS = ["role", "baseline", "behavior", "decision", "risk", "config", "watch", "other"];
@@ -21,12 +21,12 @@
   const VCLS = { expected: "sev-info", benign: "sev-low", suspicious: "sev-high" };
   const vBadge = (n) => (n?.verdict ? `<span class="badge ${VCLS[n.verdict] || ""}" title="A person's verdict: the AI treats it as authoritative">${esc(n.verdict)}</span> ` : "");
   window.kbVBadge = vBadge;
-  // host / internet / DNS notes: a network defender or admin accepts (authoritative for the reviewer and research job) or rejects (kept, never sent to the AI)
+  // host / internet / DNS notes: a network defender or admin accepts (authoritative for the reviewer and event research) or rejects (kept, never sent to the AI)
   const canRev = () => ["admin", "defender"].includes(S.me?.role);
-  const hnBadge = (n) => n.status === "approved" ? `<span class="badge sev-info" title="Accepted${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: the reviewer and research job treat this note as authoritative">✓ accepted</span>`
-    : n.status === "rejected" ? `<span class="badge sev-high" title="Rejected${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: kept here, never sent to the reviewer or research job">✕ rejected</span>` : "";
-  const hnBtns = (n) => !canRev() ? "" : (n.status === "approved" ? "" : `<button type="button" class="kb-hrev" data-act="approve" data-id="${esc(n.id)}" title="Accept: send to the reviewer and research job as authoritative">✓ Accept</button>`)
-    + (n.status === "rejected" ? "" : `<button type="button" class="kb-hrev" data-act="reject" data-id="${esc(n.id)}" title="Reject: keep the note but never send it to the reviewer or research job">✕ Reject</button>`)
+  const hnBadge = (n) => n.status === "approved" ? `<span class="badge sev-info" title="Accepted${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: the reviewer and event research treat this note as authoritative">✓ accepted</span>`
+    : n.status === "rejected" ? `<span class="badge sev-high" title="Rejected${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: kept here, never sent to the reviewer or event research">✕ rejected</span>` : "";
+  const hnBtns = (n) => !canRev() ? "" : (n.status === "approved" ? "" : `<button type="button" class="kb-hrev" data-act="approve" data-id="${esc(n.id)}" title="Accept: send to the reviewer and event research as authoritative">✓ Accept</button>`)
+    + (n.status === "rejected" ? "" : `<button type="button" class="kb-hrev" data-act="reject" data-id="${esc(n.id)}" title="Reject: keep the note but never send it to the reviewer or event research">✕ Reject</button>`)
     + (n.status ? `<button type="button" class="kb-hrev" data-act="clear" data-id="${esc(n.id)}" title="Undo: back to not reviewed">↺</button>` : "");
   document.addEventListener("click", (e) => { const b = e.target.closest(".kb-hrev"); if (!b) return; e.preventDefault(); e.stopPropagation(); b.disabled = true;
     apiPost("/api/kb/host", { action: b.dataset.act, id: +b.dataset.id }).then(() => rerender(), (er) => { b.disabled = false; alert(er.message); }); }, true);
@@ -93,7 +93,7 @@
     }
     el.appendChild(card(`Host notes (${hn.length})`, hn.length ? table(null, [{ k: "subject", t: "Device / host", fmt: (v, n) => subjLink(v, n.label) }, { k: "category", t: "Category", fmt: (v) => `<span class="badge">${esc(v)}</span>` },
       { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` }, { k: "author", t: "By", fmt: (v, n) => by(n) }, { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }],
-      hn, { sort: "updated" }) : `<div class="empty">No host notes yet. The AI writes them during its twice-daily research; you can add notes on any host or endpoint page.</div>`));
+      hn, { sort: "updated" }) : `<div class="empty">No host notes yet. The AI writes them when it researches an event (Send to research) or reviews correlations; you can add notes on any host or endpoint page.</div>`));
     el.appendChild(card(`Event notes (${en.length})`, en.length ? table(null, [{ k: "label", t: "Event", fmt: (v, n) => esc(v || n.eid) }, { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` },
       { k: "verdict", t: "Verdict", fmt: (v, n) => vBadge(n) },
       { k: "author", t: "By", fmt: (v, n) => `👤 ${esc(v)} ${stBadge(n)}` }, { k: "ts", t: "When", fmt: (v) => esc(when(v)) }],
@@ -121,7 +121,7 @@
       el.appendChild(kbCard([`ip:${ip}`, `art:ip:${ip}`], `ip:${ip}`));
       return;
     }
-    el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address and DNS name that has a note: what it is, who runs it and why this network talks to it. The correlation reviewer and the research job write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
+    el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address and DNS name that has a note: what it is, who runs it and why this network talks to it. The correlation reviewer and event research write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
     const d = await api("/api/kb/internet"), rows = d.ips || [];
     el.insertAdjacentHTML("beforeend", kpis([["IPs with notes", rows.length], ["Notes", rows.reduce((a, r) => a + r.n, 0)], ["By AI", rows.filter((r) => r.notes.some((n) => n.author === "ai")).length], ["With a person's note", rows.filter((r) => r.notes.some((n) => n.author !== "ai")).length]]));
     el.appendChild(card("Add a note about an external IP", `<form class="kb-form" id="inForm"><input class="kb-ip mono" placeholder="8.8.8.8" aria-label="External IP" size="16"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this address, who runs it, why do we talk to it?"></textarea><button type="submit">Add note</button></form>`));
@@ -136,7 +136,7 @@
       { k: "notes", t: "Review", fmt: (v) => { const a = v.filter((n) => n.status === "approved").length, r = v.filter((n) => n.status === "rejected").length; return (a ? `<span class="badge sev-info">✓ ${a}</span> ` : "") + (r ? `<span class="badge sev-high">✕ ${r}</span>` : ""); }, sort: (r) => r.notes.filter((n) => n.status).length },
       { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], rows, { sort: "updated", filter: true, onclick: (r) => go("netnotes/" + encodeURIComponent(r.ip)) })
       : `<div class="empty">No external IP has a note yet. The reviewers add them as they investigate; you can add one above.</div>`));
-    // ---- DNS notes: frequent DNS patterns by domain or subdomain (the correlation reviewer and the research job write them, people can too)
+    // ---- DNS notes: frequent DNS patterns by domain or subdomain (the correlation reviewer and event research write them, people can too)
     const dd = await api("/api/kb/dns").catch(() => ({ domains: [] })), drows = dd.domains || [];
     el.insertAdjacentHTML("beforeend", `<h2 style="margin:18px 0 6px">DNS notes</h2>`);
     el.insertAdjacentHTML("beforeend", kpis([["Domains with notes", drows.length], ["Notes", drows.reduce((a, r) => a + r.n, 0)], ["Subdomains", drows.filter((r) => r.parent).length], ["By AI", drows.filter((r) => r.notes.some((n) => n.author === "ai")).length]]));
@@ -173,7 +173,7 @@
           <button type="button" class="kb-save">Save note</button></div>
         ${cur ? `<div class="small">Current verdict: ${vBadge(cur)} <span class="muted">by ${esc(String(cur.author).replace(/^user:/, ""))}, ${esc(when(cur.ts))}${cur.status === "pending" ? " (awaiting approval)" : ""}</span></div>` : ""}
         <div class="small muted">${U ? "Tell the network defenders what this event is (e.g. 'that was me installing an app'). Your note goes to them for review; the AI only reads it after a defender or admin approves it."
-          : "The AI reads approved notes on this event (and on later repeats of it) in its twice-daily research and when deciding which events are related, and treats them as authoritative guidance. Notes written by User accounts need your approval first."}</div>
+          : "The AI reads approved notes on this event (and on later repeats of it) in every review run, in event research and when deciding which events are related, and treats them as authoritative guidance. Notes written by User accounts need your approval first."}</div>
       </div>
       <div class="rs-box small" style="border-top:1px solid var(--line,#444);margin-top:8px;padding-top:6px"><span class="muted">Checking research status…</span></div>`;
     pop.querySelector(".rel-x").onclick = close;
@@ -181,8 +181,8 @@
     const rsShow = (r) => {
       if (r.state === "researched") rs.innerHTML = '<span class="muted">Already researched by the AI. Its findings are in the event\'s research note.</span>';
       else if (r.state === "running") rs.innerHTML = '<span class="muted">🔬 Research started. The AI is working on it now; the note appears in a few minutes.</span>';
-      else if (r.state === "queued") rs.innerHTML = `<span class="muted">⏳ Queued for research${r.by ? ` (requested by ${esc(r.by)})` : ""}. ${r.note ? ` ${esc(r.note)}.` : ""} It is sent on the next research run.</span>`;
-      else { rs.innerHTML = (r.testing ? '<span class="badge sev-unknown" title="test mode: this event is listed in the research queue but would not be sent">testing</span> ' : "") + '<button type="button" class="rs-send">🔬 Send to research</button> <span class="muted">Not researched yet. Sends this event to the AI right now.</span>';
+      else if (r.state === "queued") rs.innerHTML = `<span class="muted">⏳ Queued for research${r.by ? ` (requested by ${esc(r.by)})` : ""}. ${r.note ? ` ${esc(r.note)}.` : ""} It starts as soon as the research model is free.</span>`;
+      else { rs.innerHTML = (r.testing ? '<span class="badge sev-unknown" title="test mode: listed in the queue">testing</span> ' : "") + '<button type="button" class="rs-send">🔬 Send to research</button> <span class="muted">Not researched yet. Sends this event to the AI right now.</span>';
         rs.querySelector(".rs-send").onclick = () => apiPost("/api/research/request", { action: "send", eid }).then(rsShow, (er) => { rs.textContent = "error: " + er.message; }); }
     };
     apiPost("/api/research/request", { action: "status", eid }).then(rsShow, () => { rs.textContent = ""; });

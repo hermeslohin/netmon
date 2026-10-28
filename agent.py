@@ -1,4 +1,4 @@
-"""Tool-using AI conversation loop shared by the research job (review.py) and the dashboard chat.
+"""Tool-using AI conversation loop shared by the review job (review.py), event research (research.py) and the dashboard chat.
 
 run(target, system, user, tools, ...) keeps calling the model, runs the tools it asks for and feeds the results back
 until the model answers without tool calls (or a limit is hit). Tools are plain Python functions:

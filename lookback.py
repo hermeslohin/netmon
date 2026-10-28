@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Lookback window of the research (triage + enrichment) job: how many hours of logs each run collects.
+"""Lookback window of the review job (review.py): how many hours of logs each run collects.
 
 Admins set it on the dashboard's AI review page (POST /api/config/lookback); it is stored in the netmon store's
-meta table (key "research_lookback") so the host job and the dashboard container read the same value.
+meta table (key "review_lookback"; read from "research_lookback" when saved before the rename) so the host job and the dashboard container read the same value.
 The daily run (05 UTC) always covers 24 h, whatever the setting, so the device baseline stays daily.
 
 Usage: lookback.py            hours for a run starting now (what `collect.py auto` uses)
@@ -16,7 +16,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import store  # noqa: E402
 
-KEY = "research_lookback"
+KEY, _OLD_KEY = "review_lookback", "research_lookback"
 DEFAULT, MIN_H, MAX_H = 24, 1, 24
 DAILY_HOUR = 5  # UTC hour of the daily 24 h run (the review schedule is anchored on it)
 
@@ -24,7 +24,7 @@ DAILY_HOUR = 5  # UTC hour of the daily 24 h run (the review schedule is anchore
 def get():
     try:
         with store.connect() as c:
-            r = c.execute("SELECT v FROM meta WHERE k=?", (KEY,)).fetchone()
+            r = c.execute("SELECT v FROM meta WHERE k=?", (KEY,)).fetchone() or c.execute("SELECT v FROM meta WHERE k=?", (_OLD_KEY,)).fetchone()
         v = json.loads(r[0]) if r else {}
     except Exception:  # noqa: BLE001 - no store / no row: default 24 h
         v = {}

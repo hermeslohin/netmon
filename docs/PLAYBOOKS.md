@@ -210,7 +210,7 @@ An IDS alert, a threat-intel hit, a gateway threat, a host finding, or a watcher
 7. **Look up the indicators.** Threat intel → Indicator lookup for each IP, domain, hash and JA3. A JA3 hit in isolation is weak (stock Windows TLS has a JA3 shared with some malware); escalate only if the destination is *also* on a threat list.
 8. **Check the ATT&CK page.** Which technique does it map to, and has that technique been seen elsewhere in the window? Exposure-only entries are weaknesses, not activity.
 9. **Research.** 💬 for a quick answer; 🔬 **Send to research** for web-researched context (signature background, known false-positive patterns, threat-actor links). The reviewer copies earlier verdicts for repeat events, so research once and the family is covered.
-10. **Close the loop.** Check off, annotate, and for permanent noise use the 🚫 suppress dialog (hides the finding but keeps correlation) or a *Never send* rule on AI review so the reviewer and research job skip it.
+10. **Close the loop.** Check off, annotate, and for permanent noise use the 🚫 suppress dialog (hides the finding but keeps correlation) or a *Never send* rule on AI review so the reviewer and the queue skip it.
 
 **Severity guide**
 
@@ -451,7 +451,7 @@ A tool that cries wolf gets ignored. Tune with a reason and keep an exit.
 | "This flow is allowed" | Green **Clear** on a segmentation violation | Stops counting toward risk; shown as allowed; reversible under Cleared segmentation |
 | "This is permanently allowed" | `allow` rule in the network policy (admin, More → Settings) | Policy-level exception |
 | "This family of events is noise" | 🚫 suppress (admin / defender) | Hides the finding, keeps correlation |
-| "Don't send this to the model" | Never-send rule (AI review → Review limits) | Skipped by reviewer/research; reduces token cost |
+| "Don't send this to the model" | Never-send rule (AI review → Review limits) | Skipped by the reviewer and the queue; reduces token cost |
 | "This domain / signature is benign here" | Known benign list (admin, More → Settings) | Separated from signal in scoring and reports |
 | "This device behaves like this on purpose" | 📝 host note (category *behavior* or *role*) | The AI reads it; people's notes are authoritative |
 

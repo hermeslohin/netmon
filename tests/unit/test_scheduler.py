@@ -1,11 +1,11 @@
-"""Unit tests for the scheduler's time/slot computations (scheduler.py, research_cfg.py); no jobs are started."""
+"""Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E402
 
 import time  # noqa: E402
 import unittest  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
-import research_cfg as RC  # noqa: E402
+import review_cfg as RC  # noqa: E402
 import scheduler  # noqa: E402
 
 
@@ -14,7 +14,7 @@ def ts(*a):
 
 
 class SlotTest(unittest.TestCase):
-    """research_cfg.slot()/slot_start(): a grid of interval minutes anchored at 05:00 UTC."""
+    """review_cfg.slot()/slot_start(): a grid of interval minutes anchored at 05:00 UTC."""
 
     def test_anchor_is_slot_zero(self):
         """05:00 UTC on 1970-01-01 starts slot 0 for any interval.
@@ -65,7 +65,7 @@ class SlotTest(unittest.TestCase):
 
 
 class NextRunTest(unittest.TestCase):
-    """research_cfg.next_run() follows the stored interval and enabled flag."""
+    """review_cfg.next_run() follows the stored interval and enabled flag."""
 
     def tearDown(self):
         RC._meta_put(RC.KEY, None)
@@ -118,11 +118,11 @@ class SchedulerStatusTest(unittest.TestCase):
         RC._meta_put(RC.KEY, None)
 
     def test_jobs_defined(self):
-        """The watch, research, weekly and unifi jobs are configured with the expected scripts.
+        """The watch, review, weekly and unifi jobs (event research is never a scheduled job) are configured with the expected scripts.
         REQ: OPS-03"""
-        self.assertEqual(set(scheduler.JOBS), {"watch", "research", "weekly", "unifi"})
+        self.assertEqual(set(scheduler.JOBS), {"watch", "review", "weekly", "unifi"})
         self.assertTrue(scheduler.JOBS["watch"][-1].endswith("watch.py"))
-        self.assertIn("review.py", scheduler.JOBS["research"][1])
+        self.assertIn("review.py", scheduler.JOBS["review"][1])
         self.assertTrue(scheduler.JOBS["weekly"][0].endswith("weekly_rebuild.sh"))
         self.assertEqual(scheduler.running, {})
 
@@ -146,13 +146,13 @@ class SchedulerStatusTest(unittest.TestCase):
         self.assertLessEqual(s["weekly"] - now, 7 * 86400)
 
     def test_status_research_fields(self):
-        """status() reports the research next run, interval and enabled flag from research_cfg.
+        """status() reports the research next run, interval and enabled flag from review_cfg.
         REQ: OPS-03"""
         RC._meta_put(RC.KEY, {"interval_minutes": 60})
         s = scheduler.status()
-        self.assertEqual(s["research_interval_minutes"], 60)
-        self.assertTrue(s["research_enabled"])
-        self.assertEqual((s["research"] - 5 * 3600) % 3600, 0)
+        self.assertEqual(s["review_interval_minutes"], 60)
+        self.assertTrue(s["review_enabled"])
+        self.assertEqual((s["review"] - 5 * 3600) % 3600, 0)
         self.assertIsInstance(s["last"], dict)
 
     def test_week_key_format(self):

@@ -102,7 +102,7 @@
   function queryArtHtml(a) {
     const d = a.query || {}, url = window.kibanaQueryUrl?.(d) || "";
     const hits = d.total != null ? `${Number(d.total).toLocaleString()} hits` : "";
-    const tip = `${d.by === "research" ? "Research AI" : "Reviewer"} search${d.index ? " of " + d.index : ""}${d.from ? ` · ${String(d.from).slice(0, 16)} → ${String(d.to || "").slice(0, 16)}` : ""}${d.approx ? " · opens an approximation (aggregations / complex clauses are not in the link)" : ""}`;
+    const tip = `${d.by === "research" ? "Event research" : "Reviewer"} search${d.index ? " of " + d.index : ""}${d.from ? ` · ${String(d.from).slice(0, 16)} → ${String(d.to || "").slice(0, 16)}` : ""}${d.approx ? " · opens an approximation (aggregations / complex clauses are not in the link)" : ""}`;
     return `<li><span class="art-k" title="${esc(tip)}">🔭 query</span> ${url ? `<button type="button" class="kib-btn" data-kib="${esc(url)}" title="${esc(tip)}: open in Kibana Discover"><code>${esc(a.value)}</code> ↗</button>` : `<code title="${esc(tip)}">${esc(a.value)}</code>`}
       ${hits ? `<span class="small muted">${esc(hits)}</span>` : ""}${d.approx ? ` <span class="small muted" title="${esc(tip)}">≈</span>` : ""} ${a.model ? aiFlare({ model: a.model, via: "Elasticsearch search", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`;

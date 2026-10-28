@@ -341,7 +341,7 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
 
 
 def review_host_note(note_id, decision, by):
-    """Admin / defender: 'approve' (authoritative for the reviewer and the research job), 'reject' (kept, never sent to the AI) or 'clear'."""
+    """Admin / defender: 'approve' (authoritative for the reviewer and event research), 'reject' (kept, never sent to the AI) or 'clear'."""
     st = {"approve": "approved", "reject": "rejected", "clear": ""}.get(decision)
     if st is None:
         raise ValueError("decision must be approve, reject or clear")
@@ -658,10 +658,10 @@ def main(argv):
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))
         out = put(doc)
-        try:  # AI-written host notes coming back from the research job's LLM (audit log, see audit.py)
+        try:  # AI-written host notes coming back from event research (audit log, see audit.py)
             import audit
-            audit.llm("research-hostnotes", "research job", str(doc.get("model") or ""), user="netmon (research job)",
-                      response=json.dumps(doc, default=str), message=f"research job: host notes from the LLM -> {json.dumps(out, default=str)[:200]}")
+            audit.llm("research-hostnotes", "event research", str(doc.get("model") or ""), user="netmon (event research)",
+                      response=json.dumps(doc, default=str), message=f"event research: host notes from the LLM -> {json.dumps(out, default=str)[:200]}")
             audit.flush(drain=False)
         except Exception as e:  # noqa: BLE001 - never fail the job over the audit log
             print(f"audit: {e}", file=sys.stderr)

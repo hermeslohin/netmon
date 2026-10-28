@@ -324,7 +324,7 @@ def main():
     snap = store.jload(snap_path)
     if snap is None:
         raise SystemExit(f"no such snapshot: {snap_path}")
-    if READONLY or float(snap.get("hours") or 24) < 24:  # a time range, or a research run with a short lookback window
+    if READONLY or float(snap.get("hours") or 24) < 24:  # a time range, or a review run with a short lookback window
         SCALE = max(float(snap.get("hours") or 24) / 24, 1 / 24)
     benign = store.jload(BENIGN) or {"signatures": {}, "devices": {}}
     history = load_history()

@@ -76,7 +76,7 @@ REQUIREMENTS = {
     "OPS-01": ("Operations", "Console recovery commands (server.py set-role / add-user / set-password) work without the web UI.", "ACCESS_CONTROL.md"),
     "OPS-02": ("Operations", "The dashboard container runs read-only, non-root, with a passing health check.", "SETUP.md §6"),
     "OPS-03": ("Operations", "The scheduler runs the watcher every 15 minutes, the research job on its grid and the weekly rebuild on Sunday.", "SETUP.md §7"),
-    "OPS-06": ("Operations", "Scheduled research-job runs never call an AI model (no reviewer, no event research); the reviewer runs only on Run now and event research only on Send to research.", "review.py"),
+    "OPS-06": ("Operations", "The review job (review.py) never researches events: its reviewer (the correlation reviewer's model) only copies matching earlier notes or leaves events queued; event research (research.py) runs only for a person's Send to research click and is never scheduled.", "review.py / research.py / scheduler.py"),
     "OPS-04": ("Operations", "store.py CLI (check / stats) verifies and reports on the database.", "store.py"),
     "OPS-05": ("Operations", "The dashboard's parsed-document cache is bounded (LRU), so walking every snapshot cannot exhaust the container's memory.", "server.py"),
 }

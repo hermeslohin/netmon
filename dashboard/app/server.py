@@ -33,7 +33,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -94,8 +94,9 @@ os.environ.setdefault("NETMON_DB", os.path.join(STATE, "netmon.db"))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
-import lookback  # noqa: E402  /netmon/lookback.py: research job lookback window (AI review page)
-import research_cfg  # noqa: E402  /netmon/research_cfg.py: research job model, schedule, cost caps (store meta table)
+import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI review page)
+import research_cfg  # noqa: E402  /netmon/research_cfg.py: event research model + cost caps (Send to research only)
+import review_cfg  # noqa: E402  /netmon/review_cfg.py: review job schedule, on/off and event modes (store meta table)
 import pushsvc  # noqa: E402  web push for urgent alerts
 import site_cfg as SITE  # noqa: E402  network-specific values (/netmon/site.json, git-ignored)
 os.environ.setdefault("NETMON_INTEGRATIONS", os.path.join(STATE, "integrations.json"))  # writable /state, 0600
@@ -752,22 +753,36 @@ def autoclose_inputs():
 
 
 def review_job():
-    """The research job's settings + run state (research_cfg.py / research_job.json) for the AI review and
-    Configuration pages."""
+    """The review job's settings + run state (review_cfg.py / review_job.json) for the AI review and Configuration pages.
+    Its reviewer is the correlation reviewer's model."""
     try:
-        cfg, st = research_cfg.get(), research_cfg.status()
+        cfg, st = review_cfg.get(), review_cfg.status()
     except Exception as e:  # noqa: BLE001 - page still works, schedule just isn't shown
-        return {"error": f"research job settings unavailable: {str(e)[:160]}"}
+        return {"error": f"review job settings unavailable: {str(e)[:160]}"}
     runs = st.get("runs") or []
     last = next((r for r in runs if r.get("status") != "running"), {})
-    return {"job": "research", "name": "Correlation job", "model": cfg["model"], "provider": cfg["provider"],
-            "provider_name": llm_providers.name(cfg["provider"]) if cfg["provider"] else "",
-            "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": research_cfg.next_run(),
+    try:
+        tgt = corr_llm._target()
+    except Exception:  # noqa: BLE001
+        tgt = {"provider": "", "model": ""}
+    return {"job": "review", "name": "Review job", "model": tgt["model"], "provider": tgt["provider"],
+            "provider_name": llm_providers.name(tgt["provider"]) if tgt["provider"] else "",
+            "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": review_cfg.next_run(),
             "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
-            "requested": research_cfg.pending_request(),
-            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches")}, "web_research": cfg["web_research"], "es_search": cfg["es_search"],
+            "requested": review_cfg.pending_request(),
             "severities": cfg["severities"], "severity_options": cfg["severity_options"],
-            "modes": cfg["modes"], "mode_options": cfg["mode_options"], "mode_cats": cfg["mode_cats"],
+            "modes": cfg["modes"], "mode_options": cfg["mode_options"], "mode_cats": cfg["mode_cats"], "limit_ranges": cfg["limits"]}
+
+
+def research_settings():
+    """Event research (research.py, started only by Send to research): model, cost caps, web / Elasticsearch access."""
+    try:
+        cfg = research_cfg.get()
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"research settings unavailable: {str(e)[:160]}"}
+    return {"model": cfg["model"], "provider": cfg["provider"], "provider_name": llm_providers.name(cfg["provider"]) if cfg["provider"] else "",
+            "limits": {k: cfg[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches")},
+            "web_research": cfg["web_research"], "es_search": cfg["es_search"],
             "spent_today_usd": round(research_cfg.spent_today(), 2), "limit_ranges": cfg["limits"]}
 
 
@@ -1151,21 +1166,21 @@ class H(BaseHTTPRequestHandler):
                     return self._json({**r, "admin": True})
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
-            if u.path == "/api/config/lookback":  # hours of logs each research run collects (admin; read by collect.py auto)
+            if u.path == "/api/config/lookback":  # hours of logs each review run collects (admin; read by collect.py auto)
                 try:
                     res = lookback.put(body.get("hours"), user)
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
-                print(f"research lookback: {user} set {res['hours']} h", file=sys.stderr)
+                print(f"review lookback: {user} set {res['hours']} h", file=sys.stderr)
                 return self._json({"ok": True, "lookback": res})
             if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/review-schedule"):
                 if u.path == "/api/config/review-schedule":
                     try:
                         mins = int(body.get("hours") or 0) * 60 + int(body.get("minutes") or 0)
-                        research_cfg.put({"interval_minutes": mins}, user)
+                        review_cfg.put({"interval_minutes": mins}, user)
                     except (TypeError, ValueError) as e:
-                        return self._json({"error": f"could not change the research job schedule: {str(e)[:200]}"}, 400)
-                    print(f"research schedule: {user} -> every {mins} min", file=sys.stderr)
+                        return self._json({"error": f"could not change the review job schedule: {str(e)[:200]}"}, 400)
+                    print(f"review schedule: {user} -> every {mins} min", file=sys.stderr)
                 inp = autoclose_inputs()
                 if u.path == "/api/config/triage":
                     autoclose.set_settings(body, user)
@@ -1177,7 +1192,7 @@ class H(BaseHTTPRequestHandler):
                     autoclose.run(*inp, trigger=f"run now ({user})")
                 r = autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}
                 return self._json({**r, "review": review_job(), "admin": True})
-            if u.path == "/api/llm/config":  # choose the model of the correlation reviewer, the research job or the chat
+            if u.path == "/api/llm/config":  # choose the model of the correlation reviewer (also the review job's reviewer), event research or the chat
                 sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
                 if sec not in ("correlation", "research", "chat") or not llm_allowed(prov, model):
                     return self._json({"error": "unknown section, provider or model"}, 400)
@@ -1189,7 +1204,7 @@ class H(BaseHTTPRequestHandler):
                     res = corr_llm.config()["chat"]
                 else:
                     research_cfg.put({"provider": prov, "model": model}, user)
-                    res = review_job()
+                    res = research_settings()
                 print(f"llm config: {user} set {sec} -> {prov}/{model}", file=sys.stderr)
                 return self._json({"ok": True, sec: res})
             if u.path == "/api/llm/chat-es":  # may the Ask AI chat search Elasticsearch
@@ -1241,18 +1256,27 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:200]}, 400)
                 print(f"llm notes: {user} set max notes per event={res['max']}, note characters={res['chars']}", file=sys.stderr)
                 return self._json({"ok": True, "context_notes": res})
-            if u.path == "/api/llm/research":  # research job: cost caps, on/off, run now (admin)
+            if u.path == "/api/llm/review":  # review job: on/off, event modes, run now (admin)
                 if body.get("action") == "run":
-                    research_cfg.request(user)
-                    print(f"research job: {user} requested a run", file=sys.stderr)
-                    return self._json({"ok": True, "research": review_job()})
-                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches", "enabled", "web_research", "es_search", "severities", "modes") if k in body}
+                    review_cfg.request(user)
+                    print(f"review job: {user} requested a run", file=sys.stderr)
+                    return self._json({"ok": True, "review": review_job()})
+                fields = {k: body[k] for k in ("enabled", "severities", "modes") if k in body}
+                try:
+                    review_cfg.put(fields, user)
+                except ValueError as e:
+                    return self._json({"error": str(e)[:300]}, 400)
+                enrich._QCACHE.clear()
+                print(f"review job: {user} set {fields}", file=sys.stderr)
+                return self._json({"ok": True, "review": review_job()})
+            if u.path == "/api/llm/research":  # event research (Send to research): cost caps, web / Elasticsearch access (admin)
+                fields = {k: body[k] for k in ("max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches", "web_research", "es_search") if k in body}
                 try:
                     research_cfg.put(fields, user)
                 except ValueError as e:
                     return self._json({"error": str(e)[:300]}, 400)
-                print(f"research job: {user} set {fields}", file=sys.stderr)
-                return self._json({"ok": True, "research": review_job()})
+                print(f"event research: {user} set {fields}", file=sys.stderr)
+                return self._json({"ok": True, "research": research_settings()})
             if u.path == "/api/alerts/mutes":  # remove a saved mute rule: its cleared alerts return to the feed
                 if body.get("action") != "remove":
                     return self._json({"error": "action must be remove"}, 400)
@@ -1328,14 +1352,14 @@ class H(BaseHTTPRequestHandler):
                         print(f"clear alerts failed: {e}", file=sys.stderr)
                 print(f"review limits: {user} cleared {cleared} alerts; set {json.dumps({k: body[k] for k in ('skip_pairs', 'exclude', 'unexclude', 'max_links', 'rule', 'unrule', 'pair_modes', 'classify', 'window', 'discard_days') if k in body})[:300]}", file=sys.stderr)
                 return self._json({"ok": True, "cleared_alerts": cleared, "limits": corr_llm.limits_view(correlation((snapshots() or [{"id": ""}])[-1]["id"]) or {})})
-            if u.path in ("/api/aireview/clear-review", "/api/aireview/clear-research"):  # admin: empty a queue (see ADMIN_POST)
+            if u.path in ("/api/aireview/clear-review", "/api/aireview/clear-queue", "/api/aireview/clear-research"):  # admin: empty a queue (see ADMIN_POST)
                 try:
                     if u.path.endswith("review"):
                         n = corr_llm.clear_pending([x["id"] for x in (snapshots() or [])][-3:], user)
                         what, res = "review queue", {"dismissed": sum(n.values())}
                     else:
                         res = enrich.clear_queue(user, False)
-                        what = "research queue"
+                        what = "event queue"
                         if res.get("error"):
                             return self._json(res, 400)
                         enrich._QCACHE.clear()
@@ -1360,7 +1384,7 @@ class H(BaseHTTPRequestHandler):
                         pid = str(body.get("id") or "")
                         cfg, rj = corr_llm.config(), research_cfg.get()
                         use = [n for n, p in (("correlation reviewer", cfg["correlation"]["provider"]), ("chat", cfg["chat"]["provider"]),
-                                              ("research job", rj["provider"])) if p == llm_providers.PREFIX + pid]
+                                              ("event research", rj["provider"])) if p == llm_providers.PREFIX + pid]
                         if use:
                             return self._json({"error": f"this provider is used by the {' and the '.join(use)} - pick another model there first"}, 400)
                         llm_providers.delete(pid)
@@ -1441,7 +1465,7 @@ class H(BaseHTTPRequestHandler):
                     print(f"kb: {user} {act} host note {body.get('id')!r}", file=sys.stderr)
                     return self._json({"ok": bool(n)})
                 return self._json({"error": "action must be add, delete, approve, reject or clear"}, 400)
-            if u.path == "/api/research/request":  # send one event to the research job if it was not researched yet
+            if u.path == "/api/research/request":  # Send to research: research one event now (research.py) if it was not researched yet
                 eid, act = str(body.get("eid") or "")[:300], body.get("action")
                 if not eid or act not in ("status", "send"):
                     return self._json({"error": "eid and action status|send required"}, 400)
@@ -1708,7 +1732,7 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/aireview/review-queue":  # links awaiting review (admin / network defender)
                 s_ = snapshots()
                 return self._json(corr_llm.pending_list(correlation(s_[-1]["id"]) if s_ else {}))
-            if path == "/api/aireview/research-queue":  # events awaiting research (admin)
+            if path in ("/api/aireview/queue", "/api/aireview/research-queue"):  # events waiting for a person (admin)
                 if not admin:
                     return self._json({"error": "admin only"}, 403)
                 return self._json(enrich.queue_items())
@@ -1720,7 +1744,8 @@ class H(BaseHTTPRequestHandler):
                 base = correlation(sid) or {}
                 ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin, "can_limit": role in ("admin", "defender"),
                       "provider_names": {p["provider"]: p["name"] for p in llm_providers.public()}}
-                ov["research"] = review_job()
+                ov["review"] = review_job()
+                ov["research"] = research_settings()
                 ov["limits"] = corr_llm.limits_view(base)
                 ov["chat"] = corr_llm.config()["chat"]
                 ov["lookback"] = lookback.get()
@@ -1729,9 +1754,9 @@ class H(BaseHTTPRequestHandler):
                 except Exception as e:  # noqa: BLE001
                     ov["notes_consolidate"] = {"error": str(e)[:200]}
                 try:
-                    ov["research_status"] = enrich.status((base.get("events") or {}).keys())
-                except Exception as e:  # noqa: BLE001 - the reviewer view must not depend on the research job status
-                    ov["research_status"] = {"error": str(e)[:200]}
+                    ov["review_status"] = enrich.status((base.get("events") or {}).keys())
+                except Exception as e:  # noqa: BLE001 - the reviewer view must not depend on the review job status
+                    ov["review_status"] = {"error": str(e)[:200]}
                 return self._json(ov)
             if path == "/api/correlate":
                 sid = (q.get("id") or ["latest"])[0]
@@ -1772,9 +1797,10 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"domains": kb.dns_notes((q.get("q") or [""])[0])})
             if path == "/api/kb/internet":  # Network > Internet notes: every external IP that has notes
                 return self._json({"ips": kb.internet_notes((q.get("q") or [""])[0])})
-            if path == "/api/research/running":  # header microscope: is the research job running right now
+            if path == "/api/research/running":  # header microscope: is an event being researched right now
                 try:
-                    return self._json({"running": bool(review_job().get("running"))})
+                    r = research_cfg.status().get("running") or {}
+                    return self._json({"running": bool(r) and time.time() - float(r.get("started") or 0) < 7200})
                 except Exception:  # noqa: BLE001
                     return self._json({"running": False})
             if path == "/api/suppress":  # Checked page: suppress rules + what they hid
