@@ -1195,6 +1195,16 @@ class H(BaseHTTPRequestHandler):
                 res = corr_llm.set_chat_es(bool(body.get("enabled")), user)
                 print(f"llm chat-es: {user} set enabled={res['enabled']}", file=sys.stderr)
                 return self._json({"ok": True, "chat_es": res})
+            if u.path == "/api/llm/clef-server":  # admin (ADMIN_POST prefix /api/llm/clef): decision-model server via the host broker
+                act = str(body.get("action") or "status")
+                if act not in ("status", "save", "start", "stop", "restart", "enable", "disable"):
+                    return self._json({"error": "bad action"}, 400)
+                try:
+                    res = corr_llm.broker("/clef", {"action": act, "settings": body.get("settings") or {}, "user": user}, timeout=120)
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"error": str(e)[:300]}, 502)
+                print(f"clef server: {user} {act}", file=sys.stderr)
+                return self._json(res)
             if u.path == "/api/llm/clef":  # decision model stage of the correlation review: on/off and yes thresholds
                 import clef
                 try:

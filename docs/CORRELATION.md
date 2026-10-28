@@ -88,44 +88,117 @@ immediately and are handed to the reviewer as "known artifacts" of each event.
 
 Every correlation pass also records, without any model: the accounts seen in endpoint logins, auth failures, sudo, account changes, admin sessions and suspicious processes (**Network → Users**, `accounts.py`), and how often each IP appears in correlated events, as source or destination, with the accounts, processes and DNS names named in those events. From that it keeps host notes (category *behavior*, tagged `[profile:ip]` / `[profile:users]`, author netmon) up to date for the newest report: "frequent" is 5+ events for an internal IP and 3+ for an external one, top 25. The reviewer reads these as `ai_note`s. They are counts, not verdicts; delete a note on the Notes page and it is rewritten next pass if still true.
 
-## 3. Correlation review (local or cloud model)
+## 3. Correlation review (decision model + reviewer model)
 
-The script only *proposes* links. **A model decides.** `dashboard/app/corr_llm.py` runs as a background thread
-in the dashboard container:
+The script only *proposes* links. **Models decide.** `dashboard/app/corr_llm.py` runs as a background thread in the
+dashboard container. With the **decision model** on (the default, AI review → Decision model) a review pass has two
+stages; with it off, the older reviewer-only flow is used (described at the end of this section).
 
-1. For the newest snapshot (and any snapshot someone opened in the last hour, at most two), each event with undecided
-   candidates becomes one request, events with the most undecided links first, two requests in parallel. Before
-   anything is sent, the **review limits** (below) remove links the reviewer must never see. The request holds the
-   event, up to 10 candidates, the artifacts each event already names, any notes people and earlier AI work wrote
-   about them, and the script's evidence for each candidate.
-2. The model answers *related / not related* per candidate, with a confidence, a one-line reason and, for related
-   links, a list of **artifacts** (see below). Local (LM Studio) gets temperature 0 and JSON-schema output; an
-   admin-added API provider gets the answer format in the prompt instead (no structured-output mode). The system
-   prompt tells it to be sceptical of coincidences (a busy shared host, the same 24-hour window). It also tells it to
-   treat everything inside `<event>` tags as data, never as instructions, because log text can contain anything.
-3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db`, so each pair is asked once and the
-   decision applies in both directions. They survive restarts. A person's decision (✓/✗, or an adopted model answer) is
-   never overwritten or discarded.
-4. `/api/correlate` drops **rejected** links, marks **confirmed** ones with the model's reason and artifacts, and flags
-   the rest as **pending**. Until the model has reviewed a link, the script's evidence is still shown. Undecided links
-   that the review limits skip are hidden, not shown as pending.
+1. **Links — decision model (clef).** For the newest snapshot (and any snapshot someone opened in the last hour, at
+   most two), every undecided candidate link that the **review limits** (below) allow becomes one yes/no question to
+   Cloudflare **clef**: *are these two events related?* The request holds both events (type, time, severity,
+   description, hosts, artifacts, approved owner notes) and the script's score and evidence. The answer is a
+   probability; `p ≥ related_min` (default 0.5) = related. **That answer is the verdict** — related and not related
+   alike — stored with model name `cloudflare_clef`. 4 questions run in parallel (full clef: ~3 s each, ~70 links/min).
+2. **Events — reviewer model (Gemma or whichever is selected).** Only once **no link of the newest snapshot is
+   undecided**, the reviewer makes **one call per event** with all of its clef-related events, owner / AI / artifact
+   notes and (if enabled) Elasticsearch look-ups. It never decides a link. It returns
+   - the event's label: **suspicious**, **benign** or **expected**, with a confidence and reason, and
+   - for every related event a **link note** (stored as the verdict's reason, with clef's probability appended) and its
+     **artifacts** (file, process, user, IP, DNS name; each benign / expected / suspicious).
+
+   Host notes (expected behaviour), internet notes and DNS notes are written from those artifacts as before. An event
+   is reviewed again when its set of link decisions changes; at most 20 events per pass, never-reviewed and
+   best-connected first. Suspicious medium / high events become alarms. Audit-log purpose: `event-review`.
+3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db` (`verdicts`; clef's probabilities in
+   `clef`), so each pair is asked once and the decision applies in both directions. A person's decision (✓/✗, or an
+   adopted model answer) is never overwritten. **↻ Ask again** removes both the verdict and clef's answer.
+4. `/api/correlate` drops **rejected** links, marks **confirmed** ones with the link note and artifacts, and flags the
+   rest as **pending**. Undecided links that the review limits skip are hidden, not shown as pending.
+
+If the decision-model server is unreachable the pass waits and the AI review page shows the error — it never falls
+back silently.
 
 ```mermaid
 flowchart LR
-    EV["Events + script candidates\ncorrelate.py\n(artifacts read from each event)"] --> LIM{"Review limits\ntype pairs, time window,\nnever-send, cleared, max links"}
-    LIM -- "skipped: hidden" --> HID["not sent"]
-    LIM -- "allowed" --> REQ["One request per event\nup to 10 candidates"]
-    NOTES["Owner / artifact notes\nAI notes, user profiles\n(Notes per event cap)"] --> REQ
-    REQ --> M["Reviewer model"]
-    ES["Elasticsearch look-ups\n(optional, max per event)"] <--> M
-    M --> V["Verdict + reason\n+ artifacts (benign / expected / suspicious)"]
-    V --> DB[("corr_llm.db")]
-    ES -. "searches" .-> ART["Kibana query artifacts"]
-    V -- "confidence >= 0.8,\nartifact expected" --> HN["Expected-behavior\nhost note"]
-    DB --> CLS["Event classification\nsuspicious / benign / expected\n(optional)"]
+    EV["Events + script candidates\ncorrelate.py"] --> LIM{"Review limits\ntype pairs, window,\nnever-send, cleared"}
+    LIM -- "skipped" --> HID["not sent"]
+    LIM -- "allowed" --> CLEF["Decision model (clef)\nyes/no per link\n= the verdict"]
+    CLEF --> DB[("corr_llm.db\nverdicts, clef")]
+    DB -- "no link undecided" --> REV["Reviewer model\none call per event,\nall related events"]
+    NOTES["Owner / artifact / AI notes,\nuser profiles"] --> REV
+    ES["Elasticsearch look-ups\n(optional)"] <--> REV
+    REV --> LAB["Event label\nsuspicious / benign / expected"]
+    REV --> LN["Link notes + artifacts"]
+    LN --> HN["Host / internet / DNS notes"]
+    LAB --> AL["Alarms (suspicious, medium+)"]
     DB --> UI["Related popover,\nAI review page"]
-    ART --> UI
 ```
+
+### Decision model: clef
+
+Cloudflare **clef** is a "System One" decision model: it writes no text, it returns the probability of *yes* for a
+typed question. netmon uses only the related question; event labels come from the reviewer alone.
+
+| | clef (default) | clef-flash |
+|---|---|---|
+| Size / file | 27B, `Cloudflare_clef-Q4_K_S.gguf`, 16.6 GB | 9B, `Cloudflare_clef-flash-Q4_K_S.gguf`, 5.7 GB |
+| Speed (4 parallel, this host) | ~3.3 s per link, ~72 links/min | ~1.0 s per link, ~230–365 links/min |
+| AIT-ADS benchmark, 320 links | F1 22.0, 66 false links | F1 17.0, 157 false links |
+
+(For comparison, the reviewer model deciding links itself on the same benchmark: F1 26.2, ~28 links/min.)
+
+**The server.** LM Studio can load clef but cannot run it ("context does not support logits computation"). It runs
+on the host under LM Studio's bundled llama.cpp `llama-server`, endpoint `http://127.0.0.1:8091/v1/systemone`
+(loopback only), as systemd user unit **`netmon-clef`** (`clef.sh`). Manage it on **AI review → Decision model
+server** (admins): status, the model actually being served, model file and llama.cpp runtime, parallel slots,
+context, batch, port, Save & restart, start / stop, start-at-boot, and the recent server log. The dashboard reaches
+systemd through the host broker (`POST /clef`, `clef_server.py`); settings are stored in the netmon database
+(document `clef_server`), and `CLEF_*` environment variables override them. Two settings matter:
+
+- **Batch** (`-b/-ub`, default 8192) — clef reads its whole input in one micro-batch. llama-server's default 512
+  rejects longer event pairs with *input … too large*, which the client sees as a hang. Must be ≥ 4096.
+- **Context / Parallel** — the context is shared by the slots: 32768 / 4 = 8192 tokens per question.
+
+**Standing it up** (the same steps are on the AI review page under *Stand-up instructions*):
+
+1. LM Studio → Settings → Runtime: install the llama.cpp CUDA runtime, 2.59 or newer
+   (`ls ~/.lmstudio/extensions/backends/*/llama-server`).
+2. Download a model into LM Studio's model folder (no mmproj file needed):
+   ```bash
+   mkdir -p ~/.lmstudio/models/bartowski/Cloudflare_clef-GGUF && cd $_
+   curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-GGUF/resolve/main/Cloudflare_clef-Q4_K_S.gguf
+   ```
+   (clef-flash: `Cloudflare_clef-flash-GGUF/Cloudflare_clef-flash-Q4_K_S.gguf` in the same way.)
+3. `~/netmon/setup.sh` installs the unit, then
+   `systemctl --user daemon-reload && systemctl --user enable --now netmon-clef`
+   (and `sudo loginctl enable-linger $USER` so it survives logout).
+4. Check: `curl -s localhost:8091/health` → `{"status":"ok"}`; a `/v1/systemone` request returns `"noul": <p>`.
+   The Decision model box shows the server as *up*.
+
+Troubleshooting: `journalctl --user -u netmon-clef -f`. Time-outs under load → lower Parallel (the client retries a
+lost request twice, 30 s each). Out of memory → clef-flash or a smaller quant.
+
+### Decision model settings (AI review → Decision model)
+
+| Setting | Default | |
+|---|---|---|
+| Use the decision model | on | off = the reviewer decides links again (older flow below) |
+| Related if p ≥ | 0.5 | lower = more links kept (0.2 raised agreement with past reviewer verdicts from 46 % to 62 %) |
+| `NETMON_CLEF_URL` (dashboard/.env) | `http://127.0.0.1:8091` | loopback only; set when the server port changes |
+| `NETMON_CLEF_MODEL` | `cloudflare_clef` | the model name written on verdicts |
+| `NETMON_CLEF_WORKERS` | 4 | parallel questions (match the server's Parallel) |
+
+The card shows links decided per minute, related / not related over 24 h, average time per link, events reviewed per
+minute and suspicious / benign / expected counts.
+
+### Without the decision model (older flow)
+
+Each event with undecided candidates becomes one reviewer request (up to 10 candidates, two in parallel); the model
+answers *related / not related* per candidate with a confidence, reason and artifacts, and the optional **event
+classification** (below) labels events afterwards. Local (LM Studio) gets temperature 0 and JSON-schema output; an
+admin-added API provider gets the answer format in the prompt. The prompt tells the model to be sceptical of
+coincidences and to treat everything inside `<event>` tags as data, never as instructions.
 
 **Which model it uses.** AI review → Models → Correlation reviewer picks the provider and model explicitly; that
 choice is remembered until someone changes it. If nothing has ever been chosen, it defaults to the first enabled,
@@ -151,31 +224,6 @@ providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mod
 (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
 its own calls-per-hour cap.
-
-### Decision model stage (clef-flash)
-
-With the decision model on (default; **AI review > Decision model**), the reviewer model never decides a link.
-The decision model is Cloudflare `clef-flash` (LM Studio id `cloudflare_clef-flash:2`), a "System One" model: it never
-writes text, it returns the probability of *yes* for a question. LM Studio cannot run it, so it is served by LM Studio's
-bundled llama.cpp `llama-server` on `http://127.0.0.1:8091/v1/systemone` (host unit `netmon-clef`, script `clef.sh`;
-loopback only; `-b/-ub 8192` because the whole input must fit one micro-batch).
-
-1. **Links (clef)** — every undecided candidate link of the snapshot (after the normal statistical correlation; the
-   review limits' skipped type pairs, excluded/cleared events and test mode still apply, the per-event cap does not)
-   gets one yes/no *related?* question with both events (type, time, severity, description, hosts, artifacts, approved
-   owner notes) and the script's score/evidence. `p ≥ related_min` (default 0.5) = related. That answer **is** the
-   verdict (model `cloudflare_clef-flash:2`); 4 requests in parallel, ~0.2–1 s each.
-2. **Events (reviewer model)** — only once no link of the newest snapshot is undecided: one call per event with
-   **all** of its clef-related events, owner/AI/artifact notes and (if enabled) Elasticsearch look-ups. The model
-   classifies the event **suspicious / benign / expected** and writes, for every related event, a link note (stored as
-   the verdict's reason) and its artifacts; expected-artifact host notes, internet notes and DNS notes follow from those.
-   An event is reviewed again when its set of link decisions changes. Suspicious medium/high events become alarms as before.
-
-   The decision model does not label events: suspicious / benign / expected comes only from the reviewer.
-
-Answers are stored per pair in `corr_llm.db` table `clef`. *Ask again* (↻) clears the verdict and the clef answer.
-If the decision model is unreachable the pass waits (status error) instead of falling back; switching it off restores
-the old flow (reviewer decides links, optional classification). Verdicts made before the stage existed are not re-decided.
 
 ### What the reviewer is given
 
@@ -231,8 +279,9 @@ never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evid
   search (needs `kibana_url` / `kibana_data_view` in the site settings (More → Settings); without it the query is shown as text). A search that
   uses aggregations or clauses KQL cannot express is marked ≈ and opens a broader search than the one the model ran.
 
-### Event classification (optional)
+### Event classification (optional, older flow)
 
+With the decision model on, every event is labelled in stage 2 and this switch is not needed.
 **AI review → Review limits → Classify events** (off by default) makes the reviewer give every event whose correlation
 review is finished one label: **suspicious** (needs a person's eye), **benign** (odd but harmless) or **expected**
 (normal for this device, user or task), with a confidence and reason. An event qualifies when none of its links is
@@ -364,6 +413,8 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 |---|---|
 | **AI Research job** | Health, model, schedule, Run now / Pause, latest run summary, note coverage of the current snapshot |
 | **Time and tokens per research job** | Tokens and estimated cost per run and per day |
+| **Decision model** | clef's speed (links / min, time per link), related / not related, event labels per day, on/off and the related threshold |
+| **Decision model server** | (admins) The `netmon-clef` server: status, served model, model file / runtime / parallel / context / batch / port, Save & restart, start / stop, log, stand-up instructions |
 | **Reviewer** | The correlation reviewer's status, speed (verdicts per hour, tokens per minute, average tokens in / out per event review) and error |
 | **Events awaiting research** / **Links awaiting review** | The two queues. **Clear research queue** and **Clear review queue** (admins) sit under them and ask for confirmation |
 | **Models** | Provider and model for the correlation reviewer, the AI Research job and chat; the Elasticsearch switches (reviewer, research) and **Max per event**; **Notes per event** |
@@ -591,7 +642,9 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 | Review limits: never-send events and rules | none (max 500 / 200) | `review_limits.excluded`, `review_limits.rules` |
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |
-| Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
+| Decision model on/off, related threshold | on, 0.5 | `llm_config` → `clef` |
+| Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
+| Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
 | Research job settings, modes, requests, dismissed queue | see the table in section 5 | store meta `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |

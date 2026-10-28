@@ -14,9 +14,9 @@ import time
 import urllib.request
 
 URL_DEFAULT = os.environ.get("NETMON_CLEF_URL", "http://127.0.0.1:8091").rstrip("/")
-MODEL_DEFAULT = os.environ.get("NETMON_CLEF_MODEL", "cloudflare_clef-flash:2")
+MODEL_DEFAULT = os.environ.get("NETMON_CLEF_MODEL", "cloudflare_clef")  # full clef (27B); was cloudflare_clef-flash:2
 WORKERS = max(1, int(os.environ.get("NETMON_CLEF_WORKERS", "4")))
-TIMEOUT = 15  # a single answer takes well under a second; longer = a lost request, retried
+TIMEOUT = 30  # full clef: ~3 s per answer with 4 in parallel; longer = a lost request, retried
 STATS = {"timeouts": 0}
 STATE_MAX = 12000  # characters of state per request (the server's slot holds ~8k tokens)
 

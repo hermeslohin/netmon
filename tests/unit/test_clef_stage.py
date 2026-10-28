@@ -113,5 +113,25 @@ class ClefStageTest(unittest.TestCase):
             corr_llm._save_config(raw)
 
 
+class ClefServerSettingsTest(unittest.TestCase):
+    def test_validate(self):
+        """Server settings accept only listed model files / runtimes and safe numbers; batch must cover a whole input.
+        REQ: LLM-03"""
+        import clef_server as CS
+        old_m, old_s = CS.models, CS.servers
+        CS.models = lambda: [{"path": "/m/Cloudflare_clef-Q4_K_S.gguf", "name": "x", "gb": 1, "flash": False}]
+        CS.servers = lambda: ["/b/llama.cpp-cuda-2.65.1/llama-server"]
+        try:
+            ok = CS.validate({"gguf": "/m/Cloudflare_clef-Q4_K_S.gguf", "parallel": 2, "ctx": 16384, "batch": 8192})
+            self.assertEqual((ok["parallel"], ok["ctx"]), (2, 16384))
+            for bad in ({"gguf": "/etc/passwd"}, {"server": "/bin/sh"}, {"parallel": 99}, {"batch": 512}, {"port": 22}):
+                with self.assertRaises(ValueError):
+                    CS.validate(bad)
+            CS.save({"parallel": 3}, "tester")
+            self.assertIn('CLEF_PARALLEL:=3', CS.shell_env())
+        finally:
+            CS.models, CS.servers = old_m, old_s
+
+
 if __name__ == "__main__":
     unittest.main()

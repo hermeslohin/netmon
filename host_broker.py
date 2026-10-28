@@ -11,6 +11,8 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
                   second or two each) into dashboard/state/ranges/<id>.sec.<name>.json; name "analysis" assembles every
                   section into <id>.json and runs analyze.py --readonly. The page loads sections one by one.
   POST /section {name: "lateral"} -> the lateral-movement report's data for a period (internal flows, admin sessions, violations).
+  POST /clef      {action: status | save | start | stop | restart | enable | disable, settings...} -> the decision-model
+                  server (systemd user unit netmon-clef, clef.sh): status, model/runtime choice, start/stop (clef_server.py).
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the correlation reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
@@ -54,6 +56,19 @@ def esquery(b):
     out["seconds"] = round(time.time() - t, 2)
     return out
 
+
+
+def clef_ctl(b):
+    import clef_server as CS
+    act = str(b.get("action") or "status")
+    if act == "status":
+        return CS.status()
+    if act == "save":  # save the settings and restart the server with them
+        CS.save(b.get("settings") or {}, str(b.get("user") or "dashboard")[:80])
+        CS.control("restart")
+        return CS.status()
+    CS.control(act)
+    return CS.status()
 
 
 def _utc(s):
@@ -225,6 +240,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, research_event(b))
             if self.path == "/esquery":
                 return self._send(200, esquery(b))
+            if self.path == "/clef":
+                return self._send(200, clef_ctl(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})

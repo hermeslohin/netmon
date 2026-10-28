@@ -740,6 +740,76 @@
     }
     return c;
   }
+  // Decision model server (llama-server running clef on the host): status, model/runtime choice, start/stop, stand-up steps
+  function clefServerCard(D) {
+    const c = card("Decision model server", `<div class="small muted">The decision model runs on the host as systemd user unit <span class="mono">netmon-clef</span>
+      (<span class="mono">clef.sh</span>: LM Studio's bundled llama.cpp <span class="mono">llama-server</span>, loopback only). LM Studio itself cannot run clef. Settings are stored in the
+      netmon database; saving restarts the server (≈30 s for the 27B model, links wait meanwhile).</div><div class="cs-body small" style="margin-top:8px">${D.admin ? "loading…" : "Only an admin can see and change the server settings."}</div>
+      <details style="margin-top:10px"><summary><b>Stand-up instructions</b> (new host or rebuilt machine)</summary><div class="small" style="margin-top:6px">
+      <ol>
+        <li><b>llama.cpp runtime.</b> In LM Studio → Settings → Runtime, install the <i>llama.cpp</i> CUDA runtime (version 2.59 or newer: older ones have no decision-model support).
+          It lands in <span class="mono">~/.lmstudio/extensions/backends/llama.cpp-…-cuda…/llama-server</span>; check with
+          <pre class="mono">ls ~/.lmstudio/extensions/backends/*/llama-server</pre></li>
+        <li><b>Model.</b> Download a clef GGUF into LM Studio's model folder (full clef is recommended: more accurate links; clef-flash is ~3× faster, 5.7 GB):
+          <pre class="mono">mkdir -p ~/.lmstudio/models/bartowski/Cloudflare_clef-GGUF &amp;&amp; cd $_
+curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-GGUF/resolve/main/Cloudflare_clef-Q4_K_S.gguf      # 16.6 GB
+# or clef-flash:
+mkdir -p ~/.lmstudio/models/bartowski/Cloudflare_clef-flash-GGUF &amp;&amp; cd $_
+curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-flash-GGUF/resolve/main/Cloudflare_clef-flash-Q4_K_S.gguf  # 5.7 GB</pre>
+          No projector (mmproj) file is needed - netmon sends text only.</li>
+        <li><b>Service.</b> <span class="mono">~/netmon/setup.sh</span> installs the unit; then
+          <pre class="mono">systemctl --user daemon-reload
+systemctl --user enable --now netmon-clef
+sudo loginctl enable-linger $USER   # keep it running after logout</pre></li>
+        <li><b>Check.</b> <pre class="mono">curl -s localhost:8091/health          # {"status":"ok"}
+curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
+  -d '{"state":"A: 12 failed SSH logins to nas. B: SSH login success to nas","questions":{"q":{"type":"noul","instructions":"Related?"}}}'</pre>
+          The answer is a probability (<span class="mono">"noul": 0.97</span>). Then pick the model here and press <i>Save &amp; restart</i>; the Decision model box above shows <i>up</i>.</li>
+        <li><b>Troubleshooting.</b> <span class="mono">journalctl --user -u netmon-clef -f</span>.
+          <i>input … is too large … batch size</i> → raise <i>Batch</i> (must cover the longest event pair; 8192 is safe).
+          <i>context does not support logits</i> → the request went to LM Studio (port 1234), not llama-server.
+          Requests time out under load → lower <i>Parallel</i>. Out of memory → use clef-flash or a smaller quant (Q3_K_M).</li>
+      </ol></div></details>`);
+    c.id = "ai-clef-server";
+    if (!D.admin) return c;
+    const body = c.querySelector(".cs-body");
+    const gb = (m) => `${esc(m.name)} (${m.gb} GB${m.flash ? ", flash" : ""})`;
+    const render = (S) => {
+      const s = S.settings || {}, run = S.running, base = (p) => esc(String(p || "").split("/").slice(-2, -1)[0] || "");
+      body.innerHTML = `<div class="idgrid">
+          <span class="k">Unit</span><span><b class="${S.active === "active" ? "good" : "bad"}">${esc(S.active)}</b> · ${esc(S.enabled)} at boot</span>
+          <span class="k">Serving</span><span>${run ? `<span class="mono">${esc(String(run.model).split("/").pop())}</span> · ${fn(run.slots)} slots × ${fn(run.ctx_per_slot)} tokens · build ${esc(run.build || "")}` : `<span class="bad">not answering</span> ${esc(S.probe_error || "")}`}</span>
+          <span class="k">URL</span><span class="mono">${esc(S.url)}</span></div>
+        <div class="llm-grid" style="margin-top:8px">
+          <div class="llm-row"><span class="k">Model</span><select name="gguf"><option value="">auto (full clef, else flash)</option>${(S.models || []).map((m) => `<option value="${esc(m.path)}" ${m.path === s.gguf ? "selected" : ""}>${gb(m)}</option>`).join("")}</select>
+            ${(S.models || []).length ? "" : '<span class="bad">no clef model on disk - see the stand-up instructions</span>'}</div>
+          <div class="llm-row"><span class="k">Runtime</span><select name="server"><option value="">auto (newest CUDA)</option>${(S.servers || []).map((p) => `<option value="${esc(p)}" ${p === s.server ? "selected" : ""}>${base(p)}</option>`).join("")}</select></div>
+          <div class="llm-row"><span class="k">Parallel</span><input type="number" name="parallel" min="1" max="16" value="${s.parallel}" style="width:5em">
+            <span class="k">Context</span><input type="number" name="ctx" min="2048" max="262144" step="1024" value="${s.ctx}" style="width:7em">
+            <span class="k">Batch</span><input type="number" name="batch" min="4096" max="32768" step="1024" value="${s.batch}" style="width:6em">
+            <span class="k">Port</span><input type="number" name="port" min="1024" max="65535" value="${s.port}" style="width:6em"></div>
+          <div class="small muted">Context is shared by the parallel slots (32768 / 4 = 8192 tokens per request). Changing the port also needs NETMON_CLEF_URL in dashboard/.env.</div>
+          <div class="llm-row"><button type="button" name="save">Save &amp; restart</button> <button type="button" name="restart">Restart</button>
+            <button type="button" name="${S.active === "active" ? "stop" : "start"}">${S.active === "active" ? "Stop" : "Start"}</button>
+            <button type="button" name="${S.enabled === "enabled" ? "disable" : "enable"}">${S.enabled === "enabled" ? "Don't start at boot" : "Start at boot"}</button>
+            <button type="button" name="refresh">Refresh</button> <span class="small muted msg">${s.by ? `saved by ${esc(s.by)} ${esc(ago(s.at))}` : ""}</span></div></div>
+        ${(S.log || []).length ? `<details style="margin-top:6px"><summary>Recent server log</summary><pre class="mono small">${(S.log || []).map(esc).join("\n")}</pre></details>` : ""}`;
+      const msg = body.querySelector(".msg"), q = (n) => body.querySelector(`[name="${n}"]`);
+      body.querySelectorAll("button").forEach((b) => b.onclick = async () => {
+        const act = b.name === "refresh" ? "status" : b.name;
+        if (["stop", "disable"].includes(act) && !confirm("The correlation review waits while the decision model is down. Continue?")) return;
+        body.querySelectorAll("button").forEach((x) => (x.disabled = true)); msg.textContent = act === "status" ? "checking…" : "working… (a restart takes up to a minute)";
+        const settings = act === "save" ? { gguf: q("gguf").value, server: q("server").value, parallel: +q("parallel").value, ctx: +q("ctx").value, batch: +q("batch").value, port: +q("port").value } : {};
+        try { const r = await apiPost("/api/llm/clef-server", { action: act, settings }); if (r.error) throw new Error(r.error);
+              if (act !== "status") await new Promise((ok) => setTimeout(ok, 4000));
+              render(act !== "status" ? await apiPost("/api/llm/clef-server", { action: "status" }) : r); }
+        catch (e) { msg.textContent = "error: " + e.message; body.querySelectorAll("button").forEach((x) => (x.disabled = false)); }
+      });
+    };
+    apiPost("/api/llm/clef-server", { action: "status" }).then((r) => (r.error ? (body.innerHTML = `<span class="bad">${esc(r.error)}</span>`) : render(r)))
+      .catch((e) => (body.innerHTML = `<span class="bad">server status unavailable: ${esc(e.message)}</span> (host broker netmon-broker running?)`));
+    return c;
+  }
   function reviewVolumeCard(D) {
     const days = ((D.totals || {}).events_per_day || []), today = new Date().toLocaleDateString("sv");
     const full = days.filter((d) => d.day !== today);  // today is partial: left out of the averages
@@ -996,6 +1066,7 @@
     };
     el.appendChild(reviewVolumeCard(D));
     el.appendChild(clefCard(D));
+    el.appendChild(clefServerCard(D));
     el.appendChild(modelsCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
