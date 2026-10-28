@@ -25,7 +25,7 @@ class _H(BaseHTTPRequestHandler):
         q = next(iter(body["questions"]))
         CALLS.append((q, body["state"]))
         st = body["state"]
-        p = (0.9 if st.count("nas") >= 2 else 0.1) if q == "related" else 0.7  # related: yes when both events name the same host "nas"
+        p = (0.9 if st.count("nas") >= 2 else 0.1) if q == "related" else 0.7 if q == "suspicious" else 0.2  # related: yes when both events name the same host "nas"
         out = json.dumps({"answers": {k: {"type": "noul", "noul": p} for k in body["questions"]}}).encode()
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(out)
 
@@ -75,7 +75,7 @@ class ClefStageTest(unittest.TestCase):
 
         def fake(target, anchor, cands, *a, **kw):
             calls.append(([c[0]["label"] for c in cands], kw.get("system")))
-            return ([{"id": "anchor", "label": "suspicious", "confidence": 0.8, "reason": "brute force then login"},
+            return ([{"id": "anchor", "label": "benign", "confidence": 0.8, "reason": "brute force then login"},
                      {"id": "c1", "label": "link", "confidence": 0.9, "reason": "same ssh target nas", "artifacts": []}], {"prompt": 10, "completion": 5}, 1.0)
         old, oldt = corr_llm._ask_full, corr_llm._target
         corr_llm._ask_full, corr_llm._target = fake, lambda model=None: {"provider": "lmstudio", "model": "reviewer"}
@@ -87,13 +87,20 @@ class ClefStageTest(unittest.TestCase):
             corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = old, oldt, oldr
         self.assertEqual(n, 1)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0], ["ssh brute force on nas"])  # only the clef-related event
-        self.assertIs(calls[0][1], corr_llm.EVENT_SYSTEM)
+        self.assertEqual(calls[0][0], ["ssh brute force on nas"])  # only the clef-related event gets a link note
+        self.assertTrue(calls[0][1].startswith(corr_llm.EVENT_SYSTEM))
+        self.assertIn("DECISION MODEL LABEL: suspicious", calls[0][1])
         v = corr_llm.verdicts({corr_llm.pair("a", "b")})[corr_llm.pair("a", "b")]
         self.assertTrue(v["related"]); self.assertTrue(v["reason"].startswith("same ssh target nas"))
         with corr_llm._db() as c:
             self.assertEqual(c.execute("SELECT label FROM event_class WHERE eid='a'").fetchone()[0], "suspicious")
-        self.assertEqual([q for q, _ in CALLS], ["related", "related"])  # the decision model never labels events
+        # the decision model labelled the event (one request over the event and ALL its candidates) and that label is used;
+        # the reviewer's own (different) label is only recorded for the agreement figure
+        self.assertEqual([q for q, _ in CALLS], ["related", "related", "suspicious"])
+        self.assertIn("printer firmware", CALLS[-1][1])  # the not-related candidate is in the decision model's state too
+        with corr_llm._db() as c:
+            self.assertEqual(c.execute("SELECT reviewer_label FROM clef_event WHERE eid='a'").fetchone()[0], "benign")
+        self.assertEqual(corr_llm.clef_compare()["matrix"], {"suspicious|benign": 1})
 
     def test_rereview_clears_decision(self):
         """Asking again removes the decision-model answer so the whole chain runs again.

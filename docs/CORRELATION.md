@@ -90,7 +90,8 @@ Every correlation pass also records, without any model: the accounts seen in end
 
 ## 3. Correlation review (decision model + reviewer model)
 
-The script only *proposes* links. **Models decide.** `dashboard/app/corr_llm.py` runs as a background thread in the
+The script only *proposes* links. **Models decide:** the decision model (clef) decides every link and every event's
+label; the reviewer model (Gemma or whichever is selected) writes the notes. `dashboard/app/corr_llm.py` runs as a background thread in the
 dashboard container. With the **decision model** on (the default, AI review → Decision model) a review pass has two
 stages; with it off, the older reviewer-only flow is used (described at the end of this section).
 
@@ -100,16 +101,24 @@ stages; with it off, the older reviewer-only flow is used (described at the end 
    description, hosts, artifacts, approved owner notes) and the script's score and evidence. The answer is a
    probability; `p ≥ related_min` (default 0.5) = related. **That answer is the verdict** — related and not related
    alike — stored with model name `cloudflare_clef`. 4 questions run in parallel (full clef: ~3 s each, ~70 links/min).
-2. **Events — reviewer model (Gemma or whichever is selected).** Only once **no link of the newest snapshot is
-   undecided**, the reviewer makes **one call per event** with all of its clef-related events, owner / AI / artifact
-   notes and (if enabled) Elasticsearch look-ups. It never decides a link. It returns
-   - the event's label: **suspicious**, **benign** or **expected**, with a confidence and reason, and
-   - for every related event a **link note** (stored as the verdict's reason, with clef's probability appended) and its
-     **artifacts** (file, process, user, IP, DNS name; each benign / expected / suspicious).
+2. **Events — decision model label, reviewer notes.** Only once **no link of the newest snapshot is undecided**:
+   - **Label (clef).** One request per event with the event and **all** its candidate events, each with its link
+     probability (clef's; for links decided before clef, derived from the old verdict), plus approved owner notes.
+     Two yes/no questions: *suspicious?* and *expected?*. `p(suspicious) ≥ suspicious_min` (default 0.5) →
+     **suspicious**; else `p(expected) ≥ 0.5` → **expected**; else **benign**. **That label is final** and drives alarms;
+     its confidence is `p(suspicious)` for suspicious, `1 − p(suspicious)` otherwise. Stored in `clef_event`.
+   - **Notes (reviewer model).** One call per event with all of its clef-related events, owner / AI / artifact notes and
+     (if enabled) Elasticsearch look-ups, told the decision model's label. It writes the event's **reason** (why the
+     event is what clef labelled it; it starts with *Reviewer disagrees:* when the evidence clearly contradicts the
+     label) and, for every related event, a **link note** (the verdict's reason, with clef's probability appended) and
+     its **artifacts** (file, process, user, IP, DNS name; each benign / expected / suspicious). It also gives its own
+     label, which is recorded only for the agreement figure on the AI review page — it never decides a link or a label.
 
-   Host notes (expected behaviour), internet notes and DNS notes are written from those artifacts as before. An event
-   is reviewed again when its set of link decisions changes; at most 20 events per pass, never-reviewed and
-   best-connected first. Suspicious medium / high events become alarms. Audit-log purpose: `event-review`.
+   Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. An event is
+   labelled and reviewed again when its set of link decisions changes; at most 20 events per pass, never-reviewed and
+   best-connected first. If clef cannot label an event, the event waits for the next pass (the reviewer does not step
+   in). Suspicious medium / high events become alarms. `event_class.model` reads `cloudflare_clef + <reviewer>`.
+   Audit-log purpose: `event-review`.
 3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db` (`verdicts`; clef's probabilities in
    `clef`), so each pair is asked once and the decision applies in both directions. A person's decision (✓/✗, or an
    adopted model answer) is never overwritten. **↻ Ask again** removes both the verdict and clef's answer.
@@ -125,10 +134,12 @@ flowchart LR
     LIM -- "skipped" --> HID["not sent"]
     LIM -- "allowed" --> CLEF["Decision model (clef)\nyes/no per link\n= the verdict"]
     CLEF --> DB[("corr_llm.db\nverdicts, clef")]
-    DB -- "no link undecided" --> REV["Reviewer model\none call per event,\nall related events"]
+    DB -- "no link undecided" --> CL2["Decision model (clef)\nsuspicious? expected?\nevent + all candidates"]
+    CL2 --> LAB["Event label\nsuspicious / benign / expected\n(final)"]
+    LAB --> REV["Reviewer model\none call per event,\nall related events"]
     NOTES["Owner / artifact / AI notes,\nuser profiles"] --> REV
     ES["Elasticsearch look-ups\n(optional)"] <--> REV
-    REV --> LAB["Event label\nsuspicious / benign / expected"]
+    REV --> RS["Reason for the label"]
     REV --> LN["Link notes + artifacts"]
     LN --> HN["Host / internet / DNS notes"]
     LAB --> AL["Alarms (suspicious, medium+)"]
@@ -138,7 +149,7 @@ flowchart LR
 ### Decision model: clef
 
 Cloudflare **clef** is a "System One" decision model: it writes no text, it returns the probability of *yes* for a
-typed question. netmon uses only the related question; event labels come from the reviewer alone.
+typed question. netmon asks it *related?* per link and *suspicious?* / *expected?* per event.
 
 | | clef (default) | clef-flash |
 |---|---|---|
@@ -147,6 +158,21 @@ typed question. netmon uses only the related question; event labels come from th
 | AIT-ADS benchmark, 320 links | F1 22.0, 66 false links | F1 17.0, 157 false links |
 
 (For comparison, the reviewer model deciding links itself on the same benchmark: F1 26.2, ~28 links/min.)
+
+**Why clef labels events.** On the same AIT-ADS benchmark (40 events: 20 attack, 20 normal):
+
+| Who labels the event | Correct | Attacks caught /20 | Normal events flagged /20 | Speed |
+|---|---|---|---|---|
+| Reviewer (Gemma), deciding links itself (older flow) | 62.5 % | 13 | 8 | 3.5 events/min |
+| Reviewer (Gemma), after clef decided links | 52.5 % | 17 | 16 | 7.2 events/min |
+| **clef, event + all candidates, p ≥ 0.5 (used)** | **72.5 %** | 14 | **5** | 21 events/min |
+| clef, event + related events only, p ≥ 0.5 | 70.0 % | 14 | 6 | 53 events/min |
+| clef, related only, p ≥ 0.8 | 75.0 % | 10 | 0 | 53 events/min |
+| clef-flash, related only, p ≥ 0.5 / 0.7 | 47.5 / 67.5 % | 16 / 14 | 17 / 7 | 108 events/min |
+
+Told that every candidate is related, Gemma flags almost everything; clef separates attack from normal events better
+(ranking quality 0.76–0.79 vs 0.67 for clef-flash). Raise *suspicious_min* for fewer alarms (0.8: no false alarms,
+but only 10 of 20 attacks). Lab data, 40 events: differences of 2–3 events are within noise.
 
 **The server.** LM Studio can load clef but cannot run it ("context does not support logits computation"). It runs
 on the host under LM Studio's bundled llama.cpp `llama-server`, endpoint `http://127.0.0.1:8091/v1/systemone`
@@ -185,12 +211,14 @@ lost request twice, 30 s each). Out of memory → clef-flash or a smaller quant.
 |---|---|---|
 | Use the decision model | on | off = the reviewer decides links again (older flow below) |
 | Related if p ≥ | 0.5 | lower = more links kept (0.2 raised agreement with past reviewer verdicts from 46 % to 62 %) |
+| Event suspicious if p ≥ | 0.5 | higher = fewer alarms, fewer attacks caught (see the table above) |
 | `NETMON_CLEF_URL` (dashboard/.env) | `http://127.0.0.1:8091` | loopback only; set when the server port changes |
 | `NETMON_CLEF_MODEL` | `cloudflare_clef` | the model name written on verdicts |
 | `NETMON_CLEF_WORKERS` | 4 | parallel questions (match the server's Parallel) |
 
 The card shows links decided per minute, related / not related over 24 h, average time per link, events reviewed per
-minute and suspicious / benign / expected counts.
+minute, suspicious / benign / expected counts, how often the reviewer's own label agrees with clef's, and the
+7-day label matrix (clef rows vs reviewer columns).
 
 ### Without the decision model (older flow)
 
@@ -651,9 +679,9 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 | Review limits: never-send events and rules | none (max 500 / 200) | `review_limits.excluded`, `review_limits.rules` |
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |
-| Decision model on/off, related threshold | on, 0.5 | `llm_config` → `clef` |
+| Decision model on/off, related threshold, event suspicious threshold | on, 0.5, 0.5 | `llm_config` → `clef` |
 | Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
-| Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
+| Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `clef_event`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
 | Research job settings, modes, requests, dismissed queue | see the table in section 5 | store meta `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |

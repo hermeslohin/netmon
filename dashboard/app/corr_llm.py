@@ -703,6 +703,10 @@ def _schema(c):
     # decision model's own event decision (compared with the reviewer model's event_class label)
     c.execute("""CREATE TABLE IF NOT EXISTS clef_event (eid TEXT PRIMARY KEY, p_suspicious REAL, p_expected REAL, label TEXT, sig TEXT,
                  model TEXT, ts REAL, ms REAL)""")
+    try:  # the reviewer model's own label for the same event (kept for the agreement figure; the decision model's label is used)
+        c.execute("ALTER TABLE clef_event ADD COLUMN reviewer_label TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS clef (pair TEXT PRIMARY KEY, p_related REAL, related INTEGER, p_suspicious REAL,
                  suspicious INTEGER, model TEXT, ts REAL, ms_related REAL, ms_suspicious REAL)""")
     c.execute("CREATE TABLE IF NOT EXISTS review_events (ts REAL, prompt INTEGER, completion INTEGER, cands INTEGER)")
@@ -1584,8 +1588,11 @@ def sync_alarms(base):
 #      reason (how they are linked) and its artifacts; host / internet / DNS notes follow from those (event_pass).
 EVENT_SYSTEM = """You are a senior SOC analyst for a home network. A decision model has already decided which security events are
 RELATED to the ANCHOR event: the CANDIDATES below are exactly those (the "script evidence" line holds the decision
-model's probability and the correlation script's evidence). Do not question whether they are related. Your job:
-1. Classify the ANCHOR event, taking all of its related events and every note into account, as one of:
+model's probability and the correlation script's evidence). Do not question whether they are related. The decision model has also LABELLED the anchor event (the line
+"DECISION MODEL LABEL" at the end of these instructions); that label is final. Your job:
+1. Write the anchor's "reason" (under 25 words): why the event is what the decision model labelled it, citing the related
+   events and notes that support it; if the evidence clearly contradicts the label, start the reason with "Reviewer
+   disagrees:" and say why. Also give YOUR OWN independent "label" and "confidence" (recorded for comparison only), one of:
    - suspicious: needs a person's eye (possible compromise, misuse, unknown actor, or a real weakness being exploited)
    - benign: looks odd but is harmless
    - expected: normal for this device, user or task
@@ -1690,8 +1697,13 @@ def _event_review(model, eid, base, rel_ids, sig):
         cd = CD.get(pair(eid, i))
         cands.append((E[i], {**r, "why": [f"decision model: related (p={cd['p_related']:.2f})" if cd else "related", *(r.get("why") or [])]}))
     es, mname = config()["es_queries"], model["model"]
+    with _db() as c:
+        ce = c.execute("SELECT label, p_suspicious, p_expected, model FROM clef_event WHERE eid=? AND sig=?", (eid, sig)).fetchone()
+    if not ce:  # the decision model could not label it this pass: try again next pass rather than let the reviewer decide
+        return 0
+    sysmsg = EVENT_SYSTEM + f"\nDECISION MODEL LABEL: {ce[0]} (p suspicious {ce[1]:.2f}, p expected {ce[2]:.2f})"
     logq = _es_logger(eid, rel_ids, mname) if es["enabled"] else None
-    kw = dict(purpose="event-review", on_query=logq, system=EVENT_SYSTEM, schemas=(ESCHEMA, EQSCHEMA), fmts=(EFMT, EQFMT), base_tokens=500)
+    kw = dict(purpose="event-review", on_query=logq, system=sysmsg, schemas=(ESCHEMA, EQSCHEMA), fmts=(EFMT, EQFMT), base_tokens=500)
     notes, ainotes, esm = _owner_notes(eid, rel_ids, E), _ai_notes(eid, rel_ids, E), es["max"] if es["enabled"] else 0
     t0 = time.time()
     try:
@@ -1708,13 +1720,14 @@ def _event_review(model, eid, base, rel_ids, sig):
             cands = cands[:6]
             dec, usage, _s = _ask_full(model, E[eid], cands, notes, ai_notes=ainotes, note_cap=1, es_max=0, **kw)
     D = {d.get("id"): d for d in dec if isinstance(d, dict)}
-    a = D.get("anchor") or next((d for d in dec if isinstance(d, dict) and d.get("label") in CLASS_LABELS), None)
-    if not a or a.get("label") not in CLASS_LABELS:
-        return 0
+    a = D.get("anchor") or next((d for d in dec if isinstance(d, dict) and d.get("label") in CLASS_LABELS), None) or {}
+    label, p_sus = ce[0], float(ce[1])
+    conf = p_sus if label == "suspicious" else 1 - p_sus
+    reason = str(a.get("reason") or f"Decision model: {label} (p suspicious {p_sus:.2f})")[:300]
     now = time.time()
-    with _lock, _db() as c:
-        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)",
-                  (eid, a["label"], float(a.get("confidence") or 0), str(a.get("reason") or "")[:300], mname, sig, now))
+    with _lock, _db() as c:  # the decision model's label, the reviewer's reason; the reviewer's own label kept for comparison
+        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, round(conf, 3), reason, f"{ce[3]} + {mname}", sig, now))
+        c.execute("UPDATE clef_event SET reviewer_label=? WHERE eid=?", (a.get("label") if a.get("label") in CLASS_LABELS else None, eid))
         for n, (e, r) in enumerate(cands, 1):  # the link note: the decision model's verdict stays, the reviewer writes the reason
             d, k = D.get(f"c{n}"), pair(eid, r["id"])
             if not d:
@@ -1734,8 +1747,8 @@ def _event_review(model, eid, base, rel_ids, sig):
         _note_dns(model, eid, E, cands, dd)
     except Exception as e:  # noqa: BLE001 - host notes are a by-product
         print(f"corr_llm: host notes skipped: {e}", file=sys.stderr)
-    if a["label"] == "suspicious":
-        reopen_checked(eid, str(a.get("reason") or ""))
+    if label == "suspicious":
+        reopen_checked(eid, reason)
     return 1
 
 
@@ -1761,9 +1774,10 @@ def event_pass(base):
         sig = hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode()).hexdigest()[:16]
         if have.get(a) == sig:
             continue
-        todo.append((a, sig, [i for i, v in dec if v["related"]]))
+        todo.append((a, sig, [i for i, v in dec if v["related"]], [i for i, _ in dec]))
     todo.sort(key=lambda t: (t[0] in have, -len(t[2])))  # never-reviewed first, then the best-connected
     todo = todo[:CLASS_PER_PASS]
+    clef_events(base, todo)  # the decision model labels each event (suspicious / benign / expected) before the reviewer writes notes
     STATUS.update(classifying=len(todo), clef_stage="events" if todo else "")
 
     def one(t):
@@ -1803,9 +1817,18 @@ def clef_events(base, todo):
     STATUS.update(clef_stage="event decisions", clef_todo=len(todo))
 
     def one(t):
-        eid, sig, rel = t
-        CD = clef_decisions([pair(eid, i) for i in rel])
-        related = sorted(((E[i], (CD.get(pair(eid, i)) or {}).get("p_related") or 0) for i in rel if i in E), key=lambda x: -x[1])
+        eid, sig, rel, allc = t
+        ids = [i for i in allc if i in E]
+        CD, V = clef_decisions([pair(eid, i) for i in ids]), verdicts([pair(eid, i) for i in ids])
+
+        def prob(i):  # the link probability: the decision model's, else derived from an older reviewer / manual verdict
+            k = pair(eid, i)
+            if k in CD:
+                return CD[k]["p_related"]
+            v = V.get(k)
+            return 0.5 if not v else (v["confidence"] or 0.5) if v["related"] else 1 - (v["confidence"] or 0.5)
+        # ALL candidate events, each with its link probability (benchmarked better than related events only)
+        related = sorted(((E[i], prob(i)) for i in ids), key=lambda x: -x[1])
         st = clef.event_state(E[eid], related, lambda e: _when(e.get("t0"), e.get("type")), lambda ty: TYPE_DESC.get(ty, ""), ON.get(eid))
         try:
             p, ms = clef.ask(st, {"suspicious": clef.Q_EVENT_SUSPICIOUS, "expected": clef.Q_EVENT_EXPECTED}, cfg["url"])
@@ -1813,7 +1836,7 @@ def clef_events(base, todo):
             STATUS["error"] = f"decision model: {type(e).__name__}: {str(e)[:200]}"
             return 0
         with _lock, _db() as c:
-            c.execute("INSERT OR REPLACE INTO clef_event VALUES (?,?,?,?,?,?,?,?)",
+            c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms) VALUES (?,?,?,?,?,?,?,?)",
                       (eid, p["suspicious"], p["expected"], clef.label(p["suspicious"], p["expected"], cfg), sig, cfg["model"], time.time(), ms))
         STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
         return 1
@@ -1826,8 +1849,8 @@ def clef_events(base, todo):
 def clef_compare(since=0):
     """Decision model vs reviewer model on the same events (same decision signature): agreement and the confusion matrix."""
     with _db() as c:
-        rows = c.execute("SELECT k.eid, k.label, g.label, k.p_suspicious, k.p_expected, g.confidence, g.reason, g.ts FROM clef_event k "
-                         "JOIN event_class g ON g.eid = k.eid AND g.sig = k.sig WHERE g.ts >= ? ORDER BY g.ts DESC", (since,)).fetchall()
+        rows = c.execute("SELECT k.eid, k.label, k.reviewer_label, k.p_suspicious, k.p_expected, g.confidence, g.reason, g.ts FROM clef_event k "
+                         "JOIN event_class g ON g.eid = k.eid AND g.sig = k.sig WHERE g.ts >= ? AND k.reviewer_label IS NOT NULL ORDER BY g.ts DESC", (since,)).fetchall()
     m = {}
     for _, kl, gl, *_r in rows:
         m[f"{kl}|{gl}"] = m.get(f"{kl}|{gl}", 0) + 1
@@ -1850,7 +1873,11 @@ def clef_overview():
         per_min = c.execute("SELECT COUNT(*) FROM clef WHERE ts >= ?", (now - 300,)).fetchone()[0] / 5
         ev = {lab: n for lab, n in c.execute("SELECT label, COUNT(*) FROM event_class WHERE ts >= ? GROUP BY label", (now - 86400,))}
         ev_min = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ?", (now - 600,)).fetchone()[0] / 10
-    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0),
+    try:
+        cmp_ = clef_compare(now - 7 * 86400)
+    except sqlite3.Error:
+        cmp_ = {}
+    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0), "compare": cmp_,
             "per_min": round(per_min, 1), "events_day": ev, "events_per_min": round(ev_min, 1), "timeouts": clef.STATS["timeouts"],
             "status": {k: STATUS.get(k) for k in ("clef_stage", "clef_todo", "clef_related_this_run", "classifying", "classified_this_run", "event_secs")}}
 

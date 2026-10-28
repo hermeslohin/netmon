@@ -60,7 +60,7 @@ REQUIREMENTS = {
     "MIT-01": ("ATT&CK", "Findings map to MITRE ATT&CK techniques by rule; every rule references a technique in the catalog.", "README.md"),
     "LLM-01": ("AI", "Model answers are parsed defensively: the first JSON object is used and unknown verdicts/priorities fall back to safe values.", "USER_GUIDE.md §7"),
     "LLM-02": ("AI", "The dashboard runs fully with the local LLM switched off (NETMON_LLM=off).", "SETUP.md §6"),
-    "LLM-03": ("AI", "With the decision model on, clef decides every candidate link (related yes/no is the verdict); only once no link is undecided does the selected reviewer make one call per event with all its related events and notes, classifying the event and writing link notes - it never decides a link.", "CORRELATION.md"),
+    "LLM-03": ("AI", "With the decision model on, clef decides every candidate link and, once no link is undecided, labels each event suspicious / benign / expected from the event and all its candidates; the selected reviewer then writes the reason, link notes and artifacts - it never decides a link or a label (its own label is only recorded for comparison).", "CORRELATION.md"),
     "CFG-01": ("Configuration", "Site settings fall back to safe defaults; the browser receives only the public subset.", "SETUP.md §2"),
     "CFG-02": ("Configuration", "The research lookback is an integer number of hours within 1-24; invalid values are rejected.", "CORRELATION.md §5"),
     "CFG-03": ("Configuration", "Collection windows end 'now' or at NETMON_WINDOW_END and produce Elasticsearch range filters.", "SETUP.md (Time ranges)"),
