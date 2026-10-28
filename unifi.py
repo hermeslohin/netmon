@@ -114,11 +114,33 @@ def _cload(name):
 
 
 def _csave(name, d):
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    """Owner-only (0700 dir / 0600 files): the cache holds the site's network inventory and logs."""
+    if name.startswith("legacy-") and isinstance(d, dict) and "data" in d:  # every writer (legacy(), prewarm())
+        d = {**d, "data": redact_secrets(d["data"])}
+    os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    os.chmod(CACHE_DIR, 0o700)
     tmp = _cpath(name) + ".tmp"
-    with open(tmp, "w") as f:
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump(d, f)
+    os.chmod(tmp, 0o600)
     os.replace(tmp, _cpath(name))
+
+
+# Controller settings carry device credentials (SSH password/hash, mgmt key, API/SSO tokens, mesh PSKs, WireGuard
+# private key...). netmon never needs them, so their values are blanked before they reach the cache or any caller.
+_SECRET_FIELDS = {"x_ssh_password", "x_ssh_sha512passwd", "x_mgmt_key", "x_api_token", "x_sso_token", "x_private_key",
+                  "x_mesh_psk", "x_element_psk", "x_pregenerated_dh_key", "utm_token", "psk", "x_passphrase",
+                  "x_password", "x_secret", "radius_secret", "x_radius_secret", "auth_key", "x_authkey"}
+
+
+def redact_secrets(o):
+    if isinstance(o, dict):
+        return {k: ("[redacted]" if (k in _SECRET_FIELDS or k.endswith(("_password", "_secret", "_token", "_psk",
+                                                                          "private_key", "passwd")))
+                    and isinstance(v, str) and v else redact_secrets(v)) for k, v in o.items()}
+    if isinstance(o, list):
+        return [redact_secrets(x) for x in o]
+    return o
 
 
 def _merge(old, new, tkey):
@@ -177,11 +199,11 @@ _legacy_raw = legacy
 
 def legacy(path, body=None):  # noqa: F811 - cached wrapper around the live call (GET-style reads only)
     if body is not None or not CACHE_ON:
-        return _legacy_raw(path, body)
+        return redact_secrets(_legacy_raw(path, body))
     c = _cload("legacy-" + path)
     if c and time.time() - c.get("at", 0) < LEGACY_TTL:
-        return c["data"]
-    d = _legacy_raw(path)
+        return redact_secrets(c["data"])
+    d = redact_secrets(_legacy_raw(path))
     _csave("legacy-" + path, {"at": time.time(), "data": d})
     return d
 

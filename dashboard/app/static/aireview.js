@@ -841,7 +841,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     c.id = "ai-clef-server";
     if (!D.admin) return c;
     const body = c.querySelector(".cs-body");
-    const gb = (m) => `${esc(m.name)} (${m.gb} GB${m.flash ? ", flash" : ""})`;
+    const gb = (m) => `${esc(m.name)} (${esc(m.gb)} GB${m.flash ? ", flash" : ""})`;
     const render = (S) => {
       const s = S.settings || {}, run = S.running, base = (p) => esc(String(p || "").split("/").slice(-2, -1)[0] || "");
       body.innerHTML = `<div class="idgrid">
@@ -852,10 +852,10 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
           <div class="llm-row"><span class="k">Model</span><select name="gguf"><option value="">auto (full clef, else flash)</option>${(S.models || []).map((m) => `<option value="${esc(m.path)}" ${m.path === s.gguf ? "selected" : ""}>${gb(m)}</option>`).join("")}</select>
             ${(S.models || []).length ? "" : '<span class="bad">no clef model on disk - see the stand-up instructions</span>'}</div>
           <div class="llm-row"><span class="k">Runtime</span><select name="server"><option value="">auto (newest CUDA)</option>${(S.servers || []).map((p) => `<option value="${esc(p)}" ${p === s.server ? "selected" : ""}>${base(p)}</option>`).join("")}</select></div>
-          <div class="llm-row"><span class="k">Parallel</span><input type="number" name="parallel" min="1" max="16" value="${s.parallel}" style="width:5em">
-            <span class="k">Context</span><input type="number" name="ctx" min="2048" max="262144" step="1024" value="${s.ctx}" style="width:7em">
-            <span class="k">Batch</span><input type="number" name="batch" min="4096" max="32768" step="1024" value="${s.batch}" style="width:6em">
-            <span class="k">Port</span><input type="number" name="port" min="1024" max="65535" value="${s.port}" style="width:6em"></div>
+          <div class="llm-row"><span class="k">Parallel</span><input type="number" name="parallel" min="1" max="16" value="${esc(s.parallel)}" style="width:5em">
+            <span class="k">Context</span><input type="number" name="ctx" min="2048" max="262144" step="1024" value="${esc(s.ctx)}" style="width:7em">
+            <span class="k">Batch</span><input type="number" name="batch" min="4096" max="32768" step="1024" value="${esc(s.batch)}" style="width:6em">
+            <span class="k">Port</span><input type="number" name="port" min="1024" max="65535" value="${esc(s.port)}" style="width:6em"></div>
           <div class="small muted">Context is shared by the parallel slots (32768 / 4 = 8192 tokens per request). Changing the port also needs NETMON_CLEF_URL in dashboard/.env.</div>
           <div class="llm-row"><button type="button" name="save">Save &amp; restart</button> <button type="button" name="restart">Restart</button>
             <button type="button" name="${S.active === "active" ? "stop" : "start"}">${S.active === "active" ? "Stop" : "Start"}</button>
@@ -958,8 +958,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         so each run is faster. Every run looks back from the moment it starts.</div>
       <div class="llm-grid" style="margin-top:10px">
         <div class="llm-row"><span class="k">Look back</span>
-          <span><input type="number" name="lb_hours" min="${L.min}" max="${L.max}" step="1" style="width:5em"> hours</span>
-          <span class="small muted" style="flex:1 1 380px">${ivH ? `The job runs every <b>${esc(String(+ivH.toFixed(2)))} h</b>. Suggested: <b>${rec} h</b> (the interval plus 1 h of overlap, so no event falls between two runs).`
+          <span><input type="number" name="lb_hours" min="${esc(L.min)}" max="${esc(L.max)}" step="1" style="width:5em"> hours</span>
+          <span class="small muted" style="flex:1 1 380px">${ivH ? `The job runs every <b>${esc(String(+ivH.toFixed(2)))} h</b>. Suggested: <b>${esc(rec)} h</b> (the interval plus 1 h of overlap, so no event falls between two runs).`
             : "The job schedule is not known, so no suggestion can be given."}
             <span class="lb-warn"></span></span></div>
       </div>
@@ -969,7 +969,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <li>The dashboard's newest snapshot covers only this window between daily runs. A short run can open a Fix-list item but never mark it fixed.</li>
       </ul>
       <div style="margin-top:8px"><button type="button" class="lb-save">Save</button> <span class="small muted lb-msg"></span></div>
-      <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${L.default ?? 24} h.`} Applies from the next run.</div>`;
+      <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${esc(L.default ?? 24)} h.`} Applies from the next run.</div>`;
     c.id = "ai-lookback";
     const inp = c.querySelector('input[name="lb_hours"]'), btn = c.querySelector(".lb-save"), msg = c.querySelector(".lb-msg"), wr = c.querySelector(".lb-warn");
     const warn = () => { const h = +inp.value;
@@ -982,7 +982,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     if (!D.admin) msg.textContent = "Only an admin can change the lookback window.";
     btn.onclick = async () => {
       const h = inp.value.trim();
-      if (!/^\d+$/.test(h) || +h < L.min || +h > L.max) { msg.textContent = `Enter a whole number of hours from ${L.min} to ${L.max}.`; return; }
+      if (!/^\d+$/.test(h) || +h < L.min || +h > L.max) { msg.textContent = `Enter a whole number of hours from ${esc(L.min)} to ${esc(L.max)}.`; return; }
       msg.textContent = "saving…";
       try { const r = await apiPost("/api/config/lookback", { hours: +h }); inp.value = r.lookback.hours; warn();
         msg.textContent = `saved: ${r.lookback.hours} h per run (from the next run; the daily run stays 24 h)`; }

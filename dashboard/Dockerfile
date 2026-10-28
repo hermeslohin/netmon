@@ -1,7 +1,9 @@
 FROM python:3.12-alpine
 WORKDIR /app
+# changes daily (deploy.sh passes the date) so a routine deploy re-runs apk upgrade instead of reusing a stale cached layer
+ARG APK_REFRESH=0
 # apk upgrade: pick up Alpine security fixes (e.g. zlib) at every rebuild; pip is only needed at build time - remove it
-RUN apk upgrade --no-cache && pip install --no-cache-dir --upgrade "certifi>=2026.10.18" pywebpush==2.* \
+RUN echo "apk refresh $APK_REFRESH" && apk upgrade --no-cache && pip install --no-cache-dir --upgrade "certifi>=2026.10.18" pywebpush==2.* \
  && pip uninstall -y pip && rm -rf /root/.cache /usr/local/lib/python3.12/ensurepip
 COPY app/ /app/
 USER 1000:1000

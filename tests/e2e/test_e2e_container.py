@@ -10,6 +10,7 @@ import shutil
 import ssl
 import subprocess
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,7 +65,13 @@ class DeployedContainer(unittest.TestCase):
     def test_health_check_passing(self):
         """Docker reports the container healthy (HEALTHCHECK on /healthz).
         REQ: OPS-02, DASH-04"""
-        self.assertEqual((INFO["State"].get("Health") or {}).get("Status"), "healthy")
+        st = (INFO["State"].get("Health") or {}).get("Status")
+        for _ in range(45):  # a ship right after a redeploy finds it still "starting" (first probe after ~60 s)
+            if st != "starting":
+                break
+            time.sleep(2)
+            st = (inspect()["State"].get("Health") or {}).get("Status")
+        self.assertEqual(st, "healthy")
 
     def test_live_healthz_and_auth_wall(self):
         """The live dashboard answers /healthz, serves the login page and refuses the API without a session.

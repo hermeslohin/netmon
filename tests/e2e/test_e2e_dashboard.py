@@ -341,6 +341,19 @@ class CheckOffs(unittest.TestCase):
         got = c.get("/api/acks")[1]["finding"]
         self.assertTrue(all(f"e2e|bulk|{i}" in got for i in range(25)))
 
+    def test_bulk_check_off_larger_than_64k(self):
+        """'Check all' on thousands of rows (body well over 64 KB) is parsed whole, not truncated; unauthenticated
+        oversize bodies are refused with 413.
+        REQ: DASH-05, STO-03"""
+        c = SRV.login()
+        items = [{"type": "finding", "key": "e2e|big|" + "k" * 80 + str(i), "label": "big"} for i in range(1500)]
+        code, body, _ = c.post("/api/acks", {"items": items, "checked": True})
+        self.assertEqual(code, 200, body)
+        got = c.get("/api/acks")[1]["finding"]
+        self.assertTrue(all(i["key"] in got for i in items))
+        self.assertEqual(c.post("/api/acks", {"items": items, "checked": False})[0], 200)
+        self.assertEqual(SRV.client().post("/api/acks", {"items": items, "checked": True})[0], 413)
+
     def test_check_off_requires_type_and_key(self):
         """A check-off without type or key is rejected with 400.
         REQ: DASH-05"""

@@ -10,7 +10,7 @@
   const hostL = (h) => /^\d+\.\d+\.\d+\.\d+$/.test(h) ? ipLink(h) : hostLink(h);
 
   // KPI tiles are links that set ?f=<filter>; the table below reads it (urlFilter: chip + remove button) and the page scrolls to it
-  const kl = (f, v, title) => `<a href="${location.hash.split("?")[0]}?f=${f}" title="${esc(title)}">${v} <span style="font-size:13px">›</span></a>`;
+  const kl = (f, v, title) => `<a href="${esc(location.hash.split("?")[0])}?f=${encodeURIComponent(f)}" title="${esc(title)}">${esc(v)} <span style="font-size:13px">›</span></a>`;
   const hasLogin = (r) => !r.flags.includes("no logins (service account?)");
   const LIST_F = { logins: hasLogin, privileged: (r) => r.flags.includes("privileged"), failures: (r) => r.flags.includes("mostly failures") };
   const DET_F = { ok: (r) => r.ok > 0, fail: (r) => r.fail > 0, sudo: (r) => r.kind === "sudo", hosts: (r) => !!r.host, sources: (r) => !!r.src && !r.src.startsWith("as ") };
@@ -24,7 +24,7 @@
     if (u) {
       const x = us.find((r) => r.user === u);
       if (!x) { el.insertAdjacentHTML("beforeend", `<div class="empty">No account called ${esc(u)} has been seen.</div>`); return; }
-      el.insertAdjacentHTML("beforeend", kpis([["Reports seen in", `${x.reports} of ${x.of}`], ["Successful", kl("ok", x.ok, "Rows with successful logins"), "good"], ["Failed", kl("fail", x.fail, "Rows with failed attempts"), x.fail ? "bad" : "good"],
+      el.insertAdjacentHTML("beforeend", kpis([["Reports seen in", `${fn(x.reports)} of ${fn(x.of)}`], ["Successful", kl("ok", x.ok, "Rows with successful logins"), "good"], ["Failed", kl("fail", x.fail, "Rows with failed attempts"), x.fail ? "bad" : "good"],
         ["Sudo", kl("sudo", x.sudo, "Sudo rows"), x.sudo ? "warn" : ""], ["Hosts", kl("hosts", x.n_hosts, "Rows by host"), ""], ["Sources", kl("sources", x.n_sources, "Rows by source")]]));
       el.appendChild(card("Pattern", `<p>${esc(x.pattern)}</p><div>${flags(x.flags)}</div><div style="margin-top:8px">Active by hour (UTC) ${hrs(x.hours)} <span class="muted small mono">00 → 23</span></div><div class="muted small">First seen in report ${esc(x.first)}, last in ${esc(x.last)}.</div>`));
       const rows = d.detail?.rows || [];

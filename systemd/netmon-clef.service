@@ -3,6 +3,7 @@ Description=netmon decision model (clef-flash on llama-server /v1/systemone) for
 After=network-online.target
 
 [Service]
+UMask=0077
 ExecStart=%h/netmon/clef.sh
 Restart=on-failure
 RestartSec=10

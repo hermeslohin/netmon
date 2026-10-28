@@ -8,7 +8,7 @@ mkdir -p state
 [ -f .env ] || { echo "dashboard/.env missing - run ../setup.sh first (see docs/SETUP.md)"; exit 1; }
 [ -f certs/dashboard.crt ] || { echo "certs/dashboard.crt missing - run ../setup.sh first"; exit 1; }
 if [ -z "${IMAGE:-}" ]; then
-  docker build -q -t netmon-dashboard:latest .
+  docker build -q --pull --build-arg APK_REFRESH="$(date -u +%Y%m%d)" -t netmon-dashboard:latest .
   IMAGE=netmon-dashboard:latest
 fi
 docker rm -f netmon-dashboard >/dev/null 2>&1 || true

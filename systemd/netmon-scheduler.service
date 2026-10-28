@@ -3,6 +3,7 @@ Description=netmon scheduler (15-min watcher, AI research job, weekly rebuild)
 After=network-online.target docker.service
 
 [Service]
+UMask=0077
 ExecStart=/usr/bin/python3 %h/netmon/scheduler.py
 Restart=on-failure
 RestartSec=10

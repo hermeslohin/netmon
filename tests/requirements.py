@@ -30,7 +30,7 @@ REQUIREMENTS = {
     "SEC-03": ("Web security", "The session cookie is HttpOnly, Secure and SameSite=Strict.", "ACCESS_CONTROL.md"),
     "SEC-04": ("Web security", "Site data (site IPs, MACs, host/account names, private config, DBs, keys) can never be committed to git (repo_guard).", "SETUP.md §9"),
     "SEC-05": ("Web security", "Static file serving cannot escape the static directory (no path traversal) and unknown paths return 404.", "server.py"),
-    "SEC-06": ("Web security", "The state database and its WAL files are owner-only (0600).", "ACCESS_CONTROL.md (Where it lives)"),
+    "SEC-06": ("Web security", "The state database and its WAL files, and the UniFi cache (0700 dir), are owner-only (0600); cached controller credentials are redacted.", "ACCESS_CONTROL.md (Where it lives)"),
     # ---- audit ----
     "AUD-01": ("Audit log", "Every POST is audited with user, role, outcome and parameters, with secrets redacted.", "AUDIT_LOG.md"),
     "AUD-02": ("Audit log", "Every sign-in attempt and every refused (403) request is audited.", "AUDIT_LOG.md"),

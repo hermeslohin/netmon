@@ -3,6 +3,7 @@ Description=netmon host broker (dashboard time ranges + reviewer Elasticsearch l
 After=network-online.target
 
 [Service]
+UMask=0077
 ExecStart=/usr/bin/python3 %h/netmon/host_broker.py
 Restart=on-failure
 RestartSec=5
