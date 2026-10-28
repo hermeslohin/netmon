@@ -161,6 +161,7 @@
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       ${cev ? `<div class="small" style="padding:4px 10px">${clefEvHtml(cev)}</div>` : ""}
+      ${(window.__oeExtra?.related_n?.[id] || 0) > rel.length ? `<div class="small muted" style="padding:4px 10px">showing the ${rel.length} most confident of ${window.__oeExtra.related_n[id]} related events</div>` : ""}
       ${tuneHtml(id) ? `<div style="padding:4px 10px">${tuneHtml(id)}</div>` : ""}
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding" }[e.type]] || [e.type, ""];
         const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${clefLinkHtml(r)} ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
