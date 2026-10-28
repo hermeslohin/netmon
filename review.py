@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""netmon research job: collect -> analyze -> reviewer; events are researched only on request (--event).
+"""netmon research job: collect -> analyze [-> reviewer]; no AI call is ever made unless a person asks for it.
 
 Started by scheduler.py on the grid set on the dashboard (research_cfg.py), or by hand:
-    review.py [--pdf | --no-pdf] [--trigger manual|schedule] [--skip-collect] [--max-batches N]
-The daily run (--pdf) is the first run at or after 05:00 UTC each day; it always covers 24 h of logs. Other runs cover the lookback window set on the AI review page.
+    review.py [--trigger manual|schedule] [--skip-collect] [--max-batches N] [--event ID]
+Scheduled runs (--trigger schedule) only collect + analyze and queue work items: no AI model is called.
+The reviewer runs only on a person's Run now (--trigger manual); events are researched only on Send to research (--event).
+The daily run is the first run at or after 05:00 UTC each day; it covers 24 h of logs so the device baseline stays daily.
+Other runs cover the lookback window set on the AI review page.
 
 The AI works through narrow, read-only tools (Elasticsearch search, netmon data, web search / fetch) and writes only
 through validated submit_* tools: research notes via enrich.sh
@@ -47,11 +50,11 @@ class EventStatus:
     def phase(self, p):
         pass
 
-    def finish(self, status, error, budget, summary, pdf):
+    def finish(self, status, error, budget, summary, daily):
         d, u = RC.status() or {}, budget.summary()
         d["usage"] = ((d.get("usage") or []) + [{"at": time.time(), "prompt": u["prompt"], "completion": u["completion"], "total": u["total"],
                                                   "duration_s": round(time.time() - self.t0), "model": self.target["model"], "provider": self.target["provider"],
-                                                  "error": status != "completed", "pdf_run": False, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
+                                                  "error": status != "completed", "daily_run": False, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
                                                   "cache_read": u["cache_read"], "cache_write": u["cache_write"], "cost_usd": u["cost_usd"], "calls": u["calls"],
                                                   "event_run": True}])[-600:]
         d["researched"] = ((d.get("researched") or []) + (getattr(self, "researched", None) or []))[-500:]
@@ -59,12 +62,12 @@ class EventStatus:
 
 
 class Status:
-    def __init__(self, target, trigger, pdf):
+    def __init__(self, target, trigger, daily):
         self.d = RC.status() or {}
         self.d.setdefault("runs", [])
         self.d.setdefault("usage", [])
         self.run = {"status": "running", "trigger": trigger, "started": time.time(), "finished": None, "progress": time.time(),
-                    "duration_s": None, "error": None, "pdf_run": pdf, "phase": "starting", "model": target["model"], "provider": target["provider"]}
+                    "duration_s": None, "error": None, "daily_run": daily, "ai": trigger != "schedule", "phase": "starting", "model": target["model"], "provider": target["provider"]}
         self.d["runs"] = [self.run] + [r for r in self.d["runs"] if r.get("status") != "running"][:29]
         self.d["running"] = {"started": self.run["started"], "progress": self.run["progress"], "phase": "starting"}
         self.save()
@@ -74,14 +77,14 @@ class Status:
         self.d["running"] = {"started": self.run["started"], "progress": time.time(), "phase": p}
         self.save()
 
-    def finish(self, status, error, budget, summary, pdf):
+    def finish(self, status, error, budget, summary, daily):
         now = time.time()
         self.run.update(status=status, finished=now, duration_s=round(now - self.run["started"]), error=(error or "")[:300] or None, phase=None)
         self.d["running"] = None
         u = budget.summary()
         self.d["usage"] = (self.d["usage"] + [{"at": now, "prompt": u["prompt"], "completion": u["completion"], "total": u["total"],
                                                 "duration_s": self.run["duration_s"], "model": self.run["model"], "provider": self.run["provider"],
-                                                "error": status != "completed", "pdf_run": pdf, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
+                                                "error": status != "completed", "daily_run": daily, "fresh": u["prompt"] - u["cache_read"] - u["cache_write"],
                                                 "cache_read": u["cache_read"], "cache_write": u["cache_write"], "cost_usd": u["cost_usd"],
                                                 "calls": u["calls"]}])[-600:]
         self.d["researched"] = ((self.d.get("researched") or []) + (getattr(self, "researched", None) or []))[-500:]
@@ -144,8 +147,8 @@ def _overview(v, limit):
 
 # ------------------------------------------------------------------ the run
 class Run:
-    def __init__(self, target, pdf, args):
-        self.target, self.pdf, self.args = target, pdf, args
+    def __init__(self, target, daily, args):
+        self.target, self.daily, self.args = target, daily, args
         cfg = RC.get()
         self.budget = agent.Budget(target["provider"], target["model"], cfg["max_run_tokens"] or None, cfg["max_run_usd"] or None)
         self.max_searches = cfg.get("max_searches", 3)
@@ -394,7 +397,7 @@ class Run:
     # ---- phases
     def collect(self):
         if not self.args.skip_collect:
-            rc, out, err = sh([PY, os.path.join(NM, "collect.py"), "24" if self.pdf else "auto"], timeout=3600)
+            rc, out, err = sh([PY, os.path.join(NM, "collect.py"), "24" if self.daily else "auto"], timeout=3600)
             if rc:
                 raise RuntimeError(f"collect.py failed: {(err or out)[-400:]}")
             rc, out, err = sh([PY, os.path.join(NM, "analyze.py")], timeout=3600)
@@ -430,6 +433,9 @@ class Run:
         review = [x for x in items if x.get("mode") == "review"]
         self.counts["review_only"], self.counts["review_covered"] = d.get("review_only", 0), d.get("review_covered", 0)
         items = [x for x in items if x.get("mode") not in ("review", "test")]  # test-mode items are only listed on the dashboard
+        if review and getattr(self.args, "trigger", "") == "schedule":  # scheduled run: no AI call at all; everything waits in the queue
+            self.counts["review_to_research"] = len([x for x in review if not x.get("note")])
+            review = []
         if review:
             self.status.phase("reviewer")
             items += self.review_items([x for x in review if not x.get("note")])
@@ -530,7 +536,7 @@ class Run:
     def go(self, status):
         self.status, self.started = status, time.time()
         fatal = None
-        steps = [("collect + analyze", self.collect, True), ("reviewer", self.enrich, False)]
+        steps = [("collect + analyze", self.collect, True), ("queue" if getattr(self.args, "trigger", "") == "schedule" else "reviewer", self.enrich, False)]
         if getattr(self.args, "event", None):  # one event on request: no new snapshot
             steps = [("collect + analyze", self.collect, True), ("event research", self.enrich, False)]
         for name, fn, must in steps:
@@ -552,32 +558,34 @@ class Run:
 
     def summary(self):
         c, u = self.counts, self.budget.summary()
-        parts = [f"{'PDF run' if self.pdf else 'Review run'} on {os.path.basename(self.stem or '?')} with {self.target['model']}."]
+        ai = getattr(self.args, "event", None) or getattr(self.args, "trigger", "") != "schedule"
+        parts = [f"{'Daily run (24 h)' if self.daily else 'Review run'} on {os.path.basename(self.stem or '?')}"
+                 + (f" with {self.target['model']}." if ai else " (scheduled: no AI calls).")]
         parts.append(f"Research notes stored: {c.get('notes', 0)}, "
                      f"link verdicts: {c.get('links', 0)}, host notes added/updated: {c.get('host_notes_added', 0)}/{c.get('host_notes_updated', 0)}, "
-                     f"work items without a note at start: {c.get('without_note', 0)}. Reviewer: {c.get('review_copied', 0)} earlier notes copied, {c.get('review_to_research', 0)} sent to research.")
+                     f"work items without a note at start: {c.get('without_note', 0)}. Reviewer: {c.get('review_copied', 0)} earlier notes copied, {c.get('review_to_research', 0)} left queued for Send to research.")
         parts.append(f"Tokens: {u['total']:,} in {u['calls']} calls" + (f", est. ${u['cost_usd']:.2f}" if u["cost_usd"] is not None else "") + ".")
         if self.errors:
             parts.append("Problems: " + "; ".join(self.errors)[:800])
         return " ".join(parts)
 
 
-def pdf_due():
-    """First run at or after 05:00 UTC each day is the daily run (24 h window)."""
+def daily_due():
+    """First run at or after 05:00 UTC each day is the daily run (24 h window, feeds the device baseline)."""
     now = dt.datetime.now(dt.timezone.utc)
-    if now.hour < RC.PDF_HOUR:
+    if now.hour < RC.DAILY_HOUR:
         return False
     today = now.strftime("%Y-%m-%d")
     for r in (RC.status().get("runs") or []):
-        if r.get("pdf_run") and r.get("status") == "completed" and time.strftime("%Y-%m-%d", time.gmtime(r.get("started") or 0)) == today:
+        if (r.get("daily_run") or r.get("pdf_run")) and r.get("status") == "completed" and time.strftime("%Y-%m-%d", time.gmtime(r.get("started") or 0)) == today:
             return False
     return True
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--pdf", action="store_true")
-    ap.add_argument("--no-pdf", action="store_true")
+    ap.add_argument("--daily", action="store_true", help="force the 24 h daily window")
+    ap.add_argument("--no-daily", action="store_true")
     ap.add_argument("--trigger", default="manual")
     ap.add_argument("--skip-collect", action="store_true", help="use the newest existing snapshot")
     ap.add_argument("--max-batches", type=int)
@@ -585,7 +593,7 @@ def main():
     args = ap.parse_args()
     cfg = RC.get()
     target = {"provider": cfg["provider"], "model": cfg["model"]}
-    if not LP.allowed(target["provider"], target["model"]):
+    if (args.event or args.trigger != "schedule") and not LP.allowed(target["provider"], target["model"]):
         print(f"research model not configured or unavailable ({target}); set it on the dashboard's AI review page", file=sys.stderr)
         return 2
     lock = open(os.path.join(RC.STATE, ".research-event.lock" if args.event else ".research.lock"), "w")
@@ -597,11 +605,11 @@ def main():
     if cfg["max_day_usd"] and RC.spent_today() >= cfg["max_day_usd"]:
         print(f"daily cost cap reached (${RC.spent_today():.2f} of ${cfg['max_day_usd']:.2f}); not starting", file=sys.stderr)
         return 4
-    pdf = False if args.event else (args.pdf or (not args.no_pdf and pdf_due()))
+    daily = False if args.event else (args.daily or (not args.no_daily and daily_due()))
     if args.event:
         args.skip_collect = True
-    run = Run(target, pdf, args)
-    st = EventStatus(target) if args.event else Status(target, args.trigger, pdf)
+    run = Run(target, daily, args)
+    st = EventStatus(target) if args.event else Status(target, args.trigger, daily)
     fatal = None
     try:
         fatal = run.go(st)
@@ -613,7 +621,7 @@ def main():
         s = run.summary()
         st.researched = run.researched
         failed = fatal
-        st.finish("failed" if failed else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, pdf)
+        st.finish("failed" if failed else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, daily)
         print(s)
     return 1 if fatal else 0
 

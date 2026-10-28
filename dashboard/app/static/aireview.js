@@ -156,7 +156,7 @@
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
       { k: "started", t: "Started", fmt: (v) => esc(clock(v)), sort: (r) => r.started || 0 },
       { k: "status", t: "Result", fmt: (v, r) => `<span class="badge ${v === "completed" ? "sev-good" : v === "running" || v === "claimed" ? "sev-medium" : "sev-high"}">${esc(v === "claimed" ? "starting" : v)}</span>${r.error ? ` <span class="small bad">${esc(r.error)}</span>` : ""}` },
-      { k: "pdf_run", t: "Type", fmt: (v, r) => `${v ? "Daily run (24 h)" : "Review"}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
+      { k: "daily_run", t: "Type", fmt: (v, r) => `${v || r.pdf_run ? "Daily run (24 h)" : "Review"}${r.trigger === "schedule" && r.ai === false ? ' <span class="muted small">(no AI)</span>' : ""}${r.trigger === "manual" ? ' <span class="muted small">(manual)</span>' : ""}` },
       { k: "duration_s", t: "Took", num: true, fmt: (v, r) => esc(r.status === "running" ? `${dur(Math.round(now - r.started))} so far` : dur(v)) },
     ], runs, { sort: "started", limit: 12 }) : Object.assign(document.createElement("div"), { className: "empty", textContent: "No runs recorded yet." }));
     return uc ? [c, uc] : [c];
@@ -338,6 +338,65 @@
     });
     r.title = "When on, the Ask AI chat may run read-only Elasticsearch searches of the Security Onion logs (elasticsearch_search tool) through the host broker. Every search is written to the audit log. Independent of the reviewer and research settings.";
     return r;
+  }
+  // Nightly host note consolidation (notes_consolidate.py): settings, Consolidate now, last runs
+  function notesConsolidateCard(D) {
+    const N = D.notes_consolidate || {};
+    const c = card("Host note consolidation", N.error ? `<div class="bad">Unavailable: ${esc(N.error)}</div>` : "");
+    c.id = "ai-notes-consolidate";
+    if (N.error) return c;
+    const st = N.status || {}, tzLocal = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const kp = c.appendChild(document.createElement("div"));
+    const last = (N.runs || [])[0];
+    kp.innerHTML = kpis([["Host notes", fn(N.notes || 0)], ["AI notes it may merge", fn(N.editable || 0)], ["Hosts to do", fn(N.pending || 0)],
+      ["Last run", last ? `${fn(last.notes_before)} → ${fn(last.notes_after)}` : "never"]]);
+    const intro = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
+    intro.textContent = `Once a night the reviewer model (${N.model || "AI review > Models, Correlation reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
+    const row = c.appendChild(document.createElement("div")); row.className = "llm-row";
+    row.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Nightly run" }));
+    const lab = row.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: !!N.enabled }));
+    lab.append(" every night at ");
+    const tm = lab.appendChild(Object.assign(document.createElement("input"), { type: "time", value: N.time || "03:00" }));
+    tm.setAttribute("aria-label", "Consolidation time");
+    lab.append(` (${N.tz || "UTC"})`);
+    const msg = row.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (n) => (n.enabled ? `next: ${clock(n.next)} (${until(n.next)})` : "off") + (n.by ? ` · set by ${n.by}` : "");
+    msg.textContent = D.admin ? show(N) : show(N) + " · only an admin can change this";
+    chk.disabled = tm.disabled = !D.admin;
+    const save = async () => {
+      msg.textContent = "saving…";
+      try { const r = await apiPost("/api/llm/notes-consolidate", { enabled: chk.checked, time: tm.value, tz: tzLocal }); Object.assign(N, r.notes_consolidate || {});
+        lab.lastChild.textContent = ` (${N.tz})`; msg.textContent = "✓ saved · " + show(N); }
+      catch (e) { msg.textContent = "Not saved: " + e.message; }
+    };
+    chk.addEventListener("change", save); tm.addEventListener("change", save);
+    const brow = c.appendChild(document.createElement("div")); brow.className = "llm-row";
+    brow.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Run now" }));
+    const btn = brow.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: st.running ? "Consolidating…" : "Consolidate now" }));
+    btn.disabled = !D.admin || !!st.running;
+    const bm = brow.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const prog = (s) => s.running ? `running (${s.trigger}${s.by ? ", " + s.by : ""}): ${s.subjects_done}/${s.subjects_total} hosts, ${fn(s.notes_before)} → ${fn(s.notes_after)} notes so far` + (s.current ? ` · ${s.current}` : "") : (s.error ? "last run failed: " + s.error : "");
+    bm.textContent = prog(st);
+    let poll = null;
+    const watch = () => { clearInterval(poll); poll = setInterval(async () => {
+      if (!document.body.contains(c)) return clearInterval(poll);
+      try { const n = await api("/api/llm/notes-consolidate"); bm.textContent = prog(n.status || {});
+        if (!n.status?.running) { clearInterval(poll); btn.disabled = !D.admin; btn.textContent = "Consolidate now"; bm.textContent = "done · " + (n.runs?.[0] ? `${fn(n.runs[0].notes_before)} → ${fn(n.runs[0].notes_after)} notes on ${n.runs[0].subjects} hosts` : ""); } } catch (e) { /* keep polling */ }
+    }, 10000); };
+    if (st.running) watch();
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Consolidating…"; bm.textContent = "starting…";
+      try { await apiPost("/api/llm/notes-consolidate", { action: "run" }); bm.textContent = "started · progress updates every 10 s"; watch(); }
+      catch (e) { bm.textContent = "error: " + e.message; btn.disabled = false; btn.textContent = "Consolidate now"; }
+    };
+    if ((N.runs || []).length) c.appendChild(table(null, [
+      { k: "started", t: "Started", fmt: (v) => esc(clock(v)) }, { k: "trigger", t: "How", fmt: (v, r) => esc(v === "schedule" ? "nightly" : (r.by || v)) },
+      { k: "subjects", t: "Hosts", num: true, fmt: fn }, { k: "notes_before", t: "Notes before", num: true, fmt: fn }, { k: "notes_after", t: "after", num: true, fmt: fn },
+      { k: "rejected", t: "Merges rejected", num: true, fmt: (v) => fn(v || 0) }, { k: "failed", t: "Failed requests", num: true, fmt: fn },
+      { k: "ended", t: "Took", fmt: (v, r) => esc(v && r.started ? dur(Math.round(v - r.started)) : "") }, { k: "error", t: "Error", cls: "small", fmt: (v) => esc(v || "") }],
+      N.runs, { search: false, limit: 10 }));
+    return c;
   }
   // Host / user notes given to the reviewer with each event (admin sets the cap; more notes = more tokens in)
   function notesLimitRow(D) {
@@ -886,7 +945,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
 
   // review job lookback window (lookback.py, store meta "research_lookback"): hours of logs each run collects
   function lookbackCard(D) {
-    const L = D.lookback || { hours: 24, min: 1, max: 24, pdf_hour: 5 };
+    const L = D.lookback || { hours: 24, min: 1, max: 24, daily_hour: 5 };
     const iv = D.research?.interval_minutes, ivH = iv ? iv / 60 : null;
     const rec = ivH ? Math.min(L.max, Math.ceil(ivH) + 1) : null;
     const c = document.createElement("div");  // a section inside the AI Research job card
@@ -902,9 +961,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
             <span class="lb-warn"></span></span></div>
       </div>
       <ul class="small muted" style="margin:8px 0 0 18px;padding:0">
-        <li>The daily PDF run (${String(L.pdf_hour).padStart(2, "0")}:00 UTC) always covers 24 h, so the report and the device baseline stay daily. Only full-day snapshots are added to the baseline.</li>
+        <li>The daily run (${String(L.daily_hour ?? L.pdf_hour ?? 5).padStart(2, "0")}:00 UTC) always covers 24 h, so the device baseline stays daily. Only full-day snapshots are added to the baseline.</li>
         <li>Shorter runs compare volumes with the 24 h baseline scaled down to the window, and skip the "device went silent" check.</li>
-        <li>The dashboard's newest snapshot covers only this window between PDF runs. A short run can open a Fix-list item but never mark it fixed.</li>
+        <li>The dashboard's newest snapshot covers only this window between daily runs. A short run can open a Fix-list item but never mark it fixed.</li>
       </ul>
       <div style="margin-top:8px"><button type="button" class="lb-save">Save</button> <span class="small muted lb-msg"></span></div>
       <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${L.default ?? 24} h.`} Applies from the next run.</div>`;
@@ -912,7 +971,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     const inp = c.querySelector('input[name="lb_hours"]'), btn = c.querySelector(".lb-save"), msg = c.querySelector(".lb-msg"), wr = c.querySelector(".lb-warn");
     const warn = () => { const h = +inp.value;
       wr.className = "lb-warn " + (ivH && h < ivH ? "bad" : "");
-      wr.textContent = ivH && h && h < ivH ? ` Shorter than the run interval: about ${+(ivH - h).toFixed(2)} h of logs between runs will never be reviewed (only the 24 h PDF run sees them).`
+      wr.textContent = ivH && h && h < ivH ? ` Shorter than the run interval: about ${+(ivH - h).toFixed(2)} h of logs between runs will never be reviewed (only the 24 h daily run sees them).`
         : ivH && h >= 2 * ivH && h > rec ? ` Each run re-reviews about ${+(h - ivH).toFixed(1)} h that the previous run already covered.` : ""; };
     inp.value = L.hours; warn();
     inp.disabled = !D.admin; btn.disabled = true;
@@ -923,7 +982,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       if (!/^\d+$/.test(h) || +h < L.min || +h > L.max) { msg.textContent = `Enter a whole number of hours from ${L.min} to ${L.max}.`; return; }
       msg.textContent = "saving…";
       try { const r = await apiPost("/api/config/lookback", { hours: +h }); inp.value = r.lookback.hours; warn();
-        msg.textContent = `saved: ${r.lookback.hours} h per run (from the next run; the PDF run stays 24 h)`; }
+        msg.textContent = `saved: ${r.lookback.hours} h per run (from the next run; the daily run stays 24 h)`; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     autoApply(btn, [inp]);
@@ -1074,6 +1133,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(clefCard(D));
     el.appendChild(clefServerCard(D));
     el.appendChild(modelsCard(D));
+    el.appendChild(notesConsolidateCard(D));
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
     el.appendChild(limitsCard(D));

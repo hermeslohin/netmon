@@ -19,6 +19,7 @@ import tintel
 import chat
 import kb
 import audit
+import notes_consolidate
 from http.cookies import SimpleCookie
 import glob, gzip, json, os, re, ssl, sys, threading, time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -1221,6 +1222,18 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)[:200]}, 400)
                 print(f"llm esqueries: {user} set enabled={res['enabled']} max={res['max']}", file=sys.stderr)
                 return self._json({"ok": True, "es_queries": res})
+            if u.path == "/api/llm/notes-consolidate":  # admin (ADMIN_POST prefix /api/llm/notes): nightly host note consolidation
+                try:
+                    if body.get("action") == "run":
+                        if not notes_consolidate.start("manual", user, full=bool(body.get("all"))):
+                            return self._json({"error": "a consolidation is already running"}, 409)
+                        print(f"notes consolidation: started by {user}", file=sys.stderr)
+                    else:
+                        notes_consolidate.set_cfg(user, enabled=body.get("enabled"), at_time=body.get("time"), tz=body.get("tz"))
+                        print(f"notes consolidation: {user} set {dict((k, body.get(k)) for k in ('enabled', 'time', 'tz'))}", file=sys.stderr)
+                except (TypeError, ValueError) as e:
+                    return self._json({"error": str(e)[:200]}, 400)
+                return self._json({"ok": True, "notes_consolidate": notes_consolidate.view()})
             if u.path == "/api/llm/notes":  # most host / user notes the reviewer gets per event
                 try:
                     res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"), body.get("per_subject"))
@@ -1699,6 +1712,8 @@ class H(BaseHTTPRequestHandler):
                 if not admin:
                     return self._json({"error": "admin only"}, 403)
                 return self._json(enrich.queue_items())
+            if path == "/api/llm/notes-consolidate":
+                return self._json(notes_consolidate.view())
             if path == "/api/aireview":
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
@@ -1709,6 +1724,10 @@ class H(BaseHTTPRequestHandler):
                 ov["limits"] = corr_llm.limits_view(base)
                 ov["chat"] = corr_llm.config()["chat"]
                 ov["lookback"] = lookback.get()
+                try:
+                    ov["notes_consolidate"] = notes_consolidate.view()
+                except Exception as e:  # noqa: BLE001
+                    ov["notes_consolidate"] = {"error": str(e)[:200]}
                 try:
                     ov["research_status"] = enrich.status((base.get("events") or {}).keys())
                 except Exception as e:  # noqa: BLE001 - the reviewer view must not depend on the research job status
@@ -1930,6 +1949,15 @@ def main():
                 print(f"autoclose timer: {e}", file=sys.stderr)
             time.sleep(300)
     threading.Thread(target=_ingest, daemon=True, name="eventstore-ingest").start()
+
+    def _notes_nightly():  # host note consolidation at the time set on AI review (notes_consolidate.py)
+        while True:
+            try:
+                notes_consolidate.tick()
+            except Exception as e:  # noqa: BLE001
+                print(f"notes consolidation timer: {e}", file=sys.stderr)
+            time.sleep(60)
+    threading.Thread(target=_notes_nightly, daemon=True, name="notes-consolidate-timer").start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2

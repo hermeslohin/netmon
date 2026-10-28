@@ -350,6 +350,21 @@ def review_host_note(note_id, decision, by):
                          (st, str(by)[:60] if st else None, time.time() if st else None, int(note_id))).rowcount
 
 
+_RTAG = re.compile(r"\[reviewer:(?:file|process|user|ip|dns):[^\]]{1,200}\]")
+
+
+def tagged_slot(notes, tag, decision=""):
+    """Where the correlation reviewer puts its note for one artifact tag -> (action, note_id).
+    'update' its own single-artifact note; 'skip' when a consolidated note (several tags, see notes_consolidate.py) already
+    covers the tag - overwriting it would wipe the other artifacts - unless the new judgement is suspicious; else 'add'."""
+    own = [x for x in notes if x["text"].startswith(tag) and len(_RTAG.findall(x["text"])) == 1]
+    if own:
+        return "update", own[0]["id"]
+    if decision != "suspicious" and any(tag in x["text"] for x in notes):
+        return "skip", None
+    return "add", None
+
+
 def delete_host_note(note_id):
     with _db() as c:
         c.execute("DELETE FROM note_artifacts WHERE note_id=?", (int(note_id),))

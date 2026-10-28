@@ -30,13 +30,18 @@ window.CARD_INFO = {
 "use": "Enter your current password and the new one twice. Your other signed-in browsers and phones are signed out, this one stays signed in. A long passphrase is strongest.",
 "what": "Self-service form to change your own dashboard password."
 },
+"aireview|Host note consolidation": {
+"source": "Host notes in the knowledge base (kb.db host_notes) written by the AI reviewer and research job; the merge is done by the correlation reviewer model (notes_consolidate.py, run by the dashboard at the set time).",
+"use": "Leave it on so hosts do not pile up hundreds of near-duplicate notes. Use Consolidate now after a burst of new notes. Many rejected merges mean the model is dropping identifiers; failed requests usually mean LM Studio was busy or down.",
+"what": "Nightly merge of overlapping AI-written host notes. KPIs: all host notes, the AI notes it may merge, hosts with changed notes waiting for a pass, and the last run's notes before and after. Person-written and reviewed notes are never changed."
+},
 "aireview|All verdicts": {
 "source": "Correlation verdict totals from the AI reviewer and manual overrides stored by the dashboard.",
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
 "aireview|AI Correlation job": {
-"source": "The correlation job (review.py), started by the netmon scheduler on a grid anchored at 05:00 UTC (the first run after 05:00 UTC also writes the PDF). The interval is set on this card; settings are in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
+"source": "The correlation job (review.py), started by the netmon scheduler on a grid anchored at 05:00 UTC (the first run after 05:00 UTC covers 24 h for the device baseline). Scheduled runs never call an AI model: the reviewer runs only on Run now, event research only on Send to research. The interval is set on this card; settings are in the netmon store, run state in research_job.json, notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Set Run every to change how often it runs (5 to 1440 minutes; saves automatically). Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest findings.",
 "what": "Status of the scheduled correlation job: each run collects and analyzes the latest logs, correlates events, and has the AI reviewer decide the proposed links and queue events for research. Shows health, model, schedule, last run, link verdicts, note coverage and recent runs. Events are researched only on request (Send to research), not on the schedule."
 },
@@ -51,7 +56,7 @@ window.CARD_INFO = {
 "what": "Cost and size limits of the scheduled AI Research job: $ per run, $ per day, tokens per run and event-research batches per run."
 },
 "aireview|Research lookback window": {
-"what": "How many hours of logs each run of the AI Research job collects and reviews. The daily PDF run always covers 24 hours.",
+"what": "How many hours of logs each run of the AI Research job collects and reviews. The daily 05:00 UTC run always covers 24 hours.",
 "source": "Saved in the netmon store and read by the collector when the AI Research job starts (collect.py auto).",
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
 },
@@ -107,7 +112,7 @@ window.CARD_INFO = {
 },
 "checked|Cleared segmentation": {
 "source": "Your check-offs, saved in the netmon SQLite store on the dashboard host, matched against the violations analyze.py found using the zone rules in the network policy (More → Settings).",
-"use": "Cleared flows are hidden from Posture, Fix list, Risk, correlation and the PDF. Uncheck one to bring it back. To make an exception permanent for everyone and the nightly analysis, add it to the network policy (More → Settings) instead.",
+"use": "Cleared flows are hidden from Posture, Fix list, Risk and correlation. Uncheck one to bring it back. To make an exception permanent for everyone and the nightly analysis, add it to the network policy (More → Settings) instead.",
 "what": "Network segmentation violations (traffic between zones that policy says should not happen) that you marked as expected, with why they were flagged and whether they still occur."
 },
 "devices|All hosts": {

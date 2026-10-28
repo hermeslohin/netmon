@@ -141,8 +141,8 @@ def config():
         mx = ES_MAX_DEFAULT
     ch = c.get("chat") or {}
     prov, model = cor.get("provider"), cor.get("model")
-    if not prov:  # nothing explicitly chosen yet: default to any configured provider, not necessarily LM Studio
-        prov, model = llm_providers.default_target()
+    if not prov:  # nothing explicitly chosen yet: the local server - a cloud API (OpenAI...) is only used once a person picks it
+        prov = "lmstudio"
     return {"correlation": {"provider": prov, "model": model or MODEL},
             "chat": {"provider": ch.get("provider") or "", "model": ch.get("model") or "", "by": ch.get("by"), "at": ch.get("at")},
             "chat_es": {"enabled": (c.get("chat_es") or {}).get("enabled", True) is not False, "by": (c.get("chat_es") or {}).get("by"), "at": (c.get("chat_es") or {}).get("at")},
@@ -1373,9 +1373,11 @@ def _note_internet(model, aid, E, cands, dec):
             tag = f"[reviewer:ip:{ip}]"
             text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Reviewer judgement ({mname}), unverified.)"
             try:
-                old = [x for x in kb.host_notes([f"ip:{ip}"]) if x["text"].startswith(tag)]
+                act, nid = kb.tagged_slot(kb.host_notes([f"ip:{ip}"]), tag, art["decision"])
+                if act == "skip":
+                    continue
                 kb.add_host_note({"ip": ip}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="correlation reviewer",
-                                 note_id=old[0]["id"] if old else None)
+                                 note_id=nid)
                 n += 1
             except ValueError as ex:
                 print(f"corr_llm: internet note not added for {ip}: {ex}", file=sys.stderr)
@@ -1403,9 +1405,11 @@ def _note_dns(model, aid, E, cands, dec):
             tag = f"[reviewer:dns:{name}]"
             text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Reviewer judgement ({mname}), unverified.)"
             try:
-                old = [x for x in kb.host_notes([f"dom:{name}"]) if x["text"].startswith(tag)]
+                act, nid = kb.tagged_slot(kb.host_notes([f"dom:{name}"]), tag, art["decision"])
+                if act == "skip":
+                    continue
                 kb.add_host_note({"dom": name}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="correlation reviewer",
-                                 note_id=old[0]["id"] if old else None)
+                                 note_id=nid)
                 n += 1
             except ValueError as ex:
                 print(f"corr_llm: dns note not added for {name}: {ex}", file=sys.stderr)
@@ -1440,8 +1444,10 @@ def _note_expected(model, aid, E, cands, dec):
                     f"Seen in a correlation between '{E[aid]['label'][:80]}' and '{e['label'][:80]}'. Reviewer judgement ({mname}), unverified; delete if wrong.")
             for ip in hosts[:2]:
                 try:
-                    old = [x for x in kb.host_notes(kb.subjects_for_ip(ip)) if x["text"].startswith(tag)]
-                    kb.add_host_note({"ip": ip}, text, "behavior", author="ai", model=mname, via="correlation reviewer", note_id=old[0]["id"] if old else None)
+                    act, nid = kb.tagged_slot(kb.host_notes(kb.subjects_for_ip(ip)), tag, "expected")
+                    if act == "skip":
+                        continue
+                    kb.add_host_note({"ip": ip}, text, "behavior", author="ai", model=mname, via="correlation reviewer", note_id=nid)
                     n += 1
                 except ValueError as ex:  # note limit reached / unresolvable subject
                     print(f"corr_llm: host note not added for {ip}: {ex}", file=sys.stderr)

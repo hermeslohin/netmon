@@ -22,7 +22,6 @@ for c in python3 docker git openssl systemctl; do
   if command -v "$c" >/dev/null 2>&1; then ok "$c"; else bad "$c not found"; fi
 done
 [ -x /usr/bin/python3 ] && ok "/usr/bin/python3 (the jobs call it explicitly)" || bad "/usr/bin/python3 missing"
-/usr/bin/python3 -c 'import reportlab' 2>/dev/null && ok "reportlab (PDF reports)" || bad "reportlab missing: sudo apt install python3-reportlab   (or pip install --user reportlab)"
 docker info >/dev/null 2>&1 && ok "docker usable by $(id -un)" || bad "docker not usable by $(id -un) (add the user to the docker group)"
 
 echo "== settings (SQLite cfg table; edit on the dashboard: More > Settings)"

@@ -3,7 +3,7 @@
 
 Admins set it on the dashboard's AI review page (POST /api/config/lookback); it is stored in the netmon store's
 meta table (key "research_lookback") so the host job and the dashboard container read the same value.
-The daily PDF run (05 UTC) always covers 24 h, whatever the setting, so the report and the baseline stay daily.
+The daily run (05 UTC) always covers 24 h, whatever the setting, so the device baseline stays daily.
 
 Usage: lookback.py            hours for a run starting now (what `collect.py auto` uses)
        lookback.py show       the setting as JSON
@@ -18,7 +18,7 @@ import store  # noqa: E402
 
 KEY = "research_lookback"
 DEFAULT, MIN_H, MAX_H = 24, 1, 24
-PDF_HOUR = 5  # UTC hour of the PDF run (the review schedule is anchored on it)
+DAILY_HOUR = 5  # UTC hour of the daily 24 h run (the review schedule is anchored on it)
 
 
 def get():
@@ -30,7 +30,7 @@ def get():
         v = {}
     h = v.get("hours")
     return {"hours": h if isinstance(h, int) and MIN_H <= h <= MAX_H else DEFAULT, "by": v.get("by"), "at": v.get("at"),
-            "default": DEFAULT, "min": MIN_H, "max": MAX_H, "pdf_hour": PDF_HOUR}
+            "default": DEFAULT, "min": MIN_H, "max": MAX_H, "daily_hour": DAILY_HOUR}
 
 
 def put(hours, user):
@@ -48,8 +48,8 @@ def put(hours, user):
 def for_run(hour=None):
     """(hours, why) for a run starting at UTC `hour` (default now)."""
     hour = time.gmtime().tm_hour if hour is None else hour
-    if hour == PDF_HOUR:
-        return 24, "PDF run: always 24 h"
+    if hour == DAILY_HOUR:
+        return 24, "daily run: always 24 h"
     s = get()
     return s["hours"], ("configured on the AI review page" if s.get("at") else "default")
 

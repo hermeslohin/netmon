@@ -182,7 +182,7 @@ Run state, tokens and estimated cost are stored in the netmon database and shown
 
 ```bash
 /usr/bin/python3 review.py                 # like a scheduled run
-/usr/bin/python3 review.py --pdf           # force the 24 h daily run (flag name kept); --no-pdf to skip it
+/usr/bin/python3 review.py --daily         # force the 24 h daily run; --no-daily to skip it
 /usr/bin/python3 review.py --skip-collect --max-batches 2   # reuse the newest snapshot, fewer research batches
 ```
 

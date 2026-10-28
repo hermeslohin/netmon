@@ -183,7 +183,7 @@ class TestLookback(unittest.TestCase):
         REQ: CFG-02
         """
         g = lookback.get()
-        self.assertEqual(g, {"hours": 24, "by": None, "at": None, "default": 24, "min": 1, "max": 24, "pdf_hour": 5})
+        self.assertEqual(g, {"hours": 24, "by": None, "at": None, "default": 24, "min": 1, "max": 24, "daily_hour": 5})
 
     def test_put_valid_values(self):
         """put() accepts whole numbers 1-24 as int or (padded) string and records author and time.
@@ -216,12 +216,12 @@ class TestLookback(unittest.TestCase):
             self.assertEqual(lookback.get()["hours"], 24, raw)
 
     def test_for_run(self):
-        """The 05 UTC PDF run always uses 24 h; other hours use the setting and say whether it is configured.
+        """The 05 UTC daily run always uses 24 h; other hours use the setting and say whether it is configured.
         REQ: CFG-02, OPS-03
         """
         self.assertEqual(lookback.for_run(10), (24, "default"))
         lookback.put(4, "a")
-        self.assertEqual(lookback.for_run(5), (24, "PDF run: always 24 h"))
+        self.assertEqual(lookback.for_run(5), (24, "daily run: always 24 h"))
         self.assertEqual(lookback.for_run(10), (4, "configured on the AI review page"))
         self.assertIn(lookback.for_run()[0], (4, 24))
 
@@ -248,7 +248,7 @@ class TestResearchCfg(unittest.TestCase):
         self.assertEqual(set(g["modes"].values()), {"test"})
         self.assertEqual(set(g["modes"]), {k for k, _ in rc.MODE_CATS})
         self.assertEqual(g["severities"], [])
-        self.assertEqual(g["pdf_hour"], 5)
+        self.assertEqual(g["daily_hour"], 5)
         self.assertEqual(len(g["mode_cats"]), len(rc.MODE_CATS))
 
     def test_existing_deployment_keeps_legacy_behaviour(self):

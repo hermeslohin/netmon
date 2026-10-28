@@ -4,7 +4,7 @@
 Settings live in the netmon store's meta table (key "research_job"), so the dashboard container (which writes them
 from the AI review / Configuration pages) and the host scheduler read the same values:
   provider, model       which AI does the research ("api:<id>" from llm_providers, or "lmstudio")
-  interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily PDF run)
+  interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily 24 h run)
   enabled               the scheduler skips the job when off
   max_run_usd           stop a run when its estimated cost passes this (needs a price for the model; 0 = no cap)
   max_day_usd           no new run once today's runs (UTC) cost this much (0 = no cap)
@@ -35,7 +35,7 @@ sys.path.insert(0, _HERE)
 import store  # noqa: E402
 
 KEY, REQ = "research_job", "research_request"
-PDF_HOUR = 5
+DAILY_HOUR = 5
 SEVERITIES = ("high", "medium", "low", "info")  # the standard severity vocabulary (risk.py SEV_BASE, issues.py SEV_ORDER)
 MODES = ("research", "review", "skip", "test")
 MODE_CATS = (("host", "Endpoint host findings"), ("ids12", "Suricata severity 1-2 signatures"), ("gw", "UniFi gateway events"),
@@ -74,7 +74,7 @@ def _meta_put(k, v):
 def get():
     v = _meta(KEY)
     out = {k: v.get(k, d) for k, d in DEFAULTS.items()}
-    if v:  # a deployment that already has settings keeps its behaviour: web research and the PDF were on before they became options
+    if v:  # a deployment that already has settings keeps its behaviour: web research was on before they became options
         out.update({k: v.get(k, True) for k in ("web_research",)})
     for k, (lo, hi) in LIMITS.items():
         try:
@@ -94,7 +94,7 @@ def get():
         modes.update({k: m for k, m in v["modes"].items() if k in DEFAULT_MODES and m in MODES})
     out["modes"] = modes
     out["severities"] = [s_ for s_ in SEVERITIES if modes[s_] in ("research", "review")]
-    out.update(by=v.get("by"), at=v.get("at"), pdf_hour=PDF_HOUR, limits=LIMITS, severity_options=list(SEVERITIES),
+    out.update(by=v.get("by"), at=v.get("at"), daily_hour=DAILY_HOUR, limits=LIMITS, severity_options=list(SEVERITIES),
                mode_options=list(MODES), mode_cats=[{"key": k, "label": l} for k, l in MODE_CATS])
     return out
 
@@ -143,11 +143,11 @@ def slot(now=None, interval=None):
     """Index of the schedule slot `now` falls in (grid of `interval` minutes anchored at 05:00 UTC)."""
     now = time.time() if now is None else now
     interval = interval or get()["interval_minutes"]
-    return int((now - PDF_HOUR * 3600) // (interval * 60))
+    return int((now - DAILY_HOUR * 3600) // (interval * 60))
 
 
 def slot_start(n, interval):
-    return n * interval * 60 + PDF_HOUR * 3600
+    return n * interval * 60 + DAILY_HOUR * 3600
 
 
 def next_run(now=None):
