@@ -285,9 +285,15 @@ def reopen_checked(eid, why=""):
     if str(eid).startswith("alert|"):  # suppressed alerts stay suppressed: a suppress rule is an explicit decision
         return 0
     try:
+        import kb
+        if (kb.person_verdicts([eid]).get(eid) or {}).get("verdict") in ("expected", "benign"):
+            return 0  # a person called it expected/benign (📝): authoritative, the AI does not overrule it
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         A = store.acks_load()
         for t, k in _ack_keys(eid):
-            if k in (A.get(t) or {}) and not str((A[t][k] or {}).get("note") or "").startswith("suppressed:"):  # suppressed items stay suppressed
+            if k in (A.get(t) or {}) and not str((A[t][k] or {}).get("note") or "").startswith(("suppressed:", "auto-closed: analyst verdict ")):  # suppressed items and a person's Expected/Benign call stay closed
                 store.ack_set(t, k, False)
                 n += 1
                 try:
@@ -298,7 +304,10 @@ def reopen_checked(eid, why=""):
                 try:
                     c = store._dc()
                     with store.tx(c):
-                        c.execute("UPDATE autoclose_log SET state='reopened', at=? WHERE type=? AND key=?", (store.now_iso(), t, k))
+                        # 'reopened-verdict' (not 'reopened' = a person un-checked it): the AI reopened it, so a later
+                        # expected/benign classification may auto-close it again
+                        c.execute("UPDATE autoclose_log SET state='reopened-verdict', verdict=?, at=? WHERE type=? AND key=?",
+                                  (f"reviewer:suspicious {why[:80]}", store.now_iso(), t, k))
                 except sqlite3.Error:
                     pass
     except Exception as e:  # noqa: BLE001 - never fail the classification over this

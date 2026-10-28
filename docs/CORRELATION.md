@@ -336,8 +336,17 @@ listed in its own card on More → Checked. Nothing is bypassed: the event stays
 
 **Checked events.** Checked-off events (Alerts, Posture, Fix list, Lateral movement… listed on the Checked page) are
 reviewed and researched like any other event; nothing is skipped because it was cleared. When the reviewer classifies a
-checked event as *suspicious*, it is un-checked and moves back from Checked into the findings (auto-close will not close it
-again).
+checked event as *suspicious*, it is un-checked and moves back from Checked into the findings; a later *expected* or
+*benign* classification may auto-close it again (only a person's un-check keeps auto-close off an item for good). An
+event a person marked **Expected** or **Benign** (📝 verdict buttons) is never reopened by the AI.
+
+**People's verdicts.** The 📝 notes popover on every event has **✅ Expected / 🟢 Benign / ⚠️ Suspicious** buttons. Each
+saves an event note (with any text typed in the box) that starts `ANALYST VERDICT: <VERDICT> (... authoritative ...)`,
+so every AI prompt that reads event notes (reviewer, research, Ask AI, MCP) sees it, and the verdict is stored in the
+note's `verdict` column. Expected/Benign check the event off at once and auto-close also closes later repeats of it
+(same stable event key), whatever the four auto-close switches say; Suspicious un-checks it and blocks auto-close. A
+person's verdict outranks every AI verdict. A User-role account's verdict waits for a defender/admin approval like any
+of their notes.
 
 **Queue behaviour.** The worker pass repeats about every minute (every 5 seconds while it finds work). It reviews the
 newest snapshot first, then snapshots opened in the last hour. If the provider is down or rate-limited the links stay

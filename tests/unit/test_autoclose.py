@@ -102,6 +102,47 @@ class AutoCloseOpenEvents(unittest.TestCase):
         self.assertEqual(r["reopened_verdict_changed"], 0)
         self.assertNotIn(IDS, {e["eid"] for e in eventstore.open_events()["events"]})
 
+    def test_ai_reopen_does_not_block_a_later_close(self):
+        """An event the AI review reopened (suspicious) is closed again when a later review calls it expected; only a
+        person's un-check blocks auto-close for good.
+        REQ: STO-08
+        """
+        _classify(GW, "expected")
+        refs = self.refs(GW)
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertTrue(all(_acked(t, k) for t, k in refs))
+        _classify(GW, "suspicious")
+        corr_llm.reopen_checked(GW, "test")
+        self.assertIn(GW, {e["eid"] for e in eventstore.open_events()["events"]})
+        _classify(GW, "expected")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(GW, {e["eid"] for e in eventstore.open_events()["events"]})
+
+    def test_person_verdict_is_authoritative(self):
+        """A person's Expected/Benign verdict note closes the event even with every option off and is never reopened by
+        an AI 'suspicious'; a person's Suspicious keeps it open even when the reviewer says expected.
+        REQ: STO-08
+        """
+        import kb
+        autoclose.set_settings({}, "test")
+        _classify(IDS, "suspicious"); _classify(GW, "expected")
+        kb.add_event_note(IDS, "my backup job", "admin1", verdict="expected")
+        kb.add_event_note(GW, "", "admin1", verdict="suspicious")
+        self.assertTrue(kb.event_notes([IDS])[IDS][0]["text"].startswith(kb.VERDICT_TAG + "EXPECTED"))
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["person_expected"]["closed_now"], 1)
+        left = {e["eid"] for e in eventstore.open_events()["events"]}
+        self.assertNotIn(IDS, left)
+        self.assertIn(GW, left)
+        self.assertEqual(corr_llm.reopen_checked(IDS, "ai says suspicious"), 0)
+        self.assertNotIn(IDS, {e["eid"] for e in eventstore.open_events()["events"]})
+        uid = kb.add_event_note(BAD_IDS, "", "u1", role="user", verdict="benign")  # a User's verdict waits for approval
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertIn(BAD_IDS, {e["eid"] for e in eventstore.open_events()["events"]})
+        kb.review_event_note(uid, True, "admin1")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(BAD_IDS, {e["eid"] for e in eventstore.open_events()["events"]})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,7 +68,8 @@ def _db():
         if col not in hh:
             c.execute(f"ALTER TABLE host_notes ADD COLUMN {col} {decl}")
     have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
-    for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL")):
+    for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL"),
+                      ("verdict", "TEXT NOT NULL DEFAULT ''")):  # verdict: a person's expected / benign / suspicious call (authoritative)
         if col not in have:  # older kb.db: every existing note was written by an admin/defender, so it stays approved
             c.execute(f"ALTER TABLE event_notes ADD COLUMN {col} {decl}")
     return c
@@ -475,7 +476,9 @@ def put(doc):
 
 
 # ---------------------------------------------------------------- event notes (people)
-_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at")
+_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict")
+VERDICTS = ("expected", "benign", "suspicious")  # the 📝 popover's buttons: a person's call on the event, authoritative for the AI and auto-close
+VERDICT_TAG = "ANALYST VERDICT: "  # prefix of the note text, so every AI prompt that reads notes sees the verdict
 STATUSES = ("pending", "approved", "rejected")
 MAX_PENDING_PER_USER = 50
 
@@ -540,9 +543,23 @@ def all_event_notes(limit=500, ai=False):
         return rows
 
 
-def add_event_note(eid, text, author, label="", role="admin"):
-    """Notes by a User-role account start 'pending' (hidden from the AI until approved); others are approved at once."""
+def verdict_text(verdict, author, text=""):
+    """Note text for a person's verdict: the AI reads it as the analyst's final, authoritative call on the event."""
+    who = str(author or "").replace("user:", "")
+    return (f"{VERDICT_TAG}{verdict.upper()} (set by {who}; authoritative - the network owner/defender has decided this event is "
+            f"{verdict}; do not contradict it)" + (f". {text}" if text else ""))[:MAX_TEXT]
+
+
+def add_event_note(eid, text, author, label="", role="admin", verdict=""):
+    """Notes by a User-role account start 'pending' (hidden from the AI until approved); others are approved at once.
+    verdict (expected / benign / suspicious): a person's call on the event - stored in its own column and written into the
+    text, so it reaches every AI prompt; once approved, auto-close applies it to this event and its repeats."""
     eid, text = str(eid or "").strip()[:600], str(text or "").strip()[:MAX_TEXT]
+    verdict = str(verdict or "").strip().lower()
+    if verdict and verdict not in VERDICTS:
+        raise ValueError("verdict must be expected, benign or suspicious")
+    if verdict:
+        text = verdict_text(verdict, author, text)
     if not eid or not text:
         raise ValueError("event id and text required")
     status = "pending" if role == "user" else "approved"
@@ -552,9 +569,26 @@ def add_event_note(eid, text, author, label="", role="admin"):
             n = c.execute("SELECT count(*) FROM event_notes WHERE author=? AND status='pending'", (str(author)[:60],)).fetchone()[0]
             if n >= MAX_PENDING_PER_USER:
                 raise ValueError(f"you already have {n} notes waiting for approval - wait for a defender to review them")
-        cur = c.execute("INSERT INTO event_notes (skey, eid, label, author, text, ts, status, role) VALUES (?,?,?,?,?,?,?,?)",
-                        (k, eid, str(label or "")[:200], str(author)[:60], text, time.time(), status, str(role or "")[:20]))
+        cur = c.execute("INSERT INTO event_notes (skey, eid, label, author, text, ts, status, role, verdict) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (k, eid, str(label or "")[:200], str(author)[:60], text, time.time(), status, str(role or "")[:20], verdict))
         return cur.lastrowid
+
+
+def person_verdicts(eids):
+    """{eid: latest APPROVED verdict note} - a person's expected / benign / suspicious call, carried over to repeats of the
+    event via the stable event key. Pending (User) and rejected notes never count."""
+    out = {}
+    for eid, ns in event_notes(eids, ai=True).items():
+        v = [n for n in ns if n.get("verdict") in VERDICTS]
+        if v:
+            out[eid] = max(v, key=lambda n: n["ts"] or 0)
+    return out
+
+
+def event_note(note_id):
+    with _db() as c:
+        r = c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE id=?", (int(note_id),)).fetchone()
+    return dict(zip(_ECOLS, r)) if r else None
 
 
 def review_event_note(note_id, approve, by):

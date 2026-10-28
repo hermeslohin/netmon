@@ -36,6 +36,9 @@ KINDS = ("expected", "benign")  # verdicts that close an item
 SOURCES = ("reviewer", "researcher")  # who decided: the correlation reviewer's classification / the research note
 OPTS = tuple(f"{src}_{k}" for src in SOURCES for k in KINDS)  # the four switches: reviewer_expected, reviewer_benign, ...
 NOTE_PREFIX = "auto-closed: AI verdict "
+PERSON_PREFIX = "auto-closed: analyst verdict "  # a person's Expected / Benign button on the event's 📝 notes (always applied)
+PREFIXES = (NOTE_PREFIX, PERSON_PREFIX)
+PERSON = ("person_expected", "person_benign")
 _lock = threading.Lock()
 
 
@@ -116,9 +119,13 @@ def last_run(c=None):
     return json.loads(r[0]) if r else None
 
 
-def _verdicts(eid, notes, cls):
-    """{source: verdict} - researcher = the research note's verdict, reviewer = the correlation reviewer's label."""
+def _verdicts(eid, notes, cls, pv=None):
+    """{source: verdict} - researcher = the research note's verdict, reviewer = the correlation reviewer's label,
+    person = a person's approved verdict note (📝 Expected / Benign / Suspicious)."""
     out = {}
+    v = ((pv or {}).get(eid) or {}).get("verdict")
+    if v:
+        out["person"] = v
     v = (notes.get(eid) or {}).get("verdict")
     if v:
         out["researcher"] = v
@@ -151,10 +158,13 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
         ids = [i[0] for i in items] + list(other_eids)
         notes = enrich.load(ids)
         cls = corr_llm.classes(ids)
+        import kb
+        pv = kb.person_verdicts(ids)
         acks = store.acks_load(c)
         log = {(r["type"], r["key"]): dict(r) for r in c.execute("SELECT * FROM autoclose_log")}
+        on |= set(PERSON)  # a person's verdict is authoritative: applied whatever the four switches say
         res = {o: {"closable": 0, "would_close": 0, "closed_now": 0, "auto_closed": 0, "reopened_by_user": 0, "no_checklist": 0}
-               for o in OPTS}
+               for o in (*OPTS, *PERSON)}
         res["reopened_verdict_changed"] = 0
         seen, handled = set(), set()
         rules = store.suppress_list(c)  # suppression outranks auto-close: a covered item is never reopened
@@ -162,13 +172,27 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
         def handle(eid, refs, label, members=()):
             """One closable event: refs[0] is its own check-off (logged); the rest are checked off with it."""
             typ, key = refs[0]
-            vs = _verdicts(eid, notes, cls)
-            good = [f"{k}_{vs[k]}" for k in SOURCES if vs.get(k) in KINDS]
+            others = [m for m in members if m != eid]
+            vs = {k: v for k, v in _verdicts(eid, notes, cls).items()}
+            for src, get in (("researcher", lambda m: notes.get(m)), ("reviewer", lambda m: cls.get(m))):
+                if src not in vs:  # grouped event: its newest run is not classified yet - the latest classified repeat decides
+                    best = max((get(m) for m in others if (get(m) or {}).get("verdict" if src == "researcher" else "label")),
+                               key=lambda x: str(x.get("at") or ""), default=None)
+                    if best:
+                        vs[src] = best.get("verdict" if src == "researcher" else "label")
+                        vfrom[(eid, src)] = best
             bad = any(v in BAD for v in vs.values()) or any(
-                v in BAD for m in members if m != eid for v in _verdicts(m, notes, cls).values())
+                v in BAD for m in others for v in _verdicts(m, notes, cls).values())
+            pn = max((pv[m] for m in [eid, *others] if m in pv), key=lambda n: n["ts"] or 0, default=None)
+            if pn:  # a person's call outranks every AI verdict
+                vs["person"] = pn["verdict"]
+                bad = pn["verdict"] in BAD
+                good = [] if bad else [f"person_{pn['verdict']}"]
+            else:
+                good = [f"{k}_{vs[k]}" for k in SOURCES if vs.get(k) in KINDS]
             a = (acks.get(typ) or {}).get(key)
             lg = log.get((typ, key))
-            auto = bool(a and str(a.get("note") or "").startswith(NOTE_PREFIX))
+            auto = bool(a and str(a.get("note") or "").startswith(PREFIXES))
             if not vs and not auto:
                 return False  # no verdict for this variant: let another variant of the same event decide
             if not good or bad:
@@ -180,7 +204,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                         return
                     for t, k in dict.fromkeys([(typ, key), *_refs_of(lg)]):
                         b = (acks.get(t) or {}).get(k)
-                        if b and str(b.get("note") or "").startswith(NOTE_PREFIX):
+                        if b and str(b.get("note") or "").startswith(PREFIXES):
                             store.ack_set(t, k, False, c=c)
                     with store.tx(c):
                         c.execute("UPDATE autoclose_log SET state='reopened-verdict', verdict=?, at=? WHERE type=? AND key=?",
@@ -194,6 +218,8 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 lg["state"] = "reopened"
             for k in good:
                 res[k]["closable"] += 1
+            if lg and lg["state"] == "reopened" and pn and good and _ts(pn["ts"]) > str(lg.get("at") or ""):
+                lg["state"] = "person"  # a person marked it expected/benign after it was reopened: their newer call wins
             if lg and lg["state"] == "reopened":
                 for k in good:
                     res[k]["reopened_by_user"] += 1
@@ -210,9 +236,14 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 res[k]["would_close"] += 1
             if hit and not dry:
                 src, v = hit.split("_")
-                who = (notes.get(eid) if src == "researcher" else cls.get(eid)) or {}
-                text = who.get("summary") if src == "researcher" else who.get("reason")
-                note = f"{NOTE_PREFIX}{v} ({src}, {who.get('model') or 'AI'}): {text or ''}"
+                if src == "person":
+                    who = {"model": f"person:{pn['author']}"}
+                    txt = str(pn["text"] or "").split("do not contradict it)", 1)[-1].lstrip(". ")  # the person's own words
+                    note = f"{PERSON_PREFIX}{v} (by {str(pn['author']).replace('user:', '')}){': ' + txt if txt else ''}"
+                else:
+                    who = vfrom.get((eid, src)) or (notes.get(eid) if src == "researcher" else cls.get(eid)) or {}
+                    text = who.get("summary") if src == "researcher" else who.get("reason")
+                    note = f"{NOTE_PREFIX}{v} ({src}, {who.get('model') or 'AI'}): {text or ''}"
                 for t, k in dict.fromkeys(refs):
                     if not (acks.get(t) or {}).get(k):
                         store.ack_set(t, k, True, note, label, c=c)
@@ -225,6 +256,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                     res[k]["auto_closed"] += 1 if k == hit else 0
                 res[hit]["closed_now"] += 1
 
+        vfrom = {}  # (eid, source) -> the repeat whose verdict a grouped event used
         tried = set()
         for eid, typ, key, label in items:
             if (typ, key) in tried:
@@ -239,6 +271,9 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
             if more:
                 notes.update(enrich.load(more))
                 cls.update(corr_llm.classes(more))
+            pmore = list(dict.fromkeys(i for e in oe for i in [e["eid"], *(e.get("members") or [])] if i not in pv))
+            if pmore:
+                pv.update(kb.person_verdicts(pmore))
             for e in oe:
                 refs = [(x["type"], x["key"]) for x in e.get("acks") or []]
                 if not refs or any(r in seen for r in refs):
@@ -253,8 +288,9 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 if more:
                     notes.update(enrich.load(more))
                     cls.update(corr_llm.classes(more))
+                pv.update(kb.person_verdicts([lg["eid"] for lg in gone if lg["eid"] not in pv]))
                 for lg in gone:
-                    vs = _verdicts(lg["eid"], notes, cls)
+                    vs = _verdicts(lg["eid"], notes, cls, pv)
                     if not vs or (any(v in KINDS for v in vs.values()) and not any(v in BAD for v in vs.values())):
                         continue  # no verdict any more (pruned) or still fine: leave it closed
                     seen.add((lg["type"], lg["key"]))
@@ -270,7 +306,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                     res[f"{k}_{vs[k]}"]["no_checklist"] += 1
         res["settings"] = s
         if not dry:
-            closed = {o: res[o]["closed_now"] for o in OPTS}
+            closed = {o: res[o]["closed_now"] for o in (*OPTS, *PERSON)}
             with store.tx(c):
                 c.execute("INSERT OR REPLACE INTO meta VALUES ('autoclose_last', ?)", (json.dumps(
                     {"at": store.now_iso(), "trigger": trigger, "closed": closed, "reopened": res["reopened_verdict_changed"],
@@ -279,6 +315,44 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 print(f"autoclose ({trigger}): closed {closed}, reopened {res['reopened_verdict_changed']} (verdict changed)", file=sys.stderr)
         res["last_run"] = last_run(c)
         return res
+
+
+def _ts(t):
+    import datetime
+    return datetime.datetime.fromtimestamp(float(t or 0), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def person_marked(eid, verdict, user, inputs):
+    """Right after a person saves (or a defender approves) a verdict note: Suspicious un-checks the event at once (and
+    keeps auto-close off it); Expected / Benign are applied by an auto-close pass in the background."""
+    import corr_llm
+    if verdict == "suspicious":
+        A = store.acks_load()
+        keys = list(corr_llm._ack_keys(eid))
+        try:
+            import eventstore
+            for e in eventstore.open_events(limit=10 ** 6)["events"]:
+                if eid == e["eid"] or eid in (e.get("members") or []):
+                    keys += [(x["type"], x["key"]) for x in e.get("acks") or []]
+        except Exception:  # noqa: BLE001
+            pass
+        c = _c()
+        for t, k in dict.fromkeys(keys):
+            if k in (A.get(t) or {}) and not str((A[t][k] or {}).get("note") or "").startswith("suppressed:"):
+                store.ack_set(t, k, False, c=c)
+                with store.tx(c):
+                    c.execute("UPDATE autoclose_log SET state='reopened-verdict', verdict=?, at=? WHERE type=? AND key=?",
+                              (f"person:suspicious ({user})", store.now_iso(), t, k))
+        print(f"autoclose: {user} marked {eid[:80]!r} suspicious - back in the findings", file=sys.stderr)
+
+    def go():
+        try:
+            inp = inputs()  # server.autoclose_inputs (passed in: this runs inside the dashboard process)
+            if inp:
+                run(*inp, trigger=f"verdict by {user}")
+        except Exception as e:  # noqa: BLE001
+            print(f"autoclose after verdict: {type(e).__name__}: {e}", file=sys.stderr)
+    threading.Thread(target=go, daemon=True).start()
 
 
 def reopen_all(user, kind=None):
@@ -293,7 +367,7 @@ def reopen_all(user, kind=None):
                 continue
             for i, (t, k) in enumerate(dict.fromkeys([(r["type"], r["key"]), *_refs_of(r)])):
                 a = (acks.get(t) or {}).get(k)
-                if a and str(a.get("note") or "").startswith(NOTE_PREFIX):
+                if a and str(a.get("note") or "").startswith(PREFIXES):
                     store.ack_set(t, k, False, c=c)
                     n += 1 if i == 0 else 0
             with store.tx(c):

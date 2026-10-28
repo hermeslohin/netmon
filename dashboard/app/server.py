@@ -1452,11 +1452,14 @@ class H(BaseHTTPRequestHandler):
                     if role == "user" and eid not in {e["id"] for e in my_events(user)["events"]}:
                         print(f"access denied: {user} (user) note on event outside their devices {eid[:80]!r}", file=sys.stderr)
                         return self._json({"error": "you can only add notes to events of your assigned devices"}, 403)
+                    vd = str(body.get("verdict") or "").lower()
                     try:
-                        nid = kb.add_event_note(eid, body.get("text"), user, body.get("label"), role=role)
+                        nid = kb.add_event_note(eid, body.get("text"), user, body.get("label"), role=role, verdict=vd)
                     except ValueError as e:
                         return self._json({"error": str(e)}, 400)
-                    print(f"kb: {user} ({role}) added event note {nid} on {eid[:80]!r}{' - pending approval' if role == 'user' else ''}", file=sys.stderr)
+                    print(f"kb: {user} ({role}) added event note {nid} on {eid[:80]!r}{' verdict ' + vd if vd else ''}{' - pending approval' if role == 'user' else ''}", file=sys.stderr)
+                    if vd and role != "user":  # authoritative at once; a User's verdict waits for approval
+                        autoclose.person_marked(eid, vd, user, autoclose_inputs)
                     return self._json({"ok": True, "id": nid, "notes": notes_for()})
                 if act == "delete":
                     n = kb.delete_event_note(body.get("id"), author=mine)
@@ -1465,6 +1468,9 @@ class H(BaseHTTPRequestHandler):
                 if act in ("approve", "reject"):  # defender / admin gate before a User's note may reach the AI
                     n = kb.review_event_note(body.get("id"), act == "approve", user)
                     print(f"kb: {user} ({role}) {act}d event note {body.get('id')!r}", file=sys.stderr)
+                    en = kb.event_note(body.get("id")) if n and act == "approve" else None
+                    if en and en.get("verdict"):
+                        autoclose.person_marked(en["eid"], en["verdict"], user, autoclose_inputs)
                     return self._json({"ok": bool(n), "notes": notes_for() if eid else []})
                 return self._json({"error": "action must be add, delete, approve or reject"}, 400)
             if u.path == "/api/alerts/read":
@@ -1916,7 +1922,7 @@ def main():
             except Exception as e:  # noqa: BLE001
                 print(f"eventstore ingest: {e}", file=sys.stderr)
             try:  # apply new AI verdicts (reviewer classifications arrive continuously, not only with the review job)
-                if any(autoclose.settings()[o] for o in autoclose.OPTS):
+                if True:  # always: people's Expected / Benign verdicts also close later repeats, whatever the switches say
                     inp = autoclose_inputs()
                     if inp:
                         autoclose.run(*inp, trigger="timer")
