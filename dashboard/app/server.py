@@ -31,7 +31,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 #   defender - reads everything and does analyst work (check-offs, notes, AI verdicts, chat); changes no settings
 #   user     - only the alerts / events of the devices an admin assigned to them (allow-list below)
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
-USER_POST = {"/api/logout", "/api/account/password", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
+USER_POST = {"/api/logout", "/api/account/password", "/api/account/welcome", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
 ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
@@ -1094,6 +1094,9 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/audit/view":  # the browser reports a page view; do_POST writes the audit entry
                 self._aud["body"] = {"route": str(body.get("route", ""))[:200]}
                 return self._json({"ok": True})
+            if u.path == "/api/account/welcome":  # new-user setup walkthrough finished or skipped
+                auth.welcome_done(user)
+                return self._json({"ok": True})
             if u.path == "/api/account/password":
                 cookie, err = auth.change_own_password(user, str(body.get("current", "")), str(body.get("password", "")), self._client_ip())
                 if err:
@@ -1608,7 +1611,7 @@ class H(BaseHTTPRequestHandler):
         admin = role == "admin"
         try:
             if path == "/api/me":
-                return self._json({"user": user, "role": role, "role_name": auth.ROLE_NAMES.get(role, role)})
+                return self._json({"user": user, "role": role, "role_name": auth.ROLE_NAMES.get(role, role), "welcome": auth.welcome_pending(user)})
             if path == "/api/my":
                 return self._json(my_events(user))
             if path == "/api/tuning":  # detection settings shown on event cards: current values + their descriptions

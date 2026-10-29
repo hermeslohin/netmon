@@ -18,6 +18,7 @@
     await apiPost("/api/push/subscribe", { subscription: sub.toJSON() });
     return sub;
   }
+  window.netmonPush = { ok: pushOK, enable, current: currentSub, isIOS, standalone };  // used by the new-user walkthrough (welcome.js)
   async function disable() { const s = await currentSub(); if (s) { await apiPost("/api/push/unsubscribe", { endpoint: s.endpoint }); await s.unsubscribe(); } }
 
   function paintCount() {

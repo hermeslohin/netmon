@@ -93,6 +93,17 @@ class TestUserManagement(_AuthBase):
         self.assertNotIn(PW, repr(rec))
         self.assertTrue(auth._verify(PW, rec["hash"]))
 
+    def test_new_account_gets_welcome_until_done(self):
+        """add() flags a new account for the welcome walkthrough; welcome_done() clears it; other accounts are unaffected.
+        REQ: AUTH-08"""
+        self.assertIsNone(auth.add("carol", PW))
+        self.assertIsNone(auth.add("dave", PW))
+        self.assertTrue(auth.welcome_pending("carol"))
+        auth.welcome_done("carol")
+        self.assertFalse(auth.welcome_pending("carol"))
+        self.assertTrue(auth.welcome_pending("dave"))
+        self.assertFalse(auth.welcome_pending("nobody"))
+
     def test_add_rejects_short_password(self):
         """A 9-character password is rejected; exactly 10 characters is accepted.
         REQ: AUTH-02"""

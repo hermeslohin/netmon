@@ -153,8 +153,21 @@ def add(username, pw, role="user"):
         u = load()
         if username in u:
             return "user already exists"
-        u[username] = {"hash": _hash(pw), "gen": 1, "role": role, "created": _now(), "pw_changed": _now(), "last_login": None}
+        u[username] = {"hash": _hash(pw), "gen": 1, "role": role, "created": _now(), "pw_changed": _now(), "last_login": None,
+                       "welcome": True}  # new account: the dashboard shows the setup walkthrough until it is finished or skipped
         _save(u)
+
+
+def welcome_pending(username):
+    return bool((load().get(username) or {}).get("welcome"))
+
+
+def welcome_done(username):
+    with _lock:
+        u = load()
+        if username in u and u[username].get("welcome"):
+            u[username].pop("welcome", None)
+            _save(u)
 
 
 def delete(username, actor):

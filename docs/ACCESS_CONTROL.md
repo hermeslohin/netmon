@@ -113,3 +113,12 @@ Before roles existed, every account could see and check off everything, and `NET
 the accounts allowed to change AI models. On the first start with roles, **every existing account was made an Admin**
 (log line `access control: existing accounts made admins: …`), so nobody lost access. Lower accounts to Network defender or
 User on the Dashboard users page as needed. `NETMON_ADMINS` is no longer read and can be removed from `.env`.
+
+
+## Welcome walkthrough for new accounts
+
+An account created on the Users page is flagged on creation. The first time it signs in, the dashboard shows a short
+guided setup: welcome (what the role can do), choose your own password, turn on notifications for this device, your
+devices, and where to find things. Every step can be skipped; finishing or skipping clears the flag
+(`POST /api/account/welcome`), so it is shown once. Accounts that existed before this feature, and the first account
+seeded from `DASH_USER`/`DASH_PASS`, are not flagged.

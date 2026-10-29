@@ -1409,6 +1409,7 @@ async function init() {
     if (SITE.site_name) { document.querySelectorAll(".brand small").forEach((e) => (e.textContent = SITE.site_name)); document.title = "netmon · " + SITE.site_name; }
   } catch (_) { /* not signed in yet */ }
   S.me = await api("/api/me"); document.body.dataset.role = S.me.role;
+  if (S.me.welcome) setTimeout(() => window.welcomeShow?.(), 0);  // brand-new account: guided setup
   { const b = document.getElementById("userBox"); if (b && S.me.user) { b.innerHTML = `<a href="#/account" title="My account / change password">👤 ${esc(S.me.user)}</a> <span class="badge sev-info" title="Your access level">${esc(S.me.role_name || S.me.role)}</span> <button id="logout">Sign out</button>`;
     document.getElementById("logout").onclick = async () => { await apiPost("/api/logout", {}).catch(() => {}); location.href = "/login"; }; } }
   if (isUserRole()) {  // assigned-devices view only: no snapshot data is loaded (the server would refuse it anyway)

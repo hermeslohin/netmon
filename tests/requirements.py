@@ -15,6 +15,7 @@ REQUIREMENTS = {
     "AUTH-05": ("Authentication", "Repeated failed sign-ins from one client address are throttled.", "ACCESS_CONTROL.md"),
     "AUTH-06": ("Authentication", "On first start the first account is seeded from DASH_USER/DASH_PASS; afterwards the env vars are ignored.", "SETUP.md §6"),
     "AUTH-07": ("Authentication", "Accounts that predate roles are migrated to Admin once, so nobody loses access.", "ACCESS_CONTROL.md (Upgrade)"),
+    "AUTH-08": ("Authentication", "A newly created account is flagged for the first-sign-in setup walkthrough until it is finished or skipped; existing accounts are not.", "ACCESS_CONTROL.md"),
     # ---- access control ----
     "AC-01": ("Access control", "Unauthenticated requests get 401 (API) or a redirect to /login (pages); only the login/PWA shell and /healthz are public.", "ACCESS_CONTROL.md"),
     "AC-02": ("Access control", "Three roles exist (admin, defender, user); a missing or unknown role is treated as User (least privilege).", "ACCESS_CONTROL.md"),
