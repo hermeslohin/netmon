@@ -235,14 +235,20 @@ def detail(eid):
         g = gkey(r["id"])
         e = ev.get(r["id"]) or {}
         if g not in seen:
-            seen[g] = {**r, "variants": 0, "t1": 0, "t0": None}
+            seen[g] = {**r, "variants": 0, "t1": 0, "t0": None, "arts_all": []}
         x = seen[g]
+        have = {(a["kind"], a["value"]) for a in x.setdefault("arts_all", [])}  # artifacts + ES queries of every variant's pair
+        for a in r.get("llm_artifacts") or []:
+            if (a["kind"], a["value"]) not in have:
+                have.add((a["kind"], a["value"])); x["arts_all"].append(a)
         x["variants"] += 1
         x["t1"] = max(x["t1"] or 0, e.get("t1") or 0)
         if (r.get("llm_conf") or 0) > (x.get("llm_conf") or 0):
-            x.update({k: v for k, v in r.items() if k != "id"})
+            x.update({k: v for k, v in r.items() if k not in ("id", "arts_all", "llm_artifacts")})
             x["id"] = r["id"]
     rel = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:80]
+    for x in rel:
+        x["llm_artifacts"] = x.pop("arts_all", [])
     ch = members[:300]
     fires = [dict(r) for r in c.execute(f"SELECT eid,sid,seen,t0,t1,label FROM event_fires WHERE eid IN ({','.join('?' * len(ch))}) "
                                         "ORDER BY seen DESC, COALESCE(t1,0) DESC LIMIT 1000", ch)]
@@ -260,10 +266,11 @@ def _ev_view(eids):
         ch = eids[i:i + 500]
         for r in c.execute(f"SELECT eid, type, label, sev, link, t0, t1, doc FROM events WHERE eid IN ({','.join('?' * len(ch))})", ch):
             try:
-                ips = (json.loads(r["doc"] or "{}").get("ips") or [])[:6]
+                dd = json.loads(r["doc"] or "{}")
             except ValueError:
-                ips = []
-            out[r["eid"]] = {"type": r["type"], "label": r["label"], "sev": r["sev"], "link": r["link"] or "", "t0": r["t0"], "t1": r["t1"], "host_ips": ips}
+                dd = {}
+            out[r["eid"]] = {"type": r["type"], "label": r["label"], "sev": r["sev"], "link": r["link"] or "", "t0": r["t0"], "t1": r["t1"],
+                             "host_ips": (dd.get("host_ips") or dd.get("ips") or [])[:6], "dst_ips": (dd.get("dst_ips") or [])[:6], "arts": (dd.get("arts") or [])[:20]}
     for e in eids:  # partner gone from the store (pruned): still list it by id
         out.setdefault(e, {"type": e.split("|")[0], "label": e, "link": "", "t0": None, "t1": None})
     return out

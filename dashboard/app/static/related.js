@@ -140,6 +140,7 @@
   const clefEvHtml = (c) => !c ? "" : `<span class="note-v v-${esc(String(c.label || "").replace(/[^a-z-]/g, ""))}" title="Decision model (${esc(c.model || "clef")}) event label: p(suspicious) ${pct(c.p_suspicious)}, p(expected) ${pct(c.p_expected)}">clef: ${esc(c.label || "?")}</span> <span class="small muted">p sus ${pct(c.p_suspicious)} · p exp ${pct(c.p_expected)}</span>`;
   const clefLinkHtml = (r) => r.clef ? `<span class="rel-ai ${r.clef.related ? "yes" : "pend"}" title="Decision model (${esc(r.clef.model || "clef")}) p(related) = ${(r.clef.p_related || 0).toFixed(3)}">clef ${pct(r.clef.p_related)} related</span>`
     : `<span class="rel-ai pend" title="Decided before the decision model (clef) ran: ${esc(r.llm_model || "reviewer")} verdict">no clef decision</span>`;
+  window.relUi = { artifactsHtml, ipArts, queryArtHtml };  // used by the Open events window (openevents.js)
   const loadingRel = new Set();
   function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
     const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);

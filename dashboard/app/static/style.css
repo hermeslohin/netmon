@@ -593,3 +593,6 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
 .wz-foot .linklike{background:none;border:none;color:var(--muted);cursor:pointer;padding:0}
 .wz-push{margin:6px 0}
 .oe-fires th:nth-child(1),.oe-fires td:nth-child(1),.oe-fires th:nth-child(2),.oe-fires td:nth-child(2){width:120px}.oe-fires th:nth-child(3),.oe-fires td:nth-child(3){width:130px}
+.oe-rel{padding:7px 4px;border-bottom:1px solid var(--border)}.oe-rel .rel-why{display:block;margin-top:2px}
+.oe-det{margin:4px 0 0 4px}.oe-det>summary{cursor:pointer;font-size:12px;color:var(--muted)}.oe-det .note-arts{margin-top:4px}
+.oe-det ul{margin:4px 0;padding-left:18px}
