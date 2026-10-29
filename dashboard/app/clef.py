@@ -65,6 +65,7 @@ def _cfg_raw():
 
 
 PATAPSCO_URL = "http://127.0.0.1:30891"  # Patapsco AI cluster: SGLang clef via NodePort service netmon-clef-host
+PATAPSCO_MODEL = "Cloudflare/clef"  # SGLang's served model name (FP8 online quantization); SGLang requires it in the body
 
 
 def _server_url():
@@ -91,7 +92,7 @@ def config():
             return max(0.05, min(0.95, float(c.get(k, d))))
         except (TypeError, ValueError):
             return d
-    return {"enabled": c.get("enabled", True) is not False, "url": url, "model": str(c.get("model") or ("Cloudflare/clef-fp8" if url == PATAPSCO_URL else MODEL_DEFAULT)),
+    return {"enabled": c.get("enabled", True) is not False, "url": url, "model": str(c.get("model") or (PATAPSCO_MODEL if url == PATAPSCO_URL else MODEL_DEFAULT)),
             "related_min": thr("related_min", 0.5), "suspicious_min": thr("suspicious_min", 0.5),
             "by": c.get("by"), "at": c.get("at")}
 
@@ -116,8 +117,9 @@ def set_config(user, enabled=None, related_min=None, suspicious_min=None):
 
 def ask(state, questions, url=None, timeout=TIMEOUT):
     """One /v1/systemone call -> ({question: probability of yes}, milliseconds)."""
-    url = url or config()["url"]
-    body = json.dumps({"state": state, "questions": {k: {"type": "noul", "instructions": q} for k, q in questions.items()}}).encode()
+    cfg = config()
+    url = url or cfg["url"]
+    body = json.dumps({"model": cfg["model"], "state": state, "questions": {k: {"type": "noul", "instructions": q} for k, q in questions.items()}}).encode()
     req = urllib.request.Request(url + "/v1/systemone", data=body, headers={"Content-Type": "application/json"})
     t = time.time()
     for attempt in range(3):  # llama-server occasionally never answers one request (seen under load): retry it, never stall the pass
