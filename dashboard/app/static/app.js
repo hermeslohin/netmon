@@ -273,7 +273,13 @@ function kvTable(obj, keyTitle, valTitle, valFmt = fn, keyFmt = esc, opts = {}) 
 // A string body becomes one wrapper <div> (not loose top-level nodes): .cc-body (cards.js) is a flex column, so any
 // stray top-level text/button sitting directly in a card - e.g. an inline note icon 📝 next to an IP in prose - would
 // become its own flex item and get stretched to the full card width (align-items:stretch) instead of flowing inline.
-function card(title, body, cls = "") { const c = document.createElement("div"); c.className = "card " + cls; c.innerHTML = title ? `<h2>${title}</h2>` : "";
+// Cards on pages that follow the header time picker get a clock in the title; cards that show everything open / current
+// (and the cross-snapshot history charts) do not.
+const TIME_VIEWS = new Set(["overview", "devices", "device", "endpoints", "endpoint", "security", "traffic", "dns", "tls", "attack", "lateral", "netmap", "threatintel"]);
+const NOT_TIMED = /snapshots?\b|Per-host trend|over time|^Open issues|^Scoring model|^Add user|^Accounts/i;
+const CLOCK = `<span class="clk" title="Filtered by the time range chosen in the header" aria-label="Time filtered">🕒</span>`;
+function timedCard(title) { return !!title && TIME_VIEWS.has(document.getElementById("main")?.dataset.view) && !NOT_TIMED.test(String(title).replace(/<[^>]*>/g, "")); }
+function card(title, body, cls = "") { const c = document.createElement("div"); c.className = "card " + cls; c.innerHTML = title ? `<h2>${title}${timedCard(title) ? CLOCK : ""}</h2>` : "";
   if (typeof body === "string") { const w = document.createElement("div"); w.innerHTML = body; c.appendChild(w); } else if (body) c.appendChild(body);
   return markWaiting(c); }
 // Time ranges load section by section (sections.js): the sections a card's data read while it was being built that have not
