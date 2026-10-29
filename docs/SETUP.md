@@ -15,6 +15,7 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 | **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl, systemd (user services) | yes | runs the scheduler, the host broker and the dashboard container |
 | **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The 15-minute watcher uses no LLM. |
 | **LM Studio** (local LLM server) | optional, recommended | the correlation reviewer; can also serve the review job or chat |
+| **Patapsco AI** (local Kubernetes model platform) | optional | alternative to LM Studio: serves the decision model (clef) and the reviewer (Gemma) on loopback NodePorts, see [CORRELATION.md](CORRELATION.md) |
 | **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
 | **Elastic Agent via Fleet** on your endpoints (Elastic Defend + osquery integrations) | recommended | endpoint findings, host posture |
 | **UniFi gateway** + UniFi Site Manager API key | optional | gateway IDS, admin audit, flows. Skipped when missing. |
@@ -147,7 +148,7 @@ lms server start && lms load google/gemma-4-31b-qat     # or load a model in the
 curl -s http://127.0.0.1:1234/v1/models                 # the dashboard uses this endpoint
 ```
 
-Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`, `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2). Without an LLM, links show the script's evidence only.
+Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`, `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2). Instead of LM Studio you can serve both models from Patapsco AI on the same host (FP8, one GPU shared by time-slicing); add the reviewer endpoint as an AI provider and pick **Patapsco AI** as the decision-model backend (details in [CORRELATION.md](CORRELATION.md)). Without an LLM, links show the script's evidence only.
 
 ## 7. Scheduled jobs and the host broker
 

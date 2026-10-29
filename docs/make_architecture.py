@@ -80,7 +80,7 @@ node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/d
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
 
 # ---------------- monitoring host
-node("llm", 460, 100, 150, 76, "ai", "Local LLM", ["LM Studio - optional", "AI review > AI providers"], "OPTIONAL")
+node("llm", 460, 100, 150, 76, "ai", "Patapsco AI (k8s)", ["clef + Gemma models", "LM Studio optional"], "LOCAL LLM")
 node("sched", 626, 100, 140, 76, "back", "scheduler.py", ["systemd user unit", "runs every job"], "JOBS")
 node("broker", 782, 100, 138, 76, "bus", "host_broker.py", ["loopback · bearer key", "/range · /esquery"], "BROKER")
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
@@ -169,6 +169,7 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and reviewer look-ups go through host_broker.py.",
          "Correlation: the script proposes links; review limits filter them; the chosen model confirms or rejects each and keeps artifacts (Elasticsearch searches open in Kibana).",
+         "Patapsco AI: single-node Kubernetes on the monitoring host serves the decision model (clef, SGLang) and the reviewer (Gemma, vLLM) on loopback NodePorts; both FP8, sharing one GPU by time-slicing. LM Studio / llama.cpp remains a selectable backend.",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
@@ -179,7 +180,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{
 <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>{markers}</defs>
 <rect width="{W}" height="{H}" fill="#020617"/><rect width="{W}" height="{H}" fill="url(#grid)"/>
 <circle cx="30" cy="34" r="5" fill="#22d3ee"/><text x="44" y="39" fill="#f8fafc" font-size="18" font-weight="700">netmon · home network &amp; endpoint security monitoring</text>
-<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · AI provider of your choice · web search · local LLM (optional)</text>
+<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · AI provider of your choice · web search · Patapsco AI / local LLM (optional)</text>
 {"".join(arrows)}
 {"".join(out)}
 {"".join(out_leg)}

@@ -1060,6 +1060,24 @@ def _complete_raw(target, system, user, max_tokens, t, queries=False, schemas=No
     return d["choices"][0]["message"].get("content") or "", {"prompt": u.get("prompt_tokens", 0), "completion": u.get("completion_tokens", 0)}, round(time.time() - t, 2)
 
 
+_ERR_HELP = {
+    "decision": "The decision model (clef) did not answer its health check, so the review paused instead of guessing. It retries every minute and clears itself once the model answers. If it persists, check AI review > Decision model server, or switch the decision model off.",
+    "reviewer": "The reviewer model returned an error or could not be reached (restarting, overloaded, or its context was exceeded). The affected events stay queued and are retried on the next pass; this clears after the next clean pass.",
+    "event": "Reviewing an event with the reviewer model failed. The event stays queued and is retried on the next pass; this clears after the next clean pass.",
+    "classify": "Classifying events with the reviewer model failed. It is retried on the next pass; this clears after the next clean pass.",
+    "loop": "The review worker hit an unexpected error (often the model server restarting). It backs off 3 minutes, then retries on its own.",
+}
+
+
+def _set_error(kind, msg):
+    """Record a worker problem with its time and a plain-language explanation; run_once clears it when a pass finishes without one."""
+    STATUS.update(error=str(msg), error_kind=kind, error_at=time.time(), error_help=_ERR_HELP.get(kind, ""))
+
+
+def _clear_error():
+    STATUS.update(error="", error_kind="", error_at=None, error_help="")
+
+
 def _target(model=None):
     c = config()["correlation"]
     if llm_providers.is_custom(c["provider"]):
@@ -1599,7 +1617,7 @@ def classify_pass(model, base):
         try:
             return _classify(_target(), t[0], base, t[2], t[1])
         except Exception as e:  # noqa: BLE001 - one bad answer must not stop the pass
-            STATUS["error"] = f"classify: {type(e).__name__}: {str(e)[:200]}"
+            _set_error("classify", f"classify: {type(e).__name__}: {str(e)[:200]}")
             return 0
     with ThreadPoolExecutor(WORKERS) as ex:
         for k in ex.map(one, todo):
@@ -1725,7 +1743,7 @@ def clef_pass(base, pairs):
         try:
             p, ms = clef.ask(_clef_state(E, a, r["id"], r, ON), {"related": clef.Q_RELATED}, cfg["url"])
         except Exception as e:  # noqa: BLE001 - stays undecided, asked again next pass
-            STATUS["error"] = f"decision model: {type(e).__name__}: {str(e)[:200]}"
+            _set_error("decision", f"decision model: {type(e).__name__}: {str(e)[:200]}")
             return 0
         pr, now = p["related"], time.time()
         yes = pr >= cfg["related_min"]
@@ -1850,7 +1868,7 @@ def event_pass(base):
             return _event_review(m, t[0], base, t[2], t[1])
         except Exception as e:  # noqa: BLE001 - one bad answer must not stop the pass
             print(f"event review error ({t[0][:60]}): {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
-            STATUS["error"] = f"event review: {type(e).__name__}: {str(e)[:200]}"
+            _set_error("event", f"event review: {type(e).__name__}: {str(e)[:200]}")
             return 0
     n = 0
     with ThreadPoolExecutor(WORKERS) as ex:
@@ -1896,7 +1914,7 @@ def clef_events(base, todo):
         try:
             p, ms = clef.ask(st, {"suspicious": clef.Q_EVENT_SUSPICIOUS, "expected": clef.Q_EVENT_EXPECTED}, cfg["url"])
         except Exception as e:  # noqa: BLE001
-            STATUS["error"] = f"decision model: {type(e).__name__}: {str(e)[:200]}"
+            _set_error("decision", f"decision model: {type(e).__name__}: {str(e)[:200]}")
             return 0
         with _lock, _db() as c:
             c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms) VALUES (?,?,?,?,?,?,?,?)",
@@ -1955,8 +1973,9 @@ def run_once(get_base, latest_sid):
                   clef_related_this_run=0, clef_stage="", clef_todo=0)
     import clef
     use_clef = clef.config()["enabled"]
-    if use_clef and not clef.healthy():  # never fall back silently to the old flow: wait until the decision model is back
-        STATUS.update(busy=False, last_run=time.time(), error=f"decision model unreachable at {clef.config()['url']} (AI review > Decision model server) - reviews wait; switch it off on AI review > Decision model to review without it")
+    _clear_error()  # every pass re-evaluates; a problem that is gone must not stay on screen
+    if use_clef and not any(clef.healthy() or time.sleep(2) for _ in range(3)):  # 3 tries: one slow /health must not stop the review
+        STATUS.update(busy=False, last_run=time.time()); _set_error("decision", f"decision model unreachable at {clef.config()['url']} (AI review > Decision model server) - reviews wait")
         return 0
     done = 0
     try:  # alarms follow the verdicts already made, before a long review pass starts
@@ -1999,7 +2018,7 @@ def run_once(get_base, latest_sid):
             if b:
                 sync_alarms(b)
         except Exception as e:  # noqa: BLE001
-            STATUS["error"] = f"event review: {type(e).__name__}: {str(e)[:200]}"
+            _set_error("event", f"event review: {type(e).__name__}: {str(e)[:200]}")
         STATUS.update(busy=False, last_run=time.time())
         return done
     if limits()["classify"] and latest_sid:
@@ -2010,7 +2029,7 @@ def run_once(get_base, latest_sid):
             if b:
                 sync_alarms(b)
         except Exception as e:  # noqa: BLE001
-            STATUS["error"] = f"classify: {type(e).__name__}: {str(e)[:200]}"
+            _set_error("classify", f"classify: {type(e).__name__}: {str(e)[:200]}")
     STATUS.update(busy=False, last_run=time.time())
     return done
 
@@ -2020,11 +2039,10 @@ def _safe_review(model, aid, base, todo):
         model = _target()  # re-read the admin's choice for every review so a change on AI review > Models applies mid-pass
         STATUS.update(model=model["model"], provider=model["provider"])
         n = _review(model, aid, base, todo)
-        STATUS["error"] = ""
         return n
     except Exception as e:  # noqa: BLE001 - one bad answer must not stop the run
         print(f"reviewer error ({aid[:60]}): {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
-        STATUS["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        _set_error("reviewer", f"{type(e).__name__}: {str(e)[:200]}")
         return 0
 
 
@@ -2047,7 +2065,7 @@ def start(get_base, latest_sid_fn, every=60):
                 time.sleep(5 if n else every)
             except Exception as e:  # noqa: BLE001 - LM Studio down / model unloading: back off and retry
                 print(f"reviewer loop error: {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
-                STATUS.update(busy=False, error=f"{type(e).__name__}: {str(e)[:200]}")
+                STATUS.update(busy=False); _set_error("loop", f"{type(e).__name__}: {str(e)[:200]}")
                 time.sleep(180)
     threading.Thread(target=loop, name="corr-llm", daemon=True).start()
 

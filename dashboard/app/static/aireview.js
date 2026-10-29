@@ -1094,6 +1094,14 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
       ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Avg notes in / event", `<span title="notes (owner + AI: event, host, account, internet) passed to the model per event review, last 24 h. All time: ${T.event_tokens?.all?.notes ?? "—"}">${T.event_tokens?.day?.notes != null ? T.event_tokens.day.notes : "—"}</span>`], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
+    if (st.enabled && st.error) {  // say what the Error badge means, since when, and whether it fixes itself
+      const ex = document.createElement("div"); ex.className = "card"; ex.style.cssText = "margin:8px 0;border-left:3px solid var(--bad, #f85149)";
+      const kind = { decision: "Decision model unreachable", reviewer: "Reviewer model problem", event: "Event review failed", classify: "Classification failed", loop: "Review worker error" }[st.error_kind] || "Review problem";
+      ex.innerHTML = `<b>${esc(kind)}</b>${st.error_at ? ` <span class="small muted">· since ${esc(ago(st.error_at))}</span>` : ""}
+        <div class="small" style="margin-top:4px">${esc(st.error_help || "The review worker reported a problem. It retries automatically and this clears after the next clean pass.")}</div>
+        <div class="small muted mono" style="margin-top:4px;word-break:break-all">${esc(st.error)}</div>`;
+      el.querySelector(".kpis").after(ex);
+    }
     if (D.admin) {
       const bar = document.createElement("div"); bar.style.cssText = "margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center";
       bar.innerHTML = '<button type="button" class="clr-rq">Clear event queue</button><button type="button" class="clr-rv">Clear review queue</button><span class="small muted clr-msg"></span>';

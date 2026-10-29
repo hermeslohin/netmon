@@ -174,7 +174,24 @@ Told that every candidate is related, Gemma flags almost everything; clef separa
 (ranking quality 0.76–0.79 vs 0.67 for clef-flash). Raise *suspicious_min* for fewer alarms (0.8: no false alarms,
 but only 10 of 20 attacks). Lab data, 40 events: differences of 2–3 events are within noise.
 
-**The server.** LM Studio can load clef but cannot run it ("context does not support logits computation"). It runs
+**Patapsco AI backend (default).** On the reference host the decision model runs on Patapsco AI, a single-node
+Kubernetes platform on the monitoring computer, instead of a host service. Two model deployments share the GPU
+(time-slicing, 4 replicas, no memory isolation): **clef** (`Cloudflare/clef`, SGLang, FP8) behind the loopback
+NodePort `http://127.0.0.1:30891` (`/v1/systemone`; requests must carry `"model":"Cloudflare/clef"`), and the
+reviewer **Gemma 4 26B** (vLLM, FP8) behind `http://127.0.0.1:30892/v1`, added as an AI provider and chosen as
+the correlation model. Select it on **AI review → Decision model server → Backend**; the page then shows the
+cluster deployment, replicas, image and what is actually being served instead of systemd. Notes:
+- Memory is unified (CPU and GPU share it): keep both models FP8 and start them one at a time; two bf16 loads can
+  exhaust host memory.
+- SGLang `--mem-fraction-static` must leave room for the KV cache after the weights (clef FP8 needs about 0.49 or
+  more); too low gives an endless restart loop and a refused port.
+- Health: SGLang answers `/health` with an empty 200 (healthy). The review worker tries it 3 times before it
+  pauses reviews with "decision model unreachable".
+- The AI review **Status** badge shows *Error* with a card explaining the cause (decision model unreachable,
+  reviewer problem, event review / classification failed, worker error), since when, and that it retries by
+  itself; the error clears after the next clean pass.
+
+**The server (LM Studio / llama.cpp backend).** LM Studio can load clef but cannot run it ("context does not support logits computation"). It runs
 on the host under LM Studio's bundled llama.cpp `llama-server`, endpoint `http://127.0.0.1:8091/v1/systemone`
 (loopback only), as systemd user unit **`netmon-clef`** (`clef.sh`). Manage it on **AI review → Decision model
 server** (admins): status, the model actually being served, model file and llama.cpp runtime, parallel slots,
