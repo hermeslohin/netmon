@@ -4,6 +4,19 @@ This page explains three features that work together: **admin-access monitoring*
 **local-LLM review**, and the dashboard tools for working through the results (drill-down, Related column,
 collapsible and rearrangeable boxes). For installation see [SETUP.md](SETUP.md).
 
+## Life of an event
+
+![Life of an event: suppress list, statistical analysis, correlation review, reviewer, and the optional researcher](img/event-lifecycle.png)
+
+Every event passes the same stages in order. Each stage removes or resolves some events, so fewer reach the
+next one and AI cost and human attention stay low.
+
+1. **Suppress list.** Never-send rules, checked-off items and known-benign patterns hide matching events. No AI.
+2. **Statistical analysis.** Compares each device to its 30-day baseline and raises events for deviations. No AI.
+3. **Correlation review.** Links related events and the decision model labels them suspicious, benign or expected (section 3).
+4. **Reviewer.** Copies the verdict from an earlier matching note, or leaves the event queued for research (section 6).
+5. **Researcher (optional).** Runs only when a person clicks *Send to research* (section 5).
+
 ## 1. Admin access (lateral movement)
 
 Every way an administrator, or an attacker moving sideways, gets onto another machine is tracked between

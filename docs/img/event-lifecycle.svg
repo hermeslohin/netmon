@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#111c33"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#94a3b8"/></marker>
+    <marker id="arrR" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#fb7185"/></marker>
+    <marker id="arrG" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#34d399"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+
+  <text x="800" y="70" text-anchor="middle" font-size="40" font-weight="700" fill="#f1f5f9">Life of a Network Event</text>
+  <text x="800" y="104" text-anchor="middle" font-size="20" fill="#94a3b8">From raw detection to a reviewed verdict, with AI used only where it adds value</text>
+
+  <!-- incoming -->
+  <rect x="40" y="250" width="130" height="130" rx="16" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+  <text x="105" y="298" text-anchor="middle" font-size="19" font-weight="700" fill="#e2e8f0">Raw event</text>
+  <text x="105" y="324" text-anchor="middle" font-size="14" fill="#94a3b8">Zeek, Suricata,</text>
+  <text x="105" y="344" text-anchor="middle" font-size="14" fill="#94a3b8">UniFi, host agents,</text>
+  <text x="105" y="364" text-anchor="middle" font-size="14" fill="#94a3b8">threat intel</text>
+
+  <!-- connectors -->
+  <g stroke="#94a3b8" stroke-width="3" fill="none" marker-end="url(#arr)">
+    <path d="M170,315 H212"/>
+    <path d="M452,315 H492"/>
+    <path d="M732,315 H772"/>
+    <path d="M1012,315 H1052"/>
+  </g>
+  <path d="M1292,315 H1332" stroke="#a78bfa" stroke-width="3" stroke-dasharray="9,7" fill="none" marker-end="url(#arr)"/>
+
+  <!-- 1 suppress -->
+  <rect x="215" y="180" width="235" height="270" rx="16" fill="#1c1017" stroke="#fb7185" stroke-width="3"/>
+  <circle cx="250" cy="215" r="20" fill="#fb7185"/><text x="250" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#1c1017">1</text>
+  <text x="282" y="223" font-size="22" font-weight="700" fill="#fecdd3">Suppress list</text>
+  <g font-size="16" fill="#cbd5e1">
+    <text x="235" y="270">• "Never send" rules</text>
+    <text x="235" y="297">• Checked-off / 🚫 items</text>
+    <text x="235" y="324">• Known-benign patterns</text>
+    <text x="235" y="365" font-weight="700" fill="#fecdd3">Match → hidden</text>
+    <text x="235" y="388" fill="#94a3b8" font-size="14">hit counter kept for audit</text>
+    <text x="235" y="425" fill="#fecdd3" font-size="14" font-style="italic">No AI · instant</text>
+  </g>
+
+  <!-- 2 stats -->
+  <rect x="495" y="180" width="235" height="270" rx="16" fill="#08222c" stroke="#22d3ee" stroke-width="3"/>
+  <circle cx="530" cy="215" r="20" fill="#22d3ee"/><text x="530" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#08222c">2</text>
+  <text x="562" y="215" font-size="22" font-weight="700" fill="#cffafe">Statistical</text><text x="562" y="239" font-size="22" font-weight="700" fill="#cffafe">analysis</text>
+  <g font-size="16" fill="#cbd5e1">
+    <text x="515" y="270">• 30-day per-device</text>
+    <text x="528" y="291">baseline</text>
+    <text x="515" y="318">• New device / port /</text>
+    <text x="528" y="339">service, DNS, spikes,</text>
+    <text x="528" y="360">beacons, threat intel</text>
+    <text x="515" y="388" font-weight="700" fill="#cffafe">Deviations → events</text>
+    <text x="515" y="425" fill="#67e8f9" font-size="14" font-style="italic">Rules &amp; maths · no AI</text>
+  </g>
+
+  <!-- 3 correlation -->
+  <rect x="775" y="180" width="235" height="270" rx="16" fill="#0a2318" stroke="#34d399" stroke-width="3"/>
+  <circle cx="810" cy="215" r="20" fill="#34d399"/><text x="810" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#0a2318">3</text>
+  <text x="842" y="223" font-size="22" font-weight="700" fill="#d1fae5">Correlation</text>
+  <g font-size="16" fill="#cbd5e1">
+    <text x="795" y="270">• Link events sharing</text>
+    <text x="808" y="291">host, IP, DNS, process</text>
+    <text x="795" y="318">• Decision model rules</text>
+    <text x="808" y="339">on each link and labels</text>
+    <text x="795" y="365" font-weight="700" fill="#d1fae5">suspicious / benign /</text>
+    <text x="795" y="386" font-weight="700" fill="#d1fae5">expected</text>
+    <text x="795" y="425" fill="#6ee7b7" font-size="14" font-style="italic">Local AI · scheduled</text>
+  </g>
+
+  <!-- 4 reviewer -->
+  <rect x="1055" y="180" width="235" height="270" rx="16" fill="#241706" stroke="#fbbf24" stroke-width="3"/>
+  <circle cx="1090" cy="215" r="20" fill="#fbbf24"/><text x="1090" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">4</text>
+  <text x="1122" y="223" font-size="22" font-weight="700" fill="#fef3c7">Reviewer</text>
+  <g font-size="16" fill="#cbd5e1">
+    <text x="1075" y="270">• Looks up earlier notes</text>
+    <text x="1088" y="291">on same / similar events</text>
+    <text x="1075" y="318">• Strong match →</text>
+    <text x="1088" y="339" font-weight="700" fill="#fef3c7">copy the verdict</text>
+    <text x="1075" y="366">• No match / unsure →</text>
+    <text x="1088" y="387" font-weight="700" fill="#fef3c7">queue for research</text>
+    <text x="1075" y="425" fill="#fcd34d" font-size="14" font-style="italic">Strict · saves tokens</text>
+  </g>
+
+  <!-- 5 researcher (optional) -->
+  <rect x="1335" y="180" width="235" height="270" rx="16" fill="#1a1230" stroke="#a78bfa" stroke-width="3" stroke-dasharray="12,8"/>
+  <circle cx="1370" cy="215" r="20" fill="#a78bfa"/><text x="1370" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#1a1230">5</text>
+  <text x="1402" y="223" font-size="22" font-weight="700" fill="#ede9fe">Researcher</text>
+  <rect x="1480" y="150" width="80" height="26" rx="13" fill="#a78bfa"/>
+  <text x="1520" y="168" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1230">OPTIONAL</text>
+  <g font-size="16" fill="#cbd5e1">
+    <text x="1355" y="270">• Runs only when a</text>
+    <text x="1368" y="291" font-weight="700" fill="#ede9fe">person clicks</text>
+    <text x="1368" y="312" font-weight="700" fill="#ede9fe">"Send to research"</text>
+    <text x="1355" y="339">• Searches Elasticsearch</text>
+    <text x="1368" y="360">and the web</text>
+    <text x="1355" y="387">• Writes note, verdict,</text>
+    <text x="1368" y="408">links, evidence</text>
+    <text x="1355" y="437" fill="#c4b5fd" font-size="14" font-style="italic">Cloud or local model</text>
+  </g>
+
+  <!-- outcomes -->
+  <g fill="none" stroke-width="2.5" stroke-dasharray="6,5">
+    <path d="M332,450 V560" stroke="#fb7185" marker-end="url(#arrR)"/>
+    <path d="M1172,450 V560" stroke="#fbbf24" marker-end="url(#arr)"/>
+    <path d="M1452,450 V560" stroke="#a78bfa" marker-end="url(#arr)"/>
+    <path d="M892,450 V560" stroke="#34d399" marker-end="url(#arrG)"/>
+    <path d="M612,450 V560" stroke="#22d3ee" marker-end="url(#arr)"/>
+  </g>
+
+  <g font-size="16" text-anchor="middle">
+    <rect x="215" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#fb7185" stroke-opacity=".6"/>
+    <text x="332" y="600" font-weight="700" fill="#fecdd3">Out of the queue</text>
+    <text x="332" y="625" fill="#94a3b8" font-size="14">Never reaches AI or a person</text>
+
+    <rect x="495" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#22d3ee" stroke-opacity=".6"/>
+    <text x="612" y="600" font-weight="700" fill="#cffafe">Event list</text>
+    <text x="612" y="625" fill="#94a3b8" font-size="14">Severity, MITRE ATT&amp;CK tag</text>
+
+    <rect x="775" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#34d399" stroke-opacity=".6"/>
+    <text x="892" y="600" font-weight="700" fill="#d1fae5">Linked incident + label</text>
+    <text x="892" y="625" fill="#94a3b8" font-size="14">Reason, artifacts (IP, DNS, file)</text>
+
+    <rect x="1055" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#fbbf24" stroke-opacity=".6"/>
+    <text x="1172" y="600" font-weight="700" fill="#fef3c7">Verdict note</text>
+    <text x="1172" y="625" fill="#94a3b8" font-size="14">Copied, or flagged "needs research"</text>
+
+    <rect x="1335" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#a78bfa" stroke-opacity=".6"/>
+    <text x="1452" y="600" font-weight="700" fill="#ede9fe">Researched finding</text>
+    <text x="1452" y="625" fill="#94a3b8" font-size="14">Evidence + Kibana queries</text>
+  </g>
+
+  <!-- funnel bar -->
+  <text x="40" y="720" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="2">VOLUME HANDLED AT EACH STAGE</text>
+  <defs>
+    <linearGradient id="fun" x1="0" x2="1">
+      <stop offset="0" stop-color="#fb7185"/><stop offset=".25" stop-color="#22d3ee"/><stop offset=".5" stop-color="#34d399"/><stop offset=".75" stop-color="#fbbf24"/><stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <path d="M40,740 L1570,765 L1570,795 L40,820 Z" fill="url(#fun)" opacity=".85"/>
+  <text x="60" y="786" font-size="16" font-weight="700" fill="#0b1220">Many events</text>
+  <text x="1550" y="786" text-anchor="end" font-size="16" font-weight="700" fill="#0b1220">Few, human-reviewed</text>
+
+  <!-- legend -->
+  <g font-size="15" fill="#94a3b8">
+    <line x1="40" y1="860" x2="90" y2="860" stroke="#94a3b8" stroke-width="3" marker-end="url(#arr)"/>
+    <text x="100" y="865">Automatic, every run</text>
+    <line x1="330" y1="860" x2="380" y2="860" stroke="#a78bfa" stroke-width="3" stroke-dasharray="9,7" marker-end="url(#arr)"/>
+    <text x="390" y="865">On demand (person-triggered)</text>
+    <text x="1570" y="865" text-anchor="end">Each step leaves less for the next, so cost and attention stay low</text>
+  </g>
+</svg>
