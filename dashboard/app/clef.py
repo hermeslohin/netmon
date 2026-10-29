@@ -145,7 +145,10 @@ def ask(state, questions, url=None, timeout=TIMEOUT):
 def healthy(url=None):
     try:
         with urllib.request.urlopen((url or config()["url"]) + "/health", timeout=3) as r:  # noqa: S310
-            return json.loads(r.read().decode()).get("status") == "ok"
+            body = r.read().decode().strip()
+            if not body:  # SGLang (Patapsco backend): an empty 200 means healthy
+                return r.status == 200
+            return json.loads(body).get("status") == "ok"  # llama-server: {"status": "ok"} (503 while loading)
     except Exception:  # noqa: BLE001
         return False
 

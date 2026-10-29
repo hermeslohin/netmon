@@ -166,6 +166,37 @@ class ClefServerSettingsTest(unittest.TestCase):
             CS._kubectl = old
             CS.save({"backend": "patapsco"}, "tester")
 
+    def test_sglang_health_and_model_field(self):
+        """SGLang (Patapsco backend) answers /health with an empty 200 - that counts as healthy - and needs the served
+        model name in every /v1/systemone body (it rejects requests without it with HTTP 422).
+        REQ: LLM-03"""
+        seen = []
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                self.send_response(200); self.send_header("Content-Length", "0"); self.end_headers()
+
+            def do_POST(self):
+                b = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append(b)
+                if "model" not in b:
+                    self.send_response(422); self.end_headers(); return
+                out = json.dumps({"answers": {k: {"type": "noul", "noul": 0.9} for k in b["questions"]}}).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(out)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{srv.server_port}"
+            self.assertTrue(clef.healthy(url))
+            ans, _ = clef.ask("{}", {"related": "related?"}, url=url)
+            self.assertEqual(ans, {"related": 0.9})
+            self.assertEqual(seen[-1]["model"], clef.config()["model"])
+        finally:
+            srv.shutdown(); srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

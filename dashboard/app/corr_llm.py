@@ -1956,7 +1956,7 @@ def run_once(get_base, latest_sid):
     import clef
     use_clef = clef.config()["enabled"]
     if use_clef and not clef.healthy():  # never fall back silently to the old flow: wait until the decision model is back
-        STATUS.update(busy=False, last_run=time.time(), error=f"decision model unreachable at {clef.config()['url']} (host unit netmon-clef) - reviews wait; switch it off on AI review > Decision model to review without it")
+        STATUS.update(busy=False, last_run=time.time(), error=f"decision model unreachable at {clef.config()['url']} (AI review > Decision model server) - reviews wait; switch it off on AI review > Decision model to review without it")
         return 0
     done = 0
     try:  # alarms follow the verdicts already made, before a long review pass starts
