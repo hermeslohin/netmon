@@ -47,7 +47,7 @@
   function colsFor(t, askKind, pivKind) {
     const title = (x) => x.label;
     const ack = { k: "_ack", t: "✓", fmt: (v, x) => ackCell(x), sort: () => 0 };
-    const tools = { k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(askKind, title(x), itemOf(x)) + cmpBtn(askKind, title(x), itemOf(x), x.eid) + pivBtn(pivKind, pivItem(x)) };
+    const verdict = { k: "_verdict", t: "Verdict", fmt: (v, x) => chips(x), sort: (x) => (window.__oeExtra?.classes?.[x.eid]?.label || "~") };
     const sev = { k: "sev", t: "Severity", fmt: (v) => badge(v || "low"), sort: (x) => sevRank(x.sev) };
     const seen = { k: "n", t: "Seen", num: true, fmt: (v, x) => `${v}×${x.repeats > 1 ? ` <span class="muted small" title="same condition, different numbers each night">${x.repeats} variants</span>` : ""}` };
     const times = [{ k: "first_seen", t: "First seen", fmt: when }, { k: "last_seen", t: "Last seen", fmt: when }, seen];
@@ -67,7 +67,61 @@
       vuln: [{ k: "title", t: "Issue", fmt: (v, x) => esc(itemOf(x).title || x.label), sort: (x) => itemOf(x).title || "" }, { k: "target", t: "Target", fmt: (v, x) => ipLink(itemOf(x).target || itemOf(x).ip || ""), sort: (x) => itemOf(x).target || "" }],
       alert: [label, hosts],
     }[t] || [label, hosts];
-    return [ack, tools, sev, ...by, ...times];
+    return [ack, sev, verdict, ...by, ...times];
+  }
+
+
+  // suspicious / benign labels shown on the row; the row opens the detail window (click anywhere but the check box)
+  const vcls = (v) => String(v || "").replace(/[^a-z-]/g, "");
+  function chips(x) {
+    const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], rn = X.related_n?.[x.eid] || 0;
+    return (c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ` : "")
+      + (n && n.verdict ? `<span class="note-v v-${vcls(n.verdict)}" title="Research note verdict">📝 ${esc(n.verdict)}</span> ` : "")
+      + (rn ? `<span class="muted small" title="related events">${rn} related</span>` : "");
+  }
+  const secs = (t) => (t ? new Date(t * 1000).toISOString() : "");
+  const kindOf = (t) => TYPES.find((r) => r[0] === t) || [];
+
+  async function openDetail(x) {
+    document.querySelector(".oe-back")?.remove();
+    const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], cev = X.clef_ev?.[x.eid];
+    const [, , askKind, pivKind] = kindOf(x.type);
+    const back = document.createElement("div"); back.className = "modal-back oe-back";
+    const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); removeEventListener("hashchange", close); };
+    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".askdlg-scrim, dialog[open]")) close(); };
+    document.addEventListener("keydown", onKey, true); addEventListener("hashchange", close);
+    const verdictHtml = (c || n) ? `<div class="oe-verdict">
+        ${c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span>
+          ${cev ? ` <span class="small muted">decision model p(suspicious) ${Math.round((cev.p_suspicious || 0) * 100)}%</span>` : ""}
+          ${c.reason ? `<div class="small">${esc(c.reason)}</div>` : ""}</div>` : ""}
+        ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note</span>
+          ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
+    back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
+      <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
+        <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×</div></div>
+        <div class="oe-tools">${askBtn(askKind, x.label, itemOf(x))}${cmpBtn(askKind, x.label, itemOf(x), x.eid)}${pivBtn(pivKind, pivItem(x))}
+          ${x.link ? `<a class="small" href="${esc(x.link)}" title="Open the page this event comes from">open source ↗</a>` : ""}
+          <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
+      ${verdictHtml}
+      <div class="oe-body"><div class="loading">Loading…</div></div></div>`;
+    document.body.appendChild(back);
+    back.onclick = (e) => { if (e.target === back || e.target.closest(".oe-x")) close(); else if (e.target.closest("a.oe-rel")) close(); };
+    let d;
+    try { d = await api("/api/events/detail?e=" + encodeURIComponent(x.eid)); }
+    catch (e) { back.querySelector(".oe-body").innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
+    if (!back.isConnected) return;
+    const occ = d.occurrences || [], rel = d.related || [], EV = d.events || {};
+    const occHtml = occ.length ? `<table class="oe-tbl"><thead><tr><th>Last seen</th><th>First seen</th><th>Seen</th><th>What happened</th></tr></thead><tbody>
+      ${occ.map((o) => `<tr><td>${when(o.last_seen)}</td><td>${when(o.first_seen)}</td><td>${o.n}×</td><td>${linkifyIps(o.label)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No stored occurrences.</div>`;
+    const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
+      const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
+      return `<a class="rel-item oe-rel" href="${esc(e.link || "#")}"><span class="badge">${esc(e.type || "")}</span> ${conf}
+        <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
+        <span class="small muted">${r.variants > 1 ? `${r.variants} occurrences · ` : ""}${e.t1 ? "latest " + ft(secs(e.t1)) : ""}</span>
+        ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</a>`; }).join("") : `<div class="empty">No related events.</div>`;
+    back.querySelector(".oe-body").innerHTML = `
+      <h4>Every time it happened (${d.n_occurrences || occ.length})</h4>${occHtml}
+      <h4>Related events (${rel.length})</h4><div class="small muted">One line per related condition; its repeats are counted, not listed.</div>${relHtml}`;
   }
 
   async function paintCount() {
@@ -85,7 +139,7 @@
     el.innerHTML = "";
     const f = OE.f, c = r.counts || {};
     const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev));
-    el.insertAdjacentHTML("beforeend", `<div class="muted small">Every event stays here until it is checked off, however old — the time range does not apply. Fix-list items leave when the issue is fixed. Repeats of one condition are one row.</div>`);
+    el.insertAdjacentHTML("beforeend", `<div class="muted small">Every event stays here until it is checked off, however old — the time range does not apply. Fix-list items leave when the issue is fixed. Repeats of one condition are one row. Click a row for every occurrence and its related events.</div>`);
     el.insertAdjacentHTML("beforeend", kpis([["Open events", r.total], ...TYPES.filter(([t]) => c[t]).map(([t, name]) => [name.replace(/ \(.*/, ""), c[t]])]));
     const bar = document.createElement("div"); bar.className = "fchips";
     bar.innerHTML = `<select id="oeT"><option value="">All types</option>${TYPES.map(([t, n]) => `<option value="${t}" ${f.type === t ? "selected" : ""}>${esc(n.replace(/ \(.*/, ""))}${c[t] ? " (" + c[t] + ")" : ""}</option>`).join("")}</select> ` +
@@ -98,7 +152,7 @@
       const list = rows.filter((x) => x.type === t);
       if (!list.length) continue;
       el.appendChild(card(`${esc(name)} (${list.length} open)`, table(null, colsFor(t, askKind, pivKind), list,
-        { filter: true, sort: "sev", dir: 1, evId: (x) => x.eid, onclick: (x) => x.link && (location.hash = x.link) })));
+        { filter: true, sort: "sev", dir: 1, onclick: openDetail })));
     }
   };
 })();

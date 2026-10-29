@@ -1660,6 +1660,10 @@ class H(BaseHTTPRequestHandler):
                 import eventstore
                 return self._json(eventstore.open_events(types=set(q.get("type") or []) or None, sev=(q.get("sev") or [""])[0].lower() or None,
                                                          q=(q.get("q") or [""])[0] or None, limit=min(int((q.get("limit") or ["2000"])[0]), 5000)))
+            if path == "/api/events/detail":  # Open events modal: all occurrences of one event + its related events
+                import eventstore
+                e_ = (q.get("e") or [""])[0][:600]
+                return self._json(eventstore.detail(e_) if e_ else {"occurrences": [], "related": []})
             if path == "/api/events/related":  # Open events: one row's stored related events (+ artifacts, decision model)
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]

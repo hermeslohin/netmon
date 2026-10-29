@@ -206,6 +206,39 @@ def related(eid, members):
     return {"related": R.get(eid, []), "events": _ev_view(partners | {eid}), "clef_ev": next((CE[m] for m in reversed(ms) if m in CE), None)}
 
 
+def detail(eid):
+    """Open events modal: every stored occurrence of one event (all variants of the grouped condition, newest first)
+    and its related events, one line per related condition (their own repeats are counted, not listed)."""
+    c = _c()
+    gk = gkey(eid)
+    p = str(eid).split("|")
+    pre = "|".join(p[:3]) + "|" if p[0] == "f" and len(p) >= 4 else str(eid)
+    occ = []
+    for r in c.execute("SELECT eid,label,sev,link,t0,t1,first_seen,last_seen,n,resolved FROM events WHERE eid >= ? AND eid < ? ORDER BY COALESCE(t1,0) DESC, last_seen DESC",
+                       (pre, pre + "\uffff")):
+        if r["resolved"] == 0 and gkey(r["eid"]) == gk or r["eid"] == eid:
+            occ.append({k: r[k] for k in ("eid", "label", "sev", "link", "t0", "t1", "first_seen", "last_seen", "n")})
+    if not occ:
+        return {"occurrences": [], "related": [], "events": {}, "clef_ev": None}
+    members = [o["eid"] for o in occ]
+    base = related(eid, members[:300])
+    ev, seen = base["events"], {}
+    for r in base["related"]:  # one line per related condition, best confidence first; its repeats are counted
+        g = gkey(r["id"])
+        e = ev.get(r["id"]) or {}
+        if g not in seen:
+            seen[g] = {**r, "variants": 0, "t1": 0, "t0": None}
+        x = seen[g]
+        x["variants"] += 1
+        x["t1"] = max(x["t1"] or 0, e.get("t1") or 0)
+        if (r.get("llm_conf") or 0) > (x.get("llm_conf") or 0):
+            x.update({k: v for k, v in r.items() if k != "id"})
+            x["id"] = r["id"]
+    rel = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:80]
+    return {"occurrences": occ[:500], "n_occurrences": len(occ), "related": rel, "events": {k: v for k, v in ev.items() if k in {x["id"] for x in rel}},
+            "clef_ev": base["clef_ev"]}
+
+
 def _ev_view(eids):
     """Minimal event records (type, label, link, time, host IPs) for the Related popover."""
     eids, out = list(eids), {}
