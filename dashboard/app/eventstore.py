@@ -7,7 +7,7 @@ when the issue is no longer open.
 Ack identity: events with a check-off list reuse their existing ack keys (alarm / finding / host / issue / gw / admin);
 events without one (IDS signatures, threat-intel hits, alerts) use the generic ack type "event" with the eid as key.
 """
-import json, os, re, sys, threading
+import json, os, re, sys, threading, time
 
 _ROOT = os.environ.get("NETMON_DIR", "/netmon")
 if os.path.isdir(_ROOT) and _ROOT not in sys.path:
@@ -20,7 +20,12 @@ DDL = """CREATE TABLE IF NOT EXISTS events (
   eid TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', sev TEXT DEFAULT '', link TEXT DEFAULT '',
   t0 REAL, t1 REAL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, last_sid TEXT, n INTEGER NOT NULL DEFAULT 1,
   resolved INTEGER NOT NULL DEFAULT 0, doc TEXT NOT NULL DEFAULT '{}');
-CREATE INDEX IF NOT EXISTS events_open ON events(resolved, type);"""
+CREATE INDEX IF NOT EXISTS events_open ON events(resolved, type);
+CREATE TABLE IF NOT EXISTS event_fires (
+  eid TEXT NOT NULL, sid TEXT NOT NULL, seen TEXT NOT NULL, t0 REAL, t1 REAL, label TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (eid, sid)) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS event_fires_seen ON event_fires(seen);"""
+FIRE_KEEP_DAYS = 400
 
 
 def _c():
@@ -62,6 +67,7 @@ def upsert(E, sid, gen_iso=None, items=None):
             doc["item"] = _slim(items[eid])
         rows.append((eid, ev.get("type") or "", (ev.get("label") or "")[:300], ev.get("sev") or "", ev.get("link") or "",
                      ev.get("t0"), ev.get("t1"), now, now, sid, json.dumps(doc, default=str)))
+    fires = [(r[0], sid, now, r[5], r[6], r[2]) for r in rows]  # one row per (event, snapshot): when it fired
     newer = "COALESCE(excluded.t1,0) >= COALESCE(events.t1,0)"
     with _lock:
         c = _c()
@@ -75,6 +81,8 @@ def upsert(E, sid, gen_iso=None, items=None):
                 "first_seen=MIN(events.first_seen, excluded.first_seen), last_seen=MAX(events.last_seen, excluded.last_seen), "
                 "n=events.n + (CASE WHEN COALESCE(events.last_sid,'')!=excluded.last_sid THEN 1 ELSE 0 END), "
                 "last_sid=excluded.last_sid, resolved=CASE WHEN events.type='vuln' THEN 0 ELSE events.resolved END", rows)
+            c.executemany("INSERT OR IGNORE INTO event_fires (eid,sid,seen,t0,t1,label) VALUES (?,?,?,?,?,?)", fires)
+            c.execute("DELETE FROM event_fires WHERE seen < ?", (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - FIRE_KEEP_DAYS * 86400)),))
     return len(rows)
 
 
@@ -235,7 +243,12 @@ def detail(eid):
             x.update({k: v for k, v in r.items() if k != "id"})
             x["id"] = r["id"]
     rel = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:80]
-    return {"occurrences": occ[:500], "n_occurrences": len(occ), "related": rel, "events": {k: v for k, v in ev.items() if k in {x["id"] for x in rel}},
+    ch = members[:300]
+    fires = [dict(r) for r in c.execute(f"SELECT eid,sid,seen,t0,t1,label FROM event_fires WHERE eid IN ({','.join('?' * len(ch))}) "
+                                        "ORDER BY seen DESC, COALESCE(t1,0) DESC LIMIT 1000", ch)]
+    r0 = c.execute("SELECT MIN(seen) FROM event_fires").fetchone()
+    since = r0[0] if r0 else None
+    return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "related": rel, "events": {k: v for k, v in ev.items() if k in {x["id"] for x in rel}},
             "clef_ev": base["clef_ev"]}
 
 

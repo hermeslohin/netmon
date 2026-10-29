@@ -82,6 +82,16 @@
   const secs = (t) => (t ? new Date(t * 1000).toISOString() : "");
   const kindOf = (t) => TYPES.find((r) => r[0] === t) || [];
 
+  // one row per time the event was present in a report (recorded from now on, one row per event and report)
+  function firesHtml(d, x) {
+    const F = d.fires || [];
+    const note = d.fires_since ? `Recorded since ${when(d.fires_since)}.` : "Recording starts now.";
+    const earlier = Math.max(0, (x.n || 0) - F.length);
+    return (F.length ? `<table class="oe-tbl oe-fires"><thead><tr><th>Fired</th><th>Event time</th><th>Report</th><th>What</th></tr></thead><tbody>
+      ${F.map((f) => `<tr><td>${when(f.seen)}</td><td>${f.t1 ? esc(ft(secs(f.t1))) : ""}</td><td class="small muted">${esc(f.sid)}</td><td>${linkifyIps(f.label)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No individual firings recorded yet.</div>`)
+      + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
+  }
+
   async function openDetail(x) {
     document.querySelector(".oe-back")?.remove();
     const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], cev = X.clef_ev?.[x.eid];
@@ -120,7 +130,8 @@
         <span class="small muted">${r.variants > 1 ? `${r.variants} occurrences · ` : ""}${e.t1 ? "latest " + ft(secs(e.t1)) : ""}</span>
         ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</a>`; }).join("") : `<div class="empty">No related events.</div>`;
     back.querySelector(".oe-body").innerHTML = `
-      <h4>Every time it happened (${d.n_occurrences || occ.length})</h4>${occHtml}
+      <h4>When it fired (${(d.fires || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}
+      <h4>Variants of this event (${d.n_occurrences || occ.length})</h4>${occHtml}
       <h4>Related events (${rel.length})</h4><div class="small muted">One line per related condition; its repeats are counted, not listed.</div>${relHtml}`;
   }
 
