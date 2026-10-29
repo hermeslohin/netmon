@@ -139,6 +139,33 @@ class ClefServerSettingsTest(unittest.TestCase):
         finally:
             CS.models, CS.servers = old_m, old_s
 
+    def test_patapsco_backend(self):
+        """The Patapsco AI backend (default) is reached on loopback; only known backends are accepted; start/stop/restart
+        drive the ModelDeployment through kubectl (stubbed here) and never the host unit.
+        REQ: LLM-03"""
+        import clef_server as CS
+        calls, old = [], CS._kubectl
+        CS._kubectl = lambda *a, timeout=30: (calls.append(a), (0, ""))[1]
+        try:
+            CS.save({"backend": "patapsco"}, "tester")
+            self.assertEqual(CS.url(), "http://127.0.0.1:30891")
+            with self.assertRaises(ValueError):
+                CS.validate({"backend": "cloud"})
+            CS.control("stop"); CS.control("start"); CS.control("restart")
+            self.assertIn('{"spec": {"replicas": 0}}', calls[0]); self.assertIn('{"spec": {"replicas": 1}}', calls[1])
+            self.assertEqual(calls[2][:2], ("delete", "pod"))
+            old_url = clef.URL_DEFAULT
+            clef.URL_DEFAULT = ""
+            try:
+                self.assertEqual(clef.config()["url"], clef.PATAPSCO_URL)
+                CS.save({"backend": "host", "port": 8091}, "tester")
+                self.assertEqual(clef.config()["url"], "http://127.0.0.1:8091")
+            finally:
+                clef.URL_DEFAULT = old_url
+        finally:
+            CS._kubectl = old
+            CS.save({"backend": "patapsco"}, "tester")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -844,11 +844,23 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     const gb = (m) => `${esc(m.name)} (${esc(m.gb)} GB${m.flash ? ", flash" : ""})`;
     const render = (S) => {
       const s = S.settings || {}, run = S.running, base = (p) => esc(String(p || "").split("/").slice(-2, -1)[0] || "");
-      body.innerHTML = `<div class="idgrid">
+      const bsel = `<div class="llm-row"><span class="k">Backend</span><select name="backend"><option value="patapsco" ${S.backend === "patapsco" ? "selected" : ""}>Patapsco AI cluster (SGLang, Cloudflare/clef)</option><option value="host" ${S.backend === "host" ? "selected" : ""}>Host llama-server (GGUF, netmon-clef unit)</option></select></div>`;
+      if (S.backend === "patapsco") {
+        body.innerHTML = `<div class="idgrid">
+          <span class="k">Deployment</span><span><b class="${S.active === "active" ? "good" : "bad"}">${esc(S.active)}</b> · ${esc(S.unit)} · ${fn(S.replicas || 0)} replica(s)</span>
+          <span class="k">Serving</span><span>${run ? `<span class="mono">${esc(String(run.model).split("/").slice(-2).join("/"))}</span>${run.slots ? ` · ${fn(run.slots)} slots` : ""}${run.ctx_per_slot ? ` × ${fn(run.ctx_per_slot)} tokens` : ""} · ${esc(run.build || "")}` : `<span class="bad">not answering</span> ${esc(S.probe_error || "")}`}</span>
+          <span class="k">URL</span><span class="mono">${esc(S.url)}</span></div>
+        <div class="llm-grid" style="margin-top:8px">${bsel}
+          <div class="small muted">Runs on the Patapsco AI platform on this host (kubectl -n default get modeldeployment clef). Stop/Start scale it to 0/1 replicas; Restart replaces the pod.</div>
+          <div class="llm-row"><button type="button" name="save">Save backend</button> <button type="button" name="restart">Restart</button>
+            <button type="button" name="${S.enabled === "enabled" ? "stop" : "start"}">${S.enabled === "enabled" ? "Stop" : "Start"}</button>
+            <button type="button" name="refresh">Refresh</button> <span class="small muted msg">${s.by ? `saved by ${esc(s.by)} ${esc(ago(s.at))}` : ""}</span></div></div>
+        ${(S.log || []).length ? `<details style="margin-top:6px"><summary>Recent server log</summary><pre class="mono small">${(S.log || []).map(esc).join("\n")}</pre></details>` : ""}`;
+      } else body.innerHTML = `<div class="idgrid">
           <span class="k">Unit</span><span><b class="${S.active === "active" ? "good" : "bad"}">${esc(S.active)}</b> · ${esc(S.enabled)} at boot</span>
           <span class="k">Serving</span><span>${run ? `<span class="mono">${esc(String(run.model).split("/").pop())}</span> · ${fn(run.slots)} slots × ${fn(run.ctx_per_slot)} tokens · build ${esc(run.build || "")}` : `<span class="bad">not answering</span> ${esc(S.probe_error || "")}`}</span>
           <span class="k">URL</span><span class="mono">${esc(S.url)}</span></div>
-        <div class="llm-grid" style="margin-top:8px">
+        <div class="llm-grid" style="margin-top:8px">${bsel}
           <div class="llm-row"><span class="k">Model</span><select name="gguf"><option value="">auto (full clef, else flash)</option>${(S.models || []).map((m) => `<option value="${esc(m.path)}" ${m.path === s.gguf ? "selected" : ""}>${gb(m)}</option>`).join("")}</select>
             ${(S.models || []).length ? "" : '<span class="bad">no clef model on disk - see the stand-up instructions</span>'}</div>
           <div class="llm-row"><span class="k">Runtime</span><select name="server"><option value="">auto (newest CUDA)</option>${(S.servers || []).map((p) => `<option value="${esc(p)}" ${p === s.server ? "selected" : ""}>${base(p)}</option>`).join("")}</select></div>
@@ -867,7 +879,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         const act = b.name === "refresh" ? "status" : b.name;
         if (["stop", "disable"].includes(act) && !confirm("The correlation review waits while the decision model is down. Continue?")) return;
         body.querySelectorAll("button").forEach((x) => (x.disabled = true)); msg.textContent = act === "status" ? "checking…" : "working… (a restart takes up to a minute)";
-        const settings = act === "save" ? { gguf: q("gguf").value, server: q("server").value, parallel: +q("parallel").value, ctx: +q("ctx").value, batch: +q("batch").value, port: +q("port").value } : {};
+        const settings = act !== "save" ? {} : S.backend === "patapsco" ? { backend: q("backend").value }
+          : { backend: q("backend").value, gguf: q("gguf").value, server: q("server").value, parallel: +q("parallel").value, ctx: +q("ctx").value, batch: +q("batch").value, port: +q("port").value };
         try { const r = await apiPost("/api/llm/clef-server", { action: act, settings }); if (r.error) throw new Error(r.error);
               if (act !== "status") await new Promise((ok) => setTimeout(ok, 4000));
               render(act !== "status" ? await apiPost("/api/llm/clef-server", { action: "status" }) : r); }

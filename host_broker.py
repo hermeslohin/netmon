@@ -64,8 +64,14 @@ def clef_ctl(b):
     if act == "status":
         return CS.status()
     if act == "save":  # save the settings and restart the server with them
-        CS.save(b.get("settings") or {}, str(b.get("user") or "dashboard")[:80])
-        CS.control("restart")
+        before = CS.settings().get("backend")
+        s = CS.save(b.get("settings") or {}, str(b.get("user") or "dashboard")[:80])
+        if s.get("backend") == "patapsco":
+            if before != "patapsco":  # moving to the cluster: free the GPU held by the host llama-server
+                CS._ctl("disable", "--now", CS.UNIT, timeout=60)
+            CS.control("start")  # replicas 1 (no-op when already running)
+        else:
+            CS.control("restart")
         return CS.status()
     CS.control(act)
     return CS.status()
