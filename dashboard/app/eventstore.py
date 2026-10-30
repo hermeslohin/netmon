@@ -176,12 +176,48 @@ def open_events(types=None, sev=None, q=None, limit=2000, merge=False):
 _FLOW = re.compile(r"^(?P<pre>.*?)->\s*(?P<dst>.*?)\s*(?:\((?P<ip>[0-9a-f.:]+)\))?\s+(?P<rest>\d+/(?:tcp|udp).*)$", re.I)
 
 
+_VARIANT_KINDS = ("hnet-proc", "hnet-in", "net-new")  # host findings: hf|<kind>|<host>|<process>|<remote variant>
+
+
+def _merge_variants(rows):
+    """Host findings of one process on one system (same kind, host and executable) that differ only in the remote
+    side (destination IPs/names, source IPs) become one row \"... (N variants)\"; the variants ride along in `children`."""
+    buckets, out = {}, []
+    for r in rows:
+        p = str(r["eid"]).split("|")
+        if r["type"] == "host" and p[0] == "hf" and len(p) >= 5 and p[1] in _VARIANT_KINDS:
+            buckets.setdefault(tuple(p[1:4]), []).append((r, "|".join(p[4:])))
+        else:
+            out.append(r)
+    for (kind, host, proc), L in buckets.items():
+        if len(L) < 2:
+            out.append(L[0][0]); continue
+        L.sort(key=lambda t: (t[0]["t1"] or 0, t[0]["last_seen"] or 0))  # oldest -> newest
+        top = dict(L[-1][0])
+        kids = [{"eid": r["eid"], "dst": v, "ip": v, "ips": [], "detail": r["label"], "sev": r["sev"], "first_seen": r["first_seen"],
+                 "last_seen": r["last_seen"], "t0": r["t0"], "t1": r["t1"], "n": r["n"]} for r, v in reversed(L)]
+        txt = f"{host}: {proc} - {kind} - {len(L)} variants"
+        it = dict(top.get("item") or {}); it["text"] = txt
+        top["item"] = it; top["label"] = txt
+        top["ips"] = list(dict.fromkeys(ip for r, _ in reversed(L) for ip in r["ips"]))
+        top["acks"] = [{"type": t, "key": k} for t, k in dict.fromkeys((a["type"], a["key"]) for r, _ in reversed(L) for a in r["acks"])]
+        top["members"] = list(dict.fromkeys(e for r, _ in reversed(L) for e in r["members"]))[:40]
+        top["n"] = sum(r["n"] for r, _ in L); top["repeats"] = sum(r["repeats"] for r, _ in L)
+        top["first_seen"] = min(r["first_seen"] for r, _ in L); top["last_seen"] = max(r["last_seen"] for r, _ in L)
+        top["children"] = kids
+        out.append(top)
+    return out
+
+
 def merge_flows(rows):
     """Display grouping for the Open events page: segmentation findings of one device and one flow type ("10.0.0.1 -
     lateral-movement/admin port 22 (tcp) ...: -> A", "... -> B") become one row "... -> multiple devices (N)"; the instances
     (each destination with its own IPs) ride along in `children` for the detail window. Check-off covers every instance."""
     buckets, out = {}, []
+    rows = _merge_variants(rows)
     for r in rows:
+        if r.get("children"):
+            out.append(r); continue
         it = r.get("item") or {}
         m = _FLOW.match(it.get("detail") or "") if r["type"] == "finding" and it.get("kind") == "segmentation" else None
         if not m:

@@ -154,7 +154,13 @@ const evLabel = (id) => { const e = S.corr?.events?.[id]; const l = e ? e.label 
 // opts.evId(row) -> correlation event id ("f|...", "ids|...", "adm|...", "iss|...", "alert|...", "hf|...", "ti|...").
 // Adds a "Related" column (filled by related.js) and the ?ev=<id> drill-down filter for rows of that type.
 function table(id, cols, rows, opts = {}) {
-  const st = { key: opts.sort ?? null, dir: opts.dir ?? -1, q: "" };
+  // A table rebuilt by a re-render (check-off, refresh) keeps its sort, filter text and "show all": same view + same
+  // columns + same position on the page = same table. Without this the list snaps back to the default top-N order.
+  const tsq = S._tseq && S._tseq.gen === S._gen ? S._tseq : (S._tseq = { gen: S._gen, n: {} });
+  const tbase = [$("#main")?.dataset.view, id || "", cols.map((c) => c.k).join(",")].join("|"), tkey = tbase + "|" + (tsq.n[tbase] = (tsq.n[tbase] || 0) + 1);
+  S._tstate = S._tstate || new Map();
+  const st = S._tstate.get(tkey) || { key: opts.sort ?? null, dir: opts.dir ?? -1, q: "" };
+  S._tstate.set(tkey, st);
   const wrap = document.createElement("div");
   if (opts.evId) {
     cols = [...cols, relCol(opts.evId)];
@@ -228,7 +234,8 @@ function table(id, cols, rows, opts = {}) {
   wrap.innerHTML = chipHtml + (opts.search !== false && (opts.filter || rows.length > 8) ? `<div class="tfrow" style="margin-bottom:8px"><input placeholder="Filter…" type="search" aria-label="Filter list" style="width:100%;box-sizing:border-box"></div><div class="tbltools"><span class="more"></span></div>` : `<div class="tbltools" style="margin:0"><span class="more"></span></div>`) +
     `<div class="tblwrap ${opts.short ? "short" : ""}"><table><thead><tr>${cols.map((c) => `<th data-k="${esc(c.k)}" class="${c.num ? "num" : ""}">${esc(c.t)}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`;
   wrap.querySelector("thead").onclick = (e) => { const k = e.target.closest("th")?.dataset.k; if (!k) return; st.dir = st.key === k ? -st.dir : (cols.find((c) => c.k === k)?.num ? -1 : 1); st.key = k; render(); };
-  const inp = wrap.querySelector("input"); if (inp) inp.oninput = () => { st.q = inp.value; render(); };
+  const inp = wrap.querySelector("input"); if (inp && st.q) inp.value = st.q;
+  if (inp) inp.oninput = () => { st.q = inp.value; render(); };
   wrap.addEventListener("click", (e) => { if (e.target.closest(".more button")) { st.showAll = !st.showAll; render(); return; }
     if (opts.onclick && !e.target.closest("a, input, button, summary")) { const tr = e.target.closest("tr[data-i]"); if (tr) opts.onclick(rows[+tr.dataset.i]); } });
   render();
@@ -501,8 +508,44 @@ document.addEventListener("change", async (e) => {
     S.lateral = null; S.corr = null;
     try { S.risk = await api("/api/risk?id=" + encodeURIComponent(S.snap.id)); } catch (_) {}
   }
-  rerender();
+  // Keep the reader's place: slide the checked-off row away (the rows below move up) and, after the re-render,
+  // put window + inner scrollers back exactly where they were instead of letting the rebuilt list jump to the top.
+  const rowEl = cb.closest("tr, li, .oe-row, .finding");
+  const skey = (e) => { const c = e.closest(".card"); return (c?.querySelector("h2,h3")?.textContent || "").replace(/\(\d+ open\)/, "").trim() + "|" + e.className + "|" + e.tagName; };
+  const keepY = window.scrollY, keepS = new Map([...document.querySelectorAll(SCROLLERS)].map((e) => [skey(e), [e.scrollTop, e.scrollLeft]]));
+  // Anchor: the row that slides up into the closed one's place. After the re-render it is put back at the same
+  // spot on screen, whatever rebuilt or re-laid-out in between (page, card, table or list-mode scroller).
+  const sib = rowEl && ((rowEl.nextElementSibling?.querySelector?.(".ack-cb") && rowEl.nextElementSibling) || (rowEl.previousElementSibling?.querySelector?.(".ack-cb") && rowEl.previousElementSibling));
+  const acb = sib?.querySelector(".ack-cb"), anchor = acb ? { t: acb.dataset.t, k: acb.dataset.k, top: sib.getBoundingClientRect().top - (sib === rowEl.nextElementSibling ? rowEl.getBoundingClientRect().height : 0) } : null;
+  if (rowEl && cb.checked && !S.showAcked?.[cb.dataset.t]) await slideAway(rowEl);
+  await rerender();
+  if (anchor) holdAnchor(anchor);
+  document.querySelectorAll(SCROLLERS).forEach((e) => { const s = keepS.get(skey(e)); if (s) { e.scrollTop = s[0]; e.scrollLeft = s[1]; } });
+  window.scrollTo(window.scrollX, keepY);
 });
+function holdAnchor(a) {  // for ~0.8 s (or until the user scrolls) keep the anchor row at its on-screen position
+  let stop = false, n = 0; const off = () => { stop = true; };
+  ["wheel", "touchstart", "keydown", "mousedown"].forEach((ev) => addEventListener(ev, off, { once: true, capture: true, passive: true }));
+  const scrollable = (el) => { for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) { const o = getComputedStyle(p).overflowY; if ((o === "auto" || o === "scroll") && p.scrollHeight > p.clientHeight + 1) return p; } return null; };
+  const step = () => {
+    if (stop || ++n > 50) return;
+    const cb = [...document.querySelectorAll(".ack-cb")].find((c) => c.dataset.t === a.t && c.dataset.k === a.k), row = cb?.closest("tr, li, .oe-row, .finding");
+    if (row) { const d = row.getBoundingClientRect().top - a.top; if (Math.abs(d) > 1) { const sc = scrollable(row); if (sc) { const b = sc.scrollTop; sc.scrollTop += d; if (sc.scrollTop === b) window.scrollBy(0, d); } else window.scrollBy(0, d); } }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function slideAway(row) {  // collapse a row's height so the one below slides up into its place
+  return new Promise((res) => {
+    const h = row.getBoundingClientRect().height, cells = row.tagName === "TR" ? [...row.children] : [row];
+    row.style.transition = "opacity .18s"; row.style.opacity = "0";
+    setTimeout(() => {
+      cells.forEach((c) => { c.style.transition = "all .2s ease"; c.style.paddingTop = c.style.paddingBottom = "0"; c.style.lineHeight = "0"; c.style.fontSize = "0"; c.style.height = "0"; c.style.overflow = "hidden"; c.style.border = "0"; });
+      if (row.tagName !== "TR") { row.style.height = h + "px"; void row.offsetHeight; row.style.transition = "height .2s ease, opacity .18s"; row.style.height = "0"; }
+      setTimeout(res, 220);
+    }, 180);
+  });
+}
 document.addEventListener("click", (e) => {
   const t = e.target.closest(".ack-toggle"); if (!t) return;
   e.preventDefault(); S.showAcked[t.dataset.s] = !S.showAcked[t.dataset.s]; rerender();
@@ -1297,7 +1340,7 @@ function morphApply(main, oldNodes) {
   return { kept, fresh };
 }
 // Moving a box between #main and the stand-in loses the scroll position of its inner scrollers: remember and put back.
-const SCROLLERS = ".cc-body, .tblwrap, pre, .scroll";
+const SCROLLERS = ".cc-body, .tblwrap, pre, .scroll, .oe-tbl tbody";
 function scrollSave(root) { const out = []; root.querySelectorAll(SCROLLERS).forEach((e) => { if (e.scrollTop || e.scrollLeft) out.push([e, e.scrollTop, e.scrollLeft]); }); return out; }
 function scrollRestore(list) { for (const [e, t, l] of list || []) if (e.isConnected) { e.scrollTop = t; e.scrollLeft = l; } }
 function ghostDrop() {  // a real page change while a re-render was pending: forget the stand-in
@@ -1316,6 +1359,7 @@ async function rerender() {
 async function route(keep) {
   const gen = (S._gen = (S._gen || 0) + 1);
   S._scrolled = false; S._noScroll = !!keep;
+  if (!keep) S._tstate = new Map();  // table sort/filter state survives re-renders, not navigation
   if (S.pending?.size) { S._t = new Set(); S._order = []; }  // sections.js: record which not-yet-loaded sections each card reads
   let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
   if (isUserRole() && !USER_VIEWS.has(view)) { view = "my"; rest = []; }

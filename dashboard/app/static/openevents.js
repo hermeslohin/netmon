@@ -152,12 +152,15 @@
           ${c.reason ? `<div class="small">${esc(c.reason)}</div>` : ""}</div>` : ""}
         ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note</span>
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
+    const mb = (role, m, cls) => m ? `<span class="oe-ai ${cls || ""}" title="${esc(role)}: ${esc(m)}"><span class="oe-ai-r">${esc(role)}</span>${esc(String(m).replace(/^.*[:/]/, ""))}</span>` : "";
+    const aiBadges = [mb("classified by", c?.model), mb("decision model", cev?.model, "dm"), mb("researched by", n?.model, "rs")].filter(Boolean).join("");
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
       <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
         <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×${x.repeats > 1 ? ` · <span class="oe-var" title="Same condition, but the numbers in the text differ between reports (counts, ports, bytes). Each firing below is tagged with its variant.">${x.repeats} variants</span>` : ""}</div></div>
         <div class="oe-tools">${noteBtn(x.eid)}${askBtn(askKind, x.label, itemOf(x))}${cmpBtn(askKind, x.label, itemOf(x), x.eid)}${pivBtn(pivKind, pivItem(x))}
           ${x.link ? `<a class="small" href="${esc(x.link)}" title="Open the page this event comes from">open source ↗</a>` : ""}
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
+      ${aiBadges ? `<div class="oe-ais">${aiBadges}</div>` : ""}
       ${verdictHtml}
       <div class="oe-body"><div class="loading">Loading…</div></div></div>`;
     document.body.appendChild(back);

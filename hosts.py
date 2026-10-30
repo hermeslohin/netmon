@@ -70,6 +70,11 @@ def B(agg):
     return (agg or {}).get("buckets", [])
 
 
+def garbled(h):
+    """Hostname that is mojibake / U+FFFD replacement chars (macOS Endpoint/agent briefly reports these)."""
+    return bool(h) and bool(re.search(r"[^\x21-\x7e]|\xef\xbf\xbd", h))
+
+
 def hn(h):
     return (h or "").lower()
 
@@ -103,7 +108,10 @@ def fleet_agents():
     best = {}
     for h in r["hits"]["hits"]:
         s = h["_source"]
-        name = ((s.get("local_metadata") or {}).get("host") or {}).get("hostname") or "?"
+        lmh = (s.get("local_metadata") or {}).get("host") or {}
+        name = lmh.get("hostname") or "?"
+        if garbled(name):  # transient garbage hostname - not a real host, don't alert on it
+            continue
         if name not in best or (s.get("last_checkin") or "") > (best[name].get("last_checkin") or ""):
             best[name] = s
     out = []
@@ -133,6 +141,8 @@ def defend_policy():
     for h in r["hits"]["hits"]:
         s = h["_source"]
         s["host"]["name"] = hn(fname.get((s.get("agent") or {}).get("id"), s["host"]["name"]))
+        if garbled(s["host"]["name"]):
+            continue
         p = s["Endpoint"]["policy"]["applied"]
         cfg = {k: v.get("status") for k, v in ((p.get("response") or {}).get("configurations") or {}).items()}
         acts = p.get("actions") or []
