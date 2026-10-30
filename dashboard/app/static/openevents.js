@@ -82,13 +82,32 @@
   const secs = (t) => (t ? new Date(t * 1000).toISOString() : "");
   const kindOf = (t) => TYPES.find((r) => r[0] === t) || [];
 
-  // one row per time the event was present in a report (recorded from now on, one row per event and report)
+  // one block per time the event fired (recorded one per report): what happened, then that event's related events, the artifacts
+  // (with their note buttons) and the Elasticsearch queries the AI used for it. Related lists are keyed by event id, so
+  // firings of the same id show the same links.
   function firesHtml(d, x) {
-    const F = d.fires || [];
+    const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};
+    let F = d.fires || [];
+    if (!F.length) F = (d.occurrences || []).map((o) => ({ eid: o.eid, sid: "", seen: o.last_seen, t1: o.t1, label: o.label }));
     const note = d.fires_since ? `Recorded since ${when(d.fires_since)}.` : "Recording starts now.";
-    const earlier = Math.max(0, (x.n || 0) - F.length);
-    return (F.length ? `<table class="oe-tbl oe-fires"><thead><tr><th>Fired</th><th>Event time</th><th>Report</th><th>What</th></tr></thead><tbody>
-      ${F.map((f) => `<tr><td>${when(f.seen)}</td><td>${f.t1 ? esc(ft(secs(f.t1))) : ""}</td><td class="small muted">${esc(f.sid)}</td><td>${linkifyIps(f.label)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No individual firings recorded yet.</div>`)
+    const earlier = Math.max(0, (x.n || 0) - (d.fires || []).length);
+    const body = (f) => {
+      const rel = BY[f.eid] || [], me = EV[f.eid] || {};
+      const own = U.ipArts ? U.ipArts(me, []) : [];  // artifacts read from the event itself
+      const seenA = new Set(), arts = [], qs = [];
+      for (const a of [...own, ...rel.flatMap((r) => r.llm_artifacts || [])]) { const k = a.kind + ":" + a.value; if (seenA.has(k)) continue; seenA.add(k); (a.kind === "query" ? qs : arts).push(a); }
+      const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
+        const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
+        return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
+          ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${r.variants} occurrences</span>` : ""}
+          ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the reviewer adds them as it links events.</div>`;
+      return `<details class="oe-det oe-sub" ${rel.length ? "open" : ""}><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
+        <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
+        <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;
+    };
+    return (F.length ? F.map((f, i) => `<div class="oe-fire"><div class="oe-fire-h"><b>${when(f.seen)}</b>
+        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""}</div>
+        <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No individual firings recorded yet.</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
   }
 
@@ -120,16 +139,7 @@
     try { d = await api("/api/events/detail?e=" + encodeURIComponent(x.eid)); }
     catch (e) { back.querySelector(".oe-body").innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     if (!back.isConnected) return;
-    const rel = d.related || [], EV = d.events || {}, U = window.relUi || {};
-    // everything the AI linked to this event, merged over all its related events: artifacts (with note buttons) and Elasticsearch queries
-    const merged = [], seenA = new Set();
-    for (const r of rel) for (const a of r.llm_artifacts || []) { const k = a.kind + ":" + a.value; if (!seenA.has(k)) { seenA.add(k); merged.push(a); } }
-    const all = U.ipArts ? U.ipArts(EV[x.eid] || {}, merged) : merged;
-    const arts = all.filter((a) => a.kind !== "query"), qs = all.filter((a) => a.kind === "query");
-    const linked = `<div class="oe-linked">
-      <details class="oe-det" open><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet - the reviewer adds them as it links related events.</div>`}</details>
-      <details class="oe-det" open><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">No searches yet.</div>`}</details></div>`;
-    back.querySelector(".oe-body").innerHTML = `<h4>When it fired (${(d.fires || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}${linked}`;
+    back.querySelector(".oe-body").innerHTML = `<h4>When it fired (${(d.fires || []).length || (d.occurrences || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}`;
   }
 
   async function paintCount() {

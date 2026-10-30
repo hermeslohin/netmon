@@ -228,34 +228,35 @@ def detail(eid):
             occ.append({k: r[k] for k in ("eid", "label", "sev", "link", "t0", "t1", "first_seen", "last_seen", "n")})
     if not occ:
         return {"occurrences": [], "related": [], "events": {}, "clef_ev": None}
-    members = [o["eid"] for o in occ]
-    base = related(eid, members[:300])
-    ev, seen = base["events"], {}
-    for r in base["related"]:  # one line per related condition, best confidence first; its repeats are counted
-        g = gkey(r["id"])
-        e = ev.get(r["id"]) or {}
-        if g not in seen:
-            seen[g] = {**r, "variants": 0, "t1": 0, "t0": None, "arts_all": []}
-        x = seen[g]
-        have = {(a["kind"], a["value"]) for a in x.setdefault("arts_all", [])}  # artifacts + ES queries of every variant's pair
-        for a in r.get("llm_artifacts") or []:
-            if (a["kind"], a["value"]) not in have:
-                have.add((a["kind"], a["value"])); x["arts_all"].append(a)
-        x["variants"] += 1
-        x["t1"] = max(x["t1"] or 0, e.get("t1") or 0)
-        if (r.get("llm_conf") or 0) > (x.get("llm_conf") or 0):
-            x.update({k: v for k, v in r.items() if k not in ("id", "arts_all", "llm_artifacts")})
-            x["id"] = r["id"]
-    rel = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:80]
-    for x in rel:
-        x["llm_artifacts"] = x.pop("arts_all", [])
-    ch = members[:300]
+    members = [o["eid"] for o in occ][:300]
+    ch = members
     fires = [dict(r) for r in c.execute(f"SELECT eid,sid,seen,t0,t1,label FROM event_fires WHERE eid IN ({','.join('?' * len(ch))}) "
                                         "ORDER BY seen DESC, COALESCE(t1,0) DESC LIMIT 1000", ch)]
     r0 = c.execute("SELECT MIN(seen) FROM event_fires").fetchone()
     since = r0[0] if r0 else None
-    return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "related": rel, "events": {k: v for k, v in ev.items() if k in {x["id"] for x in rel} | {eid}},
-            "clef_ev": base["clef_ev"]}
+    # related events of each distinct event id that fired (one line per related condition, its repeats merged), with the
+    # artifacts and Elasticsearch queries of those links; the window nests them under each firing
+    import corr_llm
+    fe = list(dict.fromkeys([f["eid"] for f in fires] or members[:1]))[:60]
+    R, partners = corr_llm.related_view({e: {e} for e in fe})
+    CE = corr_llm.clef_events_view(fe)
+    ev = _ev_view(partners | set(fe))
+    by = {}
+    for e in fe:
+        seen = {}
+        for r in R.get(e, []):
+            g = gkey(r["id"])
+            x = seen.setdefault(g, {**{k: v for k, v in r.items() if k != "llm_artifacts"}, "variants": 0, "llm_artifacts": []})
+            have = {(a["kind"], a["value"]) for a in x["llm_artifacts"]}
+            for a in r.get("llm_artifacts") or []:
+                if (a["kind"], a["value"]) not in have:
+                    have.add((a["kind"], a["value"])); x["llm_artifacts"].append(a)
+            x["variants"] += 1
+            if (r.get("llm_conf") or 0) > (x.get("llm_conf") or 0):
+                x.update({k: v for k, v in r.items() if k not in ("llm_artifacts",)})
+        by[e] = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:40]
+    return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "by_event": by, "events": ev,
+            "clef_ev": next((CE[m] for m in fe if m in CE), None)}
 
 
 def _ev_view(eids):

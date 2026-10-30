@@ -597,3 +597,6 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
 .oe-det{margin:4px 0 0 4px}.oe-det>summary{cursor:pointer;font-size:12px;color:var(--muted)}.oe-det .note-arts{margin-top:4px}
 .oe-det ul{margin:4px 0;padding-left:18px}
 .oe-linked{margin-top:8px;border-top:1px solid var(--border);padding-top:6px}
+.oe-fire{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:8px 0;background:var(--panel2)}
+.oe-fire-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.oe-fire-w{margin:3px 0 6px;overflow-wrap:anywhere}
+.oe-sub{margin:4px 0 0}.oe-sub>summary{font-weight:600;color:var(--fg)}.oe-sub .oe-rel{border-bottom:none;padding:4px 4px 4px 14px}
