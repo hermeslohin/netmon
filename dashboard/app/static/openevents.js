@@ -48,6 +48,7 @@
     const title = (x) => x.label;
     const ack = { k: "_ack", t: "✓", fmt: (v, x) => ackCell(x), sort: () => 0 };
     const verdict = { k: "_verdict", t: "Verdict", fmt: (v, x) => chips(x), sort: (x) => (window.__oeExtra?.classes?.[x.eid]?.label || "~") };
+    const notes = { k: "_unote", t: "Notes", fmt: (v, x) => noteBtn(x.eid), sort: (x) => (S.corr?.unotes?.[x.eid] || []).length };
     const sev = { k: "sev", t: "Severity", fmt: (v) => badge(v || "low"), sort: (x) => sevRank(x.sev) };
     const seen = { k: "n", t: "Seen", num: true, fmt: (v, x) => `${v}×${x.repeats > 1 ? ` <span class="muted small" title="same condition, different numbers each night">${x.repeats} variants</span>` : ""}` };
     const times = [{ k: "first_seen", t: "First seen", fmt: when }, { k: "last_seen", t: "Last seen", fmt: when }, seen];
@@ -67,7 +68,7 @@
       vuln: [{ k: "title", t: "Issue", fmt: (v, x) => esc(itemOf(x).title || x.label), sort: (x) => itemOf(x).title || "" }, { k: "target", t: "Target", fmt: (v, x) => ipLink(itemOf(x).target || itemOf(x).ip || ""), sort: (x) => itemOf(x).target || "" }],
       alert: [label, hosts],
     }[t] || [label, hosts];
-    return [ack, sev, verdict, ...by, ...times];
+    return [ack, sev, verdict, notes, ...by, ...times];
   }
 
 
@@ -78,6 +79,11 @@
     return (c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ` : "")
       + (n && n.verdict ? `<span class="note-v v-${vcls(n.verdict)}" title="Research note verdict">📝 ${esc(n.verdict)}</span> ` : "")
       + (rn ? `<span class="muted small" title="related events">${rn} related</span>` : "");
+  }
+  // your notes on an event (kbnotes.js popover: add a note or a verdict, send to research); also used in the detail window
+  function noteBtn(eid) {
+    const ns = S.corr?.unotes?.[eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
+    return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(eid)}" title="Add a note or verdict on this event (the AI reads approved notes)">${n ? `📝 ${n}${p ? " ⏳" : ""}` : "📝"}</button>`;
   }
   const secs = (t) => (t ? new Date(t * 1000).toISOString() : "");
   const kindOf = (t) => TYPES.find((r) => r[0] === t) || [];
@@ -128,7 +134,7 @@
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
       <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
         <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×</div></div>
-        <div class="oe-tools">${askBtn(askKind, x.label, itemOf(x))}${cmpBtn(askKind, x.label, itemOf(x), x.eid)}${pivBtn(pivKind, pivItem(x))}
+        <div class="oe-tools">${noteBtn(x.eid)}${askBtn(askKind, x.label, itemOf(x))}${cmpBtn(askKind, x.label, itemOf(x), x.eid)}${pivBtn(pivKind, pivItem(x))}
           ${x.link ? `<a class="small" href="${esc(x.link)}" title="Open the page this event comes from">open source ↗</a>` : ""}
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
       ${verdictHtml}
@@ -153,6 +159,8 @@
     el.innerHTML = `<div class="loading">Loading…</div>`;
     let r; try { r = await api("/api/events/open?limit=5000"); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     window.__oeExtra = r.extra || {};
+    S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(window.__oeExtra.unotes || {}) };
+    for (const x of r.events) if (!S.corr.events[x.eid]) S.corr.events[x.eid] = { label: x.label, type: x.type };  // the notes popover reads the event label from here
     window.__oeMembers = Object.fromEntries(r.events.map((x) => [x.eid, x.members || []]));
     el.innerHTML = "";
     const f = OE.f, c = r.counts || {};
