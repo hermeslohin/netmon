@@ -1539,6 +1539,17 @@ class H(BaseHTTPRequestHandler):
                     print(f"discover failed: {type(e).__name__}: {e}", file=sys.stderr)
                     hint = " - set the UniFi API key under More > Configuration" if "401" in str(e) or "403" in str(e) or not integrations.unifi_key() else ""
                     return self._json({"error": f"UniFi discovery failed: {type(e).__name__}: {e}{hint}"}, 502)
+            if u.path == "/api/config/tune-apply":  # admin only (ADMIN_POST prefix /api/config/): write the ACCEPTED auto-tune recommendations
+                import tuning
+                done, pol = tuning.apply(body.get("accept"))
+                if not done:
+                    return self._json({"error": "nothing to apply: the recommendations changed or none was accepted - reload them"}, 409)
+                bad = cfg_validate("policy", pol)
+                if bad:
+                    return self._json({"error": bad}, 400)
+                store.cfg_save("policy", pol)
+                print(f"settings: {user} accepted auto-tune recommendations: {', '.join(done)}", file=sys.stderr)
+                return self._json({"ok": True, "applied": done})
             if u.path == "/api/config/cfg":  # admin only (ADMIN_POST prefix); set one value inside a settings document
                 doc, kp, val = str(body.get("doc") or ""), body.get("path"), body.get("value")
                 if doc not in store.CFG_DOCS or not isinstance(kp, list) or not kp or len(kp) > 6 or "value" not in body:
@@ -1692,6 +1703,11 @@ class H(BaseHTTPRequestHandler):
                 if not admin:
                     return self._json({"admin": False})
                 return self._json({**integrations.public(), "admin": True})
+            if path == "/api/config/tune":  # auto-tune: recommendations only, nothing is saved
+                if not admin:
+                    return self._json({"error": "only an admin can auto-tune"}, 403)
+                import tuning
+                return self._json(tuning.recommend())
             if path == "/api/config/cfg":  # Settings page: policy / host_policy / known_benign / site as editable tables
                 if role not in ("admin", "defender"):
                     return self._json({"error": "only an admin or defender can read the settings"}, 403)

@@ -61,6 +61,8 @@ All network-specific values live in the netmon database (`dashboard/state/netmon
 
 On **More → Settings → Network policy** (admin only), **Discover from UniFi** builds a proposal from your UniFi console and shows it before anything is changed. It needs the UniFi API key (More → Configuration). Code: `discover.py` (`python3 discover.py` prints a preview; `--apply [--overwrite]` writes it).
 
+On the same page, **Auto-tune thresholds** (admin only) replays about two weeks of per-device history and daily snapshots against the scan, beacon, upload and spike thresholds and lists recommended values with the reason and the before/after finding counts. Nothing is saved until you tick the proposals you want and press **Accept selected**. Proposals only make a noisy detection less noisy; severity and min_days are never touched. Code: `tuning.py`.
+
 | Discovered | From |
 |---|---|
 | **zones** | one per enabled UniFi network that has a subnet (`rest/networkconf`), named from the network name (`Kubeworld` → `kubeworld`) or `vlanN`. A subnet that already has a zone keeps its name. |

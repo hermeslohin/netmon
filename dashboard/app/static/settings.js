@@ -129,6 +129,36 @@
     return card("Auto-discover from UniFi", h("div", {}, h("div", { class: "muted small" }, "Reads your UniFi networks (zones + roles), clients and UniFi's device fingerprints (device classes). Nothing is changed until you apply; existing entries are kept unless you choose overwrite."), h("div", { style: "margin-top:6px" }, preview, msg), out));
   }
 
+  // Auto-tune (GET /api/config/tune = recommendations only; POST /api/config/tune-apply writes just the accepted ones)
+  function tuneCard(reload) {
+    const out = h("div", { style: "margin-top:8px" }), msg = h("span", { class: "small", style: "margin-left:10px" });
+    const fmt = (v) => (Array.isArray(v) ? v.join(", ") : v);
+    const run = h("button", { type: "button" }, "Auto-tune thresholds");
+    run.onclick = async () => {
+      msg.style.color = ""; msg.textContent = "Analysing history…"; out.innerHTML = "";
+      let r; try { r = await api("/api/config/tune"); } catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e); return; }
+      msg.textContent = "";
+      const checks = [];
+      const rows = r.recommendations.map((x) => {
+        const cb = h("input", { type: "checkbox", checked: x.status === "change", disabled: x.status !== "change" });
+        if (x.status === "change") checks.push([cb, x]);
+        const chg = x.status === "change" ? Object.entries(x.changes).map(([k, v]) => h("div", {}, h("b", {}, k), ": ", fmt(x.current[k]), " → ", h("b", {}, fmt(v)))) : [h("span", { class: "muted" }, x.status === "off" ? "off" : x.status === "ok" ? "keep as is" : "no safe change")];
+        return h("tr", {}, h("td", {}, cb), h("td", {}, x.title), h("td", {}, Object.entries(x.current).map(([k, v]) => h("div", { class: "small" }, k + ": " + fmt(v)))), h("td", {}, chg), h("td", { class: "small" }, x.why));
+      });
+      const apply = h("button", { type: "button", disabled: !checks.length }, "Accept selected");
+      apply.onclick = async () => {
+        const acc = checks.filter(([cb]) => cb.checked).map(([, x]) => ({ id: x.id, changes: x.changes }));
+        if (!acc.length) { msg.textContent = "Nothing selected."; return; }
+        try { const a = await apiPost("/api/config/tune-apply", { accept: acc }); alert("Applied: " + a.applied.join(", ")); reload(); }
+        catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); }
+      };
+      out.append(h("div", { class: "muted small" }, `Based on ${r.window_days} days of per-device history and ${r.snapshots} daily snapshots. Each proposal only makes a detection less noisy and keeps its severity. Nothing is changed until you accept.`),
+        h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, ["", "Detection", "Current", "Recommended", "Why"].map((c) => h("th", {}, c)))), h("tbody", {}, rows)),
+        h("div", { style: "margin-top:8px" }, apply, " ", h("button", { type: "button", class: "small", onclick: () => { out.innerHTML = ""; } }, "Dismiss")));
+    };
+    return card("Auto-tune thresholds", h("div", {}, h("div", { class: "muted small" }, "Replays your recent traffic history against the scan, beacon, upload and spike thresholds and recommends values. Nothing is saved until you accept."), h("div", { style: "margin-top:6px" }, run, msg), out));
+  }
+
   V.settings = async (el, arg) => {
     const doc = DOCS.some(([d]) => d === arg) ? arg : "policy";
     el.innerHTML = `<div class="loading">Loading…</div>`;
@@ -138,6 +168,7 @@
     el.append(h("div", { class: "fchips" }, DOCS.map(([d, t]) => h("a", { href: "#/settings/" + d, class: "chip" + (d === doc ? " on" : ""), style: d === doc ? "font-weight:700" : "" }, t))));
     el.append(h("div", { class: "muted small", style: "margin:6px 0" }, HELP[doc], ed ? " Changes save automatically as you edit." : " Read-only: only an admin can change settings."));
     if (doc === "policy" && ed) el.append(discoverCard(() => V.settings(el, doc)));
+    if (doc === "policy" && ed) el.append(tuneCard(() => V.settings(el, doc)));
     const notes = Object.entries(data).filter(([k]) => k.startsWith("_") && !(k.startsWith("_doc_") && k.slice(5) in data)).map(([k, v]) => `${k.replace(/^_doc_?/, "") || "about"}: ${v}`);
     if (notes.length) el.append(h("details", { class: "muted small", style: "margin-bottom:8px" }, h("summary", {}, "Notes on these settings"), notes.map((n) => h("p", {}, n))));
     // Changes are saved as soon as a field is edited (on change/blur) or a row is removed; saves run one at a time.
