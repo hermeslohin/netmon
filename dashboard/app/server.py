@@ -1852,7 +1852,7 @@ class H(BaseHTTPRequestHandler):
                         continue
                     out, seen = [], set()
 
-                    def put(typ, val, src, rel=""):
+                    def put(typ, val, src, rel="", *, seen=seen, out=out):
                         val = str(val).strip()
                         if val and (typ, val.lower()) not in seen:
                             seen.add((typ, val.lower()))

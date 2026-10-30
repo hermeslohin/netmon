@@ -1604,7 +1604,7 @@ def classify_pass(model, base):
         dec = [(r["id"], V[pair(a, r["id"])]) for r in lst if pair(a, r["id"]) in V and r["id"] in E]
         if not dec:
             continue
-        sig = hashlib.sha1("|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec)).encode()).hexdigest()[:16]
+        sig = hashlib.sha1("|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec)).encode(), usedforsecurity=False).hexdigest()[:16]
         if have.get(a) == sig:
             continue
         todo.append((a, sig, [(i, v["confidence"], v["reason"]) for i, v in dec if v["related"]]))
@@ -1852,7 +1852,7 @@ def event_pass(base):
         dec = [(r["id"], V[pair(a, r["id"])]) for r in lst if pair(a, r["id"]) in V and r["id"] in E]
         if not dec:
             continue
-        sig = hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode()).hexdigest()[:16]
+        sig = hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode(), usedforsecurity=False).hexdigest()[:16]
         if have.get(a) == sig:
             continue
         todo.append((a, sig, [i for i, v in dec if v["related"]], [i for i, _ in dec]))
@@ -1992,7 +1992,7 @@ def run_once(get_base, latest_sid):
         seen, jobs = set(), []
         if use_clef:  # the owner's review limits still apply (skipped type pairs, excluded / cleared events, test mode); the per-event cap does not
             skipped, CL = _limit_fn(base), _cleared()
-            keepfn = lambda a, b: not (skipped(a, b) or skipped.testing(a, b) or (a in CL and b in CL))
+            keepfn = lambda a, b, skipped=skipped, CL=CL: not (skipped(a, b) or skipped.testing(a, b) or (a in CL and b in CL))
         # anchors with the most undecided links first; each unordered pair is asked once
         for a in sorted(rel, key=lambda a: -len(rel[a])):
             todo = [r for r in rel[a] if pair(a, r["id"]) not in V and pair(a, r["id"]) not in seen and (not use_clef or keepfn(a, r["id"]))]

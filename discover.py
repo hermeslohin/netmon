@@ -177,7 +177,7 @@ def build(existing_policy=None):
             if cls:
                 classes.append(cls)
         if len(classes) >= 2:
-            share = lambda *k: sum(1 for x in classes if x in k) / len(classes)  # noqa: E731
+            share = lambda *k, classes=classes: sum(1 for x in classes if x in k) / len(classes)  # noqa: E731
             if share("server", "k8s") >= 0.5:
                 role = "protected"
         roles[z] = role or "user"

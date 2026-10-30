@@ -68,6 +68,19 @@ PATAPSCO_URL = "http://127.0.0.1:30891"  # Patapsco AI cluster: SGLang clef via 
 PATAPSCO_MODEL = "Cloudflare/clef"  # SGLang's served model name (FP8 online quantization); SGLang requires it in the body
 
 
+LOOPBACK = ("http://127.0.0.1", "http://localhost", "http://[::1]")
+
+
+def _loopback(u, fallback=""):
+    """Plain-http loopback URLs only: event data never leaves the host, and no file:/ftp:/custom scheme can reach
+    urlopen() from a saved setting. Anything else falls back to the configured server, then to Patapsco."""
+    u = str(u or "").rstrip("/")
+    if u.startswith(LOOPBACK):
+        return u
+    f = str(fallback or "").rstrip("/")
+    return f if f.startswith(LOOPBACK) else PATAPSCO_URL
+
+
 def _server_url():
     """URL of the decision-model server picked on AI review > Decision model server (docs table, clef_server.backend):
     the Patapsco AI cluster by default, else the host llama-server on its saved port."""
@@ -83,9 +96,7 @@ def _server_url():
 
 def config():
     c = _cfg_raw()
-    url = str(c.get("url") or URL_DEFAULT or _server_url()).rstrip("/")
-    if not url.startswith(("http://127.0.0.1", "http://localhost")):  # loopback only: event data never leaves the host
-        url = URL_DEFAULT or _server_url()
+    url = _loopback(c.get("url") or URL_DEFAULT or _server_url(), URL_DEFAULT or _server_url())
 
     def thr(k, d):
         try:
@@ -118,13 +129,13 @@ def set_config(user, enabled=None, related_min=None, suspicious_min=None):
 def ask(state, questions, url=None, timeout=TIMEOUT):
     """One /v1/systemone call -> ({question: probability of yes}, milliseconds)."""
     cfg = config()
-    url = url or cfg["url"]
+    url = _loopback(url or cfg["url"], cfg["url"])
     body = json.dumps({"model": cfg["model"], "state": state, "questions": {k: {"type": "noul", "instructions": q} for k, q in questions.items()}}).encode()
-    req = urllib.request.Request(url + "/v1/systemone", data=body, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(url + "/v1/systemone", data=body, headers={"Content-Type": "application/json"})  # noqa: S310
     t = time.time()
     for attempt in range(3):  # llama-server occasionally never answers one request (seen under load): retry it, never stall the pass
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - loopback URL enforced in config()
+            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
                 d = json.loads(r.read().decode())
             break
         except TimeoutError:
