@@ -139,13 +139,17 @@
       let r; try { r = await api("/api/config/tune"); } catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e); return; }
       msg.textContent = "";
       const checks = [];
+      // one tappable card per proposal (a <label> around the whole card: big touch target, works on phones)
       const rows = r.recommendations.map((x) => {
-        const cb = h("input", { type: "checkbox", checked: x.status === "change", disabled: x.status !== "change" });
-        if (x.status === "change") checks.push([cb, x]);
-        const chg = x.status === "change" ? Object.entries(x.changes).map(([k, v]) => h("div", {}, h("b", {}, k), ": ", fmt(x.current[k]), " → ", h("b", {}, fmt(v)))) : [h("span", { class: "muted" }, x.status === "off" ? "off" : x.status === "ok" ? "keep as is" : "no safe change")];
-        return h("tr", {}, h("td", {}, cb), h("td", {}, x.title), h("td", {}, Object.entries(x.current).map(([k, v]) => h("div", { class: "small" }, k + ": " + fmt(v)))), h("td", {}, chg), h("td", { class: "small" }, x.why));
+        const on = x.status === "change";
+        const cb = h("input", { type: "checkbox", checked: on, disabled: !on, style: "width:26px;height:26px;min-width:26px;padding:0;margin:0;flex:none;accent-color:#3fb950" });
+        if (on) checks.push([cb, x]);
+        const chg = on ? Object.entries(x.changes).map(([k, v]) => h("div", {}, h("b", {}, k), ": ", fmt(x.current[k]), " → ", h("b", {}, fmt(v)))) : [h("div", { class: "muted" }, x.status === "off" ? "off" : x.status === "ok" ? "Keep as is" : "No safe change")];
+        const cur = Object.entries(x.current).map(([k, v]) => k + ": " + fmt(v)).join("  ·  ");
+        return h(on ? "label" : "div", { style: "display:flex;gap:12px;align-items:flex-start;padding:10px;margin:6px 0;border:1px solid var(--border);border-radius:8px;" + (on ? "cursor:pointer" : "opacity:.75") },
+          cb, h("div", { style: "min-width:0;flex:1" }, h("div", {}, h("b", {}, x.title)), h("div", { class: "muted small" }, "Current: " + cur), h("div", { style: "margin:4px 0" }, chg), h("div", { class: "small" }, x.why)));
       });
-      const apply = h("button", { type: "button", disabled: !checks.length }, "Accept selected");
+      const apply = h("button", { type: "button", disabled: !checks.length, style: "min-height:44px" }, "Accept selected");
       apply.onclick = async () => {
         const acc = checks.filter(([cb]) => cb.checked).map(([, x]) => ({ id: x.id, changes: x.changes }));
         if (!acc.length) { msg.textContent = "Nothing selected."; return; }
@@ -153,7 +157,7 @@
         catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); }
       };
       out.append(h("div", { class: "muted small" }, `Based on ${r.window_days} days of per-device history and ${r.snapshots} daily snapshots. Each proposal only makes a detection less noisy and keeps its severity. Nothing is changed until you accept.`),
-        h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, ["", "Detection", "Current", "Recommended", "Why"].map((c) => h("th", {}, c)))), h("tbody", {}, rows)),
+        h("div", {}, rows),
         h("div", { style: "margin-top:8px" }, apply, " ", h("button", { type: "button", class: "small", onclick: () => { out.innerHTML = ""; } }, "Dismiss")));
     };
     return card("Auto-tune thresholds", h("div", {}, h("div", { class: "muted small" }, "Replays your recent traffic history against the scan, beacon, upload and spike thresholds and recommends values. Nothing is saved until you accept."), h("div", { style: "margin-top:6px" }, run, msg), out));
