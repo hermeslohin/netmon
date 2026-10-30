@@ -305,6 +305,23 @@ def _sigs(sid):
     return {x.get("name"): x for x in ((raw.get("alerts") or {}).get("signatures") or [])}
 
 
+def _stored_events(eids):
+    """Events that only exist in the event store (older than the latest snapshot's correlation, still open on the Open events
+    page), as correlation-style records: {eid: {type, label, sev, link, t0, t1, ips}}."""
+    out = {}
+    try:
+        import eventstore
+        c = eventstore._c()
+        for e in {str(x) for x in eids if x}:
+            r = c.execute("SELECT eid, type, label, sev, link, t0, t1, doc FROM events WHERE eid=?", (e,)).fetchone()
+            if r:
+                dd = json.loads(r["doc"] or "{}")
+                out[e] = {"type": r["type"], "label": r["label"], "sev": r["sev"], "link": r["link"] or "", "t0": r["t0"], "t1": r["t1"], "ips": dd.get("ips") or []}
+    except Exception as e:  # noqa: BLE001
+        print(f"stored events: {e}", file=sys.stderr)
+    return out
+
+
 def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=30, only=None):
     """Work list for the enrichment run: one entry per note key (alert families and repeat findings collapse),
     events without a note first, most severe first, capped at `limit` (0 = no cap). Endpoint host findings
@@ -323,6 +340,8 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the review job
     forced = _requested(E, notes, ak)  # note keys a person asked to have researched (not researched yet)
     if only:  # event research (research.py --event): just that event's family, whatever its category or rules
+        if only not in E:  # still open on the Open events page but older than this snapshot: take it from the event store
+            E = {**E, **_stored_events([only])}
         forced = {skey(only, ak)} if only in E else set()
         E = {i: e for i, e in E.items() if skey(i, ak) in forced}
         notes = {i: n for i, n in notes.items() if i in E}
@@ -648,7 +667,10 @@ def main(argv):
         import server
         sid = doc.get("snapshot") or (server.snapshots() or [{"id": ""}])[-1]["id"]
         res = server.correlation(sid)
-        out = put({**doc, "snapshot": sid}, (res or {}).get("events") or {})
+        evs = dict((res or {}).get("events") or {})
+        evs.update(_stored_events([str(n.get("id") or "") for n in doc.get("notes") or [] if str(n.get("id") or "") not in evs]
+                                  + [x for l in doc.get("links") or [] for x in (l.get("a"), l.get("b")) if x and x not in evs]))
+        out = put({**doc, "snapshot": sid}, evs)
         _audit("research-result", str(doc.get("model") or ""), f"event research: LLM results stored ({len(doc.get('notes') or [])} notes, "
                f"{len(doc.get('links') or [])} links) -> {json.dumps(out, default=str)[:200]}", response=json.dumps(doc, default=str))
         print(json.dumps(out))

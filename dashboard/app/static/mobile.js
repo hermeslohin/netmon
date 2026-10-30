@@ -32,7 +32,7 @@
 
 /* spinning microscope at the top while an event is being researched (Send to research) */
 (() => {
-  const el = document.createElement("div"); el.id = "researchSpin"; el.textContent = "🔬"; el.title = "Researching an event"; document.body.appendChild(el);
+  const el = document.createElement("div"); el.id = "researchSpin"; el.textContent = "🔬"; el.title = "Researching an event"; (document.querySelector(".brand") || document.body).prepend(el);  // left of the green dot
   const poll = async () => { if (document.hidden) return; try { const r = await fetch("/api/research/running", { credentials: "same-origin" }); if (r.ok) el.classList.toggle("on", !!(await r.json()).running); } catch (_) {} };
   poll(); setInterval(poll, 15000); document.addEventListener("visibilitychange", poll);
 })();

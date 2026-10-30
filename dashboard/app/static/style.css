@@ -466,9 +466,9 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 @media (max-width:900px){ #rangeBtn #rangeLbl .muted{display:none} #rangeBtn{max-width:44vw;overflow:hidden;text-overflow:ellipsis;font-size:12px;padding:4px 6px} }
 .rb-cal{display:none}
 @media (max-width:900px){ #rangeBtn .rb-ic,#rangeBtn #rangeLbl,#rangeBtn .rb-car{display:none} #rangeBtn .rb-cal{display:inline;font-size:18px;line-height:1} #rangeBtn{padding:4px 8px;max-width:none} }
-#researchSpin{position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:70;font-size:22px;line-height:1;pointer-events:none;display:none;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
-#researchSpin.on{display:block;animation:rsSpin 1.4s linear infinite}
-@keyframes rsSpin{from{transform:translateX(-50%) rotate(0)}to{transform:translateX(-50%) rotate(360deg)}}
+#researchSpin{font-size:17px;line-height:1;margin-right:6px;pointer-events:none;display:none;vertical-align:middle}
+#researchSpin.on{display:inline-block;animation:rsSpin 1.4s linear infinite}
+@keyframes rsSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 
 /* ---- time ranges load section by section: a card whose data has not arrived yet shows a spinner over it ---- */
 .card.sec-loading{position:relative;min-height:90px;pointer-events:none}
@@ -601,3 +601,5 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
 .oe-fire-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.oe-fire-w{margin:3px 0 6px;overflow-wrap:anywhere}
 .oe-sub{margin:4px 0 0}.oe-sub>summary{font-weight:600;color:var(--fg)}.oe-sub .oe-rel{border-bottom:none;padding:4px 4px 4px 14px}
 .oe-var{font-size:11px;padding:0 7px;border-radius:9px;border:1px solid var(--accent);color:var(--accent);white-space:nowrap}
+
+.oe-variants{margin:6px 0 8px}.oe-vchip{display:block;width:100%;text-align:left;margin:3px 0;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);color:inherit;cursor:pointer;overflow-wrap:anywhere}.oe-vchip.on{border-color:var(--accent,#58a6ff);background:rgba(88,166,255,.15)}

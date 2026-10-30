@@ -124,7 +124,7 @@ def gkey(eid):
     return str(eid)
 
 
-def open_events(types=None, sev=None, q=None, limit=2000):
+def open_events(types=None, sev=None, q=None, limit=2000, merge=False):
     """Unchecked, unresolved events (any age), most severe then newest first. Repeats of one condition are one row."""
     c = _c()
     acks = store.acks_load(c)
@@ -166,9 +166,47 @@ def open_events(types=None, sev=None, q=None, limit=2000):
         out.append({"eid": newest["eid"], "type": newest["type"], "label": newest["label"], "sev": newest["sev"], "link": newest["link"],
                     "t0": newest["t0"], "t1": newest["t1"], "item": d.get("item"), "members": [m["eid"] for m in g["members"][-12:]], "first_seen": g["first"], "last_seen": newest["last_seen"], "n": g["n"],
                     "repeats": len(g["members"]), "ips": d.get("ips") or [], "acks": [{"type": t, "key": k} for t, k in dict.fromkeys(todo)]})
+    if merge:
+        out = merge_flows(out)
     out.sort(key=lambda e: (SEV_RANK.get((e["sev"] or "").lower(), 2), -(e["t1"] or 0), e["eid"]))
     shown = out[:limit]
     return {"events": shown, "total": sum(counts.values()), "counts": counts, "shown": len(shown), "extra": extras(shown) if shown else {}}
+
+
+_FLOW = re.compile(r"^(?P<pre>.*?)->\s*(?P<dst>.*?)\s*(?:\((?P<ip>[0-9a-f.:]+)\))?\s+(?P<rest>\d+/(?:tcp|udp).*)$", re.I)
+
+
+def merge_flows(rows):
+    """Display grouping for the Open events page: segmentation findings of one device and one flow type ("10.0.0.1 -
+    lateral-movement/admin port 22 (tcp) ...: -> A", "... -> B") become one row "... -> multiple devices (N)"; the instances
+    (each destination with its own IPs) ride along in `children` for the detail window. Check-off covers every instance."""
+    buckets, out = {}, []
+    for r in rows:
+        it = r.get("item") or {}
+        m = _FLOW.match(it.get("detail") or "") if r["type"] == "finding" and it.get("kind") == "segmentation" else None
+        if not m:
+            out.append(r); continue
+        buckets.setdefault((it.get("device"), m["pre"].strip()), []).append((r, m))
+    for (dev, pre), L in buckets.items():
+        if len(L) < 2:
+            out.append(L[0][0]); continue
+        L.sort(key=lambda t: (t[0]["t1"] or 0, t[0]["last_seen"] or 0))  # oldest -> newest
+        top = dict(L[-1][0])
+        kids = [{"eid": r["eid"], "dst": m["dst"], "ip": m["ip"] or "", "ips": r["ips"], "detail": (r.get("item") or {}).get("detail") or r["label"],
+                 "sev": r["sev"], "first_seen": r["first_seen"], "last_seen": r["last_seen"], "t0": r["t0"], "t1": r["t1"], "n": r["n"]} for r, m in reversed(L)]
+        dsts = {k["ip"] or k["dst"] for k in kids}
+        txt = f"{pre} -> multiple devices ({len(dsts)})"
+        it = dict(top.get("item") or {}); it["detail"] = txt
+        top["item"] = it
+        top["label"] = f"segmentation: {it.get('name') or dev} - {txt}"
+        top["ips"] = list(dict.fromkeys(ip for r, _ in reversed(L) for ip in r["ips"]))
+        top["acks"] = [{"type": t, "key": k} for t, k in dict.fromkeys((a["type"], a["key"]) for r, _ in reversed(L) for a in r["acks"])]
+        top["members"] = list(dict.fromkeys(e for r, _ in reversed(L) for e in r["members"]))[:40]
+        top["n"] = sum(r["n"] for r, _ in L); top["repeats"] = sum(r["repeats"] for r, _ in L)
+        top["first_seen"] = min(r["first_seen"] for r, _ in L); top["last_seen"] = max(r["last_seen"] for r, _ in L)
+        top["children"] = kids
+        out.append(top)
+    return out
 
 
 def extras(rows):

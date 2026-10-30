@@ -112,10 +112,30 @@
         <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
         <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;
     };
-    return (F.length ? F.map((f, i) => `<div class="oe-fire"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
+    const vHtml = nv > 1 ? `<div class="oe-variants small"><div class="muted">${nv} variants - same condition, different numbers in the text. Click one to show only its firings (click again for all):</div>${vids.map((e) => {
+      const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
+      return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
+    return vHtml + (F.length ? F.map((f, i) => `<div class="oe-fire" data-v="${esc(f.eid)}"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
         ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""}</div>
         <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No individual firings recorded yet.</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
+  }
+
+  // grouped row ("-> multiple devices"): every instance with its own IPs; each opens to its own firings (loaded on demand)
+  function kidsHtml(x) {
+    const K = x.children || [];
+    if (!K.length) return "";
+    return `<h4>Instances (${K.length})</h4><div class="oe-kids">${K.map((k, i) => `<details class="oe-fire oe-kid" data-i="${i}"><summary><b>${k.ips.length ? k.ips.map((ip) => ipLink(ip)).join(" → ") : esc(k.ip || k.dst)}</b>
+        <span class="small muted">${esc(k.dst)} · seen ${k.n}× · first ${when(k.first_seen)} · last ${when(k.last_seen)}</span></summary>
+        <div class="oe-fire-w">${linkifyIps(k.detail)}</div><div class="oe-kid-b small muted">Loading…</div></details>`).join("")}</div>`;
+  }
+  function wireKids(root, x) {
+    root.querySelectorAll("details.oe-kid").forEach((el) => el.addEventListener("toggle", async () => {
+      if (!el.open || el.dataset.done) return; el.dataset.done = "1";
+      const k = x.children[+el.dataset.i], b = el.querySelector(".oe-kid-b");
+      try { const d = await api("/api/events/detail?e=" + encodeURIComponent(k.eid)); b.className = "oe-kid-b"; b.innerHTML = `<h4>When it fired (${(d.fires || []).length || (d.occurrences || []).length})</h4>${firesHtml(d, k)}`; }
+      catch (e) { b.textContent = e.message || e; }
+    }));
   }
 
   async function openDetail(x) {
@@ -146,7 +166,12 @@
     try { d = await api("/api/events/detail?e=" + encodeURIComponent(x.eid)); }
     catch (e) { back.querySelector(".oe-body").innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     if (!back.isConnected) return;
-    back.querySelector(".oe-body").innerHTML = `<h4>When it fired (${(d.fires || []).length || (d.occurrences || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}`;
+    back.querySelector(".oe-body").innerHTML = `${kidsHtml(x)}<h4>When it fired (${(d.fires || []).length || (d.occurrences || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}`;
+    wireKids(back, x);
+    back.addEventListener("click", (e) => { const b = e.target.closest(".oe-vchip"); if (!b) return;
+      const on = !b.classList.contains("on"), box = b.closest(".oe-body, .oe-kid-b") || back;
+      box.querySelectorAll(".oe-vchip").forEach((c) => c.classList.toggle("on", on && c === b));
+      box.querySelectorAll(".oe-fire[data-v]").forEach((f) => { f.style.display = on && f.dataset.v !== b.dataset.v ? "none" : ""; }); });
   }
 
   async function paintCount() {
