@@ -142,16 +142,21 @@
       // one tappable card per proposal (a <label> around the whole card: big touch target, works on phones)
       const rows = r.recommendations.map((x) => {
         const on = x.status === "change";
-        const cb = h("input", { type: "checkbox", checked: on, disabled: !on, style: "width:26px;height:26px;min-width:26px;padding:0;margin:0;flex:none;accent-color:#3fb950" });
-        if (on) checks.push([cb, x]);
+        // the box is only a display: the whole card is the tap target and keeps the state in JS (taps on a bare checkbox were unreliable on iOS)
+        const cb = h("input", { type: "checkbox", checked: on, disabled: !on, tabindex: "-1", style: "width:18px;height:18px;min-width:18px;padding:0;margin:2px 0 0;flex:none;pointer-events:none;accent-color:#3fb950" });
+        const st = { sel: on, x };
+        if (on) checks.push(st);
         const chg = on ? Object.entries(x.changes).map(([k, v]) => h("div", {}, h("b", {}, k), ": ", fmt(x.current[k]), " → ", h("b", {}, fmt(v)))) : [h("div", { class: "muted" }, x.status === "off" ? "off" : x.status === "ok" ? "Keep as is" : "No safe change")];
         const cur = Object.entries(x.current).map(([k, v]) => k + ": " + fmt(v)).join("  ·  ");
-        return h(on ? "label" : "div", { style: "display:flex;gap:12px;align-items:flex-start;padding:10px;margin:6px 0;border:1px solid var(--border);border-radius:8px;" + (on ? "cursor:pointer" : "opacity:.75") },
+        const card = h("div", { role: on ? "checkbox" : null, "aria-checked": on ? "true" : null, style: "display:flex;gap:12px;align-items:flex-start;padding:10px;margin:6px 0;border:1px solid var(--border);border-radius:8px;-webkit-tap-highlight-color:transparent;" + (on ? "cursor:pointer" : "opacity:.75") },
           cb, h("div", { style: "min-width:0;flex:1" }, h("div", {}, h("b", {}, x.title)), h("div", { class: "muted small" }, "Current: " + cur), h("div", { style: "margin:4px 0" }, chg), h("div", { class: "small" }, x.why)));
+        if (on) card.onclick = () => { st.sel = !st.sel; cb.checked = st.sel; card.setAttribute("aria-checked", String(st.sel)); card.style.borderColor = st.sel ? "#3fb950" : ""; };
+        if (on) card.style.borderColor = "#3fb950";
+        return card;
       });
       const apply = h("button", { type: "button", disabled: !checks.length, style: "min-height:44px" }, "Accept selected");
       apply.onclick = async () => {
-        const acc = checks.filter(([cb]) => cb.checked).map(([, x]) => ({ id: x.id, changes: x.changes }));
+        const acc = checks.filter((c) => c.sel).map((c) => ({ id: c.x.id, changes: c.x.changes }));
         if (!acc.length) { msg.textContent = "Nothing selected."; return; }
         try { const a = await apiPost("/api/config/tune-apply", { accept: acc }); alert("Applied: " + a.applied.join(", ")); reload(); }
         catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); }
