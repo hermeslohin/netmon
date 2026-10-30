@@ -103,6 +103,20 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
       knownHosts(txt).forEach((h) => L.push([`All endpoint / syslog events on ${h}`, kb(hostQ(h), t, COLS.host)]));
       textIps(txt).forEach((ip) => L.push(...ipLinks(ip, t)));
       return L; },
+    // "When it fired" entry: search the IPs in its text alone, as pairs, and pair + port, around the moment it fired
+    fire: (f) => { const t = span(f.ts, f.ts, 30), day = span(f.ts, f.ts, 720), txt = String(f.label || ""), ips = textIps(txt), L = [];
+      const ports = uniq([...txt.matchAll(/\b(\d{1,5})\/(?:tcp|udp)\b/gi), ...txt.matchAll(/\bport[s]? (\d{1,5})\b/gi), ...txt.matchAll(/\b\d{1,3}(?:\.\d{1,3}){3}:(\d{1,5})\b/g)].map((m) => +m[1]).filter((n) => n > 0 && n < 65536)).slice(0, 4);
+      const pairs = []; for (let i = 0; i < ips.length; i++) for (let j = i + 1; j < ips.length; j++) pairs.push([ips[i], ips[j]]);
+      pairs.slice(0, 3).forEach(([a, b]) => {
+        ports.forEach((n) => L.push([`Zeek connections ${label(a)} ↔ ${label(b)} on port ${n} (±30 min)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)} and destination.port:${n}`, t, COLS.conn)]));
+        L.push([`Zeek connections ${label(a)} ↔ ${label(b)}, any port (±30 min)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)}`, t, COLS.conn)],
+          [`Zeek connections ${label(a)} ↔ ${label(b)}, any port (±12 h)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)}`, day, COLS.conn)],
+          [`IDS alerts ${label(a)} ↔ ${label(b)} (±12 h)`, kb(`event.dataset:\"suricata.alert\" and ${between(a, b)}`, day, COLS.ids)]); });
+      ips.forEach((ip) => {
+        ports.forEach((n) => L.push([`Zeek connections of ${label(ip)} on port ${n} (±30 min)`, kb(`event.dataset:\"zeek.conn\" and ${either(ip)} and destination.port:${n}`, t, COLS.conn)]));
+        L.push(...ipLinks(ip, t).slice(0, 2)); });
+      if (!ips.length && ports.length) ports.forEach((n) => L.push([`Zeek connections on port ${n} (±30 min)`, kb(`event.dataset:\"zeek.conn\" and destination.port:${n}`, t, COLS.conn)]));
+      return L; },
     gateway: (g) => { const t = span(g.time, g.time, 15), L = [];
       if (SITE.kibana_url && g.src && g.dst) L.push([`Zeek connections ${g.src} ↔ ${label(g.dst)} (±15 min)`, kb(`event.dataset:"zeek.conn" and ${between(g.src, g.dst)}`, t, COLS.conn)],
         [`IDS alerts ${g.src} ↔ ${label(g.dst)} (±15 min)`, kb(`event.dataset:"suricata.alert" and ${between(g.src, g.dst)}`, t, COLS.ids)]);

@@ -116,7 +116,7 @@
       const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
       return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
     return vHtml + (F.length ? F.map((f, i) => `<div class="oe-fire" data-v="${esc(f.eid)}"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
-        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""}</div>
+        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen) }) : ""}</div>
         <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No individual firings recorded yet.</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
   }
