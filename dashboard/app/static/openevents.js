@@ -97,6 +97,7 @@
     if (!F.length) F = (d.occurrences || []).map((o) => ({ eid: o.eid, sid: "", seen: o.last_seen, t1: o.t1, label: o.label }));
     const note = d.fires_since ? `Recorded since ${when(d.fires_since)}.` : "Recording starts now.";
     const earlier = Math.max(0, (x.n || 0) - (d.fires || []).length);
+    const vids = [...new Set((d.occurrences || []).map((o) => o.eid))].reverse(), nv = vids.length, vi = (e) => vids.indexOf(e) + 1;  // oldest variant = 1
     const body = (f) => {
       const rel = BY[f.eid] || [], me = EV[f.eid] || {};
       const own = U.ipArts ? U.ipArts(me, []) : [];  // artifacts read from the event itself
@@ -111,7 +112,7 @@
         <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
         <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;
     };
-    return (F.length ? F.map((f, i) => `<div class="oe-fire"><div class="oe-fire-h"><b>${when(f.seen)}</b>
+    return (F.length ? F.map((f, i) => `<div class="oe-fire"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
         ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""}</div>
         <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No individual firings recorded yet.</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
@@ -133,7 +134,7 @@
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
       <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
-        <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×</div></div>
+        <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×${x.repeats > 1 ? ` · <span class="oe-var" title="Same condition, but the numbers in the text differ between reports (counts, ports, bytes). Each firing below is tagged with its variant.">${x.repeats} variants</span>` : ""}</div></div>
         <div class="oe-tools">${noteBtn(x.eid)}${askBtn(askKind, x.label, itemOf(x))}${cmpBtn(askKind, x.label, itemOf(x), x.eid)}${pivBtn(pivKind, pivItem(x))}
           ${x.link ? `<a class="small" href="${esc(x.link)}" title="Open the page this event comes from">open source ↗</a>` : ""}
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
