@@ -254,7 +254,7 @@ def detail(eid):
                                         "ORDER BY seen DESC, COALESCE(t1,0) DESC LIMIT 1000", ch)]
     r0 = c.execute("SELECT MIN(seen) FROM event_fires").fetchone()
     since = r0[0] if r0 else None
-    return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "related": rel, "events": {k: v for k, v in ev.items() if k in {x["id"] for x in rel}},
+    return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "related": rel, "events": {k: v for k, v in ev.items() if k in {x["id"] for x in rel} | {eid}},
             "clef_ev": base["clef_ev"]}
 
 

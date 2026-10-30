@@ -120,28 +120,16 @@
     try { d = await api("/api/events/detail?e=" + encodeURIComponent(x.eid)); }
     catch (e) { back.querySelector(".oe-body").innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     if (!back.isConnected) return;
-    const occ = d.occurrences || [], rel = d.related || [], EV = d.events || {};
-    const occHtml = occ.length ? `<table class="oe-tbl"><thead><tr><th>Last seen</th><th>First seen</th><th>Seen</th><th>What happened</th></tr></thead><tbody>
-      ${occ.map((o) => `<tr><td>${when(o.last_seen)}</td><td>${when(o.first_seen)}</td><td>${o.n}×</td><td>${linkifyIps(o.label)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No stored occurrences.</div>`;
-    const U = window.relUi || {};
-    // every artifact of a related pair (users, files, processes, IPs, DNS, with their note buttons) and the Elasticsearch queries
-    // the AI ran for it (click to open in Kibana); both fold away until asked for
-    const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
-      const all = U.ipArts ? U.ipArts(e, r.llm_artifacts) : (r.llm_artifacts || []), qs = all.filter((a) => a.kind === "query"), arts = all.filter((a) => a.kind !== "query");
-      const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
-      return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf}
-        <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
-        ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}
-        <span class="small muted">${r.variants > 1 ? `${r.variants} occurrences · ` : ""}${e.t1 ? "latest " + ft(secs(e.t1)) : ""}</span>
-        ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
-        ${arts.length ? `<details class="oe-det"><summary>${arts.length} artifact${arts.length > 1 ? "s" : ""}</summary>${U.artifactsHtml ? U.artifactsHtml(arts, "Artifacts (click 📝 to add a note)") : ""}</details>` : ""}
-        ${qs.length ? `<details class="oe-det"><summary>${qs.length} Elasticsearch ${qs.length > 1 ? "queries" : "query"} used</summary>${U.artifactsHtml ? U.artifactsHtml(qs, "Searches the AI ran (click to open in Kibana)") : ""}</details>` : ""}</div>`; }).join("") : `<div class="empty">No related events.</div>`;
-    const allQ = []; { const seenQ = new Set(); for (const r of rel) for (const a of r.llm_artifacts || []) if (a.kind === "query" && !seenQ.has(a.value)) { seenQ.add(a.value); allQ.push(a); } }
-    const qHtml = allQ.length ? `<details class="oe-det"><summary>${allQ.length} Elasticsearch ${allQ.length > 1 ? "queries" : "query"} used for this event</summary>${U.artifactsHtml ? U.artifactsHtml(allQ, "All searches the AI ran across its related events (click to open in Kibana)") : ""}</details>` : "";
-    back.querySelector(".oe-body").innerHTML = `
-      <h4>When it fired (${(d.fires || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}
-      <h4>Variants of this event (${d.n_occurrences || occ.length})</h4>${occHtml}
-      <h4>Related events (${rel.length})</h4><div class="small muted">One line per related condition; its repeats are counted, not listed.</div>${qHtml}${relHtml}`;
+    const rel = d.related || [], EV = d.events || {}, U = window.relUi || {};
+    // everything the AI linked to this event, merged over all its related events: artifacts (with note buttons) and Elasticsearch queries
+    const merged = [], seenA = new Set();
+    for (const r of rel) for (const a of r.llm_artifacts || []) { const k = a.kind + ":" + a.value; if (!seenA.has(k)) { seenA.add(k); merged.push(a); } }
+    const all = U.ipArts ? U.ipArts(EV[x.eid] || {}, merged) : merged;
+    const arts = all.filter((a) => a.kind !== "query"), qs = all.filter((a) => a.kind === "query");
+    const linked = `<div class="oe-linked">
+      <details class="oe-det" open><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet - the reviewer adds them as it links related events.</div>`}</details>
+      <details class="oe-det" open><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">No searches yet.</div>`}</details></div>`;
+    back.querySelector(".oe-body").innerHTML = `<h4>When it fired (${(d.fires || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}${linked}`;
   }
 
   async function paintCount() {
