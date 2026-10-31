@@ -130,7 +130,10 @@ stages; with it off, the older reviewer-only flow is used (described at the end 
    Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. An event is
    labelled and reviewed again when its set of link decisions changes; at most 20 events per pass, never-reviewed and
    best-connected first. If clef cannot label an event, the event waits for the next pass (the reviewer does not step
-   in). Suspicious medium / high events become alarms. `event_class.model` reads `cloudflare_clef + <reviewer>`.
+   in). An event whose every link clef rejected still gets a reviewer call: the prompt says the empty
+   candidate list is deliberate, so the reviewer explains the label from the event and its notes alone. If the reviewer
+   call fails anyway (prose instead of JSON, an error), clef's label is stored regardless (reason *Decision model: …
+   reviewer note pending*) and the note is retried on the next passes, at most 3 times per set of link decisions. Suspicious medium / high events become alarms. `event_class.model` reads `cloudflare_clef + <reviewer>`.
    Audit-log purpose: `event-review`.
 3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db` (`verdicts`; clef's probabilities in
    `clef`), so each pair is asked once and the decision applies in both directions. A person's decision (✓/✗, or an

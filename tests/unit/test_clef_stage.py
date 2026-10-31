@@ -102,6 +102,52 @@ class ClefStageTest(unittest.TestCase):
             self.assertEqual(c.execute("SELECT reviewer_label FROM clef_event WHERE eid='a'").fetchone()[0], "benign")
         self.assertEqual(corr_llm.clef_compare()["matrix"], {"suspicious|benign": 1})
 
+    def test_event_without_related_links_still_labelled(self):
+        """An event whose every link the decision model rejected still gets its label: the reviewer is told the empty
+        candidate list is deliberate, and if it still answers in prose the label is stored anyway and the notes are retried
+        (at most REVIEW_RETRIES times).
+        REQ: LLM-03"""
+        nr = {"events": {"d": _ev("vuln", "printer firmware outdated"), "e": _ev("ids", "smart TV DNS quirk")},
+              "related": {"d": [{"id": "e", "score": 2, "why": ["same hour"]}]}}
+        corr_llm.clef_pass(nr, [("d", r) for r in nr["related"]["d"]])
+        self.assertFalse(corr_llm.verdicts({corr_llm.pair("d", "e")})[corr_llm.pair("d", "e")]["related"])
+        seen = []
+
+        def prose(target, anchor, cands, *a, **kw):
+            seen.append((len(cands), kw.get("system") or ""))
+            raise ValueError("reviewer returned unparseable JSON")
+
+        def ok(target, anchor, cands, *a, **kw):
+            seen.append((len(cands), kw.get("system") or ""))
+            return ([{"id": "anchor", "label": "expected", "confidence": 0.7, "reason": "routine printer notice", "artifacts": []}], {"prompt": 5, "completion": 3}, 1.0)
+        old = (corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked)
+        corr_llm._target, corr_llm.reopen_checked = (lambda model=None: {"provider": "lmstudio", "model": "reviewer"}), (lambda *a, **k: None)
+        sig = lambda: corr_llm._db().execute("SELECT label, sig, reason FROM event_class WHERE eid='d'").fetchone()
+        try:
+            corr_llm._ask_full = prose
+            self.assertEqual(corr_llm.event_pass(nr), 1)
+            lab, s1, why = sig()
+            self.assertEqual(lab, "suspicious")  # the decision model's label is stored even though the reviewer failed
+            self.assertTrue(s1.endswith("|retry1")); self.assertIn("reviewer note pending", why)
+            self.assertEqual(seen[0][0], 0); self.assertIn("NO related events", seen[0][1])
+            self.assertEqual(corr_llm.event_pass(nr), 1)  # retried on the next pass
+            self.assertTrue(sig()[1].endswith("|retry2"))
+            corr_llm._ask_full = ok
+            self.assertEqual(corr_llm.event_pass(nr), 1)
+            lab, s3, why = sig()
+            self.assertNotIn("|retry", s3); self.assertEqual(why, "routine printer notice")
+            self.assertEqual(corr_llm.event_pass(nr), 0)  # done: not asked again
+            corr_llm._ask_full = prose  # a signature that keeps failing stops after REVIEW_RETRIES calls
+            with corr_llm._db() as c:
+                c.execute("DELETE FROM event_class")
+            calls_before = len(seen)
+            for _ in range(corr_llm.REVIEW_RETRIES + 2):
+                corr_llm.event_pass(nr)
+            self.assertEqual(len(seen) - calls_before, corr_llm.REVIEW_RETRIES)
+            self.assertNotIn("|retry", sig()[1])
+        finally:
+            corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = old
+
     def test_rereview_clears_decision(self):
         """Asking again removes the decision-model answer so the whole chain runs again.
         REQ: LLM-03"""
