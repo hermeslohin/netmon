@@ -1,7 +1,7 @@
-// More -> Configuration (#/config): Auto-close ("expected"/"benign" events) and Integrations (Elasticsearch, UniFi API).
+// Settings -> Configuration (#/config): Auto-close ("expected"/"benign" events) and Integrations (Elasticsearch, UniFi API).
 (() => {
   const SRC = {
-    reviewer: `the <b>correlation reviewer LLM</b> (it reviews related events and classifies each finished event as suspicious, benign or expected on the AI review page; runs often, on lighter evidence)`,
+    reviewer: `the <b>correlation reviewer LLM</b> (it reviews related events and classifies each finished event as suspicious, benign or expected on the Ai pipeline page; runs often, on lighter evidence)`,
     researcher: `the <b>research model</b> (a person clicked <b>Send to research</b>; it searched the logs and wrote a note with a verdict, the “✨” button; a deeper look, so the more conservative source)`,
   };
   const KIND = {
@@ -39,7 +39,7 @@
           <span class="muted small">next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
           <span id="rv-msg" class="small"></span></div>
         <div class="muted small">5 to 1440 minutes. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h.
-          Each run collects and analyzes the logs, then the reviewer (the correlation reviewer's model, AI review > Models) copies matching earlier notes; everything else waits in the queue. Events are researched only when a person clicks <b>Send to research</b>.</div>`;
+          Each run collects and analyzes the logs, then the reviewer (the correlation reviewer's model, Ai pipeline > Models) copies matching earlier notes; everything else waits in the queue. Events are researched only when a person clicks <b>Send to research</b>.</div>`;
     const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">Two AI sources judge an event: the <b>reviewer LLM</b> (classifies finished correlation reviews as suspicious, benign or expected) and the <b>researcher</b>
       (event research, run when someone clicks <b>Send to research</b>${iv ? `; never on the review schedule (every ${ivTxt(iv)})` : ""}, writes a note with a verdict: malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event).
       Turn on either or both: the options check off events that the chosen source found “expected” or “benign” (an event either source calls suspicious or malicious is never closed), moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span> naming the source.
@@ -136,7 +136,7 @@
     const E = D.elasticsearch, U = D.unifi;
     const ixRows = Object.keys(E.index_defaults).map((k) => fld("es-ix-" + k, E.index_labels[k], E.indices[k], E.index_defaults[k], `Default <span class="mono">${esc(E.index_defaults[k])}</span>. Comma-separated patterns and <span class="mono">*</span> are allowed.`)).join("");
     const ce = intCard("elasticsearch", "Elasticsearch (Security Onion)", "Read-only API key with <span class=\"mono\">read</span> + <span class=\"mono\">view_index_metadata</span> on the indices below. TLS certificates are not verified (Security Onion uses its own CA).",
-      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (the site settings (More → Settings)): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
+      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (the site settings (Settings → Settings (policy & site))): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
       + fld("elasticsearch-key", "API key", "", E.key_set ? E.key_hint : "base64 id:key from Kibana › Stack Management › API keys", keyHelp(E), "password")
       + `<div class="small" style="margin-top:12px"><b>Indices to search</b></div>` + ixRows, E);
     const cu = intCard("unifi", "UniFi API", "Site Manager API key from <span class=\"mono\">unifi.ui.com › API</span>. netmon reads clients, devices and events through the console connector (read-only).",

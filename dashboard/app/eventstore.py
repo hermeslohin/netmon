@@ -28,6 +28,52 @@ CREATE INDEX IF NOT EXISTS event_fires_seen ON event_fires(seen);"""
 FIRE_KEEP_DAYS = 400
 
 
+# A "firing" is an occurrence of the event in Elasticsearch data (Zeek / Suricata / endpoint / syslog), not a report that
+# merely lists it. Only ES-sourced events fire: IDS signatures, host findings, threat-intel hits and the Zeek-derived
+# baseline findings. Inventory findings, vulnerabilities, gateway/UniFi events, admin-protocol and code-scan alerts never do.
+ES_TYPES = {"ids", "host", "ti", "finding"}
+NON_ES_FINDINGS = {"outdated-software", "new-software", "new-device", "new-device-dhcp", "inbound-exposure", "segmentation"}
+
+
+def es_sourced(eid, typ):
+    p = str(eid).split("|")
+    if typ == "finding" or p[0] == "f":
+        return len(p) > 1 and p[1] not in NON_ES_FINDINGS
+    return typ in ES_TYPES
+
+
+def _plan_fires(c, rows, sid, now, fresh=None):
+    """Decide which rows are new firings. Window events (findings / host / threat intel carry the report's analysis window
+    as t0..t1): a window overlapping the previous firing of the same condition is the same occurrence, so that firing is
+    extended instead of repeated. IDS signatures carry real alert times: a firing per new last-alert time.
+    -> (new fire rows, [(t1, eid, sid)] extensions). `fresh` = in-memory last fire per group, for replays."""
+    new, ext, last = [], [], fresh if fresh is not None else {}
+    for r in rows:
+        eid, typ, label, t0, t1 = r[0], r[1], r[2], r[5], r[6]
+        if not es_sourced(eid, typ) or t1 is None:
+            continue
+        g = gkey(eid)
+        prev = last.get(g)
+        if prev is None and fresh is None:
+            p = str(eid).split("|")
+            pre = "|".join(p[:3]) + "|" if p[0] == "f" and len(p) >= 4 else str(eid)
+            for o in c.execute("SELECT eid,sid,t0,t1 FROM event_fires WHERE eid >= ? AND eid < ? ORDER BY COALESCE(t1,0) DESC", (pre, pre + "\uffff")):
+                if gkey(o["eid"]) == g:
+                    prev = (o["eid"], o["sid"], o["t0"], o["t1"]); break
+        if prev is not None and prev[1] == sid and prev[0] == eid:
+            continue  # already recorded for this snapshot
+        if typ == "ids":
+            same = prev is not None and t1 <= prev[3] + 1
+        else:
+            same = prev is not None and (t0 if t0 is not None else t1) <= prev[3]
+        if same:
+            if t1 > prev[3]:
+                ext.append((t1, prev[0], prev[1])); last[g] = (prev[0], prev[1], prev[2], t1)
+            continue
+        new.append((eid, sid, now, t0, t1, label)); last[g] = (eid, sid, t0, t1)
+    return new, ext
+
+
 def _c():
     return store.tl_conn("eventstore", lambda c: c.executescript(DDL))
 
@@ -67,11 +113,11 @@ def upsert(E, sid, gen_iso=None, items=None):
             doc["item"] = _slim(items[eid])
         rows.append((eid, ev.get("type") or "", (ev.get("label") or "")[:300], ev.get("sev") or "", ev.get("link") or "",
                      ev.get("t0"), ev.get("t1"), now, now, sid, json.dumps(doc, default=str)))
-    fires = [(r[0], sid, now, r[5], r[6], r[2]) for r in rows]  # one row per (event, snapshot): when it fired
     newer = "COALESCE(excluded.t1,0) >= COALESCE(events.t1,0)"
     with _lock:
         c = _c()
         with store.tx(c):
+            fires, ext = _plan_fires(c, rows, sid, now)
             c.executemany(
                 "INSERT INTO events (eid,type,label,sev,link,t0,t1,first_seen,last_seen,last_sid,n,doc) VALUES (?,?,?,?,?,?,?,?,?,?,1,?) "
                 "ON CONFLICT(eid) DO UPDATE SET "
@@ -82,6 +128,7 @@ def upsert(E, sid, gen_iso=None, items=None):
                 "n=events.n + (CASE WHEN COALESCE(events.last_sid,'')!=excluded.last_sid THEN 1 ELSE 0 END), "
                 "last_sid=excluded.last_sid, resolved=CASE WHEN events.type='vuln' THEN 0 ELSE events.resolved END", rows)
             c.executemany("INSERT OR IGNORE INTO event_fires (eid,sid,seen,t0,t1,label) VALUES (?,?,?,?,?,?)", fires)
+            c.executemany("UPDATE event_fires SET t1=? WHERE eid=? AND sid=?", ext)
             c.execute("DELETE FROM event_fires WHERE seen < ?", (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - FIRE_KEEP_DAYS * 86400)),))
     return len(rows)
 

@@ -354,7 +354,7 @@
     kp.innerHTML = kpis([["Host notes", fn(N.notes || 0)], ["AI notes it may merge", fn(N.editable || 0)], ["Hosts to do", fn(N.pending || 0)],
       ["Last run", last ? `${fn(last.notes_before)} → ${fn(last.notes_after)}` : "never"]]);
     const intro = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    intro.textContent = `Once a night the reviewer model (${N.model || "AI review > Models, Correlation reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
+    intro.textContent = `Once a night the reviewer model (${N.model || "Ai pipeline > Models, Correlation reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
     const row = c.appendChild(document.createElement("div")); row.className = "llm-row";
     row.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Nightly run" }));
     const lab = row.appendChild(document.createElement("label")); lab.className = "small";
@@ -1122,7 +1122,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   }
 
   const build = async (el, bg) => {
-    el.innerHTML = `<h1>AI review</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>Ai pipeline</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});

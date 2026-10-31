@@ -444,7 +444,7 @@ async function chatModelPicker() {
   try { _llmModels = _llmModels || await api("/api/llm/models"); } catch (_) { return wrap; }
   const M = _llmModels; if (!M.admin) return wrap;
   const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask AI");
-  sel.add(new Option("Default (set on AI review > Models)", ""));
+  sel.add(new Option("Default (set on Ai pipeline > Models)", ""));
   for (const [label, prov, list] of [...(M.custom || []).map((g) => [g.name, g.provider, g.models]), ["Local (LM Studio)", "lmstudio", M.local || []]]) {
     if (!list.length) continue;
     const g = document.createElement("optgroup"); g.label = label;
@@ -897,7 +897,7 @@ V.risk = (el) => {
     { k: "fix", t: "How to fix", cls: "small", fmt: (v, x) => `${esc(v)}<details><summary>evidence</summary><span class="mono">${linkifyIps(x.evidence)}</span></details>` },
   ], VA.show, { sort: "score", limit: 40, rowClass: ackRowCls("issue"), urlFilter: ISSUE_FILTERS, evId: (x) => x.key && `iss|${x.key}` })));
   el.appendChild(card("Scoring model", `<div class="small"><p><b>Host likelihood</b> (0–100) = exposure (≤25: internet-facing services, threat-listed probes, DMZ) + weaknesses (≤30: combined fix-list items on the host) + threat activity (≤25: behaviour anomalies, non-benign IDS alerts, beacons, threat-intel contacts) + lateral reach (≤10: other zones reached, policy violations) + visibility gaps (≤10: unknown device, missing/degraded EDR, DNS bypass).</p>
-    <p><b>Impact</b> (1–5): the sensor, the gateway and the crown-jewel hosts configured in the site settings (More → Settings) = 5; servers/AI = 5; k8s and work machines = 4; personal devices, DMZ = 3; IoT, cameras, media, consoles = 2. Score = likelihood × impact / 5.</p>
+    <p><b>Impact</b> (1–5): the sensor, the gateway and the crown-jewel hosts configured in the site settings (Settings → Settings (policy & site)) = 5; servers/AI = 5; k8s and work machines = 4; personal devices, DMZ = 3; IoT, cameras, media, consoles = 2. Score = likelihood × impact / 5.</p>
     <p><b>Vulnerability</b> = severity base (high ${R.model.sev_base.high}, medium ${R.model.sev_base.medium}, low ${R.model.sev_base.low}) × kind factor × host exposure (internet-facing 1.4, DMZ 1.3, server 1.15) × recurrence (+8% per repeat, max +40%). Weights live in <span class="mono">dashboard/app/risk.py</span>.</p></div>`));
 };
 
@@ -1037,7 +1037,7 @@ function segClearedCard() {
   const rows = C.map(([k, a]) => { const [src, dst, port] = k.split("|"); const sip = src.includes(":") ? macIp[src] : src;
     const v = viol.find((x) => x.src === sip && x.dst === dst && String(x.port) === port);
     return { key: k, at: a.at, label: a.label || k, src: sip || src, dst, port, by: a.note || "", seen: v ? `${fn(v.conns)} conns in this time range` : "not seen in this time range", reason: v?.reason || "" }; });
-  const c = card(`Cleared segmentation (${rows.length})`, `<div class="small muted" style="margin-bottom:6px">Flows you marked as expected. They are hidden from Posture, the Fix list and Risk, shown as allowed on Lateral movement, left out of correlation, and stay cleared on future snapshots. Uncheck to bring one back. To make it permanent for everyone (and the nightly analysis), add it to the <span class="mono">allow</span> list in the network policy (More → Settings).</div>`);
+  const c = card(`Cleared segmentation (${rows.length})`, `<div class="small muted" style="margin-bottom:6px">Flows you marked as expected. They are hidden from Posture, the Fix list and Risk, shown as allowed on Lateral movement, left out of correlation, and stay cleared on future snapshots. Uncheck to bring one back. To make it permanent for everyone (and the nightly analysis), add it to the <span class="mono">allow</span> list in the network policy (Settings → Settings (policy & site)).</div>`);
   c.appendChild(table(null, [
     { k: "_ack", t: "✓", fmt: (v, r) => `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(r.key)}" data-l="${esc(r.label)}" checked title="Uncheck to bring it back">` },
     { k: "label", t: "Flow", fmt: (v, r) => `${esc(v)}<div class="small muted mono">${S.idx?.nameOf?.(r.src) ? esc(S.idx.nameOf(r.src)) + " " : ""}${esc(r.src)} → ${esc(r.dst)}:${esc(r.port)}</div>` },
@@ -1513,7 +1513,7 @@ document.addEventListener("click", (e) => {
   const d = document.createElement("div"); d.className = "modal-back";
   d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <h3>🚫 Suppress IDS signature</h3>
-    <div class="small muted" style="margin-bottom:8px">The signature is hidden everywhere in netmon (Posture, correlation, AI review). Security Onion and UniFi are not changed. Leave Host empty for <b>all hosts</b>, or enter one IP (<span class="mono">*</span> allowed) to hide it only for that host. Remove the rule under Checked/suppressed.</div>
+    <div class="small muted" style="margin-bottom:8px">The signature is hidden everywhere in netmon (Posture, correlation, Ai pipeline). Security Onion and UniFi are not changed. Leave Host empty for <b>all hosts</b>, or enter one IP (<span class="mono">*</span> allowed) to hide it only for that host. Remove the rule under Checked/suppressed.</div>
     <div class="form-grid"><label>Signature</label><input class="is-sig"><label>Host (optional)</label><input class="is-host" placeholder="all hosts"></div>
     <div class="actions"><button type="button" class="is-ok primary">Suppress</button><button type="button" class="is-cancel">Cancel</button><span class="small is-msg"></span></div></div>`;
   document.body.appendChild(d);
@@ -1532,7 +1532,7 @@ document.addEventListener("click", (e) => {
   const d = document.createElement("div"); d.className = "modal-back";
   d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <h3>🚫 Suppress segmentation violations</h3>
-    <div class="small muted" style="margin-bottom:8px">Every flow matching ALL fields you fill in is hidden everywhere (Posture, Risk, Lateral movement, Fix list) and is <b>not sent to the correlation, research or AI review</b>. Use <span class="mono">*</span> in an IP (e.g. <span class="mono">10.1.*</span>); several ports separated by commas; leave a field empty for any. Remove the rule under Checked/suppressed.</div>
+    <div class="small muted" style="margin-bottom:8px">Every flow matching ALL fields you fill in is hidden everywhere (Posture, Risk, Lateral movement, Fix list) and is <b>not sent to the correlation, research or Ai pipeline</b>. Use <span class="mono">*</span> in an IP (e.g. <span class="mono">10.1.*</span>); several ports separated by commas; leave a field empty for any. Remove the rule under Checked/suppressed.</div>
     <div class="form-grid"><label>Source IP</label><input class="ss-src"><label>Destination IP</label><input class="ss-dst"><label>Ports</label><input class="ss-ports"></div>
     <div class="actions"><button type="button" class="ss-ok primary">Suppress</button><button type="button" class="ss-cancel">Cancel</button><span class="small ss-msg"></span></div></div>`;
   document.body.appendChild(d);

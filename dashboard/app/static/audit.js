@@ -1,4 +1,4 @@
-// More > Audit log (#/audit, admin only): every user action and every app <-> LLM conversation, read from the
+// Settings > Audit log (#/audit, admin only): every user action and every app <-> LLM conversation, read from the
 // Elasticsearch index logs-netmon (server: audit.py). Filters live in the URL (#/audit?kind=llm&range=7d...).
 (() => {
   const KIND = { action: "User action", llm: "AI conversation" };

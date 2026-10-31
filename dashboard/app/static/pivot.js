@@ -1,6 +1,6 @@
 // Pivot links: a 🔎 button on Security rows (baseline findings, IDS signatures, host findings, beacons, triage alarms,
 // gateway events) that opens a popover of deep links into Kibana Discover - and, for gateway events, the UniFi web app.
-// Base URLs come from /api/site (the site settings (More → Settings): kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
+// Base URLs come from /api/site (the site settings (Settings → Settings (policy & site)): kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
 const PIV = new Map(), PIV_K = new Map();
 function pivotBtn(kind, item) {
   if (!SITE.kibana_url && !(kind === "gateway" && SITE.unifi_web_url)) return "";
@@ -104,11 +104,13 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
       textIps(txt).forEach((ip) => L.push(...ipLinks(ip, t)));
       return L; },
     // "When it fired" entry: search the IPs in its text alone, as pairs, and pair + port, around the moment it fired
-    fire: (f) => { const t = span(f.ts, f.ts, 30), day = span(f.ts, f.ts, 720), txt = String(f.label || ""), ips = textIps(txt), L = [];
-      const ports = uniq([...txt.matchAll(/\b(\d{1,5})\/(?:tcp|udp)\b/gi), ...txt.matchAll(/\bport[s]? (\d{1,5})\b/gi), ...txt.matchAll(/\b\d{1,3}(?:\.\d{1,3}){3}:(\d{1,5})\b/g)].map((m) => +m[1]).filter((n) => n > 0 && n < 65536)).slice(0, 4);
+    fire: (f) => { const t = span(f.ts, f.ts, 30), day = span(f.ts, f.ts, 720), txt = String(f.label || ""), L = [];
+      const ips = uniq([...(f.ips || []), ...textIps(txt)]).slice(0, 6);  // artifact IPs (host / destination / reviewer's ip artifacts) first, then IPs in the text
+      const ports = uniq([...txt.matchAll(/\b(\d{1,5})\/(?:tcp|udp)\b/gi), ...txt.matchAll(/\bport[s]? (\d{1,5})\b/gi), ...txt.matchAll(/\b\d{1,3}(?:\.\d{1,3}){3}:(\d{1,5})\b/g)].map((m) => +m[1]).concat(f.ports || []).filter((n) => n > 0 && n < 65536)).slice(0, 4);
       const pairs = []; for (let i = 0; i < ips.length; i++) for (let j = i + 1; j < ips.length; j++) pairs.push([ips[i], ips[j]]);
       pairs.slice(0, 3).forEach(([a, b]) => {
-        ports.forEach((n) => L.push([`Zeek connections ${label(a)} ↔ ${label(b)} on port ${n} (±30 min)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)} and destination.port:${n}`, t, COLS.conn)]));
+        ports.forEach((n) => L.push([`Zeek connections ${label(a)} ↔ ${label(b)} on port ${n} (±30 min)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)} and destination.port:${n}`, t, COLS.conn)],
+          [`IDS alerts ${label(a)} ↔ ${label(b)} on port ${n} (±12 h)`, kb(`event.dataset:\"suricata.alert\" and ${between(a, b)} and destination.port:${n}`, day, COLS.ids)]));
         L.push([`Zeek connections ${label(a)} ↔ ${label(b)}, any port (±30 min)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)}`, t, COLS.conn)],
           [`Zeek connections ${label(a)} ↔ ${label(b)}, any port (±12 h)`, kb(`event.dataset:\"zeek.conn\" and ${between(a, b)}`, day, COLS.conn)],
           [`IDS alerts ${label(a)} ↔ ${label(b)} (±12 h)`, kb(`event.dataset:\"suricata.alert\" and ${between(a, b)}`, day, COLS.ids)]); });

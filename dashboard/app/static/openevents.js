@@ -91,12 +91,17 @@
   // one block per time the event fired (recorded one per report): what happened, then that event's related events, the artifacts
   // (with their note buttons) and the Elasticsearch queries the AI used for it. Related lists are keyed by event id, so
   // firings of the same id show the same links.
+  // IPs (and ports) among a firing's artifacts: the event's host / destination IPs, the reviewer's ip artifacts of its related events
+  function fireArts(d, f) {
+    const me = (d.events || {})[f.eid] || {}, rel = (d.by_event || {})[f.eid] || [], ips = [...(me.host_ips || []), ...(me.dst_ips || [])], ports = [];
+    for (const a of rel.flatMap((r) => r.llm_artifacts || [])) { if (a.kind === "ip" && /^\d+\.\d+\.\d+\.\d+$/.test(a.value)) ips.push(a.value); else if (a.kind === "port" && +a.value > 0) ports.push(+a.value); }
+    return { ips: [...new Set(ips)], ports };
+  }
   function firesHtml(d, x) {
     const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};
     let F = d.fires || [];
-    if (!F.length) F = (d.occurrences || []).map((o) => ({ eid: o.eid, sid: "", seen: o.last_seen, t1: o.t1, label: o.label }));
     const note = d.fires_since ? `Recorded since ${when(d.fires_since)}.` : "Recording starts now.";
-    const earlier = Math.max(0, (x.n || 0) - (d.fires || []).length);
+    const earlier = 0;
     const vids = [...new Set((d.occurrences || []).map((o) => o.eid))].reverse(), nv = vids.length, vi = (e) => vids.indexOf(e) + 1;  // oldest variant = 1
     const body = (f) => {
       const rel = BY[f.eid] || [], me = EV[f.eid] || {};
@@ -116,8 +121,8 @@
       const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
       return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
     return vHtml + (F.length ? F.map((f, i) => `<div class="oe-fire" data-v="${esc(f.eid)}"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
-        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen) }) : ""}</div>
-        <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No individual firings recorded yet.</div>`)
+        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen), ...fireArts(d, f) }) : ""}</div>
+        <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No firings: nothing for this event has been seen in Elasticsearch (inventory, vulnerability, gateway and code-scan events are not counted).</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
   }
 
