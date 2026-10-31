@@ -170,6 +170,8 @@ def ensure_template():
     try:
         t = json.load(open(TEMPLATE))
         t["index_patterns"] = [index(), index() + "-*"]
+        for k in [k for k in t if k.startswith(("created_date", "modified_date"))]:  # system-managed: rejected on PUT
+            t.pop(k)
         _es("PUT", "/_index_template/netmon-audit", t, timeout=20)
         STATUS["template"] = "ok"
     except Exception as e:  # noqa: BLE001

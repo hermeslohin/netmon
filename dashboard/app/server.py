@@ -1973,7 +1973,7 @@ def main():
         print(f"access control: existing accounts made admins: {', '.join(sorted(mig))}", flush=True)
     try:  # audit log writer (Elasticsearch logs-netmon); spools to /state while ES is unreachable
         audit.start()
-        print(f"audit log -> {integrations.es_url() or '(no ES URL)'}/{audit.index()} (key {'set' if integrations.audit_key() else 'NOT set - spooling'})", flush=True)
+        print(f"audit log -> {integrations.es_url() or '(no ES URL)'}/{audit.index()}-YYYY.MM.DD (key {'set' if integrations.audit_key() else 'NOT set - spooling'})", flush=True)
     except Exception as e:  # noqa: BLE001
         print("audit log disabled:", e, flush=True)
     try:

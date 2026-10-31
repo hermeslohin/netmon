@@ -248,7 +248,5 @@
  "priority": 900,
  "_meta": {
   "description": "netmon dashboard audit log: user actions + app<->LLM conversations (dashboard/app/audit.py)"
- },
- "created_date_millis": 1792343160159,
- "modified_date_millis": 1792343160159
+ }
 }
