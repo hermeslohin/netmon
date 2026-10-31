@@ -33,11 +33,13 @@ class ReviewLogTest(unittest.TestCase):
     def test_correlation_pass_logged(self):
         """A pass that did work is logged with its counts; an idle pass is not; a failing one is logged as a problem.
         REQ: AUD-04"""
-        st = {"decided_this_run": 12, "clef_events_this_run": 3, "classified_this_run": 3, "model": "gemma", "clef_model": "Cloudflare/clef"}
+        st = {"events_this_run": 9, "decided_this_run": 12, "clef_events_this_run": 3, "classified_this_run": 3, "model": "gemma", "clef_model": "Cloudflare/clef"}
         d = reviewlog.correlation_pass(time.time() - 4, time.time(), st, 15)
         self.assertEqual(d["event"]["dataset"], "netmon.review")
         self.assertEqual(d["netmon"]["review"]["status"], "ok")
         self.assertEqual(d["netmon"]["review"]["links_decided"], 12)
+        self.assertEqual(d["netmon"]["review"]["events_processed"], 9)
+        self.assertIn("9 events processed", d["message"])
         self.assertIsNone(reviewlog.correlation_pass(time.time(), time.time(), {}, 0))
         bad = reviewlog.correlation_pass(time.time(), time.time(), {"review_failed_this_run": 2, "classified_this_run": 1}, 1)
         self.assertEqual(bad["netmon"]["review"]["status"], "partial")
@@ -49,13 +51,15 @@ class ReviewLogTest(unittest.TestCase):
     def test_view_falls_back_to_memory(self):
         """Without Elasticsearch the card shows the in-memory ring, with per-kind totals.
         REQ: AUD-04"""
-        reviewlog.correlation_pass(time.time(), time.time(), {"decided_this_run": 5}, 5)
+        reviewlog.correlation_pass(time.time(), time.time(), {"decided_this_run": 5, "events_this_run": 4}, 5)
         reviewlog.correlation_pass(time.time(), time.time(), {"error": "decision model unreachable", "error_kind": "decision"}, 0)
         v = reviewlog.view(24)
         self.assertIn("memory", v["source"])
         self.assertEqual(v["summary"]["correlation"]["entries"], 2)
         self.assertEqual(v["summary"]["correlation"]["problems"], 1)
         self.assertEqual(v["summary"]["correlation"]["links"], 5)
+        self.assertEqual(v["summary"]["correlation"]["events"], 4)
+        self.assertEqual(v["rows"][1]["events"], 4)
         self.assertEqual(v["rows"][0]["status"], "waiting")
 
 

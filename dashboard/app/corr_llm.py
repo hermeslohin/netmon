@@ -1644,7 +1644,10 @@ def classify_pass(model, base):
 
     def one(t):
         try:
-            return _classify(_target(), t[0], base, t[2], t[1])
+            k = _classify(_target(), t[0], base, t[2], t[1])
+            if k:
+                _touch(t[0])
+            return k
         except Exception as e:  # noqa: BLE001 - one bad answer must not stop the pass
             _set_error("classify", f"classify: {type(e).__name__}: {str(e)[:200]}")
             return 0
@@ -1791,6 +1794,7 @@ def clef_pass(base, pairs):
                 store_artifacts(c, k, [], cfg["model"], now)
         STATUS["clef_related_this_run"] = STATUS.get("clef_related_this_run", 0) + 1
         STATUS["decided_this_run"] = STATUS.get("decided_this_run", 0) + 1
+        _touch(a, r["id"])
         STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
         return 1
     with ThreadPoolExecutor(clef.WORKERS) as ex:
@@ -1918,7 +1922,10 @@ def event_pass(base):
         try:
             m = _target()
             STATUS.update(model=m["model"], provider=m["provider"])
-            return _event_review(m, t[0], base, t[2], t[1])
+            k = _event_review(m, t[0], base, t[2], t[1])
+            if k:
+                _touch(t[0])
+            return k
         except Exception as e:  # noqa: BLE001 - one bad answer must not stop the pass
             print(f"event review error ({t[0][:60]}): {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
             _set_error("event", f"event review: {type(e).__name__}: {str(e)[:200]}")
@@ -1974,6 +1981,7 @@ def clef_events(base, todo):
             c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms) VALUES (?,?,?,?,?,?,?,?)",
                       (eid, p["suspicious"], p["expected"], clef.label(p["suspicious"], p["expected"], cfg), sig, cfg["model"], time.time(), ms))
         STATUS["clef_events_this_run"] = STATUS.get("clef_events_this_run", 0) + 1
+        _touch(eid)
         STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
         return 1
     with ThreadPoolExecutor(clef.WORKERS) as ex:
@@ -2027,6 +2035,7 @@ def run_once(get_base, latest_sid):
     STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0, es_queries_this_run=0, classified_this_run=0,
                   clef_related_this_run=0, clef_stage="", clef_todo=0, clef_events_this_run=0, review_failed_this_run=0,
                   decision_failed_this_run=0)
+    _EVENTS_SEEN.clear()
     import clef
     STATUS["clef_model"] = clef.config()["model"]
     use_clef = clef.config()["enabled"]
@@ -2105,6 +2114,13 @@ def _safe_review(model, aid, base, todo):
 
 
 _JOBLOG = {}
+_EVENTS_SEEN = set()  # distinct events this pass touched (link decided, labelled or reviewed) -> Review log "events processed"
+
+
+def _touch(*ids):
+    with _lock:
+        _EVENTS_SEEN.update(i for i in ids if i)
+        STATUS["events_this_run"] = len(_EVENTS_SEEN)
 
 
 def _log_pass(t0, n, crashed=None):

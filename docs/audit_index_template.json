@@ -146,6 +146,12 @@
         },
         "snapshot": {
          "type": "keyword"
+        },
+        "events_processed": {
+         "type": "long"
+        },
+        "events_queued": {
+         "type": "long"
         }
        }
       }

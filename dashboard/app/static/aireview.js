@@ -910,6 +910,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         src.textContent = "from " + L.source + (L.error ? " — " + L.error : "");
         const lastProb = (x) => x.last_problem ? `${when(x.last_problem.ts)}: ${esc(x.last_problem.error || x.last_problem.message || x.last_problem.status)}` : "none";
         body.innerHTML = `${kpis([["Correlation passes", `${fn(cr.entries || 0)} · ${fn(cr.problems || 0)} with problems`],
+            ["Events processed (passes)", fn(cr.events || 0)], ["Events processed (review jobs)", fn(rj.events || 0)],
             ["Links decided", fn(cr.links || 0)], ["Events labelled / reviewed", `${fn(cr.labelled || 0)} / ${fn(cr.reviewed || 0)}`],
             ["Reviewer failures", fn(cr.rfail || 0)], ["Review-job runs", `${fn(rj.entries || 0)} · ${fn(rj.problems || 0)} failed`]])}
           <div class="idgrid" style="margin-top:6px">
@@ -920,6 +921,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
           { k: "kind", t: "What", fmt: (v, r) => (v === "review_job" ? `Review job${r.trigger ? ` (${esc(r.trigger)})` : ""}` : "Correlation pass") },
           { k: "status", t: "Status", fmt: (v) => badge(v) },
           { k: "seconds", t: "Took", num: true, fmt: (v) => (v == null ? "" : v + " s") },
+          { k: "events", t: "Events processed", num: true, fmt: (v, r) => (v == null ? "" : fn(v) + (r.queued ? ` <span class="muted">(${fn(r.queued)} queued)</span>` : "")) },
           { k: "links", t: "Links", num: true, fmt: (v) => (v == null ? "" : fn(v)) },
           { k: "labelled", t: "Labelled", num: true, fmt: (v) => (v == null ? "" : fn(v)) },
           { k: "reviewed", t: "Reviewed", num: true, fmt: (v) => (v == null ? "" : fn(v)) },

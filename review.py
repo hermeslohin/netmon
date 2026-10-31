@@ -81,8 +81,10 @@ class Status:
         self.d["running"] = {"started": self.run["started"], "progress": time.time(), "phase": p}
         self.save()
 
-    def finish(self, status, error, budget, summary, daily):
+    def finish(self, status, error, budget, summary, daily, counts=None):
         now = time.time()
+        c = counts or {}  # events processed by this run (Review log card / Elasticsearch netmon.review)
+        self.run.update(events=c.get("work_items"), events_reviewed=c.get("review_copied", 0) if c else None, events_queued=c.get("queued"))
         self.run.update(status=status, finished=now, duration_s=round(now - self.run["started"]), error=(error or "")[:300] or None, phase=None)
         self.d["running"] = None
         u = budget.summary()
@@ -264,7 +266,7 @@ def main():
         raise
     finally:
         s = run.summary()
-        st.finish("failed" if fatal else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, daily)
+        st.finish("failed" if fatal else "completed", fatal or ("; ".join(run.errors)[:300] if run.errors else None), run.budget, s, daily, getattr(run, "counts", None))
         print(s)
     return 1 if fatal else 0
 
