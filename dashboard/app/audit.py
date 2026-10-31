@@ -1,6 +1,7 @@
 """Audit log for the dashboard (More > Audit log, #/audit), stored in Elasticsearch in DAILY indices
-`logs-netmon-YYYY.MM.DD` (UTC day of each entry's @timestamp) so retention can delete whole days by index name
-(an ILM / DLM / curator rule on `logs-netmon-*`). Reads cover `logs-netmon,logs-netmon-*` (the older single index too).
+`logs-netmon.YYYY.MM.DD` (UTC day of each entry's @timestamp) so retention can delete whole days by index name
+(an ILM / DLM / curator rule on `logs-netmon.*`). The dot, not a hyphen, keeps the name outside Security Onion's
+`logs-*-*` data-stream templates. Reads cover `logs-netmon`, `logs-netmon.*` (and the stray `logs-netmon-*`).
 
 Two kinds of entries (ECS field names, so they also read well in Kibana / Security Onion Hunt):
   event.dataset = netmon.audit   every user action: sign-in / sign-out, every POST (check-offs, notes, chat,
@@ -142,21 +143,21 @@ def llm(purpose, provider, model, *, user="netmon", system=None, prompt=None, re
 
 # ---------------------------------------------------------------- Elasticsearch
 def index():
-    """Base name (Audit log settings, default logs-netmon). Entries go to <base>-YYYY.MM.DD, see index_for()."""
+    """Base name (Audit log settings, default logs-netmon). Entries go to <base>.YYYY.MM.DD, see index_for()."""
     return integrations.audit_index()
 
 
 def index_for(doc):
-    """Daily write index from the entry's own @timestamp (UTC), e.g. logs-netmon-2026.10.31 - spooled entries land in
+    """Daily write index from the entry's own @timestamp (UTC), e.g. logs-netmon.2026.10.31 - spooled entries land in
     the day they happened, not the day they were sent."""
     ts = str(doc.get("@timestamp") or _now())
     day = ts[:10].replace("-", ".") if re.match(r"^\d{4}-\d\d-\d\d", ts) else datetime.now(timezone.utc).strftime("%Y.%m.%d")
-    return f"{index()}-{day}"
+    return f"{index()}.{day}"  # "." not "-": logs-netmon-<day> would match Security Onion's logs-*-* data-stream template
 
 
 def read_pattern():
     """Everything readable: the daily indices plus the single index used before the daily split."""
-    return f"{index()},{index()}-*"
+    return f"{index()},{index()}.*,{index()}-*"  # -*: entries written for a few minutes as a data stream before the "." naming
 
 
 RQ = "ignore_unavailable=true&allow_no_indices=true"
@@ -164,15 +165,15 @@ TEMPLATE = os.path.join(_ROOT, "docs", "audit_index_template.json")
 
 
 def ensure_template():
-    """Install / update the index template (fixed mapping) for <base> and <base>-* so every new daily index gets it.
+    """Install / update the index template (fixed mapping) for <base> and <base>.* so every new daily index gets it.
     Needs manage_index_templates on the audit key; without it the template from docs/audit_index_template.json must be
     installed by hand (docs/AUDIT_LOG.md). Never raises."""
     try:
         t = json.load(open(TEMPLATE))
-        t["index_patterns"] = [index(), index() + "-*"]
+        t["index_patterns"] = [index(), index() + ".*"]
         for k in [k for k in t if k.startswith(("created_date", "modified_date"))]:  # system-managed: rejected on PUT
             t.pop(k)
-        _es("PUT", "/_index_template/netmon-audit", t, timeout=20)
+        _es("PUT", "/_index_template/netmon-audit?master_timeout=120s", t, timeout=180)  # cluster-state updates can be slow
         STATUS["template"] = "ok"
     except Exception as e:  # noqa: BLE001
         STATUS["template"] = f"not updated: {str(getattr(e, 'reason', e))[:150]}"
@@ -380,7 +381,7 @@ def doc(doc_id):
 
 def status():
     out = {k: STATUS.get(k) for k in ("sent", "spooled", "dropped", "rejected", "last_reject", "last_ok", "last_error")}
-    out.update(send_reviewer=integrations.audit_send("reviewer"), send_researcher=integrations.audit_send("researcher"), skipped=STATUS.get("skipped", 0), index=index_for({}), index_pattern=index() + "-*", template=STATUS.get("template"), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
+    out.update(send_reviewer=integrations.audit_send("reviewer"), send_researcher=integrations.audit_send("researcher"), skipped=STATUS.get("skipped", 0), index=index_for({}), index_pattern=index() + ".*", template=STATUS.get("template"), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
     try:
         out["spool_bytes"] = os.path.getsize(SPOOL) if os.path.exists(SPOOL) else 0
     except OSError:

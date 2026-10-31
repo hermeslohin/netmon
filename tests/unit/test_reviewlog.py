@@ -23,11 +23,11 @@ class ReviewLogTest(unittest.TestCase):
         """Every entry is written to <base>-YYYY.MM.DD of its own @timestamp (UTC), so retention can drop whole days;
         reads cover the daily indices and the older single index.
         REQ: AUD-04"""
-        self.assertEqual(audit.index_for({"@timestamp": "2026-10-31T23:59:59.000Z"}), audit.index() + "-2026.10.31")
-        self.assertRegex(audit.index_for({}), r"-\d{4}\.\d\d\.\d\d$")
-        self.assertEqual(audit.read_pattern(), f"{audit.index()},{audit.index()}-*")
+        self.assertEqual(audit.index_for({"@timestamp": "2026-10-31T23:59:59.000Z"}), audit.index() + ".2026.10.31")
+        self.assertRegex(audit.index_for({}), r"\.\d{4}\.\d\d\.\d\d$")
+        self.assertEqual(audit.read_pattern(), f"{audit.index()},{audit.index()}.*,{audit.index()}-*")
         t = json.load(open(audit.TEMPLATE))
-        self.assertIn("logs-netmon-*", t["index_patterns"])
+        self.assertIn("logs-netmon.*", t["index_patterns"])
         self.assertIn("review", t["template"]["mappings"]["properties"]["netmon"]["properties"])
 
     def test_correlation_pass_logged(self):

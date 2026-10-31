@@ -1,7 +1,7 @@
 {
  "index_patterns": [
   "logs-netmon",
-  "logs-netmon-*"
+  "logs-netmon.*"
  ],
  "template": {
   "settings": {

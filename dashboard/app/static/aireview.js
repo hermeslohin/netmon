@@ -895,7 +895,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   function reviewLogCard() {
     const c = card("Review log", `<div class="small muted">One entry per correlation-review pass (decision model links and labels, reviewer notes) that did work or
       hit a problem, and one per review-job run. Sent to Elasticsearch (event.dataset <span class="mono">netmon.review</span>, daily index
-      <span class="mono">logs-netmon-YYYY.MM.DD</span>).</div>
+      <span class="mono">logs-netmon.YYYY.MM.DD</span>).</div>
       <div class="llm-row" style="margin-top:6px"><span class="k">Period</span><select name="h"><option value="1">1 h</option><option value="24" selected>24 h</option>
       <option value="168">7 days</option><option value="720">30 days</option></select> <button type="button" name="r">Refresh</button> <span class="small muted src"></span></div>
       <div class="rl-body small">loading…</div>`);

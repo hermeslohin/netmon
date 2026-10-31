@@ -1,9 +1,9 @@
 # Audit log
 
 netmon records **who did what in the dashboard** and **every conversation between netmon and an AI model**. Entries go to
-Security Onion's Elasticsearch, in **daily indices `logs-netmon-YYYY.MM.DD`** (the UTC day of each entry's
+Security Onion's Elasticsearch, in **daily indices `logs-netmon.YYYY.MM.DD`** (the UTC day of each entry's
 `@timestamp`; entries spooled while Elasticsearch was down still land in the day they happened). A retention rule can
-therefore delete whole days by index name or age (pattern `logs-netmon-*`). The single index `logs-netmon` used before
+therefore delete whole days by index name or age (pattern `logs-netmon.*`). The single index `logs-netmon` used before
 the daily split is still read, so older entries stay visible until you delete it. Admins read them on **More → Audit log**; they are also
 searchable in Kibana and Security Onion Hunt (the fields use Elastic Common Schema names).
 
@@ -152,7 +152,7 @@ One time, with an Elasticsearch account that can manage index templates and crea
    count can't grow. The body is in [`audit_index_template.json`](audit_index_template.json).
 
    ```
-   PUT _index_template/netmon-audit          # index_patterns ["logs-netmon", "logs-netmon-*"], priority 900
+   PUT _index_template/netmon-audit          # index_patterns ["logs-netmon", "logs-netmon.*"], priority 900
    { ...contents of docs/audit_index_template.json... }
 
    PUT logs-netmon
@@ -268,9 +268,10 @@ On startup the container log says `audit log -> <url>/logs-netmon (key set)` or 
 
 ## Daily indices and retention
 
-Since the daily split the dashboard writes to `logs-netmon-YYYY.MM.DD` and (re)installs the index template
-`netmon-audit` for `logs-netmon` and `logs-netmon-*` at start-up (needs `manage_index_templates` on the audit key; if it
-lacks it, install `docs/audit_index_template.json` by hand - the status shows `template: not updated`). The template
-has priority 900, above Security Onion's `logs-*-*` templates, so the daily indices get netmon's fixed mapping and are
-plain indices, not data streams. Delete old days with a rule on `logs-netmon-*` (index age or the date in the name);
-the audit key needs `create_doc`, `create_index` and `read` on `logs-netmon-*`.
+Since the daily split the dashboard writes to `logs-netmon.YYYY.MM.DD` and (re)installs the index template
+`netmon-audit` for `logs-netmon` and `logs-netmon.*` at start-up (needs `manage_index_templates` on the audit key; if it
+lacks it, install `docs/audit_index_template.json` by hand - the status shows `template: not updated`). The daily
+name uses a dot (`logs-netmon.2026.10.31`), not a hyphen: `logs-netmon-<day>` would match Security Onion's `logs-*-*`
+template and become a data stream, which also blocks the template update. With the dot no Security Onion template
+matches, so the daily indices are plain indices with netmon's fixed mapping. Delete old days with a rule on `logs-netmon.*` (index age or the date in the name);
+the audit key needs `create_doc`, `create_index` and `read` on `logs-netmon.*`.

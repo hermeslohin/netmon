@@ -318,7 +318,7 @@ class TestSpoolAndFlush(_AuditBase):
             self.assertEqual(audit._bulk([{"a": 1, "@timestamp": "2026-10-30T10:00:00Z"}, {"b": 2}]), 1)
         lines = bodies[0].strip().split("\n")
         self.assertEqual(len(lines), 4)
-        self.assertEqual(json.loads(lines[0]), {"create": {"_index": audit.index() + "-2026.10.30"}})  # daily index of the entry's own day
+        self.assertEqual(json.loads(lines[0]), {"create": {"_index": audit.index() + ".2026.10.30"}})  # daily index of the entry's own day
         self.assertEqual(audit.STATUS["rejected"], 1)
         self.assertIn("mapper_parsing", audit.STATUS["last_reject"])
 
@@ -468,7 +468,7 @@ class TestReading(_AuditBase):
         self.assertIn("refused", s["error"])
         self.assertEqual(s["spool_bytes"], 0)
         self.assertEqual(s["index"], audit.index_for({}))
-        self.assertEqual(s["index_pattern"], audit.index() + "-*")
+        self.assertEqual(s["index_pattern"], audit.index() + ".*")
 
 
 if __name__ == "__main__":
