@@ -891,6 +891,47 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       .catch((e) => (body.innerHTML = `<span class="bad">server status unavailable: ${esc(e.message)}</span> (host broker netmon-broker running?)`));
     return c;
   }
+  // Review log: every correlation-review pass that did work or failed, and every review-job run (Elasticsearch netmon.review)
+  function reviewLogCard() {
+    const c = card("Review log", `<div class="small muted">One entry per correlation-review pass (decision model links and labels, reviewer notes) that did work or
+      hit a problem, and one per review-job run. Sent to Elasticsearch (event.dataset <span class="mono">netmon.review</span>, daily index
+      <span class="mono">logs-netmon-YYYY.MM.DD</span>).</div>
+      <div class="llm-row" style="margin-top:6px"><span class="k">Period</span><select name="h"><option value="1">1 h</option><option value="24" selected>24 h</option>
+      <option value="168">7 days</option><option value="720">30 days</option></select> <button type="button" name="r">Refresh</button> <span class="small muted src"></span></div>
+      <div class="rl-body small">loading…</div>`);
+    c.id = "ai-review-log";
+    const body = c.querySelector(".rl-body"), src = c.querySelector(".src"), sel = c.querySelector("[name=h]");
+    const badge = (s) => `<span class="badge ${["ok", "completed"].includes(s) ? "good" : s === "partial" || s === "waiting" ? "warn" : "sev-high"}">${esc(s || "?")}</span>`;
+    const when = (t) => (t ? esc(new Date(t).toLocaleString()) : "—");
+    const load = async () => {
+      body.textContent = "loading…";
+      try {
+        const L = await api("/api/aireview/log?hours=" + sel.value), S = L.summary || {}, cr = S.correlation || {}, rj = S.review_job || {};
+        src.textContent = "from " + L.source + (L.error ? " — " + L.error : "");
+        const lastProb = (x) => x.last_problem ? `${when(x.last_problem.ts)}: ${esc(x.last_problem.error || x.last_problem.message || x.last_problem.status)}` : "none";
+        body.innerHTML = `${kpis([["Correlation passes", `${fn(cr.entries || 0)} · ${fn(cr.problems || 0)} with problems`],
+            ["Links decided", fn(cr.links || 0)], ["Events labelled / reviewed", `${fn(cr.labelled || 0)} / ${fn(cr.reviewed || 0)}`],
+            ["Reviewer failures", fn(cr.rfail || 0)], ["Review-job runs", `${fn(rj.entries || 0)} · ${fn(rj.problems || 0)} failed`]])}
+          <div class="idgrid" style="margin-top:6px">
+            <span class="k">Correlation review</span><span>last ${when(cr.last)} ${cr.last_status ? badge(cr.last_status) : ""} · last problem: ${lastProb(cr)}</span>
+            <span class="k">Review job</span><span>last ${when(rj.last)} ${rj.last_status ? badge(rj.last_status) : ""} · last problem: ${lastProb(rj)}</span></div>`;
+        body.appendChild((L.rows || []).length ? table(null, [
+          { k: "ts", t: "Time", fmt: (v) => when(v) },
+          { k: "kind", t: "What", fmt: (v, r) => (v === "review_job" ? `Review job${r.trigger ? ` (${esc(r.trigger)})` : ""}` : "Correlation pass") },
+          { k: "status", t: "Status", fmt: (v) => badge(v) },
+          { k: "seconds", t: "Took", num: true, fmt: (v) => (v == null ? "" : v + " s") },
+          { k: "links", t: "Links", num: true, fmt: (v) => (v == null ? "" : fn(v)) },
+          { k: "labelled", t: "Labelled", num: true, fmt: (v) => (v == null ? "" : fn(v)) },
+          { k: "reviewed", t: "Reviewed", num: true, fmt: (v) => (v == null ? "" : fn(v)) },
+          { k: "rfail", t: "Failures", num: true, fmt: (v, r) => fn((v || 0) + (r.dfail || 0)) },
+          { k: "error", t: "Problem", cls: "small", fmt: (v) => esc(String(v || "").slice(0, 220)) },
+        ], L.rows, { sort: "ts", limit: 50 }) : Object.assign(document.createElement("div"), { className: "muted", textContent: "No review activity in this period." }));
+      } catch (e) { body.innerHTML = `<span class="bad">review log unavailable: ${esc(e.message)}</span>`; }
+    };
+    c.querySelector("[name=r]").onclick = load; sel.onchange = load;
+    load();
+    return c;
+  }
   function reviewVolumeCard(D) {
     const days = ((D.totals || {}).events_per_day || []), today = new Date().toLocaleDateString("sv");
     const full = days.filter((d) => d.day !== today);  // today is partial: left out of the averages
@@ -1156,6 +1197,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(reviewVolumeCard(D));
     el.appendChild(clefCard(D));
     el.appendChild(clefServerCard(D));
+    el.appendChild(reviewLogCard());
     el.appendChild(modelsCard(D));
     el.appendChild(notesConsolidateCard(D));
     if (D.admin) el.appendChild(providersCard());

@@ -1,6 +1,7 @@
 {
  "index_patterns": [
-  "logs-netmon"
+  "logs-netmon",
+  "logs-netmon-*"
  ],
  "template": {
   "settings": {
@@ -95,6 +96,58 @@
       "target": {
        "ignore_above": 1024,
        "type": "keyword"
+      },
+      "review": {
+       "properties": {
+        "kind": {
+         "type": "keyword"
+        },
+        "status": {
+         "type": "keyword"
+        },
+        "links_decided": {
+         "type": "long"
+        },
+        "events_labelled": {
+         "type": "long"
+        },
+        "events_reviewed": {
+         "type": "long"
+        },
+        "reviewer_failures": {
+         "type": "long"
+        },
+        "decision_failures": {
+         "type": "long"
+        },
+        "decision_model": {
+         "type": "keyword"
+        },
+        "reviewer_model": {
+         "type": "keyword"
+        },
+        "trigger": {
+         "type": "keyword"
+        },
+        "error": {
+         "type": "text"
+        },
+        "summary": {
+         "type": "text"
+        },
+        "tokens": {
+         "type": "long"
+        },
+        "pending_links": {
+         "type": "long"
+        },
+        "daily_run": {
+         "type": "boolean"
+        },
+        "snapshot": {
+         "type": "keyword"
+        }
+       }
       }
      }
     },
@@ -154,6 +207,12 @@
       },
       "outcome": {
        "type": "keyword"
+      },
+      "start": {
+       "type": "date"
+      },
+      "end": {
+       "type": "date"
       }
      }
     },

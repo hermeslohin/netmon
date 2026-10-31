@@ -1,7 +1,10 @@
 # Audit log
 
 netmon records **who did what in the dashboard** and **every conversation between netmon and an AI model**. Entries go to
-Security Onion's Elasticsearch, in the index `logs-netmon`. Admins read them on **More → Audit log**; they are also
+Security Onion's Elasticsearch, in **daily indices `logs-netmon-YYYY.MM.DD`** (the UTC day of each entry's
+`@timestamp`; entries spooled while Elasticsearch was down still land in the day they happened). A retention rule can
+therefore delete whole days by index name or age (pattern `logs-netmon-*`). The single index `logs-netmon` used before
+the daily split is still read, so older entries stay visible until you delete it. Admins read them on **More → Audit log**; they are also
 searchable in Kibana and Security Onion Hunt (the fields use Elastic Common Schema names).
 
 - [What is recorded](#what-is-recorded)
@@ -17,7 +20,17 @@ searchable in Kibana and Security Onion Hunt (the fields use Elastic Common Sche
 
 ## What is recorded
 
-Two kinds of entries, told apart by `event.dataset`:
+Three kinds of entries, told apart by `event.dataset`:
+
+### Review log: `netmon.review`
+
+| Action (`event.action`) | When |
+|---|---|
+| `review.correlation_pass` | One correlation-review pass of the background worker that decided links, labelled or reviewed events, or ended with a problem (idle passes are not logged). `netmon.review`: `status` (ok / partial / waiting / error / crashed), `links_decided`, `events_labelled`, `events_reviewed`, `reviewer_failures`, `decision_failures`, `decision_model`, `reviewer_model`, `error`; `event.start` / `event.end` / `event.duration`. |
+| `review.job_run` | Each finished review-job run (review.py): `status` (completed / failed), `trigger`, `daily_run`, `reviewer_model`, `error`. |
+
+Shown on **AI review → Review log** (counts, last problem per kind, the entries of the last 1 h – 30 days; falls back to
+the dashboard's in-memory copy when Elasticsearch is unreachable).
 
 ### User actions: `netmon.audit`
 
@@ -139,7 +152,7 @@ One time, with an Elasticsearch account that can manage index templates and crea
    count can't grow. The body is in [`audit_index_template.json`](audit_index_template.json).
 
    ```
-   PUT _index_template/netmon-audit
+   PUT _index_template/netmon-audit          # index_patterns ["logs-netmon", "logs-netmon-*"], priority 900
    { ...contents of docs/audit_index_template.json... }
 
    PUT logs-netmon
@@ -251,3 +264,13 @@ On startup the container log says `audit log -> <url>/logs-netmon (key set)` or 
 | `integrations.py` | `audit_key()`, `audit_index()`; the `audit` section of the `integrations` document and its **Test**. |
 | `dashboard/app/static/audit.js` | The More → Audit log page. `app.js` reports page views (`auditView`). |
 | `docs/audit_index_template.json` | Index template (mapping). |
+
+
+## Daily indices and retention
+
+Since the daily split the dashboard writes to `logs-netmon-YYYY.MM.DD` and (re)installs the index template
+`netmon-audit` for `logs-netmon` and `logs-netmon-*` at start-up (needs `manage_index_templates` on the audit key; if it
+lacks it, install `docs/audit_index_template.json` by hand - the status shows `template: not updated`). The template
+has priority 900, above Security Onion's `logs-*-*` templates, so the daily indices get netmon's fixed mapping and are
+plain indices, not data streams. Delete old days with a rule on `logs-netmon-*` (index age or the date in the name);
+the audit key needs `create_doc`, `create_index` and `read` on `logs-netmon-*`.

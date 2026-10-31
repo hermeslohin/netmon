@@ -35,6 +35,7 @@ REQUIREMENTS = {
     # ---- audit ----
     "AUD-01": ("Audit log", "Every POST is audited with user, role, outcome and parameters, with secrets redacted.", "AUDIT_LOG.md"),
     "AUD-02": ("Audit log", "Every sign-in attempt and every refused (403) request is audited.", "AUDIT_LOG.md"),
+    "AUD-04": ("Audit log", "Every log entry sent to Elasticsearch goes to a daily index <base>-YYYY.MM.DD of its own timestamp (whole days can be deleted by a retention rule); every correlation-review pass with work or a problem and every review-job run is logged (netmon.review) and summarised on AI review > Review log.", "AUDIT_LOG.md"),
     "AUD-03": ("Audit log", "Audit entries spool locally while Elasticsearch is unreachable; auditing never breaks a request.", "AUDIT_LOG.md (How it works)"),
     # ---- store ----
     "STO-01": ("Store", "Snapshots, ranges and job/config state are JSON documents in the SQLite docs table (jload/jdump/jglob drop-ins).", "store.py"),

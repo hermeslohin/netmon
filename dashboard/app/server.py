@@ -1760,6 +1760,13 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"history": itemcmp.history(str((q.get("key") or [""])[0])[:64])})
             if path == "/api/aireview/compare":
                 return self._json({"history": corr_llm.comparisons(str((q.get("pair") or [""])[0])[:1200])})
+            if path == "/api/aireview/log":  # Review log card: correlation passes + review-job runs (Elasticsearch netmon.review)
+                import reviewlog
+                try:
+                    hrs = max(1, min(int((q.get("hours") or ["24"])[0]), 24 * 30))
+                except ValueError:
+                    hrs = 24
+                return self._json(reviewlog.view(hrs))
             if path == "/api/aireview/review-queue":  # links awaiting review (admin / network defender)
                 s_ = snapshots()
                 return self._json(corr_llm.pending_list(correlation(s_[-1]["id"]) if s_ else {}))

@@ -1,8 +1,12 @@
-"""Audit log for the dashboard (More > Audit log, #/audit), stored in Elasticsearch index `logs-netmon`.
+"""Audit log for the dashboard (More > Audit log, #/audit), stored in Elasticsearch in DAILY indices
+`logs-netmon-YYYY.MM.DD` (UTC day of each entry's @timestamp) so retention can delete whole days by index name
+(an ILM / DLM / curator rule on `logs-netmon-*`). Reads cover `logs-netmon,logs-netmon-*` (the older single index too).
 
 Two kinds of entries (ECS field names, so they also read well in Kibana / Security Onion Hunt):
   event.dataset = netmon.audit   every user action: sign-in / sign-out, every POST (check-offs, notes, chat,
                                  settings, users, AI verdicts...), page views, report downloads, denied requests
+  event.dataset = netmon.review  one entry per correlation review pass that did work or failed, and per finished
+                                 review-job run (reviewlog.py; AI review > Review log card)
   event.dataset = netmon.llm     every conversation between the app and an LLM: Ask AI chat turns, the
                                  correlation reviewer, model comparisons, item comparisons, the review job's and event research's
                                  results coming back in (enrich.py put). Prompt, system prompt, answer, model,
@@ -138,7 +142,39 @@ def llm(purpose, provider, model, *, user="netmon", system=None, prompt=None, re
 
 # ---------------------------------------------------------------- Elasticsearch
 def index():
+    """Base name (Audit log settings, default logs-netmon). Entries go to <base>-YYYY.MM.DD, see index_for()."""
     return integrations.audit_index()
+
+
+def index_for(doc):
+    """Daily write index from the entry's own @timestamp (UTC), e.g. logs-netmon-2026.10.31 - spooled entries land in
+    the day they happened, not the day they were sent."""
+    ts = str(doc.get("@timestamp") or _now())
+    day = ts[:10].replace("-", ".") if re.match(r"^\d{4}-\d\d-\d\d", ts) else datetime.now(timezone.utc).strftime("%Y.%m.%d")
+    return f"{index()}-{day}"
+
+
+def read_pattern():
+    """Everything readable: the daily indices plus the single index used before the daily split."""
+    return f"{index()},{index()}-*"
+
+
+RQ = "ignore_unavailable=true&allow_no_indices=true"
+TEMPLATE = os.path.join(_ROOT, "docs", "audit_index_template.json")
+
+
+def ensure_template():
+    """Install / update the index template (fixed mapping) for <base> and <base>-* so every new daily index gets it.
+    Needs manage_index_templates on the audit key; without it the template from docs/audit_index_template.json must be
+    installed by hand (docs/AUDIT_LOG.md). Never raises."""
+    try:
+        t = json.load(open(TEMPLATE))
+        t["index_patterns"] = [index(), index() + "-*"]
+        _es("PUT", "/_index_template/netmon-audit", t, timeout=20)
+        STATUS["template"] = "ok"
+    except Exception as e:  # noqa: BLE001
+        STATUS["template"] = f"not updated: {str(getattr(e, 'reason', e))[:150]}"
+        print(f"audit: index template not updated ({STATUS['template']})", file=sys.stderr)
 
 
 def _es(method, path, body=None, ndjson=False, timeout=15, key=None):
@@ -158,8 +194,7 @@ def _es(method, path, body=None, ndjson=False, timeout=15, key=None):
 
 
 def _bulk(docs):
-    ix = index()
-    body = "".join(json.dumps({"create": {"_index": ix}}) + "\n" + json.dumps(d, default=str) + "\n" for d in docs)
+    body = "".join(json.dumps({"create": {"_index": index_for(d)}}) + "\n" + json.dumps(d, default=str) + "\n" for d in docs)
     r = _es("POST", "/_bulk", body, ndjson=True, timeout=30)
     bad = [i["create"] for i in r.get("items", []) if i.get("create", {}).get("error")] if r.get("errors") else []
     if bad:  # a mapping problem on single entries must not block the rest forever: report it, keep going
@@ -252,6 +287,7 @@ def start():
         if STATUS["started"]:
             return
         STATUS["started"] = True
+    threading.Thread(target=ensure_template, name="audit-template", daemon=True).start()
     threading.Thread(target=_loop, name="audit-writer", daemon=True).start()
 
 
@@ -300,7 +336,7 @@ def search(p):
                      "tin": {"sum": {"field": "gen_ai.usage.input_tokens"}}, "tout": {"sum": {"field": "gen_ai.usage.output_tokens"}},
                      "over_time": {"auto_date_histogram": {"field": "@timestamp", "buckets": 48},
                                    "aggs": {"kind": {"terms": {"field": "event.dataset", "size": 3}}}}}}
-    r = _es("POST", f"/{index()}/_search", body)
+    r = _es("POST", f"/{read_pattern()}/_search?{RQ}", body)
     A = r.get("aggregations") or {}
     tb = lambda k: [{"key": b["key"], "n": b["doc_count"]} for b in (A.get(k) or {}).get("buckets", [])]  # noqa: E731
     rows = []
@@ -323,23 +359,32 @@ def search(p):
             "interval": (A.get("over_time") or {}).get("interval"), "histogram": hist}
 
 
+def review_entries(hours=24, size=200):
+    """netmon.review entries (AI review > Review log card), newest first, with counts per kind / outcome."""
+    body = {"size": size, "sort": [{"@timestamp": "desc"}], "track_total_hits": True,
+            "query": {"bool": {"filter": [{"term": {"event.dataset": "netmon.review"}}, {"range": {"@timestamp": {"gte": f"now-{int(hours)}h"}}}]}},
+            "aggs": {"kind": {"terms": {"field": "event.action", "size": 10}, "aggs": {"out": {"terms": {"field": "event.outcome", "size": 5}}}}}}
+    r = _es("POST", f"/{read_pattern()}/_search?{RQ}", body)
+    return [h["_source"] for h in (r.get("hits") or {}).get("hits", [])], ((r.get("hits") or {}).get("total") or {}).get("value", 0)
+
+
 def doc(doc_id):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", doc_id or ""):
         raise ValueError("bad id")
-    r = _es("POST", f"/{index()}/_search", {"size": 1, "query": {"ids": {"values": [doc_id]}}})
+    r = _es("POST", f"/{read_pattern()}/_search?{RQ}", {"size": 1, "query": {"ids": {"values": [doc_id]}}})
     hits = (r.get("hits") or {}).get("hits") or []
     return hits[0]["_source"] if hits else None
 
 
 def status():
     out = {k: STATUS.get(k) for k in ("sent", "spooled", "dropped", "rejected", "last_reject", "last_ok", "last_error")}
-    out.update(send_reviewer=integrations.audit_send("reviewer"), send_researcher=integrations.audit_send("researcher"), skipped=STATUS.get("skipped", 0), index=index(), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
+    out.update(send_reviewer=integrations.audit_send("reviewer"), send_researcher=integrations.audit_send("researcher"), skipped=STATUS.get("skipped", 0), index=index_for({}), index_pattern=index() + "-*", template=STATUS.get("template"), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
     try:
         out["spool_bytes"] = os.path.getsize(SPOOL) if os.path.exists(SPOOL) else 0
     except OSError:
         out["spool_bytes"] = 0
     try:
-        c = _es("GET", f"/{index()}/_count", timeout=8)
+        c = _es("GET", f"/{read_pattern()}/_count?{RQ}", timeout=8)
         out.update(connected=True, docs=c.get("count"))
     except Exception as e:  # noqa: BLE001
         out.update(connected=False, error=integrations._err(e) if isinstance(e, urllib.error.HTTPError) else str(e)[:200])

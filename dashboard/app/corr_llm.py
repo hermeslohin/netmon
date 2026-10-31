@@ -1776,6 +1776,7 @@ def clef_pass(base, pairs):
         try:
             p, ms = clef.ask(_clef_state(E, a, r["id"], r, ON), {"related": clef.Q_RELATED}, cfg["url"])
         except Exception as e:  # noqa: BLE001 - stays undecided, asked again next pass
+            STATUS["decision_failed_this_run"] = STATUS.get("decision_failed_this_run", 0) + 1
             _set_error("decision", f"decision model: {type(e).__name__}: {str(e)[:200]}")
             return 0
         pr, now = p["related"], time.time()
@@ -1869,6 +1870,7 @@ def _event_review(model, eid, base, rel_ids, sig):
     STATUS["event_secs"] = round(time.time() - t0, 1)
     if failed:
         STATUS["error"] = f"event review: {failed}"
+        STATUS["review_failed_this_run"] = STATUS.get("review_failed_this_run", 0) + 1
         if label == "suspicious":
             reopen_checked(eid, reason)
         return 1
@@ -1965,11 +1967,13 @@ def clef_events(base, todo):
         try:
             p, ms = clef.ask(st, {"suspicious": clef.Q_EVENT_SUSPICIOUS, "expected": clef.Q_EVENT_EXPECTED}, cfg["url"])
         except Exception as e:  # noqa: BLE001
+            STATUS["decision_failed_this_run"] = STATUS.get("decision_failed_this_run", 0) + 1
             _set_error("decision", f"decision model: {type(e).__name__}: {str(e)[:200]}")
             return 0
         with _lock, _db() as c:
             c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms) VALUES (?,?,?,?,?,?,?,?)",
                       (eid, p["suspicious"], p["expected"], clef.label(p["suspicious"], p["expected"], cfg), sig, cfg["model"], time.time(), ms))
+        STATUS["clef_events_this_run"] = STATUS.get("clef_events_this_run", 0) + 1
         STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
         return 1
     with ThreadPoolExecutor(clef.WORKERS) as ex:
@@ -2021,8 +2025,10 @@ def run_once(get_base, latest_sid):
     sids = [latest_sid] + [s for s, t in sorted(_wanted.items(), key=lambda x: -x[1]) if s != latest_sid and time.time() - t < 3600][:2]
     model = _target()
     STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0, es_queries_this_run=0, classified_this_run=0,
-                  clef_related_this_run=0, clef_stage="", clef_todo=0)
+                  clef_related_this_run=0, clef_stage="", clef_todo=0, clef_events_this_run=0, review_failed_this_run=0,
+                  decision_failed_this_run=0)
     import clef
+    STATUS["clef_model"] = clef.config()["model"]
     use_clef = clef.config()["enabled"]
     _clear_error()  # every pass re-evaluates; a problem that is gone must not stay on screen
     if use_clef and not any(clef.healthy() or time.sleep(2) for _ in range(3)):  # 3 tries: one slow /health must not stop the review
@@ -2094,7 +2100,27 @@ def _safe_review(model, aid, base, todo):
     except Exception as e:  # noqa: BLE001 - one bad answer must not stop the run
         print(f"reviewer error ({aid[:60]}): {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
         _set_error("reviewer", f"{type(e).__name__}: {str(e)[:200]}")
+        STATUS["review_failed_this_run"] = STATUS.get("review_failed_this_run", 0) + 1
         return 0
+
+
+_JOBLOG = {}
+
+
+def _log_pass(t0, n, crashed=None):
+    """Review log (reviewlog.py -> Elasticsearch netmon.review): this pass, and any review-job run that finished meanwhile."""
+    try:
+        import reviewlog
+        reviewlog.correlation_pass(t0, time.time(), STATUS, n, crashed)
+        if not _JOBLOG:
+            try:
+                _JOBLOG["last"] = float((store.doc_get("reviewlog_job", {}) or {}).get("last") or 0)
+            except Exception:  # noqa: BLE001
+                _JOBLOG["last"] = 0.0
+        if reviewlog.job_runs(_JOBLOG):
+            store.doc_put("reviewlog_job", {"last": _JOBLOG["last"]})
+    except Exception as e:  # noqa: BLE001 - logging must never stop the reviewer
+        print(f"review log failed: {e}", file=sys.stderr)
 
 
 def start(get_base, latest_sid_fn, every=60):
@@ -2106,17 +2132,21 @@ def start(get_base, latest_sid_fn, every=60):
         last_prune = 0.0
         while True:
             try:
+                t0 = time.time()
                 if time.time() - last_prune > 3600:  # retention: once an hour, no-op when the limit is off
                     last_prune = time.time()
                     try:
                         prune_verdicts()
                     except Exception as e:  # noqa: BLE001 - never stop the reviewer for housekeeping
                         print(f"verdict prune failed: {e}", file=sys.stderr)
+                t0 = time.time()
                 n = run_once(get_base, latest_sid_fn())
+                _log_pass(t0, n)
                 time.sleep(5 if n else every)
             except Exception as e:  # noqa: BLE001 - LM Studio down / model unloading: back off and retry
                 print(f"reviewer loop error: {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
                 STATUS.update(busy=False); _set_error("loop", f"{type(e).__name__}: {str(e)[:200]}")
+                _log_pass(t0, 0, f"{type(e).__name__}: {str(e)[:300]}")
                 time.sleep(180)
     threading.Thread(target=loop, name="corr-llm", daemon=True).start()
 
