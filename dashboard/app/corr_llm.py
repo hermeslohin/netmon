@@ -1093,7 +1093,36 @@ def _target(model=None):
 
 def _json(txt):
     i = txt.find("{")
-    return json.JSONDecoder().raw_decode(txt[i:] if i >= 0 else txt)[0]
+    t = txt[i:] if i >= 0 else txt
+    try:
+        return json.JSONDecoder().raw_decode(t)[0]
+    except ValueError:
+        pass
+    # the model sometimes puts a sibling key inside the array: {"decisions": [{...}, "queries": []]}
+    fixed = _re.sub(r',\s*"queries"\s*:\s*\[\s*\](\s*\])', r'\1', t)
+    try:
+        return json.JSONDecoder().raw_decode(fixed)[0]
+    except ValueError:
+        pass
+    # last resort: keep every complete {"id": ...} object that does parse
+    dec, dm, j = [], json.JSONDecoder(), 0
+    while True:
+        j = t.find("{", j)
+        if j < 0:
+            break
+        try:
+            o, e = dm.raw_decode(t, j)
+        except ValueError:
+            j += 1
+            continue
+        if isinstance(o, dict) and "id" in o and "decisions" not in o:
+            dec.append(o)
+        j = e
+    if dec:
+        print(f"corr_llm: repaired reviewer JSON by salvaging {len(dec)} decision objects", file=sys.stderr, flush=True)
+        return {"decisions": dec}
+    print(f"corr_llm: unparseable reviewer JSON ({len(txt)} chars): {txt[:1500]!r}", file=sys.stderr, flush=True)
+    raise ValueError("reviewer returned unparseable JSON")
 
 
 def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, purpose="correlation-review", actor="netmon (background reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120):
