@@ -287,11 +287,12 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             | ({"edr"} if parts[0] in ("agent-off", "agent-deg", "defend-pol", "silent") else set())
         hl = parts[1] if len(parts) > 1 and parts[0] not in ("login",) else ""
         # the finding is ABOUT the host it was read on: that host is the source, every other IP in it (e.g. "from 10.0.0.5") a peer,
-        # so artifacts of the host (its processes, files, accounts) are never attributed to the peer
+        # so artifacts of the host (its processes, files, accounts) are never attributed to the peer. A host name that does not
+        # resolve leaves the source empty (the peers are still not that host).
         hips = {v for k, v in host_ents(hl)} if hl else set()
         add(f"hf|{key}", "host", text, w0, w1, e, techniques("host", f"{key}|{text}"), "#/security?ev=hf|" + key,
             "high" if f.get("priority") == "Investigate" else "medium", topics=top, akey=key, hlabel=hl, item=f,
-            host=hips or None, dst={v for k, v in e if k in ("ip", "ext") and v not in hips} if hips else None)
+            host=hips if hl else None, dst={v for k, v in e if k in ("ip", "ext") and v not in hips} if hl else None)
 
     # --- threat intel
     ti = raw.get("threat_intel") or {}

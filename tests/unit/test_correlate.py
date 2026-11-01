@@ -375,6 +375,13 @@ class ArtifactOwnerTest(unittest.TestCase):
         self.assertEqual(ev["host_ips"], ["10.0.2.20"])
         self.assertEqual(ev["dst_ips"], ["10.0.1.10"])
 
+    def test_unresolved_host_does_not_make_peer_the_source(self):
+        """When the finding's host name cannot be resolved, the peer IP is still only a peer.
+        REQ: COR-04"""
+        ev = run(self.r)["events"]["hf|hnet-newlisten|server|pasta.avx2:8443"]
+        self.assertEqual(ev["host_ips"], [])
+        self.assertEqual(ev["dst_ips"], ["10.0.1.10"])
+
     def test_profile_processes_not_given_to_peer(self):
         """IP profiles count the process only for the host that runs it, and nothing for a multi-host side.
         REQ: COR-04"""
