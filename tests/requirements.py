@@ -48,6 +48,7 @@ REQUIREMENTS = {
     "STO-08": ("Store", "Auto-close checks off every open event (any type or age) an enabled AI source calls expected/benign, never one called suspicious, never re-closes one a person reopened, and reopens it when the verdict turns bad.", "autoclose.py"),
     "STO-10": ("Store", "Open events older than the loaded snapshot keep their related events: the count, linked events, artifacts and the decision model's (clef) p(related) and event label come from the stored verdicts.", "eventstore.py / corr_llm.related_view"),
     "STO-09": ("Store", "Nightly host note consolidation merges only unreviewed AI notes, keeps every [reviewer:] tag and identifier (IPs, domains, ports, paths, hashes) or leaves the notes unchanged, never touches person-written notes, skips unchanged hosts, and runs once a day at the time set on AI review.", "notes_consolidate.py"),
+    "STO-11": ("Store", "Consolidation merges only notes about one shared artifact (not counting the host itself or a bare port), never adds an identifier its notes did not have, and drops malformed [reviewer:] tags, so it never links artifacts the notes did not link.", "notes_consolidate.py"),
     # ---- analysis / scoring ----
     "ANA-01": ("Baseline analysis", "analyze.py learns a per-device baseline (keyed by MAC) and flags volume/upload/count spikes only after MIN_DAYS of history.", "analyze.py / RISK_SCORING.md"),
     "RISK-01": ("Risk scoring", "Vulnerability risk is 0-100 from severity base x kind factor x host exposure, plus recurrence.", "RISK_SCORING.md"),
@@ -62,6 +63,7 @@ REQUIREMENTS = {
     "COR-02": ("Correlation", "Event ids are stable hashes (FNV-1a base36) identical in Python and app.js.", "CORRELATION.md (Event ids)"),
     "COR-03": ("Correlation", "Events sharing hosts/IPs/accounts/time/ATT&CK are linked when the score passes the threshold, capped per event.", "CORRELATION.md §2"),
     "COR-04": ("Correlation", "Host-local artifacts (processes, files, accounts) are attributed only to the host they were read on, never to peer IPs in the same event.", "CORRELATION.md §2"),
+    "COR-05": ("Correlation", "Notes link only to the artifact they are about: a reviewer artifact must be of its kind and carried by an event with a single owning host; notes on another host match an event only by a shared IP or DNS name.", "CORRELATION.md §2"),
     "MIT-01": ("ATT&CK", "Findings map to MITRE ATT&CK techniques by rule; every rule references a technique in the catalog.", "README.md"),
     "LLM-01": ("AI", "Model answers are parsed defensively: the first JSON object is used and unknown verdicts/priorities fall back to safe values.", "USER_GUIDE.md §7"),
     "LLM-02": ("AI", "The dashboard runs fully with the local LLM switched off (NETMON_LLM=off).", "SETUP.md §6"),

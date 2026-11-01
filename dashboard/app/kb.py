@@ -90,6 +90,29 @@ _A_STOP_PROC = {"is", "as", "was", "that", "which", "and", "the", "for", "from",
 _A_FILE_EXT = {"py", "sh", "so", "txt", "log", "conf", "cfg", "json", "yml", "yaml", "md", "html", "js", "css", "png", "jpg", "pdf", "zip", "gz", "tar", "xml", "ini", "db", "exe", "dll", "sys", "bin", "deb", "rpm", "pem", "crt", "key", "service", "local", "lan", "home", "internal", "arpa"}
 ART_WEIGHT = {"ip": 3, "dns": 3, "proc": 3, "user": 2, "port": 1}  # a port alone never selects a note (needs >= MIN_ART_SCORE)
 MIN_ART_SCORE = 2
+SHARED_ARTS = ("ip", "dns")  # artifacts that mean the same thing on every host; proc / user / port keys are host-local
+
+
+_V_DNS = re.compile(r"^(?=.{4,253}$)(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$", re.I)
+_V_PORTISH = re.compile(r"^\d{1,5}(?:/(?:tcp|udp))?$", re.I)
+_V_USER = re.compile(r"^[\w.$@\\-]{1,64}$")
+
+
+def valid_art(kind, value):
+    """An artifact value really is of its kind (an IP is an address, a DNS name a domain, a process / file is neither a bare port
+    nor an address, an account a single name). Anything else is dropped, never re-filed under a guessed kind."""
+    v = str(value or "").strip()
+    if not v or len(v) > 300 or "\n" in v:
+        return False
+    if kind == "ip":
+        return bool(_IP.match(v)) and all(int(x) <= 255 for x in v.split("."))
+    if kind == "dns":
+        return bool(_V_DNS.match(v.strip("."))) and not _IP.match(v)
+    if kind in ("process", "file"):
+        return not _V_PORTISH.match(v) and not _IP.match(v) and not re.search(r"\s(?:rejected|conns?|connections?)\b", v, re.I)
+    if kind == "user":
+        return bool(_V_USER.match(v))
+    return False
 
 
 def _proc_key(v):
@@ -117,7 +140,8 @@ def artifact_keys(text="", subject="", kinds=None):
         elif kind == "user" and val:
             out.add("user:" + val.lower())
     for kind, val in _A_TAG.findall(text):
-        out |= artifact_keys(subject=f"art:{kind}:{val}")
+        if valid_art(kind, val):  # a malformed tag ([reviewer:ip:25565]) must not link the note to anything
+            out |= artifact_keys(subject=f"art:{kind}:{val}")
     for m in _A_IP.finditer(text):
         ip = m.group(1)
         if all(int(x) <= 255 for x in ip.split(".")) and not ip.startswith(("0.", "127.", "255.")) and not ip.endswith(".255"):
@@ -188,7 +212,8 @@ def art_score(note_arts, ev_arts):
 
 def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12):
     """Host notes (any subject) that carry at least one of the event's artifacts: [(score, matched, note)], best first.
-    Notes scoring under MIN_ART_SCORE (a shared port only) are left out."""
+    Notes scoring under MIN_ART_SCORE (a shared port only) are left out.
+    A note on another host matches only on an IP or DNS name: a process, file, account or port of one host says nothing about another."""
     ev_arts = sorted(ev_arts)[:200]
     if not ev_arts:
         return []
@@ -202,7 +227,10 @@ def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12):
         rows = [dict(zip(_COLS, r)) for r in c.execute(f"SELECT {','.join(_COLS)} FROM host_notes WHERE id IN ({','.join('?' * len(ids))})", ids)]
     out = []
     for n in rows:
-        sc, hit = art_score(na.get(n["id"], []), ev_arts)
+        mine = na.get(n["id"], [])
+        if not str(n["subject"]).startswith("art:"):  # a note on ANOTHER host: its processes, files, accounts and ports are that host's own,
+            mine = [k for k in mine if k.split(":", 1)[0] in SHARED_ARTS]  # so only a shared IP / DNS name links it to this event
+        sc, hit = art_score(mine, ev_arts)
         if n.get("status") != "rejected" and sc >= MIN_ART_SCORE and not str(n["text"]).startswith("[profile:"):  # generated per-host profiles list many peers: they stay with their own host
             out.append((sc, hit, n))
     out.sort(key=lambda t: (-t[0], -float(t[2].get("updated") or 0)))
@@ -237,7 +265,7 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
         if k == "art":  # a correlated artifact the reviewer listed: art:<file|process|user|ip|dns>:<value>
             ak, _, av = v.partition(":")
             av = av.strip()
-            if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av:
+            if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av and valid_art(ak, av):
                 av = av.lower() if ak in ("ip", "dns") else av
                 return f"art:{ak}:{av}", f"{ak} {av}"
         raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, host:<name>, dom:<domain> or art:<kind>:<value>)")

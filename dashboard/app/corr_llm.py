@@ -746,6 +746,11 @@ ART_KINDS = ("file", "process", "user", "ip", "dns")
 ART_DECISIONS = ("benign", "expected", "suspicious")
 
 
+def _kb():
+    import kb
+    return kb
+
+
 def clean_artifacts(arts):
     """The artifacts a reviewer listed for one link: [{kind, value, relation, decision}] -> validated, deduped, max 12."""
     out, seen = [], set()
@@ -755,7 +760,7 @@ def clean_artifacts(arts):
         kind = str(a.get("kind") or "").lower().strip()
         kind = {"domain": "dns", "address": "ip", "account": "user", "path": "file"}.get(kind, kind)
         val, dec = str(a.get("value") or "").strip()[:300], str(a.get("decision") or "").lower().strip()
-        if kind in ART_KINDS and val and dec in ART_DECISIONS and (kind, val) not in seen:
+        if kind in ART_KINDS and val and dec in ART_DECISIONS and (kind, val) not in seen and (kind not in _kb().ART_KINDS or _kb().valid_art(kind, val)):
             seen.add((kind, val))
             out.append({"kind": kind, "value": val, "relation": str(a.get("relation") or "")[:200], "decision": dec, "note": str(a.get("note") or "").strip()[:400]})
     return out[:12]
@@ -1471,6 +1476,24 @@ def _note_dns(model, aid, E, cands, dec):
     return n
 
 
+def art_owners(kind, value, events):
+    """The hosts an artifact belongs to: the single source host of each event that really carries it (by artifact key, same kind).
+    Processes, files and accounts are local to the host they were read on; an IP or DNS name belongs to the host that reached it.
+    An event naming several hosts on its source side gives no owner, and the artifact is never filed on itself."""
+    import kb
+    key = kb.artifact_keys(subject=f"art:{kind}:{value}")
+    if not key:
+        return []
+    out = []
+    for ev in events:
+        if not key <= kb.event_artifact_keys(ev):
+            continue
+        src = [ip for ip in (ev.get("host_ips") or []) if kb._IP.match(str(ip))]
+        if len(src) == 1 and not (kind == "ip" and src[0] == value) and src[0] not in out:
+            out.append(src[0])
+    return out
+
+
 def _note_expected(model, aid, E, cands, dec):
     """Turn the reviewer's `expected` artifact judgements into host notes (category behavior) on the host(s) both events
     involve, so the next reviews and event research see them as ai_notes. One note per host + artifact (found by its
@@ -1485,14 +1508,11 @@ def _note_expected(model, aid, E, cands, dec):
         d = dec.get(f"c{i}")
         if not d or not d.get("related") or float(d.get("confidence") or 0) < NOTE_MIN_CONF:
             continue
-        a_ips, b_ips = set(E[aid].get("ips") or []), set(e.get("ips") or [])
-        hosts = sorted(a_ips & b_ips) or sorted(a_ips)[:1] or sorted(b_ips)[:1]
         for art in clean_artifacts(d.get("artifacts")):
-            if art["decision"] != "expected" or art["kind"] == "ip" and art["value"] in hosts:
+            if art["decision"] != "expected":
                 continue
-            seen_txt = " ".join(str(x) for ev in (E[aid], e) for x in (ev.get("label"), *(ev.get("ips") or []), *(ev.get("host_ips") or []), *(ev.get("dst_ips") or []),
-                                                                      *(a[1] for a in ev.get("arts") or []))).lower()
-            if art["value"].lower() not in seen_txt:  # the model must not invent artifacts: the value has to appear in one of the two events
+            hosts = art_owners(art["kind"], art["value"], (E[aid], e))
+            if not hosts:  # the artifact is in neither event, or no single host owns it: no note (never guess whose it is)
                 continue
             tag = NOTE_TAG.format(kind=art["kind"], value=art["value"][:120])
             text = (f"{tag} Expected {art['kind']} {art['value'][:160]}: {art['relation'] or str(d.get('reason') or '')[:150]}. "

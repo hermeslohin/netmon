@@ -27,7 +27,7 @@ class Consolidate(unittest.TestCase):
             c.execute("DELETE FROM consolidate_subjects")
         self.a = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] Expected dns x.example.com: update check. Seen in a correlation between 'a' and 'b'. "
                                   "Reviewer judgement (m1), unverified; delete if wrong.", "behavior", author="ai", model="m1", via="correlation reviewer")
-        self.b = kb.add_host_note(SUBJ, "[reviewer:ip:192.0.2.7] Expected ip 192.0.2.7: same update service on 443/tcp. Reviewer judgement (m1), unverified.",
+        self.b = kb.add_host_note(SUBJ, "[reviewer:ip:192.0.2.7] Expected ip 192.0.2.7: x.example.com update service on 443/tcp. Reviewer judgement (m1), unverified.",
                                   "behavior", author="ai", model="m1", via="correlation reviewer")
         self.p = kb.add_host_note(SUBJ, "Owner says this is the NAS.", "role", author="user:dan", via="dashboard")
         self.t = {"provider": "lmstudio", "model": "test-model"}
@@ -87,6 +87,70 @@ class Consolidate(unittest.TestCase):
         self.assertEqual(kb.tagged_slot(ns, "[reviewer:dns:a.com]"), ("skip", None))
         self.assertEqual(kb.tagged_slot(ns, "[reviewer:dns:a.com]", "suspicious"), ("add", None))
         self.assertEqual(kb.tagged_slot(ns, "[reviewer:dns:c.com]"), ("add", None))
+
+    def test_notes_about_different_artifacts_are_not_merged(self):
+        """Two notes that share no artifact (a DNS name and an unrelated IP) stay separate even if the model merges them.
+        REQ: STO-11
+        """
+        c1 = kb.add_host_note(SUBJ, "[reviewer:dns:y.example.org] Expected dns y.example.org: telemetry. Unverified.", "behavior", author="ai", via="correlation reviewer")
+        c2 = kb.add_host_note(SUBJ, "[reviewer:process:/usr/bin/pasta.avx2] Expected process /usr/bin/pasta.avx2: port forwarder. Unverified.",
+                              "behavior", author="ai", via="correlation reviewer")
+        before = _notes()
+        with self._answer([{"from": [c1, c2], "category": "behavior",
+                            "text": "/usr/bin/pasta.avx2 contacts y.example.org for telemetry. Unverified."}]):
+            r = NC.consolidate_subject("ip:10.9.9.9", self.t)
+        self.assertEqual(_notes(), before)
+        self.assertGreaterEqual(r["rejected"], 1)
+
+    def test_merge_that_adds_an_identifier_is_rejected(self):
+        """A merged text naming an IP / domain that none of its notes had is not written.
+        REQ: STO-11
+        """
+        before = _notes()
+        with self._answer([{"from": [self.a, self.b], "category": "behavior",
+                            "text": "x.example.com update check at 192.0.2.7 on 443/tcp, also reached via 198.51.100.9. Unverified."}]):
+            r = NC.consolidate_subject("ip:10.9.9.9", self.t)
+        self.assertEqual(_notes(), before)
+        self.assertGreaterEqual(r["rejected"], 1)
+
+    def test_malformed_tags_are_dropped_and_never_indexed(self):
+        """[reviewer:ip:25565] / [reviewer:dns:25565] are not artifacts: not indexed, and not carried into a merged note.
+        REQ: STO-11
+        """
+        self.assertEqual(kb.artifact_keys("[reviewer:ip:25565] [reviewer:dns:25565] [reviewer:process:443/tcp]"), {"port:25565", "port:443"} & kb.artifact_keys("[reviewer:ip:25565] [reviewer:dns:25565] [reviewer:process:443/tcp]"))
+        self.assertFalse(kb.valid_art("ip", "25565"))
+        self.assertFalse(kb.valid_art("dns", "LGwebOSTV"))
+        self.assertFalse(kb.valid_art("process", "8.8.8.8"))
+        self.assertTrue(kb.valid_art("process", "/usr/bin/python3.12"))
+        self.assertTrue(kb.valid_art("dns", "doh.dns.apple.com"))
+        x = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] [reviewer:ip:25565] x.example.com also on 25565/tcp. Unverified.", "behavior", author="ai", via="correlation reviewer")
+        with self._answer([{"from": [self.a, x], "category": "behavior", "text": "x.example.com update check, also on 25565/tcp. Unverified."}]):
+            NC.consolidate_subject("ip:10.9.9.9", self.t)
+        merged = next(n for n in _notes() if n["via"] == NC.VIA)
+        self.assertIn("[reviewer:dns:x.example.com]", merged["text"])
+        self.assertNotIn("[reviewer:ip:25565]", merged["text"])
+
+    def test_other_host_notes_match_only_on_shared_ip_or_dns(self):
+        """A note on another host about its own process does not attach to an event that runs the same process name elsewhere.
+        REQ: COR-05
+        """
+        kb.add_host_note({"ip": "10.8.8.8"}, "[reviewer:process:/usr/bin/python3.12] Expected process /usr/bin/python3.12 here. Unverified.", "behavior", author="ai")
+        d = kb.add_host_note({"ip": "10.8.8.8"}, "[reviewer:dns:x.example.com] Expected dns x.example.com here. Unverified.", "behavior", author="ai")
+        got = kb.notes_by_artifacts({"proc:python3.12", "dns:x.example.com"}, exclude_ids={self.a, self.b})
+        self.assertEqual([n["id"] for _s, _h, n in got], [d])
+
+    def test_reviewer_artifact_owner_is_the_single_source_host(self):
+        """art_owners: a process belongs to the event's single source host; an artifact in no event, or an event with several
+        source hosts, gets no owner (no note is written).
+        REQ: COR-05
+        """
+        a = {"label": "x", "host_ips": ["10.0.2.20"], "dst_ips": ["10.0.1.10"], "ips": ["10.0.1.10", "10.0.2.20"], "arts": [["process", "/usr/bin/pasta.avx2", ""]]}
+        b = {"label": "y", "host_ips": ["10.0.1.10", "10.0.3.3"], "ips": ["10.0.1.10", "10.0.3.3"], "arts": [["process", "/usr/bin/curl", ""]]}
+        self.assertEqual(corr_llm.art_owners("process", "/usr/bin/pasta.avx2", (a, b)), ["10.0.2.20"])
+        self.assertEqual(corr_llm.art_owners("process", "/usr/bin/curl", (a, b)), [])
+        self.assertEqual(corr_llm.art_owners("process", "/usr/bin/nc", (a, b)), [])
+        self.assertEqual(corr_llm.clean_artifacts([{"kind": "ip", "value": "25565", "decision": "expected"},
+                                                   {"kind": "dns", "value": "a.example.com", "decision": "expected"}])[0]["value"], "a.example.com")
 
 
 class Schedule(unittest.TestCase):

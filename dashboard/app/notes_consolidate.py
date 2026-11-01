@@ -10,7 +10,10 @@ Safety:
   - kb.db is backed up before every run (/state/backup-kbnotes/, newest 7 kept).
   - The model returns groups {from: [note ids], category, text}. A group is applied only when every id belongs to the chunk,
     no id is used twice and the text fits; ids it leaves out are kept unchanged. A group of one note may rewrite it.
-  - Every [reviewer:kind:value] tag of the merged notes is kept at the start of the merged note, so the artifact index and
+  - Notes are merged only when they are about one shared artifact (same IP, DNS name, process / file or account, not counting the
+    subject itself or a bare port); a group of notes about different artifacts is kept unmerged, so consolidation never links
+    artifacts the notes did not link. A merged text that adds an identifier none of its notes had is rejected too.
+  - Every valid [reviewer:kind:value] tag of the merged notes is kept at the start of the merged note, so the artifact index and
     the reviewer's own look-ups still find it.
   - Notes are re-read inside the write transaction; a note changed by someone else since it was read is left alone.
   - A host whose notes did not change since its last consolidation is skipped.
@@ -59,11 +62,14 @@ STATUS = {"running": False, "trigger": "", "by": "", "started": None, "subjects_
 SYSTEM = """You maintain a knowledge base of notes about ONE host / device / domain on a home network. Security analysts and
 other AI models read these notes before judging events, so they must stay accurate and complete, but there are far too
 many overlapping notes. Consolidate the EDITABLE notes you are given:
-- Merge notes that describe the same behaviour, process, service, destination, account or decision into ONE note.
-  Group by topic; at most 10 notes in one group.
+- Merge ONLY notes about the same artifact (the same IP address, DNS name, process / file, or account) into ONE note.
+  Notes about different artifacts stay separate even when they look related: never connect two artifacts ("X uses Y",
+  "X resolves to Y", "X is the same as Y") unless one source note already states that link. At most 10 notes in one group.
+  A merge whose notes share no artifact is rejected automatically.
 - Keep EVERY concrete fact: IP addresses, ports, domains, process names and paths, accounts, hashes and TLS fingerprints
   (JA3/JA4), counts, dates, decisions, reasons and caveats such as 'unverified' or 'expected'. Copy identifiers
-  character for character. Never invent anything. A merge that drops an identifier is rejected automatically.
+  character for character. Never invent anything. A merge that drops an identifier, or adds one that no source
+  note has, is rejected automatically.
 - Where notes contradict, the note with the later 'updated' time wins; say what changed if it matters.
 - Drop only exact repetition. Notes on unrelated topics stay separate (a group of one note; you may tidy its wording).
 - Do not repeat what a FIXED note (written or approved by a person) already says, but never contradict a fixed note.
@@ -247,6 +253,36 @@ def facts(text):
     return out
 
 
+def new_facts(sources, text):
+    """Identifiers in the merged text that none of its source notes had (the model invented or borrowed them)."""
+    src = " ".join(clean(x) for x in sources).lower()
+    return sorted(f for f in facts(text) if f not in src)
+
+
+def _arts(text, own):
+    """Artifacts a note is about (valid [reviewer:...] tags + IPs, DNS names, processes, accounts in its text), minus the subject itself
+    and bare ports (a port alone is no artifact)."""
+    return {k for k in kb.artifact_keys(text) if not k.startswith("port:")} - own
+
+
+def own_keys(subject):
+    """Artifact keys of the note subject itself (its IP / domain, and for a MAC subject every IP the registry holds for it)."""
+    own = set(kb.artifact_keys(subject=subject))
+    k, _, v = str(subject).partition(":")
+    if k == "mac":
+        d = kb._registry().get(v) or {}
+        own |= {"ip:" + i for i in d.get("ips") or []}
+    return own
+
+
+def unrelated(texts, own):
+    """A group whose notes are not all about one shared artifact -> True (exact repetition is the one exception)."""
+    if len(texts) < 2 or len({clean(t).lower() for t in texts}) == 1:
+        return False
+    sets = [_arts(t, own) for t in texts]
+    return not set.intersection(*sets)
+
+
 def missing_facts(sources, text):
     low = clean(text).lower()
     return sorted(f for f in set().union(*(facts(x) for x in sources)) if f not in low)
@@ -275,10 +311,14 @@ def _apply(c, groups, by_id, model, dry, stats=None):
         live = [r for r in (c.execute("SELECT id, text, updated, status, author FROM host_notes WHERE id=?", (i,)).fetchone() for i in g["from"]) if r]
         if len(live) != len(g["from"]) or any(r[3] or r[4] != "ai" or abs((r[2] or 0) - (by_id[r[0]]["updated"] or 0)) > 1e-3 for r in live):
             continue  # changed / reviewed / deleted since we read it
+        if unrelated([r[1] for r in live], own_keys(by_id[g["from"][0]]["subject"])):  # notes about different artifacts are never merged
+            stats["unrelated"] = stats.get("unrelated", 0) + 1
+            continue
         tags = []
         for r in live:
             for t in _TAG.findall(r[1]):
-                if t not in tags:
+                kd, _, vd = t[10:-1].partition(":")
+                if t not in tags and kb.valid_art(kd, vd):  # a malformed tag ([reviewer:ip:25565]) is not carried forward
                     tags.append(t)
         body = _TAG.sub("", g["text"]).strip()
         if any("unverified" in r[1].lower() for r in live) and "unverified" not in body.lower():
@@ -291,6 +331,11 @@ def _apply(c, groups, by_id, model, dry, stats=None):
             stats["lost"] = stats.get("lost", 0) + 1
             stats.setdefault("lost_facts", []).extend(lost[:5])
             stats.setdefault("retry", []).append({"from": g["from"], "missing": lost})
+            continue
+        added = new_facts([r[1] for r in live], body)
+        if added:  # the model wrote an identifier none of the notes had: it must not create links that are not there
+            stats["invented"] = stats.get("invented", 0) + 1
+            stats.setdefault("invented_facts", []).extend(added[:5])
             continue
         keep = min(g["from"])
         if len(g["from"]) == 1 and text == by_id[keep]["text"] and g["category"] == by_id[keep]["category"]:
@@ -370,9 +415,13 @@ def consolidate_subject(subject, target, dry=False, log=None):
             if st.get("retry"):  # one more try for merges that dropped an identifier, naming what is missing
                 rm2, rw2, st = _retry(target, subject, label, by_id, st["retry"], dry, log)
                 rm, rw = rm + rm2, rw + rw2
-            res["rejected"] += st.get("lost", 0)
+            res["rejected"] += st.get("lost", 0) + st.get("unrelated", 0) + st.get("invented", 0)
             if log and st.get("lost"):
                 log(f"{subject}: {st['lost']} merge(s) kept unmerged - they lost a concrete fact: {', '.join(st.get('lost_facts', [])[:12])}")
+            if log and st.get("unrelated"):
+                log(f"{subject}: {st['unrelated']} merge(s) kept unmerged - the notes are about different artifacts")
+            if log and st.get("invented"):
+                log(f"{subject}: {st['invented']} merge(s) kept unmerged - they added identifiers no note had: {', '.join(st.get('invented_facts', [])[:12])}")
             res["merged"] += rm
             res["rewritten"] += rw
             gained += rm

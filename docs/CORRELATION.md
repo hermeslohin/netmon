@@ -307,8 +307,13 @@ names the script read from it, and the IPs, ports and names in its label) and lo
 ranked by match: IP, DNS name or process = 3 points, account = 2, port = 1; a note that matches only on a port (under 2 points)
 is never picked. Highest score first, then the old order (decision, role, baseline, behavior, config, risk, watch, other, newest
 first), and the first **Notes per event** are sent. This also pulls in notes that hang on a *different* host or subject
-but name the artifact (for example a note on a backup server that mentions the process or internet address this event shows);
-those are shown to the model as `(matches ip:…)`. Generated `[profile:…]` notes are only used for their own host, never
+but name the same IP address or DNS name (for example a note on a backup server that mentions the internet address this event
+shows); those are shown to the model as `(matches ip:…)`. Processes, files, accounts and ports are local to a host, so a note on
+another host never matches on them (an `art:` subject note about that process or account still does). A `[reviewer:…]` tag whose
+value is not of its kind (`[reviewer:ip:25565]`, `[reviewer:dns:LGwebOSTV]`, `[reviewer:process:8.8.8.8]`) is not indexed;
+`kb.valid_art` checks every reviewer artifact before it is stored or tagged. *Expected* artifact notes (`corr_llm._note_expected`)
+go only to the host that owns the artifact: the single source host of an event that really carries it, by artifact key and
+kind (`corr_llm.art_owners`); an artifact in neither event, or in an event with several source hosts, gets no note. Generated `[profile:…]` notes are only used for their own host, never
 matched across hosts. Each note's artifacts are refreshed whenever it is added or edited, and existing notes were indexed once
 at upgrade. Artifacts a reviewer writes into its notes (the `[reviewer:…]` tag and the value in the text) are what make the next
 reviews find them. On the Notes page, the Internet notes pages and the notes cards, each note shows its artifacts as chips under the text (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port), so you can see what the reviewer will match on.
