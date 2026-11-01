@@ -48,7 +48,7 @@
         <div class="muted small">While an open event on a device (MAC, host name or host IP) was called suspicious or malicious — by either AI or a person — and was seen in the last ${G.hold_hours || 24} h, nothing else on that device is auto-closed, and AI closures of its events active in that window are reopened. Checking off (or marking Expected) the suspicious event lifts the hold.
           Now: <b>${G.held_hosts || 0}</b> hosts on hold, <b>${G.host || 0}</b> open events held${G.reopen_host_due ? `, ${G.reopen_host_due} auto-closed events will reopen on the next pass` : ""}${G.reopened_host ? `, ${G.reopened_host} reopened` : ""}.
           ${hosts.length ? `<br>Held: ${hosts.slice(0, 12).map(([h, n]) => `<span class="mono">${esc(h)}</span> (${n})`).join(", ")}` : ""}</div></div>
-      <div style="margin:10px 0 0 0"><b class="small">6. AI closures expire after</b>
+      <div style="margin:10px 0 0 0"><b class="small">4. AI closures expire after</b>
         <input id="g-exp" type="number" min="0" max="365" step="1" value="${s.expire_days ?? 7}" style="width:5em" ${dis}> <span class="small">days</span>
         <div class="muted small">When an AI-closed event shows up again after this many days it reopens and closes again only on a verdict newer than the old closure (it is judged again). Your own closures never expire. 0 = never.
           Now: <b>${G.expire_due || 0}</b> due to expire on the next pass.</div></div>
