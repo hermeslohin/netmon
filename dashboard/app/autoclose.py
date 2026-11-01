@@ -294,14 +294,22 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
         log = {(r["type"], r["key"]): dict(r) for r in c.execute("SELECT * FROM autoclose_log")}
         acks = store.acks_load(c)
 
-        # guard 6: AI closures older than expire_days whose event repeated after that are reopened for a fresh verdict
+        # guard 6: AI closures older than expire_days whose event repeated after that are reopened for a fresh verdict.
+        # Judged per event group by its newest closure: a later repeat with its own (newer) closure keeps the group closed.
         if g["expire_days"]:
             span = g["expire_days"] * 86400
+            newest = {}  # group -> (newest closure time, made by a person)
+            for lg in log.values():
+                if lg["state"] in ("closed", "person") and lg.get("eid"):
+                    gk, at = eventstore.gkey(lg["eid"]), _epoch(lg["at"])
+                    p0 = newest.get(gk, (0, False))
+                    newest[gk] = (max(p0[0], at), p0[1] or (lg.get("source") or "researcher") == "person")
             for (t, k), lg in log.items():
                 if lg["state"] != "closed" or (lg.get("source") or "researcher") == "person" or not lg.get("eid"):
                     continue
-                at = _epoch(lg["at"])
-                if not at or now - at < span or glast.get(eventstore.gkey(lg["eid"]), 0) <= at + span:
+                gk = eventstore.gkey(lg["eid"])
+                at, by_person = newest.get(gk, (_epoch(lg["at"]), False))
+                if by_person or not at or now - at < span or glast.get(gk, 0) <= at + span:
                     continue
                 G["expire_due"] += 1
                 if dry:
@@ -416,7 +424,6 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 hh = sorted(hosts(mem) & sus.keys()) if not guard else []
                 if hh:  # guard 3
                     guard, why = "host", f"held: open suspicious event on {hh[0]} ({str(sus[hh[0]])[:70]})"
-                    G["hosts"][hh[0]] = G["hosts"].get(hh[0], 0) + 1
                 pc = sorted(set().union(*(categories(m, evx[m][0] if m in evx else "") for m in mem)) & protect) if not guard else []
                 if pc:  # guard 2
                     guard, why = "protected", "protected category: " + ", ".join(pc)
@@ -463,6 +470,8 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
                 if guard == "protected":
                     for k in pc:
                         G["by_cat"][k] = G["by_cat"].get(k, 0) + 1
+                if guard == "host":
+                    G["hosts"][hh[0]] = G["hosts"].get(hh[0], 0) + 1
                 sample(guard, eid, label, why)
                 return
             hit = next((k for k in good if k in on), None)

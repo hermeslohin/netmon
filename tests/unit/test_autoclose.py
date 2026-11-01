@@ -265,6 +265,12 @@ class AutoCloseGuardRails(unittest.TestCase):
         _cls(IDS, "expected")  # judged again
         autoclose.run({}, {}, [], trigger="test")
         self.assertNotIn(IDS, _open())
+        # a newer closure of a later repeat keeps the group closed: older closures of the group do not expire
+        c2 = autoclose._c()
+        with store.tx(c2):
+            c2.execute("INSERT INTO autoclose_log (type, key, eid, verdict, model, at, state, source) VALUES "
+                       "('finding', 'old1', ?, 'expected', 'm', ?, 'closed', 'reviewer')", (IDS, old))
+        self.assertEqual(autoclose.run({}, {}, [], dry=True)["guard"]["expire_due"], 0)
         autoclose.set_settings({"reviewer_expected": True, "expire_days": 0}, "t")
         with store.tx(c):
             c.execute("UPDATE autoclose_log SET at=?", (old,))
