@@ -57,7 +57,7 @@
     const by = {
       finding: [{ k: "kind", t: "Kind", fmt: (v, x) => esc(itemOf(x).kind || ""), sort: (x) => itemOf(x).kind || "" }, { k: "device", t: "Device", fmt: (v, x) => { const it = itemOf(x); return devCell(it.device, findHostIp(it), it.name); }, sort: (x) => { const it = itemOf(x); return `${devNameFor(it.device, findHostIp(it), it.name) || "~"} ${it.device || ""}`; } },
         { k: "detail", t: "Detail", fmt: (v, x) => linkifyIps(itemOf(x).detail || x.label), sort: (x) => itemOf(x).detail || "" }],
-      host: [{ k: "text", t: "Finding", fmt: (v, x) => linkifyIps(itemOf(x).text || x.label), sort: (x) => itemOf(x).text || "" }],
+      host: [hfHostCol((x) => x.eid), hfToCol((x) => x.eid, (x) => itemOf(x).text || x.label), { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(itemOf(x).text || x.label), sort: (x) => itemOf(x).text || "" }],
       ids: [{ k: "name", t: "Signature", fmt: (v, x) => esc(itemOf(x).name || x.label), sort: (x) => itemOf(x).name || "" },
         { k: "count", t: "Count", num: true, fmt: (v, x) => fn(itemOf(x).count || 0), sort: (x) => itemOf(x).count || 0 },
         { k: "src", t: "From", fmt: (v, x) => topKeys(itemOf(x).src).map((ip) => ipLink(ip)).join(" "), sort: (x) => topKeys(itemOf(x).src, 1)[0] || "~" },

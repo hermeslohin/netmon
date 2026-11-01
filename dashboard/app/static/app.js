@@ -101,6 +101,39 @@ function ipLink(ip, withName = true) {
   const label = nm ? `${esc(nm)} <span class="muted small">${esc(ip)}</span>` : esc(ip);
   return internal && S.snap?.raw?.devices?.[ip] ? `<a href="#/device/${encodeURIComponent(ip)}">${label}</a>` : label;
 }
+// host (endpoint) a host finding belongs to: its key is "<kind>|<host>|..." (Elastic Agent / osquery / syslog host name)
+const hfHost = (key) => String(key || "").replace(/^hf\|/, "").split("|")[1] || "";
+// "To" of a host finding, like the IDS From/To: the remote end of an outbound connection or lookup, or this host (and port)
+// for inbound connections / logins / new listeners, with where it came from. Read from the finding's key, "" when the kind
+// has no network side (accounts, files, processes, syslog, agent health).
+function hfTo(key, text) {
+  const p = String(key || "").replace(/^hf\|/, "").split("|"), [kind, host] = p, port = (x) => (String(x || "").match(/:(\d+)$/) || [])[1];
+  const self = (pt) => `${hostLink(host)}${pt ? `<span class="mono">:${esc(pt)}</span>` : ""}`, from = (ip) => (ip ? ` <span class="muted small">from ${linkifyIps(ip)}</span>` : "");
+  switch (kind) {
+    case "hnet-proc": case "hnet-dns-long": return linkifyIps(p.slice(3).join("|"));
+    case "net-new": return linkifyIps((p[3] || "").split(",").join(", "));
+    case "hnet-interp": { const m = String(text || "").match(/destination\(s\):\s*(.*?)(?:\s+-\s|$)/); return m ? linkifyIps(m[1]) : ""; }
+    case "hnet-in": return self(port(p[2])) + from(p[3]);
+    case "hnet-newlisten": { const m = String(text || "").match(/\(from ([^)]+)\)/); return self(port(p[2])) + from(m && m[1]); }
+    case "authfail": return self() + from(p[2]);
+    case "login-new": return `${self()} <span class="muted small">as ${esc(p[2] || "?")} via ${esc(p[4] || "?")}</span>` + from(p[3]);
+    default: return "";
+  }
+}
+// a grouped Open-events row (x.members: the event ids of its variants, e.g. one process to several remotes) lists the
+// remote side of every variant; a single finding shows its own
+const hfRemote = (key) => { const p = String(key || "").replace(/^hf\|/, "").split("|");
+  return { "hnet-in": p[3], "hnet-proc": p.slice(3).join("|"), "hnet-dns-long": p.slice(3).join("|"), "net-new": p[3], authfail: p[2], "login-new": p[3] }[p[0]] || ""; };
+function hfToRow(key, text, members) {
+  const rem = [...new Set((members || []).flatMap((m) => hfRemote(m).split(",")).filter(Boolean))];
+  if (rem.length < 2) return hfTo(key, text);
+  const p = String(key || "").replace(/^hf\|/, "").split("|");
+  const list = linkifyIps(rem.slice(0, 4).join(", ")) + (rem.length > 4 ? ` <span class="muted small">+${rem.length - 4} more</span>` : "");
+  return ["hnet-in", "authfail", "login-new"].includes(p[0]) ? `${hostLink(p[1])}<span class="mono">${(String(p[2] || "").match(/:\d+$/) || [""])[0]}</span> <span class="muted small">from</span> ${list}` : list;
+}
+const hfToCol = (keyOf, textOf) => ({ k: "hf_to", t: "To", fmt: (v, x) => hfToRow(keyOf(x), textOf(x), x.members) || "—",
+  sort: (x) => { const d = document.createElement("div"); d.innerHTML = hfToRow(keyOf(x), textOf(x), x.members); return d.textContent || "~"; } });
+const hfHostCol = (keyOf) => ({ k: "hf_host", t: "Host", fmt: (v, x) => { const h = hfHost(keyOf(x)); return h ? hostLink(h) : "—"; }, sort: (x) => hfHost(keyOf(x)).toLowerCase() || "~" });
 const hostLink = (h) => `<a href="#/endpoint/${encodeURIComponent(h)}">${esc(h)}</a>`;
 const DOM_RE = /\b((?:[a-z0-9-]+\.)+(?:com|net|org|io|ru|cn|xyz|top|info|biz|us|co|me|app|dev|cloud|online|site))\b/gi;
 const isInternalDom = (d) => /\.(lan|local|hades)$/i.test(d);
@@ -1130,7 +1163,7 @@ V.security = (el) => {
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, hfHostCol((x) => x.key), hfToCol((x) => x.key, (x) => x.text), { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
       urlFilter: { hpri: ["Priority", (x, v) => eqi(x.priority, v)], hstate: ["State", (x, v) => (v === "checked") === !!acked("host", x)] } }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
   }
