@@ -58,7 +58,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 |---|---|
 | **Overview** | The summary page. |
 | **Alerts** | Urgent alerts from the 15-minute watcher. The number is your unread count. |
-| **Open events** | Every event nobody has checked off yet, of any age, independent of the time range. The number is how many are open. See [Open events](#open-events). |
+| **Open events** | Your to-do list: every event nobody has accepted (checked off) yet, of any age. Not time based; repeats of one condition are one row. The number is how many are open. See [Open events vs Posture](#open-events-vs-posture). |
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
 | **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map, **Users** (accounts seen in the logs and their usual patterns; the dashboard's own logins are under More → Dashboard users). |
 | **Devices ▾** | Hosts (everything on the network), Endpoints (computers running the Elastic Agent) and Notes (what the AI and people have written about devices and events). |
@@ -179,7 +179,7 @@ When you have looked at an alarm or finding and are satisfied, tick its check bo
 - **show N checked** in a box's title brings checked items back into view.
 - **Unchecking** restores an item, either in its list or on the Checked page.
 - **Carries over:** checking off is remembered across snapshots, so the same finding stays checked when it shows up again.
-- **Nothing ages out.** Checking off is the only way an event leaves the **Open events** page: the time range you picked does not hide an unchecked event, however old it is (see [Open events](#open-events)).
+- **Nothing ages out.** Accepting (checking off) is the only way an event leaves the **Open events** page; the time range you picked does not hide an unchecked event, however old it is. Posture, by contrast, only shows the selected time range (see [Open events vs Posture](#open-events-vs-posture)).
 - **Gateway events** (Posture → Gateway security) can be checked off and suppressed like findings. They appear on the Checked page as type *Gateway event*. The 30-day threat rows at the bottom of that card can be checked off, but have no correlation event, so the suppress dialog offers only the name, not artifacts.
 
 ![Gateway events card with check boxes and suppress buttons](img/posture-gateway-events.png)
@@ -297,14 +297,34 @@ The one-page summary of the selected snapshot.
 
 Urgent watcher alerts and your notification settings (see [section 4](#4-notifications-and-alerts)).
 
+### Open events vs Posture
+
+Both pages list the same kinds of events with the same buttons, but they answer different questions.
+
+| | **Open events** | **Security → Posture** |
+|---|---|---|
+| **Question it answers** | *What still needs a person's decision?* | *What happened in this time range?* |
+| **Time range** 🕒 | **Not time bound.** The header's time range is ignored. An event stays until someone accepts it, whether it fired an hour ago or three months ago. | **Time bound.** Shows only what happened in the range chosen in the header. Pick another range and you see other events. Anything older drops off the page (but is still on Open events if nobody accepted it). |
+| **How an event leaves** | **Only when it is accepted:** a person ticks its check box (or ✓ Check all), or an auto-close rule a person turned on in Configuration does it for them. Fix-list items and vulnerabilities also leave once the problem is fixed, and an alert leaves when it is cleared. Waiting, a quiet night or changing the time range never removes anything. | When the time range moves past it, or when it is checked off. |
+| **Repeats** | **Collapsed.** One condition is one row however often it fires: the nightly numbers in its text (*145 conns*, *3,983 queries*) are ignored, one process talking to many remotes is one row (*N variants*), and one device breaking the same segmentation rule toward many devices is one row (*→ multiple devices (N)*). The **Seen** column shows how many times and how many variants. Click the row for every occurrence. | **Not collapsed.** Each finding is listed as that window reported it, with its own numbers, destination and row. The same condition can appear as several rows. |
+| **Checking off** | Accepting a collapsed row accepts every occurrence and variant in it, so it does not come back next night under different numbers. | Accepts that one row. Check-offs and suppress rules are shared: whatever you accept on either page is accepted on both, and stays accepted in every time range. |
+| **Use it for** | Working the queue down to zero. | Investigating a period: what the network looked like yesterday, last week or during an incident, including things already accepted (**show N checked**). |
+
+In short: **Posture is the history, Open events is the backlog.** Accepting something on Open events means you have looked at it and are satisfied; it then moves to **More → Checked**, where you can undo it.
+
 ### Open events
 
-Everything nobody has checked off yet, **whatever its age**. The time range in the header does not apply to this page: an unreviewed finding from last week stays here until someone checks it off (or, for Fix-list items, until the issue is fixed). The nav item shows how many are open.
+Everything nobody has accepted (checked off) yet, **whatever its age**. The time range in the header does not apply to this page: an unreviewed finding from last week, or last month, stays here until someone accepts it. Events do not expire. Only accepting them (by hand or through an auto-close rule you enabled) removes them; Fix-list items and vulnerabilities also leave once fixed, and alerts once cleared. The nav item shows how many are open.
 
 ![Open events: one card per type, with check boxes, Ask, Compare, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
 
 - **Same cards and tools as Posture.** One card per type: Baseline findings, Endpoint (host) findings, IDS signatures, Gateway events, Admin sessions, Threat intel hits, Fix list, Alerts. Every row has the check box and 🚫 suppress button, 💬 Ask AI, ⇄ Compare models, 🔎 Kibana pivot (opens on the event's own time window, not the loaded snapshot's), the **Related** count and popup, the ✨ AI research verdict, the 🏷 event reviewer classification (*suspicious*, *benign*, *expected*), your 📝 notes and the 👁 times seen. Tables sort and filter like everywhere else.
-- **Repeats are one row.** A finding's id contains numbers that change every night ("145 conns", "3,983 queries"), so one condition would otherwise show up as a new event each snapshot. Rows that differ only in those numbers (IPs, ports and MACs still distinguish them) are grouped; the **Seen** column shows how many times and how many *variants*. Checking a grouped row off checks all its variants.
+- **Repeats are one row (unlike Posture).** A finding's text contains numbers that change every night ("145 conns", "3,983 queries"), so on Posture one condition shows up as a new row in each window. Open events groups:
+  - rows that differ only in those numbers (IPs, ports and MACs still tell them apart);
+  - host findings of one process on one computer that differ only in the remote side (*N variants*);
+  - segmentation findings of one device and one rule toward several devices (*→ multiple devices (N)*).
+
+  The **Seen** column shows how many times and how many *variants*. Click the row for every occurrence. Checking a grouped row off accepts all of them.
 - **Check off all.** Each card has **✓ Check all N** for what the card currently lists (after the type / severity filters at the top). It asks for confirmation; checked events move to Checked and can be restored there.
 - **Types without their own check-off** (IDS signatures, threat-intel hits, alerts) are stored on the Checked page as type *Other event*.
 - **Related events** need the event to be in the loaded snapshot's correlation; older events show a dash there but still show their notes, verdicts and classification.
@@ -314,7 +334,7 @@ Everything nobody has checked off yet, **whatever its age**. The time range in t
 
 ### Security → Posture
 
-The main working page.
+What happened **in the selected time range** 🕒, listed as reported: each finding has its own row with that window's numbers, and repeats are **not** collapsed. Events older than the range are not shown here; if nobody accepted them they are still on [Open events](#open-events-vs-posture). Check-offs made here count everywhere (see [Open events vs Posture](#open-events-vs-posture)).
 
 
 | Box | What it is |

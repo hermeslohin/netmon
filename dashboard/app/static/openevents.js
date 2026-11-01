@@ -199,7 +199,7 @@
     el.innerHTML = "";
     const f = OE.f, c = r.counts || {};
     const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev));
-    el.insertAdjacentHTML("beforeend", `<div class="muted small">Every event stays here until it is checked off, however old — the time range does not apply. Fix-list items leave when the issue is fixed. Repeats of one condition are one row. Click a row for every occurrence and its related events.</div>`);
+    el.insertAdjacentHTML("beforeend", `<div class="muted small">Your backlog: every event stays here until someone accepts it (checks it off), however old — the time range does not apply and nothing expires. Fix-list items and vulnerabilities also leave once fixed. Repeats of one condition are collapsed into one row (unlike <a href=\"#/posture\">Posture</a>, which lists what happened in the selected time range, row by row). Click a row for every occurrence and its related events.</div>`);
     el.insertAdjacentHTML("beforeend", kpis([["Open events", r.total], ...TYPES.filter(([t]) => c[t]).map(([t, name]) => [name.replace(/ \(.*/, ""), c[t]])]));
     const bar = document.createElement("div"); bar.className = "fchips";
     bar.innerHTML = `<select id="oeT"><option value="">All types</option>${TYPES.map(([t, n]) => `<option value="${t}" ${f.type === t ? "selected" : ""}>${esc(n.replace(/ \(.*/, ""))}${c[t] ? " (" + c[t] + ")" : ""}</option>`).join("")}</select> ` +
