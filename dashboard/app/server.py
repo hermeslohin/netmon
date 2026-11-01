@@ -1180,7 +1180,7 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)}, 400)
                 print(f"review lookback: {user} set {res['hours']} h", file=sys.stderr)
                 return self._json({"ok": True, "lookback": res})
-            if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/review-schedule"):
+            if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/triage/reopen-guard", "/api/config/review-schedule"):
                 if u.path == "/api/config/review-schedule":
                     try:
                         mins = int(body.get("hours") or 0) * 60 + int(body.get("minutes") or 0)
@@ -1190,13 +1190,16 @@ class H(BaseHTTPRequestHandler):
                     print(f"review schedule: {user} -> every {mins} min", file=sys.stderr)
                 inp = autoclose_inputs()
                 if u.path == "/api/config/triage":
-                    autoclose.set_settings(body, user)
-                    print(f"autoclose settings: {user} on={[o for o in autoclose.OPTS if body.get(o)]}", file=sys.stderr)
+                    ns = autoclose.set_settings(body, user)
+                    print(f"autoclose settings: {user} on={[o for o in autoclose.OPTS if ns.get(o)]} min_conf={ns['min_conf']} "
+                          f"expire_days={ns['expire_days']} protect={ns['protect']}", file=sys.stderr)
                 elif u.path == "/api/config/triage/reopen":
                     k = body.get("kind")
                     autoclose.reopen_all(user, k if k in autoclose.OPTS else None)
                 elif u.path == "/api/config/triage/run" and inp:
                     autoclose.run(*inp, trigger=f"run now ({user})")
+                elif u.path == "/api/config/triage/reopen-guard" and inp:  # reopen AI closures guard 1/2 would hold back today
+                    autoclose.run(*inp, trigger=f"reopen held ({user})", reopen_guard=True)
                 r = autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}
                 return self._json({**r, "review": review_job(), "admin": True})
             if u.path == "/api/llm/config":  # choose the model of the event reviewer (also used by the review job), event research or the chat

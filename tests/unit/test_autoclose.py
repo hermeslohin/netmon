@@ -144,5 +144,132 @@ class AutoCloseOpenEvents(unittest.TestCase):
         self.assertNotIn(BAD_IDS, {e["eid"] for e in eventstore.open_events()["events"]})
 
 
+from fixtures import mac  # noqa: E402
+MAC = mac(41)  # generated at run time: no literal MAC in the repo
+SUS_F = f"f|dns-long-names|{MAC}|40 queries >= 60 chars vs normal 2"
+OK_F = f"f|port-spike|{MAC}|port 443/tcp: 600 conns vs normal 10"
+ADM = "adm|10.0.0.9|10.0.0.1|SSH"
+
+
+def _cls(eid, label, conf=0.9, ts=None):
+    with corr_llm._db() as c:
+        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, conf, "r", "m", "sig", ts or time.time()))
+
+
+def _open():
+    return {e["eid"] for e in eventstore.open_events()["events"]}
+
+
+class AutoCloseGuardRails(unittest.TestCase):
+    """Guard rails between AI auto-close and a person staying in control (min confidence, protected categories,
+    host hold, closure expiry)."""
+
+    def setUp(self):
+        _env.fresh_db()
+        store._cfg_cache.clear()
+        with corr_llm._db() as c:
+            c.execute("DELETE FROM event_class")
+        eventstore.upsert({
+            IDS: {"type": "ids", "label": "IDS: ET POLICY Example signature 12 x3", "sev": "low", "t1": 100},
+            ADM: {"type": "admin", "label": "Admin SSH 10.0.0.9 -> 10.0.0.1", "sev": "medium", "t1": 101},
+            OK_F: {"type": "finding", "label": "port-spike on the TV", "sev": "low", "t1": 102, "host_ips": ["10.0.0.40"]},
+        }, "s1")
+        autoclose.set_settings({"reviewer_expected": True, "reviewer_benign": True, **autoclose.GUARD_DEFAULTS}, "test")
+
+    def test_settings_defaults_merge_and_ranges(self):
+        """Guard settings default to 0.8 / 7 days / attack categories, survive a switches-only save and are clamped.
+        REQ: STO-12
+        """
+        s = autoclose._guard({})
+        self.assertEqual((s["min_conf"], s["expire_days"]), (0.8, 7))
+        self.assertIn("admin", s["protect"]); self.assertNotIn("high_sev", s["protect"])
+        autoclose.set_settings({"min_conf": 2, "expire_days": -3, "protect": ["admin", "bogus"], "reviewer_benign": True}, "t")
+        autoclose.set_settings({"reviewer_expected": True}, "t")  # the switches card saves only the four switches
+        s = autoclose.settings()
+        self.assertEqual((s["min_conf"], s["expire_days"], s["protect"]), (1.0, 0, ["admin"]))
+        self.assertTrue(s["reviewer_expected"]); self.assertFalse(s["reviewer_benign"])
+
+    def test_low_confidence_reviewer_label_stays_open(self):
+        """An event reviewer label below min_conf does not close the event; at or above it (or with min_conf 0) it does.
+        REQ: STO-12
+        """
+        _cls(IDS, "expected", 0.6)
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["guard"]["low_conf"], 1)
+        self.assertIn(IDS, _open())
+        autoclose.set_settings({"reviewer_expected": True, "min_conf": 0.6}, "t")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(IDS, _open())
+
+    def test_protected_category_needs_a_person(self):
+        """An admin-access event is never closed by an AI verdict while its category is protected; a person's verdict
+        still closes it, and unprotecting the category lets the AI close it.
+        REQ: STO-12
+        """
+        import kb
+        self.assertEqual(autoclose.categories(ADM, "medium"), {"admin"})
+        self.assertEqual(autoclose.categories(ADM, "allowed-admin"), set())
+        _cls(ADM, "expected", 0.99)
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual((r["guard"]["protected"], r["guard"]["by_cat"]), (1, {"admin": 1}))
+        self.assertIn(ADM, _open())
+        autoclose.set_settings({"reviewer_expected": True, "protect": []}, "t")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(ADM, _open())
+        adm2 = "adm|10.0.0.8|10.0.0.1|SSH"
+        eventstore.upsert({adm2: {"type": "admin", "label": "Admin SSH 10.0.0.8 -> 10.0.0.1", "sev": "medium", "t1": 105}}, "s3")
+        autoclose.set_settings({"reviewer_expected": True, "protect": ["admin"]}, "t")
+        _cls(adm2, "expected", 0.99)
+        kb.add_event_note(adm2, "my own login", "admin1", verdict="expected")
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["person_expected"]["closed_now"], 1)
+
+    def test_suspicious_event_holds_and_reopens_its_host(self):
+        """While an open event on a host is called suspicious, AI verdicts close nothing else on that host and AI
+        closures of its recently active events reopen; once a person checks the suspicious one off they close again.
+        REQ: STO-12
+        """
+        _cls(OK_F, "benign")
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(OK_F, _open())
+        eventstore.upsert({SUS_F: {"type": "finding", "label": "long DNS names on the TV", "sev": "medium", "t1": 103}}, "s2")
+        _cls(SUS_F, "suspicious")
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["guard"]["reopened_host"], 1)
+        self.assertIn(OK_F, _open())
+        r = autoclose.run({}, {}, [], dry=True)
+        self.assertEqual(r["guard"]["host"], 1)
+        self.assertIn(MAC, r["guard"]["hosts"])
+        for a in next(e for e in eventstore.open_events()["events"] if e["eid"] == SUS_F)["acks"]:
+            store.ack_set(a["type"], a["key"], True, "looked at it", "")  # a person handles the suspicious event
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(OK_F, _open())
+
+    def test_ai_closure_expires_when_the_event_repeats(self):
+        """An AI closure older than expire_days reopens when the event repeats; it closes again only on a newer verdict.
+        REQ: STO-12
+        """
+        _cls(IDS, "expected", ts=time.time() - 20 * 86400)
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(IDS, _open())
+        old = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 10 * 86400))
+        c = autoclose._c()
+        with store.tx(c):
+            c.execute("UPDATE autoclose_log SET at=?", (old,))
+        eventstore.upsert({IDS: {"type": "ids", "label": "IDS: ET POLICY Example signature 12 x3", "sev": "low", "t1": 200}}, "s9")
+        self.assertEqual(autoclose.run({}, {}, [], dry=True)["guard"]["expire_due"], 1)
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual(r["guard"]["expired"], 1)
+        self.assertEqual(r["guard"]["stale"], 1)
+        self.assertIn(IDS, _open())
+        _cls(IDS, "expected")  # judged again
+        autoclose.run({}, {}, [], trigger="test")
+        self.assertNotIn(IDS, _open())
+        autoclose.set_settings({"reviewer_expected": True, "expire_days": 0}, "t")
+        with store.tx(c):
+            c.execute("UPDATE autoclose_log SET at=?", (old,))
+        self.assertEqual(autoclose.run({}, {}, [], trigger="test")["guard"]["expired"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

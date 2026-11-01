@@ -414,6 +414,20 @@ note's `verdict` column. Expected/Benign check the event off at once and auto-cl
 person's verdict outranks every AI verdict. A User-role account's verdict waits for a defender/admin approval like any
 of their notes.
 
+Auto-close guard rails (`autoclose.py`, settings `min_conf`, `protect`, `expire_days` in meta `autoclose`; More →
+Configuration). They hold back AI verdicts only; a person's verdict note always applies:
+1. *Confidence*: an event reviewer label closes only when its `event_class.confidence >= min_conf` (default 0.8) or a
+   research note also says expected/benign.
+2. *Protected categories* (`autoclose.categories(eid, sev)`, keys in `CATS`): events in a ticked category are never
+   closed by an AI verdict.
+3. *Host hold* (fixed 24 h, `HOLD_HOURS`): hosts (id device/host part plus `host_ips`, never destination IPs) of open
+   events seen in the last 24 h whose newest person verdict, or any AI verdict, is suspicious/malicious are held: no AI
+   closure on them, and AI closures of their events active in the window are reopened (`reopened-verdict`, reason "held").
+4. *Expiry* (`expire_days`, default 7, 0 = never): an AI closure older than that whose event group repeated after the
+   window is reopened (log state `expired`, old time in `closed_at`); it closes again only on a verdict whose `at` is
+   newer than the old closure.
+Rules 1 and 2 leave earlier closures alone (counted as `kept_*`); `POST /api/config/triage/reopen-guard` reopens them.
+
 **Queue behaviour.** The worker pass repeats about every minute (every 5 seconds while it finds work). It reviews the
 newest snapshot first, then snapshots opened in the last hour. If the provider is down or rate-limited the links stay
 *pending* and the worker backs off (3 minutes after an error). **Clear review queue** (admin, AI review page; or `docker exec netmon-dashboard

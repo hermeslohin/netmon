@@ -25,6 +25,37 @@
         ${r.no_checklist ? ` · <span class="muted">${r.no_checklist} more without a check-off list (IDS / alerts / gateway / threat intel — not closable)</span>` : ""}
         ${D.admin && r.auto_closed ? ` <button class="cfg-reopen" data-k="${k}" style="margin-left:6px">Reopen ${r.auto_closed} auto-closed</button>` : ""}</div></div>`;
   };
+  // Guard rails: how far AI verdicts may go on their own (min confidence, protected categories, host hold, expiry)
+  const GL = { low_conf: "below the confidence bar", protected: "protected category", host: "host on hold", stale: "expired, waiting for a fresh verdict" };
+  const guardBox = (D) => {
+    const s = D.settings || {}, G = D.guard || {}, C = D.categories || {}, dis = D.admin ? "" : "disabled";
+    const prot = new Set(s.protect || []), bc = G.by_cat || {};
+    const hosts = Object.entries(G.hosts || {}).sort((a, b) => b[1] - a[1]);
+    const kept = (G.kept_low_conf || 0) + (G.kept_protected || 0);
+    const samp = (G.samples || []).map((x) => `<div class="small"><span class="badge sev-unknown">${esc(GL[x.guard] || x.guard)}</span> ${esc(x.label || x.eid)} <span class="muted">— ${esc(x.why)}</span></div>`).join("");
+    return `<div id="cfg-guard" style="border-top:1px solid var(--line,#333);padding:12px 0">
+      <b>Guard rails</b> <span class="muted small">— keep a person in control: these hold back AI verdicts (never your own ✅ Expected / 🟢 Benign).</span>
+      <div style="margin:10px 0 0 0"><b class="small">1. Minimum event reviewer confidence</b>
+        <input id="g-conf" type="number" min="0" max="1" step="0.05" value="${s.min_conf ?? 0.8}" style="width:5em" ${dis}>
+        <div class="muted small">An event reviewer “expected/benign” closes an event only at or above this confidence (0–1), or when a research note agrees. Below it the event stays open with its 🟢 flair, sorted with the rest. 0 = off.
+          Now: <b>${G.low_conf || 0}</b> open events held${G.kept_low_conf ? ` · ${G.kept_low_conf} closed earlier below the bar (left closed)` : ""}.</div></div>
+      <div style="margin:10px 0 0 0"><b class="small">2. Never auto-close these categories (a person must close them)</b>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:4px 16px;margin-top:4px">
+        ${Object.entries(C).map(([k, l]) => `<label class="small" style="display:flex;gap:6px;align-items:flex-start"><input type="checkbox" class="g-cat" data-k="${k}" ${prot.has(k) ? "checked" : ""} ${dis}>
+          <span>${esc(l)}${bc[k] ? ` <b>(${bc[k]} held)</b>` : ""}</span></label>`).join("")}</div>
+        <div class="muted small">The AI still labels and annotates them. Now: <b>${G.protected || 0}</b> open events held${G.kept_protected ? ` · ${G.kept_protected} closed earlier (left closed)` : ""}.</div></div>
+      <div style="margin:10px 0 0 0"><b class="small">3. Hold a host after a suspicious event (always on, ${G.hold_hours || 24} h)</b>
+        <div class="muted small">While an open event on a device (MAC, host name or host IP) was called suspicious or malicious — by either AI or a person — and was seen in the last ${G.hold_hours || 24} h, nothing else on that device is auto-closed, and AI closures of its events active in that window are reopened. Checking off (or marking Expected) the suspicious event lifts the hold.
+          Now: <b>${G.held_hosts || 0}</b> hosts on hold, <b>${G.host || 0}</b> open events held${G.reopen_host_due ? `, ${G.reopen_host_due} auto-closed events will reopen on the next pass` : ""}${G.reopened_host ? `, ${G.reopened_host} reopened` : ""}.
+          ${hosts.length ? `<br>Held: ${hosts.slice(0, 12).map(([h, n]) => `<span class="mono">${esc(h)}</span> (${n})`).join(", ")}` : ""}</div></div>
+      <div style="margin:10px 0 0 0"><b class="small">6. AI closures expire after</b>
+        <input id="g-exp" type="number" min="0" max="365" step="1" value="${s.expire_days ?? 7}" style="width:5em" ${dis}> <span class="small">days</span>
+        <div class="muted small">When an AI-closed event shows up again after this many days it reopens and closes again only on a verdict newer than the old closure (it is judged again). Your own closures never expire. 0 = never.
+          Now: <b>${G.expire_due || 0}</b> due to expire on the next pass.</div></div>
+      ${D.admin ? `<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button id="g-save">Save guard rails</button>
+        ${kept ? `<button id="g-reopen">Reopen ${kept} closed earlier that these rules would hold</button>` : ""}<span id="g-msg" class="small"></span></div>` : ""}
+      ${samp ? `<details style="margin-top:8px"><summary class="small">Examples held back now</summary>${samp}</details>` : ""}</div>`;
+  };
   async function paint(el, D) {
     el.querySelector("#cfg-triage")?.remove();
     const s = D.settings || {};
@@ -48,9 +79,10 @@
       else (e.g. suspicious) the item reopens on that run. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
       ${sched}
       ${OPTS.map((o) => row(o, D)).join("")}
+      ${guardBox(D)}
       <div class="muted small" style="border-top:1px solid var(--line,#333);padding-top:8px">${D.admin ? "" : "Only an admin can change these settings. "}
         ${s.updated_by ? `Last changed by ${esc(s.updated_by)} ${esc(ft(s.updated_at))}.` : "Never changed (both off)."}
-        ${L ? ` Last auto-close pass ${esc(ft(L.at))} (${esc(L.trigger || "")}): closed ${Object.entries(L.closed || {}).map(([k, v]) => `${v} ${esc(k.replace("_", " "))}`).join(", ") || "nothing"}${L.reopened ? `, reopened ${L.reopened} (verdict changed)` : ""}.` : " No auto-close pass yet."}
+        ${L ? ` Last auto-close pass ${esc(ft(L.at))} (${esc(L.trigger || "")}): closed ${Object.entries(L.closed || {}).map(([k, v]) => `${v} ${esc(k.replace("_", " "))}`).join(", ") || "nothing"}${L.reopened ? `, reopened ${L.reopened} (verdict changed)` : ""}${L.reopened_host ? `, reopened ${L.reopened_host} (host hold)` : ""}${L.expired ? `, ${L.expired} expired` : ""}${L.held && Object.keys(L.held).length ? `; held back ${Object.entries(L.held).map(([k, v]) => `${v} ${esc(GL[k] || k)}`).join(", ")}` : ""}.` : " No auto-close pass yet."}
         ${D.admin && OPTS.some((o) => s[o]) ? ` <button id="cfg-run">Run now</button>` : ""}</div>`);
     c.id = "cfg-triage"; el.appendChild(c);
     const save = async (body, url = "/api/config/triage") => {
@@ -78,6 +110,17 @@
         catch (e) { rmsg.className = "small sev-high"; rmsg.textContent = String(e); }
       };
     }
+    const gs = c.querySelector("#g-save");
+    if (gs) gs.onclick = () => {
+      const mc = parseFloat(c.querySelector("#g-conf").value), ed = parseInt(c.querySelector("#g-exp").value, 10);
+      if (!(mc >= 0 && mc <= 1) || !(ed >= 0 && ed <= 365)) { c.querySelector("#g-msg").textContent = "confidence 0–1, days 0–365"; return; }
+      save({ ...Object.fromEntries(OPTS.map((o) => [o, !!s[o]])), min_conf: mc, expire_days: ed,
+        protect: [...c.querySelectorAll(".g-cat:checked")].map((x) => x.dataset.k) });
+    };
+    const gr = c.querySelector("#g-reopen");
+    if (gr) gr.onclick = () => {
+      if (confirm(`Reopen the AI closures that today's confidence bar or protected categories would not allow? They come back to the open findings and close again only if a verdict passes the rules.`)) save({}, "/api/config/triage/reopen-guard");
+    };
     const run = c.querySelector("#cfg-run");
     if (run) run.onclick = () => save({}, "/api/config/triage/run");
     c.querySelectorAll(".cfg-reopen").forEach((b) => (b.onclick = () => {
