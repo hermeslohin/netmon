@@ -550,9 +550,7 @@ flowchart LR
 
     subgraph JOB["Review job — review.py (scheduled / Run now)"]
         C["Collect + analyze\ncollect.py, analyze.py (no model)"]
-        RV{"Event reviewer
-(review job)
-review-mode events vs prior notes"}
+        RV{"Event reviewer\n(review job)\nreview-mode events vs prior notes"}
         Q["Queue\nwaits for a person"]
     end
 

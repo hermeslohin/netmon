@@ -92,7 +92,7 @@ node("chatp", 698, 608, 222, 76, "ai", "Ask AI chat", ["chat.py in the dashboard
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
 
 # ---------------- cloud
-node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "correlation · event reviewer · research · chat"], "LLM")
+node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "event reviewer · research · chat"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
 node("fc", 1000, 356, 260, 76, "cloud", "Web search", ["DuckDuckGo · Firecrawl · Brave · Tavily", "source pages for cited research"], "WEB")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
@@ -115,7 +115,7 @@ arrow(anchor("uapi", "l", 0.4), (920, 259), "#fbbf24", dash="6,3")
 lab2(960, 236, "#fbbf24", "events", "flows")
 # review job <-> cloud AI provider (event reviewer)
 arrows.append('<path d="M920,240 C955,240 950,138 1000,138" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="6,3" marker-start="url(#ah-e879f9)" marker-end="url(#ah-e879f9)"/>')
-lab2(960, 114, "#e879f9", "reviewer", "")
+lab2(960, 114, "#e879f9", "event", "reviewer")
 # scheduler starts the watcher and the review job
 arrows.append('<path d="M660,176 L660,226" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
 arrows.append('<path d="M740,176 L740,226" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
@@ -134,7 +134,7 @@ arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
 lab2(960, 726, "#94a3b8", "scanned", "push")
 # local LLM <-> dashboard: correlation review, optional (left edge of the monitoring host column)
 arrows.append('<path d="M470,176 L440,176 L440,500 L460,500" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="3,3" marker-start="url(#ah-e879f9)" marker-end="url(#ah-e879f9)"/>')
-lab2(440, 420, "#e879f9", "link review", "(if local)")
+lab2(440, 420, "#e879f9", "event", "review")
 # Ask AI: dashboard chat -> read-only netmon tools -> netmon data; chat model = the chosen AI provider
 arrow((809, 568), (809, 608), "#e879f9", "Ask AI", ldy=4)
 arrow(anchor("chatp", "l"), anchor("mcp", "r"), "#fb923c", "tools", ldy=-6)
