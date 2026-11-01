@@ -218,16 +218,21 @@ def _pattern(u, d, nsnap, total):
 
 # ---------------------------------------------------------------- frequent IPs
 def record_ips(sid, events):
-    """events = correlate.build()['events'] -> per-snapshot IP usage."""
+    """events = correlate.build()['events'] -> per-snapshot IP usage.
+    Artifacts stay with the IP they belong to: accounts / processes / files are local to a host, so they are only counted for
+    the event's single source host; DNS names for the single source or the single destination. An event that names several
+    hosts on one side adds no artifacts to any of them (it cannot say whose they are)."""
     obs, arts = Counter(), Counter()
     for e in events.values():
         a = [x for x in e.get("arts") or [] if x[0] in ("user", "process", "dns", "file")]
         for role, ips in (("source", e.get("host_ips")), ("destination", e.get("dst_ips"))):
-            for ip in ips or []:
-                if _IP.match(ip) and not ip.endswith(".1") and not ip.endswith(".255"):
-                    obs[(ip, role, e.get("type") or "")] += 1
-                    for kind, value, _ in a:
-                        arts[(ip, kind, value[:160])] += 1
+            ok = [ip for ip in ips or [] if _IP.match(ip) and not ip.endswith(".1") and not ip.endswith(".255")]
+            for ip in ok:
+                obs[(ip, role, e.get("type") or "")] += 1
+            if len(ok) == 1:
+                for kind, value, _ in a:
+                    if role == "source" or kind == "dns":
+                        arts[(ok[0], kind, value[:160])] += 1
     with _db() as c:
         c.execute("DELETE FROM ip_obs WHERE snap=?", (sid,))
         c.execute("DELETE FROM ip_arts WHERE snap=?", (sid,))

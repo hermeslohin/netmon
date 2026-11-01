@@ -61,6 +61,7 @@ REQUIREMENTS = {
     "COR-01": ("Correlation", "Concrete artifacts (files, processes, users, domains) are extracted from event text without lookups.", "CORRELATION.md §2"),
     "COR-02": ("Correlation", "Event ids are stable hashes (FNV-1a base36) identical in Python and app.js.", "CORRELATION.md (Event ids)"),
     "COR-03": ("Correlation", "Events sharing hosts/IPs/accounts/time/ATT&CK are linked when the score passes the threshold, capped per event.", "CORRELATION.md §2"),
+    "COR-04": ("Correlation", "Host-local artifacts (processes, files, accounts) are attributed only to the host they were read on, never to peer IPs in the same event.", "CORRELATION.md §2"),
     "MIT-01": ("ATT&CK", "Findings map to MITRE ATT&CK techniques by rule; every rule references a technique in the catalog.", "README.md"),
     "LLM-01": ("AI", "Model answers are parsed defensively: the first JSON object is used and unknown verdicts/priorities fall back to safe values.", "USER_GUIDE.md §7"),
     "LLM-02": ("AI", "The dashboard runs fully with the local LLM switched off (NETMON_LLM=off).", "SETUP.md §6"),

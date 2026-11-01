@@ -285,9 +285,13 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
             e |= host_ents(p)
         top = _topics_key(key) | ({"ssh-auth"} if parts[0].startswith("login") and "ssh" in key.lower() else set()) \
             | ({"edr"} if parts[0] in ("agent-off", "agent-deg", "defend-pol", "silent") else set())
+        hl = parts[1] if len(parts) > 1 and parts[0] not in ("login",) else ""
+        # the finding is ABOUT the host it was read on: that host is the source, every other IP in it (e.g. "from 10.0.0.5") a peer,
+        # so artifacts of the host (its processes, files, accounts) are never attributed to the peer
+        hips = {v for k, v in host_ents(hl)} if hl else set()
         add(f"hf|{key}", "host", text, w0, w1, e, techniques("host", f"{key}|{text}"), "#/security?ev=hf|" + key,
-            "high" if f.get("priority") == "Investigate" else "medium", topics=top, akey=key,
-            hlabel=parts[1] if len(parts) > 1 and parts[0] not in ("login",) else "", item=f)
+            "high" if f.get("priority") == "Investigate" else "medium", topics=top, akey=key, hlabel=hl, item=f,
+            host=hips or None, dst={v for k, v in e if k in ("ip", "ext") and v not in hips} if hips else None)
 
     # --- threat intel
     ti = raw.get("threat_intel") or {}

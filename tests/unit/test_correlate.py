@@ -361,5 +361,32 @@ class BuildTest(unittest.TestCase):
         self.assertIn("same ATT&CK technique T1046", res["related"]["alert|1"][0]["why"])
 
 
+class ArtifactOwnerTest(unittest.TestCase):
+    """Artifacts of a host stay with that host: a peer IP named in its finding is not given the host's processes."""
+
+    def setUp(self):
+        self.r = raw(hosts={"findings": [{"key": "hnet-newlisten|server|pasta.avx2:8443", "priority": "Review",
+                                          "text": "server: /usr/bin/pasta.avx2 accepted connections on port 8443 for the first time (from 10.0.1.10)"}]})
+
+    def test_host_finding_source_is_its_own_host(self):
+        """The host the finding was read on is the event's host; the other internal IP is a peer.
+        REQ: COR-04"""
+        ev = run(self.r, resolve=lambda h: "10.0.2.20" if h == "server" else "")["events"]["hf|hnet-newlisten|server|pasta.avx2:8443"]
+        self.assertEqual(ev["host_ips"], ["10.0.2.20"])
+        self.assertEqual(ev["dst_ips"], ["10.0.1.10"])
+
+    def test_profile_processes_not_given_to_peer(self):
+        """IP profiles count the process only for the host that runs it, and nothing for a multi-host side.
+        REQ: COR-04"""
+        import accounts
+        evs = run(self.r, resolve=lambda h: "10.0.2.20" if h == "server" else "")["events"]
+        evs["x"] = {"type": "ids", "host_ips": ["10.0.2.30", "10.0.2.40"], "dst_ips": [], "arts": [["process", "/usr/bin/curl", ""]]}
+        accounts.record_ips("t-owner", evs)
+        with accounts._db() as c:
+            rows = c.execute("SELECT ip, value FROM ip_arts WHERE snap='t-owner' AND kind='process'").fetchall()
+            c.execute("DELETE FROM ip_arts WHERE snap='t-owner'"); c.execute("DELETE FROM ip_obs WHERE snap='t-owner'")
+        self.assertEqual(rows, [("10.0.2.20", "/usr/bin/pasta.avx2")])
+
+
 if __name__ == "__main__":
     unittest.main()
