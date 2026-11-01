@@ -1,5 +1,5 @@
 """Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake
-/v1/systemone server on loopback and a stubbed reviewer - no LM Studio, no real model."""
+/v1/systemone server on loopback and a stubbed event reviewer - no LM Studio, no real model."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E402
 
 import json  # noqa: E402
@@ -67,7 +67,7 @@ class ClefStageTest(unittest.TestCase):
         self.assertTrue(all(x["model"] == clef.config()["model"] for x in v.values()))
 
     def test_event_pass_one_call_with_all_related_events(self):
-        """After every link is decided the reviewer gets ONE call per event with all its related events, classifies the
+        """After every link is decided the event reviewer gets ONE call per event with all its related events, classifies the
         event and writes the link notes; it cannot change a link's verdict.
         REQ: LLM-03"""
         corr_llm.clef_pass(BASE, [("a", r) for r in BASE["related"]["a"]])
@@ -95,7 +95,7 @@ class ClefStageTest(unittest.TestCase):
         with corr_llm._db() as c:
             self.assertEqual(c.execute("SELECT label FROM event_class WHERE eid='a'").fetchone()[0], "suspicious")
         # the decision model labelled the event (one request over the event and ALL its candidates) and that label is used;
-        # the reviewer's own (different) label is only recorded for the agreement figure
+        # the event reviewer's own (different) label is only recorded for the agreement figure
         self.assertEqual([q for q, _ in CALLS], ["related", "related", "suspicious"])
         self.assertIn("printer firmware", CALLS[-1][1])  # the not-related candidate is in the decision model's state too
         with corr_llm._db() as c:
@@ -103,7 +103,7 @@ class ClefStageTest(unittest.TestCase):
         self.assertEqual(corr_llm.clef_compare()["matrix"], {"suspicious|benign": 1})
 
     def test_event_without_related_links_still_labelled(self):
-        """An event whose every link the decision model rejected still gets its label: the reviewer is told the empty
+        """An event whose every link the decision model rejected still gets its label: the event reviewer is told the empty
         candidate list is deliberate, and if it still answers in prose the label is stored anyway and the notes are retried
         (at most REVIEW_RETRIES times).
         REQ: LLM-03"""
@@ -115,7 +115,7 @@ class ClefStageTest(unittest.TestCase):
 
         def prose(target, anchor, cands, *a, **kw):
             seen.append((len(cands), kw.get("system") or ""))
-            raise ValueError("reviewer returned unparseable JSON")
+            raise ValueError("event reviewer returned unparseable JSON")
 
         def ok(target, anchor, cands, *a, **kw):
             seen.append((len(cands), kw.get("system") or ""))
@@ -127,8 +127,8 @@ class ClefStageTest(unittest.TestCase):
             corr_llm._ask_full = prose
             self.assertEqual(corr_llm.event_pass(nr), 1)
             lab, s1, why = sig()
-            self.assertEqual(lab, "suspicious")  # the decision model's label is stored even though the reviewer failed
-            self.assertTrue(s1.endswith("|retry1")); self.assertIn("reviewer note pending", why)
+            self.assertEqual(lab, "suspicious")  # the decision model's label is stored even though the event reviewer failed
+            self.assertTrue(s1.endswith("|retry1")); self.assertIn("event reviewer note pending", why)
             self.assertEqual(seen[0][0], 0); self.assertIn("NO related events", seen[0][1])
             self.assertEqual(corr_llm.event_pass(nr), 1)  # retried on the next pass
             self.assertTrue(sig()[1].endswith("|retry2"))

@@ -55,7 +55,7 @@ the batch). If it reports rejected ids, fix them and call it again.
 Artifacts: whenever an item involves an artifact with something durable to say (a process or file path, an account, a port, an IP, a DNS
 name) and that is not already covered by a note, record it as a host_note with `subject` set to `art:<kind>:<value>` (kind = process |
 file | user | ip | dns; for a domain or subdomain you can also use `dom`). One short factual note per artifact (what it is, who/what uses it,
-how often it appears, why it is normal or a concern); update by id rather than adding duplicates. The reviewer matches events to these.
+how often it appears, why it is normal or a concern); update by id rather than adding duplicates. The event reviewer matches events to these.
 
 Review status: notes carry `authoritative: true` when a person or a network defender/admin accepted them - treat those as the owner's
 word, apply them, and never edit or delete them. Notes a defender rejected are not shown to you and cannot be changed: do not re-create

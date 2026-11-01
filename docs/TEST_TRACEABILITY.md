@@ -60,11 +60,11 @@ Last run: 3 expected failure (known bug), 604 pass
 | [COR-02](#cor-02) | Correlation | Event ids are stable hashes (FNV-1a base36) identical in Python and app.js. | CORRELATION.md (Event ids) | 14 | 0 |
 | [COR-03](#cor-03) | Correlation | Events sharing hosts/IPs/accounts/time/ATT&CK are linked when the score passes the threshold, capped per event. | CORRELATION.md §2 | 21 | 1 |
 | [COR-04](#cor-04) | Correlation | Host-local artifacts (processes, files, accounts) are attributed only to the host they were read on, never to peer IPs in the same event. | CORRELATION.md §2 | 3 | 0 |
-| [COR-05](#cor-05) | Correlation | Notes link only to the artifact they are about: a reviewer artifact must be of its kind and carried by an event with a single owning host; notes on another host match an event only by a shared IP or DNS name. | CORRELATION.md §2 | 2 | 0 |
+| [COR-05](#cor-05) | Correlation | Notes link only to the artifact they are about: an event reviewer artifact must be of its kind and carried by an event with a single owning host; notes on another host match an event only by a shared IP or DNS name. | CORRELATION.md §2 | 2 | 0 |
 | [MIT-01](#mit-01) | ATT&CK | Findings map to MITRE ATT&CK techniques by rule; every rule references a technique in the catalog. | README.md | 15 | 1 |
 | [LLM-01](#llm-01) | AI | Model answers are parsed defensively: the first JSON object is used and unknown verdicts/priorities fall back to safe values. | USER_GUIDE.md §7 | 40 | 0 |
 | [LLM-02](#llm-02) | AI | The dashboard runs fully with the local LLM switched off (NETMON_LLM=off). | SETUP.md §6 | 0 | 3 |
-| [LLM-03](#llm-03) | AI | With the decision model on, clef decides every candidate link and, once no link is undecided, labels each event suspicious / benign / expected from the event and all its candidates; the selected reviewer then writes the reason, link notes and artifacts - it never decides a link or a label (its own label is only recorded for comparison). | CORRELATION.md | 8 | 0 |
+| [LLM-03](#llm-03) | AI | With the decision model on, clef decides every candidate link and, once no link is undecided, labels each event suspicious / benign / expected from the event and all its candidates; the selected event reviewer then writes the reason, link notes and artifacts - it never decides a link or a label (its own label is only recorded for comparison). | CORRELATION.md | 8 | 0 |
 | [CFG-01](#cfg-01) | Configuration | Site settings fall back to safe defaults; the browser receives only the public subset. | SETUP.md §2 | 18 | 1 |
 | [CFG-02](#cfg-02) | Configuration | The research lookback is an integer number of hours within 1-24; invalid values are rejected. | CORRELATION.md §5 | 5 | 0 |
 | [CFG-03](#cfg-03) | Configuration | Collection windows end 'now' or at NETMON_WINDOW_END and produce Elasticsearch range filters. | SETUP.md (Time ranges) | 4 | 0 |
@@ -77,7 +77,7 @@ Last run: 3 expected failure (known bug), 604 pass
 | [OPS-01](#ops-01) | Operations | Console recovery commands (server.py set-role / add-user / set-password) work without the web UI. | ACCESS_CONTROL.md | 0 | 3 |
 | [OPS-02](#ops-02) | Operations | The dashboard container runs read-only, non-root, with a passing health check. | SETUP.md §6 | 0 | 4 |
 | [OPS-03](#ops-03) | Operations | The scheduler runs the watcher every 15 minutes, the research job on its grid and the weekly rebuild on Sunday. | SETUP.md §7 | 20 | 1 |
-| [OPS-06](#ops-06) | Operations | The review job (review.py) never researches events: its reviewer (the correlation reviewer's model) only copies matching earlier notes or leaves events queued; event research (research.py) runs only for a person's Send to research click and is never scheduled. | review.py / research.py / scheduler.py | 7 | 0 |
+| [OPS-06](#ops-06) | Operations | The review job (review.py) never researches events: its event reviewer only copies matching earlier notes or leaves events queued; event research (research.py) runs only for a person's Send to research click and is never scheduled. | review.py / research.py / scheduler.py | 7 | 0 |
 | [OPS-04](#ops-04) | Operations | store.py CLI (check / stats) verifies and reports on the database. | store.py | 4 | 2 |
 | [OPS-05](#ops-05) | Operations | The dashboard's parsed-document cache is bounded (LRU), so walking every snapshot cannot exhaust the container's memory. | server.py | 3 | 0 |
 
@@ -393,7 +393,7 @@ Last run: 3 expected failure (known bug), 604 pass
 | unit | `test_audit.TestClean.test_secret_names_redacted` | Parameters named like passwords, keys, tokens, cookies or credentials are replaced by [redacted]. | pass |
 | unit | `test_audit.TestClean.test_whole_secret_subtree_redacted` | A dict under a secret-looking name is redacted as a whole, not descended into. | pass |
 | unit | `test_audit.TestEntries.test_action_entry_fields` | action() queues an ECS entry with dataset, user, role, outcome, source ip, http, url and redacted params. | pass |
-| unit | `test_audit.TestEntries.test_background_actor_switched_off` | Entries from the background reviewer are skipped when its sending is switched off; users are not. | pass |
+| unit | `test_audit.TestEntries.test_background_actor_switched_off` | Entries from the event reviewer are skipped when its sending is switched off; users are not. | pass |
 | unit | `test_audit.TestEntries.test_existing_timestamp_and_id_kept` | emit keeps a caller-supplied @timestamp and event id. | pass |
 | unit | `test_audit.TestEntries.test_llm_entry` | llm() records provider, model, prompt, completion, token usage, duration and failure outcome. | pass |
 | unit | `test_audit.TestEntries.test_llm_status_outcome_and_no_usage` | A cancelled LLM run is a failure; without usage numbers no usage block is written. | pass |
@@ -625,7 +625,7 @@ Last run: 3 expected failure (known bug), 604 pass
 |---|---|---|---|
 | unit | `test_autoclose.AutoCloseOpenEvents.test_ai_reopen_does_not_block_a_later_close` | An event the AI review reopened (suspicious) is closed again when a later review calls it expected; only a | pass |
 | unit | `test_autoclose.AutoCloseOpenEvents.test_dry_run_and_disabled_option_change_nothing` | A preview (dry) or a verdict whose option is off never checks anything off. | pass |
-| unit | `test_autoclose.AutoCloseOpenEvents.test_expected_open_events_are_closed` | Open events without a snapshot checklist (IDS, gateway) the reviewer calls expected/benign are checked off; | pass |
+| unit | `test_autoclose.AutoCloseOpenEvents.test_expected_open_events_are_closed` | Open events without a snapshot checklist (IDS, gateway) the event reviewer calls expected/benign are checked off; | pass |
 | unit | `test_autoclose.AutoCloseOpenEvents.test_person_reopen_is_respected_and_verdict_change_reopens` | An auto-closed event a person un-checks is never auto-closed again; one whose verdict turns suspicious is | pass |
 | unit | `test_autoclose.AutoCloseOpenEvents.test_person_verdict_is_authoritative` | A person's Expected/Benign verdict note closes the event even with every option off and is never reopened by | pass |
 | unit | `test_autoclose.AutoCloseOpenEvents.test_suppressed_item_is_never_reopened` | An auto-closed event that a suppress rule covers stays hidden when its verdict turns suspicious. | pass |
@@ -647,7 +647,7 @@ Last run: 3 expected failure (known bug), 604 pass
 | unit | `test_notes_consolidate.Consolidate.test_bad_ids_and_person_notes_are_ignored` | Groups naming a person's note, an unknown id or reusing an id are dropped. | pass |
 | unit | `test_notes_consolidate.Consolidate.test_merge_keeps_tags_and_facts_and_leaves_person_notes` | Two overlapping AI notes become one that keeps both [reviewer:] tags and every identifier; the person's note is untouched. | pass |
 | unit | `test_notes_consolidate.Consolidate.test_merge_that_drops_an_identifier_is_rejected` | A merge missing an IP is retried once naming it; if it is still missing, the notes stay as they were. | pass |
-| unit | `test_notes_consolidate.Consolidate.test_reviewer_does_not_overwrite_a_consolidated_note` | kb.tagged_slot: the reviewer updates its own one-tag note, skips a merged note carrying the tag, adds a new one otherwise. | pass |
+| unit | `test_notes_consolidate.Consolidate.test_reviewer_does_not_overwrite_a_consolidated_note` | kb.tagged_slot: the event reviewer updates its own one-tag note, skips a merged note carrying the tag, adds a new one otherwise. | pass |
 | unit | `test_notes_consolidate.Consolidate.test_unchanged_subject_is_skipped_next_time` | After a pass, a host whose notes did not change is not sent again (unless --all). | pass |
 | unit | `test_notes_consolidate.Schedule.test_settings_validation_and_due_window` | Time must be HH:MM and the zone known; the run is due inside 3 h after the local time, once per day. | pass |
 
@@ -949,7 +949,7 @@ Last run: 3 expected failure (known bug), 604 pass
 
 ### COR-05
 
-**Correlation:** Notes link only to the artifact they are about: a reviewer artifact must be of its kind and carried by an event with a single owning host; notes on another host match an event only by a shared IP or DNS name. _(source: CORRELATION.md §2)_
+**Correlation:** Notes link only to the artifact they are about: an event reviewer artifact must be of its kind and carried by an event with a single owning host; notes on another host match an event only by a shared IP or DNS name. _(source: CORRELATION.md §2)_
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
@@ -1032,13 +1032,13 @@ Last run: 3 expected failure (known bug), 604 pass
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
-| e2e | `test_e2e_dashboard.Api.test_aireview_reports_llm_disabled` | With NETMON_LLM=off the AI review status says the reviewer is disabled, and nothing fails. | pass |
+| e2e | `test_e2e_dashboard.Api.test_aireview_reports_llm_disabled` | With NETMON_LLM=off the AI review status says the event reviewer is disabled, and nothing fails. | pass |
 | e2e | `test_e2e_dashboard.Api.test_every_page_api_answers_200_json` | Every data API behind the dashboard pages answers 200 with JSON while the LLM is off. | pass |
-| e2e | `test_e2e_pipeline.ServerLifecycle.test_server_runs_with_llm_off` | With NETMON_LLM=off the server starts, says the reviewer is off, and makes no LLM calls. | pass |
+| e2e | `test_e2e_pipeline.ServerLifecycle.test_server_runs_with_llm_off` | With NETMON_LLM=off the server starts, says the event reviewer is off, and makes no LLM calls. | pass |
 
 ### LLM-03
 
-**AI:** With the decision model on, clef decides every candidate link and, once no link is undecided, labels each event suspicious / benign / expected from the event and all its candidates; the selected reviewer then writes the reason, link notes and artifacts - it never decides a link or a label (its own label is only recorded for comparison). _(source: CORRELATION.md)_
+**AI:** With the decision model on, clef decides every candidate link and, once no link is undecided, labels each event suspicious / benign / expected from the event and all its candidates; the selected event reviewer then writes the reason, link notes and artifacts - it never decides a link or a label (its own label is only recorded for comparison). _(source: CORRELATION.md)_
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
@@ -1047,8 +1047,8 @@ Last run: 3 expected failure (known bug), 604 pass
 | unit | `test_clef_stage.ClefServerSettingsTest.test_validate` | Server settings accept only listed model files / runtimes and safe numbers; batch must cover a whole input. | pass |
 | unit | `test_clef_stage.ClefStageTest.test_config_is_loopback_only` | A non-loopback URL in the settings is ignored (event data never leaves the host). | pass |
 | unit | `test_clef_stage.ClefStageTest.test_decision_model_decides_every_link` | Only related questions are asked; the decision model's answer is the verdict for every link, yes and no. | pass |
-| unit | `test_clef_stage.ClefStageTest.test_event_pass_one_call_with_all_related_events` | After every link is decided the reviewer gets ONE call per event with all its related events, classifies the | pass |
-| unit | `test_clef_stage.ClefStageTest.test_event_without_related_links_still_labelled` | An event whose every link the decision model rejected still gets its label: the reviewer is told the empty | pass |
+| unit | `test_clef_stage.ClefStageTest.test_event_pass_one_call_with_all_related_events` | After every link is decided the event reviewer gets ONE call per event with all its related events, classifies the | pass |
+| unit | `test_clef_stage.ClefStageTest.test_event_without_related_links_still_labelled` | An event whose every link the decision model rejected still gets its label: the event reviewer is told the empty | pass |
 | unit | `test_clef_stage.ClefStageTest.test_rereview_clears_decision` | Asking again removes the decision-model answer so the whole chain runs again. | pass |
 
 ### CFG-01
@@ -1232,16 +1232,16 @@ Last run: 3 expected failure (known bug), 604 pass
 
 ### OPS-06
 
-**Operations:** The review job (review.py) never researches events: its reviewer (the correlation reviewer's model) only copies matching earlier notes or leaves events queued; event research (research.py) runs only for a person's Send to research click and is never scheduled. _(source: review.py / research.py / scheduler.py)_
+**Operations:** The review job (review.py) never researches events: its event reviewer only copies matching earlier notes or leaves events queued; event research (research.py) runs only for a person's Send to research click and is never scheduled. _(source: review.py / research.py / scheduler.py)_
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
 | unit | `test_config.TestResearchCfg.test_fresh_defaults_have_no_schedule` | A new deployment has web access off, no model and no schedule / run-request settings at all. | pass |
 | unit | `test_review_noai.ResearchOnDemandTest.test_research_requires_an_event` | research.py refuses to start without --event: there is no scheduled or batch research. | pass |
 | unit | `test_review_noai.ResearchOnDemandTest.test_scheduler_never_schedules_research` | The scheduler's jobs contain no research.py; research starts only from a queued Send to research click. | pass |
-| unit | `test_review_noai.ReviewNeverResearchesTest.test_no_reviewer_model_makes_no_call` | Without a usable reviewer model the run still finishes; review items wait in the queue. | pass |
-| unit | `test_review_noai.ReviewNeverResearchesTest.test_review_uses_the_correlation_reviewer_model` | review.py takes its model from the correlation reviewer (corr_llm), not from the research settings. | pass |
-| unit | `test_review_noai.ReviewNeverResearchesTest.test_reviewer_only_copies_or_queues` | The review job's reviewer only sees review-category items with a prior note, gets no web or submit_notes tool, | pass |
+| unit | `test_review_noai.ReviewNeverResearchesTest.test_no_reviewer_model_makes_no_call` | Without a usable event reviewer model the run still finishes; review items wait in the queue. | pass |
+| unit | `test_review_noai.ReviewNeverResearchesTest.test_review_uses_the_correlation_reviewer_model` | review.py takes its model from the event reviewer (corr_llm), not from the research settings. | pass |
+| unit | `test_review_noai.ReviewNeverResearchesTest.test_reviewer_only_copies_or_queues` | The review job's event reviewer only sees review-category items with a prior note, gets no web or submit_notes tool, | pass |
 | unit | `test_review_noai.ReviewNeverResearchesTest.test_reviewer_queue_decision` | A "queue" decision leaves the event in the queue; nothing is copied. | pass |
 
 ### OPS-04

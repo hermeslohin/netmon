@@ -230,7 +230,7 @@ def _tools(es=True, web=False):
 
 
 def _es_search(a):
-    """Chat tool: one bounded read-only Elasticsearch search through the host broker (same path as the correlation reviewer)."""
+    """Chat tool: one bounded read-only Elasticsearch search through the host broker (same path as the event reviewer)."""
     import audit, corr_llm
     q = {k: a[k] for k in ("source", "match", "text", "start", "end", "group_by", "size", "why") if a.get(k) not in (None, "")}
     err, res = "", None

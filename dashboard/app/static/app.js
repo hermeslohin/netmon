@@ -1047,7 +1047,7 @@ function segClearedCard() {
 
 /* ---------- suppressed findings (Checked page): rules by signature name (+ artifact) and what they hid ---------- */
 function suppressedCard(items) {
-  const c = card(`🚫 Suppressed (${items.length} findings)`, `<div class="small muted" style="margin-bottom:6px">Suppressed with the 🚫 button next to a check-off box. A rule hides every finding or alert with that signature name (and artifact, if set) and stops alerts like it from appearing. They still go through correlation, research and the reviewer. Remove a rule to bring everything it hid back.</div><div class="sup-rules small muted">loading rules…</div>`);
+  const c = card(`🚫 Suppressed (${items.length} findings)`, `<div class="small muted" style="margin-bottom:6px">Suppressed with the 🚫 button next to a check-off box. A rule hides every finding or alert with that signature name (and artifact, if set) and stops alerts like it from appearing. They still go through correlation, research and the event reviewer. Remove a rule to bring everything it hid back.</div><div class="sup-rules small muted">loading rules…</div>`);
   const box = c.querySelector(".sup-rules");
   api("/api/suppress").then((D) => {
     for (const r of items) r.hits = (D.hits || {})[r.type + "|" + r.key] || 0;

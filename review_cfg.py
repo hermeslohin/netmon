@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Settings, schedule and status of the review job (review.py): collect -> analyze -> reviewer -> queue.
+"""Settings, schedule and status of the review job (review.py): collect -> analyze -> event reviewer -> queue.
 
 Settings live in the netmon store's meta table (key "review_job"), so the dashboard container (AI review page) and the
 host scheduler read the same values:
   interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily 24 h run)
   enabled               the scheduler skips the job when off
   modes                 per event category what the job does with an event that has no note yet:
-                          "review" - the reviewer model (the correlation reviewer, AI review > Models) compares it with
+                          "review" - the event reviewer model (AI review > Models) compares it with
                                      earlier notes and copies a matching one; anything it cannot match is queued
                           "queue"  - queued without a model call
                           "test"   - queued and tagged "testing" (shows what a mode would queue; new deployments)

@@ -16,7 +16,7 @@ class RelatedView(unittest.TestCase):
             c.executemany("INSERT INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", [
                 (P("a1", "x"), 1, 0.9, "same host", "cloudflare_clef", 10),
                 (P("a2", "x"), 1, 0.7, "newer verdict", "cloudflare_clef", 20),  # same partner via another repeat: newest kept
-                (P("a2", "y"), 1, 0.5, "old reviewer", "gemma", 5),
+                (P("a2", "y"), 1, 0.5, "old event reviewer", "gemma", 5),
                 (P("a1", "z"), 0, 0.1, "not related", "cloudflare_clef", 5),   # rejected: never listed
                 (P("a1", "a2"), 1, 0.9, "repeat", "cloudflare_clef", 5)])      # link inside the row's own repeats: skipped
             c.execute("INSERT INTO clef (pair, p_related, related, model, ts) VALUES (?,?,?,?,?)", (P("a2", "x"), 0.83, 1, "cloudflare_clef", 20))

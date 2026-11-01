@@ -9,7 +9,7 @@ Two kinds of entries (ECS field names, so they also read well in Kibana / Securi
   event.dataset = netmon.review  one entry per correlation review pass that did work or failed, and per finished
                                  review-job run (reviewlog.py; AI review > Review log card)
   event.dataset = netmon.llm     every conversation between the app and an LLM: Ask AI chat turns, the
-                                 correlation reviewer, model comparisons, item comparisons, the review job's and event research's
+                                 event reviewer, model comparisons, item comparisons, the review job's and event research's
                                  results coming back in (enrich.py put). Prompt, system prompt, answer, model,
                                  tokens, seconds, outcome.
 Secrets never reach the log: any parameter whose name looks like a password / key / token is replaced by
@@ -66,13 +66,13 @@ def _cut(s, n=MAX_TEXT):
     return s if len(s) <= n else s[:n] + f"\n… [truncated, {len(s)} chars]"
 
 
-ACTORS = {"netmon (background reviewer)": "reviewer", "netmon (review job)": "reviewer", "netmon (event research)": "researcher",
+ACTORS = {"netmon (event reviewer)": "reviewer", "netmon (background reviewer)": "reviewer", "netmon (review job)": "reviewer", "netmon (event research)": "researcher",
           "netmon (research job)": "researcher"}  # last one: entries spooled before the review / research split
 
 
 def emit(doc):
     who = ACTORS.get((doc.get("user") or {}).get("name"))
-    if who and not integrations.audit_send(who):  # switched off on the Audit log page (Send reviewer / researcher events)
+    if who and not integrations.audit_send(who):  # switched off on the Audit log page (Send event reviewer / researcher events)
         STATUS["skipped"] = STATUS.get("skipped", 0) + 1
         return
     doc.setdefault("@timestamp", _now())

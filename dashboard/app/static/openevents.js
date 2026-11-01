@@ -91,7 +91,7 @@
   // one block per time the event fired (recorded one per report): what happened, then that event's related events, the artifacts
   // (with their note buttons) and the Elasticsearch queries the AI used for it. Related lists are keyed by event id, so
   // firings of the same id show the same links.
-  // IPs (and ports) among a firing's artifacts: the event's host / destination IPs, the reviewer's ip artifacts of its related events
+  // IPs (and ports) among a firing's artifacts: the event's host / destination IPs, the event reviewer's ip artifacts of its related events
   function fireArts(d, f) {
     const me = (d.events || {})[f.eid] || {}, rel = (d.by_event || {})[f.eid] || [], ips = [...(me.host_ips || []), ...(me.dst_ips || [])], ports = [];
     for (const a of rel.flatMap((r) => r.llm_artifacts || [])) { if (a.kind === "ip" && /^\d+\.\d+\.\d+\.\d+$/.test(a.value)) ips.push(a.value); else if (a.kind === "port" && +a.value > 0) ports.push(+a.value); }
@@ -112,7 +112,7 @@
         const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
         return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
           ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${r.variants} occurrences</span>` : ""}
-          ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the reviewer adds them as it links events.</div>`;
+          ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the event reviewer adds them as it links events.</div>`;
       return `<details class="oe-det oe-sub"><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
         <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
         <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;

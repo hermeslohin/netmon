@@ -2,7 +2,7 @@
 window.CARD_INFO = {
 "audit|Audit log storage": {
 "source": "Dashboard settings (integrations.json, section audit) and a live count from the Security Onion Elasticsearch index logs-netmon.",
-"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the reviewer's (correlation + review job) and event research's entries on or off independently.",
+"use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the event reviewer's (correlation + review job) and event research's entries on or off independently.",
 "what": "Where the audit log is stored and whether the dashboard can write to it."
 },
 "audit|Filters": {
@@ -31,19 +31,19 @@ window.CARD_INFO = {
 "what": "Self-service form to change your own dashboard password."
 },
 "aireview|Host note consolidation": {
-"source": "Host notes in the knowledge base (kb.db host_notes) written by the reviewer and by event research; the merge is done by the correlation reviewer model (notes_consolidate.py, run by the dashboard at the set time).",
+"source": "Host notes in the knowledge base (kb.db host_notes) written by the event reviewer and by event research; the merge is done by the event reviewer model (notes_consolidate.py, run by the dashboard at the set time).",
 "use": "Leave it on so hosts do not pile up hundreds of near-duplicate notes. Use Consolidate now after a burst of new notes. Many rejected merges mean the model is dropping identifiers; failed requests usually mean LM Studio was busy or down.",
 "what": "Nightly merge of overlapping AI-written host notes. KPIs: all host notes, the AI notes it may merge, hosts with changed notes waiting for a pass, and the last run's notes before and after. Person-written and reviewed notes are never changed."
 },
 "aireview|All verdicts": {
-"source": "Correlation verdict totals from the AI reviewer and manual overrides stored by the dashboard.",
+"source": "Correlation verdict totals from the AI event reviewer and manual overrides stored by the dashboard.",
 "use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
 "aireview|Review job": {
-"source": "The review job (review.py), started by the netmon scheduler on a grid anchored at 05:00 UTC (the first run after 05:00 UTC covers 24 h for the device baseline), or by Run now. Its reviewer is the correlation reviewer's model (Models card). Settings are in the netmon store (review_cfg.py), run state in review_job.json, notes and run log from enrich.py.",
+"source": "The review job (review.py), started by the netmon scheduler on a grid anchored at 05:00 UTC (the first run after 05:00 UTC covers 24 h for the device baseline), or by Run now. Its event reviewer is the event reviewer's model (Models card). Settings are in the netmon store (review_cfg.py), run state in review_job.json, notes and run log from enrich.py.",
 "use": "Status should be Idle or Running with no failure streak. Set Run every to change how often it runs (5 to 1440 minutes; saves automatically). Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest counts.",
-"what": "Status of the scheduled review job: each run collects and analyzes the latest logs, then the reviewer compares new events with earlier notes and copies a matching note; everything else waits in the queue. Shows health, reviewer model, schedule, last run, note coverage and recent runs. The review job never researches events: that happens only when someone clicks Send to research."
+"what": "Status of the scheduled review job: each run collects and analyzes the latest logs, then the event reviewer compares new events with earlier notes and copies a matching note; everything else waits in the queue. Shows health, event reviewer model, schedule, last run, note coverage and recent runs. The review job never researches events: that happens only when someone clicks Send to research."
 },
 "aireview|Time and tokens: review job, event research and Ask AI chat": {
 "source": "Token counts reported by the AI provider for every call: review runs (review.py), event research (research.py, per researched event) and Ask AI chat turns (chat.py, chat.db). Cost is estimated from the prices entered for the model under AI providers; local models cost $0.",
@@ -61,29 +61,29 @@ window.CARD_INFO = {
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
 },
 "aireview|Decisions": {
-"source": "Proposed links from correlate.py, judged by the corr_llm.py reviewer or by event research, plus manual overrides; stored in the netmon store.",
+"source": "Proposed links from correlate.py, judged by the corr_llm.py event reviewer or by event research, plus manual overrides; stored in the netmon store.",
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗, ↻ to ask the model again, or ⇄ to compare up to 4 models on one decision and adopt the best answer.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
 "source": "Dashboard AI configuration: local models are listed from LM Studio, cloud models from the AI providers box. Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
-"what": "Which AI model each AI job uses: the correlation reviewer (decides every proposed link between events, and is the review job's reviewer), event research (only on Send to research) and the Ask AI chat."
+"what": "Which AI model each AI job uses: the event reviewer (decides every proposed link between events, and is also used by the review job), event research (only on Send to research) and the Ask AI chat."
 },
 "aireview|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
 "use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use; add prices after a model id for cost estimates). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps single calls if something loops.",
-"what": "AI services reached with an API key, any number of them. Their models can be picked for the correlation reviewer, event research, the chat and in every Compare dialog."
+"what": "AI services reached with an API key, any number of them. Their models can be picked for the event reviewer, event research, the chat and in every Compare dialog."
 },
-"aireview|Reviewer": {
+"aireview|Event reviewer": {
 "source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). Event research verdicts override it.",
 "use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check LM Studio is running or switch model in the Models card.",
-"what": "Status of the correlation reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
+"what": "Status of the event reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
 },
 "aireview|Verdicts per hour": {
-"source": "Stored correlation verdicts from the corr_llm.py reviewer (and event research re-reviews) in the netmon store.",
+"source": "Stored correlation verdicts from the corr_llm.py event reviewer (and event research re-reviews) in the netmon store.",
 "use": "Bursts after each snapshot (twice a day) are normal; long gaps while links are awaiting review suggest the model is down or stalled.",
-"what": "Bar chart of how many link decisions the reviewer made in each of the last 24 hours."
+"what": "Bar chart of how many link decisions the event reviewer made in each of the last 24 hours."
 },
 "alerts|Recent alerts": {
 "source": "The 15-minute urgent watcher (watch.py, fixed rules, no AI): Suricata severity-1 or malware/C2/exploit alerts, new devices, new internet-facing ports, threat-intel hits, DNS tunnelling, endpoint problems and failed admin logins. Repeats are muted for 12 h.",
@@ -151,18 +151,18 @@ window.CARD_INFO = {
 "what": "Devices with traffic in this snapshot whose MAC address is not in the device inventory, with their byte total and number of external peers."
 },
 "device|Notes": {
-"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by event research (Send to research) and copied by the review job's reviewer; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
+"source": "The notes knowledge base (kb.py, kb.db in the dashboard state). AI notes (✨) are written by event research (Send to research) and copied by the review job's event reviewer; notes by people (👤) are added here. Device notes are stored per MAC, endpoint notes per host name; both are shown on either page.",
 "use": "Read what earlier AI runs learned about this device (its role, what is normal for it, decisions made). Add a note to tell the AI something it cannot see, e.g. 'media server, large uploads to B2 at night are expected'. Delete notes that are wrong; the AI also corrects stale ones.",
-"what": "Running notes about this host or device that every AI job reads before judging it: the correlation reviewer, the review job, event research and Ask AI."
+"what": "Running notes about this host or device that every AI job reads before judging it: the event reviewer, the review job, event research and Ask AI."
 },
 "notes|Host notes": {
-"source": "The notes knowledge base (kb.py). Written by event research and the reviewer (✨) and by people on the host and endpoint pages (👤).",
+"source": "The notes knowledge base (kb.py). Written by event research and the event reviewer (✨) and by people on the host and endpoint pages (👤).",
 "use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
 "what": "Every note about every host and device, newest first."
 },
 "notes|Event notes": {
 "source": "Notes people left with the 📝 button next to an event's Related count. Stored per stable event key, so a note also applies to later repeats of the same finding or alert family.",
-"use": "Use event notes to tell the AI what an event is or how to treat it ('expected - nightly backup', 'escalate if it happens again'). Event research and the correlation reviewer treat approved notes as authoritative guidance. Notes from User accounts (⏳) are hidden from the AI until a defender or admin approves them in 'Event notes awaiting approval'.",
+"use": "Use event notes to tell the AI what an event is or how to treat it ('expected - nightly backup', 'escalate if it happens again'). Event research and the event reviewer treat approved notes as authoritative guidance. Notes from User accounts (⏳) are hidden from the AI until a defender or admin approves them in 'Event notes awaiting approval'.",
 "what": "All notes people wrote on events, newest first."
 },
 "device|Across snapshots": {
@@ -741,7 +741,7 @@ window.CARD_INFO = {
 "what": "Your devices contacting threat-listed IPs or domains, plus domains registered in the last 90 days, with domain age, query count and the devices involved."
 },
 "security|Research notes": {
-"source": "Written when someone clicks Send to research (or copied by the reviewer from an earlier note), using web research and read-only queries against the snapshot data.",
+"source": "Written when someone clicks Send to research (or copied by the event reviewer from an earlier note), using web research and read-only queries against the snapshot data.",
 "use": "Use these as context for the alarms. ⇄ compares the note with other models' opinions. Notes can be wrong or outdated; check the sources for anything important.",
 "what": "Background notes on an event: what the AI looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
 },

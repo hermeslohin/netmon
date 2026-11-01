@@ -105,7 +105,7 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
       return L; },
     // "When it fired" entry: search the IPs in its text alone, as pairs, and pair + port, around the moment it fired
     fire: (f) => { const t = span(f.ts, f.ts, 30), day = span(f.ts, f.ts, 720), txt = String(f.label || ""), L = [];
-      const ips = uniq([...(f.ips || []), ...textIps(txt)]).slice(0, 6);  // artifact IPs (host / destination / reviewer's ip artifacts) first, then IPs in the text
+      const ips = uniq([...(f.ips || []), ...textIps(txt)]).slice(0, 6);  // artifact IPs (host / destination / event reviewer's ip artifacts) first, then IPs in the text
       const ports = uniq([...txt.matchAll(/\b(\d{1,5})\/(?:tcp|udp)\b/gi), ...txt.matchAll(/\bport[s]? (\d{1,5})\b/gi), ...txt.matchAll(/\b\d{1,3}(?:\.\d{1,3}){3}:(\d{1,5})\b/g)].map((m) => +m[1]).concat(f.ports || []).filter((n) => n > 0 && n < 65536)).slice(0, 4);
       const pairs = []; for (let i = 0; i < ips.length; i++) for (let j = i + 1; j < ips.length; j++) pairs.push([ips[i], ips[j]]);
       pairs.slice(0, 3).forEach(([a, b]) => {

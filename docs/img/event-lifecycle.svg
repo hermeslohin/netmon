@@ -69,10 +69,10 @@
     <text x="795" y="425" fill="#6ee7b7" font-size="14" font-style="italic">Local AI · scheduled</text>
   </g>
 
-  <!-- 4 reviewer -->
+  <!-- 4 event reviewer -->
   <rect x="1055" y="180" width="235" height="270" rx="16" fill="#241706" stroke="#fbbf24" stroke-width="3"/>
   <circle cx="1090" cy="215" r="20" fill="#fbbf24"/><text x="1090" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">4</text>
-  <text x="1122" y="223" font-size="22" font-weight="700" fill="#fef3c7">Reviewer</text>
+  <text x="1122" y="223" font-size="22" font-weight="700" fill="#fef3c7">Event reviewer</text>
   <g font-size="16" fill="#cbd5e1">
     <text x="1075" y="270">• Looks up earlier notes</text>
     <text x="1088" y="291">on same / similar events</text>

@@ -26,9 +26,9 @@ class Consolidate(unittest.TestCase):
             c.execute("DELETE FROM note_artifacts")
             c.execute("DELETE FROM consolidate_subjects")
         self.a = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] Expected dns x.example.com: update check. Seen in a correlation between 'a' and 'b'. "
-                                  "Reviewer judgement (m1), unverified; delete if wrong.", "behavior", author="ai", model="m1", via="correlation reviewer")
-        self.b = kb.add_host_note(SUBJ, "[reviewer:ip:192.0.2.7] Expected ip 192.0.2.7: x.example.com update service on 443/tcp. Reviewer judgement (m1), unverified.",
-                                  "behavior", author="ai", model="m1", via="correlation reviewer")
+                                  "Event reviewer judgement (m1), unverified; delete if wrong.", "behavior", author="ai", model="m1", via="event reviewer")
+        self.b = kb.add_host_note(SUBJ, "[reviewer:ip:192.0.2.7] Expected ip 192.0.2.7: x.example.com update service on 443/tcp. Event reviewer judgement (m1), unverified.",
+                                  "behavior", author="ai", model="m1", via="event reviewer")
         self.p = kb.add_host_note(SUBJ, "Owner says this is the NAS.", "role", author="user:dan", via="dashboard")
         self.t = {"provider": "lmstudio", "model": "test-model"}
 
@@ -79,7 +79,7 @@ class Consolidate(unittest.TestCase):
         self.assertIn("ip:10.9.9.9", NC._todo(full=True))
 
     def test_reviewer_does_not_overwrite_a_consolidated_note(self):
-        """kb.tagged_slot: the reviewer updates its own one-tag note, skips a merged note carrying the tag, adds a new one otherwise.
+        """kb.tagged_slot: the event reviewer updates its own one-tag note, skips a merged note carrying the tag, adds a new one otherwise.
         REQ: STO-09
         """
         ns = [{"id": 1, "text": "[reviewer:dns:a.com] [reviewer:ip:1.2.3.4] merged"}, {"id": 2, "text": "[reviewer:dns:b.com] own"}]
@@ -92,9 +92,9 @@ class Consolidate(unittest.TestCase):
         """Two notes that share no artifact (a DNS name and an unrelated IP) stay separate even if the model merges them.
         REQ: STO-11
         """
-        c1 = kb.add_host_note(SUBJ, "[reviewer:dns:y.example.org] Expected dns y.example.org: telemetry. Unverified.", "behavior", author="ai", via="correlation reviewer")
+        c1 = kb.add_host_note(SUBJ, "[reviewer:dns:y.example.org] Expected dns y.example.org: telemetry. Unverified.", "behavior", author="ai", via="event reviewer")
         c2 = kb.add_host_note(SUBJ, "[reviewer:process:/usr/bin/pasta.avx2] Expected process /usr/bin/pasta.avx2: port forwarder. Unverified.",
-                              "behavior", author="ai", via="correlation reviewer")
+                              "behavior", author="ai", via="event reviewer")
         before = _notes()
         with self._answer([{"from": [c1, c2], "category": "behavior",
                             "text": "/usr/bin/pasta.avx2 contacts y.example.org for telemetry. Unverified."}]):
@@ -131,7 +131,7 @@ class Consolidate(unittest.TestCase):
         self.assertTrue(kb.valid_art("file", "app/static/app.js"))
         self.assertTrue(kb.valid_art("process", "/usr/bin/python3.12"))
         self.assertTrue(kb.valid_art("dns", "doh.dns.apple.com"))
-        x = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] [reviewer:ip:25565] x.example.com also on 25565/tcp. Unverified.", "behavior", author="ai", via="correlation reviewer")
+        x = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] [reviewer:ip:25565] x.example.com also on 25565/tcp. Unverified.", "behavior", author="ai", via="event reviewer")
         with self._answer([{"from": [self.a, x], "category": "behavior", "text": "x.example.com update check, also on 25565/tcp. Unverified."}]):
             NC.consolidate_subject("ip:10.9.9.9", self.t)
         merged = next(n for n in _notes() if n["via"] == NC.VIA)

@@ -198,7 +198,7 @@ u = auth.load(); u["legacy-user"].pop("role"); auth._save(u)
         self.assertEqual(ok.split(), ["True", "admin"])
 
     def test_server_runs_with_llm_off(self):
-        """With NETMON_LLM=off the server starts, says the reviewer is off, and makes no LLM calls.
+        """With NETMON_LLM=off the server starts, says the event reviewer is off, and makes no LLM calls.
         REQ: LLM-02"""
         with harness.Server() as srv:
             self.assertEqual(srv.login().get("/api/me")[0], 200)

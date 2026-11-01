@@ -44,7 +44,7 @@ Every test module imports `tests/_env.py` first, before any netmon module. It po
 | Variable | Test value | Why |
 |---|---|---|
 | `STATE_DIR`, `NETMON_DB` | `<tmp>/state`, `<tmp>/state/netmon.db` | never the live `dashboard/state/netmon.db` |
-| `NETMON_LLM` | `off` | no LM Studio calls and no reviewer threads |
+| `NETMON_LLM` | `off` | no LM Studio calls and no event reviewer threads |
 | `NETMON_INTEGRATIONS` | `<tmp>/state/integrations.json` | no Elasticsearch or UniFi credentials, so no network |
 | `NETMON_BACKUP_DIR` | `<tmp>/backup` | `analyze.py` calls `store.backup()`, which writes to the **live** `baseline/backup/` by default |
 | `NETMON_DIR` | the checkout | code only; `data/*.json` paths resolve to docs in the temp DB |
@@ -66,7 +66,7 @@ Unit tests run in the same process as the module they test, one module at a time
 |---|---|---|
 | Store | `test_store.py` | connection and 0600 permissions, docs table (`jload/jdump/jglob`), cfg flatten/build round trip, check-offs, mute and suppress rules, alert lifecycle, push prefs, security findings, registry and history, backup/stats/migrate/export |
 | Config | `test_config.py` | `site_cfg` defaults, public subset and cache; `window` time ranges; `lookback` 1–24 h validation; `review_cfg` schedule grid, modes and migration; `research_cfg` caps |
-| Review / research split | `test_review_noai.py` | the review job's reviewer only copies or queues (no web, no new notes, the correlation reviewer's model); research.py needs `--event`; the scheduler never schedules research and starts a waiting Send to research click |
+| Review / research split | `test_review_noai.py` | the review job's event reviewer only copies or queues (no web, no new notes, the event reviewer's model); research.py needs `--event`; the scheduler never schedules research and starts a waiting Send to research click |
 | Auth | `test_auth.py` | scrypt hashing, username/password rules, roles and role migration, last-admin and self-demotion rules, first-start seeding, signed sessions (tampering, expiry, revocation), login throttling, self-service password change, private read marker |
 | Audit | `test_audit.py` | secret redaction (nested, length and depth caps), entry builders, spooling while ES is unreachable (0600, oldest-first replay, partial failure, size cap), never raises |
 | Push targeting | `test_push_targeting.py` | `alert_targets`, `device_ids`, `watch_ids` (follows DHCP changes), `alert_for`, `pushsvc.run_once` delivery per user |

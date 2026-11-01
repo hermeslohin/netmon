@@ -1,13 +1,13 @@
 """AI notes on dashboard events: the review job's work list and copied notes, and event research results.
 
 The review job (review.py on the host, scheduled) asks here for the work list of the newest snapshot (_events); its
-reviewer copies earlier notes onto matching events (copy_notes). Everything else waits in the queue (queue_items) until
+event reviewer copies earlier notes onto matching events (copy_notes). Everything else waits in the queue (queue_items) until
 a person clicks Send to research (request_research -> host broker -> research.py). Event research writes:
   - a note per event (verdict, summary, research text, links it actually read), shown by related.js
     as a "✨ notes" button next to the event's Related column;
-  - correlation verdicts for candidate links (corr_llm.db, same table the correlation reviewer uses). Research
-    verdicts replace the reviewer's; manual verdicts (model "manual:<user>") are never overwritten, and
-    the reviewer only asks about undecided pairs, so it never overwrites research.
+  - correlation verdicts for candidate links (corr_llm.db, same table the event reviewer uses). Research
+    verdicts replace the event reviewer's; manual verdicts (model "manual:<user>") are never overwritten, and
+    the event reviewer only asks about undecided pairs, so it never overwrites research.
 
 Notes are keyed by a stable event key so they carry over to later snapshots: finding ids embed the detail text
 (numbers change every run), so the key masks the numbers in the detail; watcher alerts are stored per alert
@@ -233,9 +233,9 @@ def job():
     last = next((r for r in runs if r.get("status") != "running"), {})
     try:
         tgt = corr_llm._target()
-    except Exception:  # noqa: BLE001 - shown as "no reviewer model"
+    except Exception:  # noqa: BLE001 - shown as "no event reviewer model"
         tgt = {}
-    return {"id": "review", "name": "Review job: collect + analyze, reviewer",
+    return {"id": "review", "name": "Review job: collect + analyze, event reviewer",
             "model": tgt.get("model"), "provider": tgt.get("provider"), "enabled": cfg.get("enabled"),
             "interval_minutes": cfg.get("interval_minutes"), "next_run": VC.next_run(),
             "severities": cfg.get("severities"), "severity_options": cfg.get("severity_options"),
@@ -544,7 +544,7 @@ def _similar(x, skeys, limit=4, min_ratio=0.6):
 def _prior(pick, E, res, notes):
     """Review-mode items: what was researched before. Own note (same family), the notes of correlated events and notes on
     events with a similar label. Sets x["prior"] (list of {id, how, verdict, priority, summary, research, label, age_h}) and
-    x["researched"]; queue-mode items are untouched. The review job's reviewer (review.py) decides from these whether
+    x["researched"]; queue-mode items are untouched. The review job's event reviewer (review.py) decides from these whether
     an item can reuse a prior note (copy_notes) or stays in the queue."""
     rel_ids = {r["id"] for x in pick if x.get("mode") == "review" and not x["note"] for r in (res["related"].get(x["id"]) or [])}
     rn = load(rel_ids) if rel_ids else {}
@@ -575,7 +575,7 @@ def _prior(pick, E, res, notes):
 
 
 def copy_notes(doc, events=None):
-    """The review job's reviewer judged an event the same as one researched before: store the earlier note for it, with a
+    """The review job's event reviewer judged an event the same as one researched before: store the earlier note for it, with a
     line saying it was copied. doc = {model, snapshot, copies: [{id, from, reason}]} -> {copied, rejected_ids}."""
     model = str(doc.get("model") or "unknown")[:80]
     sid = str(doc.get("snapshot") or "")[:40]
@@ -589,7 +589,7 @@ def copy_notes(doc, events=None):
             bad.append(eid); continue
         label = (events or {}).get(eid, {}).get("label", "")[:200]
         when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(old["at"]))
-        head = (f"[Copied by the reviewer ({model}) from the note on {src} ({when}, researched by {old.get('model')}): "
+        head = (f"[Copied by the event reviewer ({model}) from the note on {src} ({when}, researched by {old.get('model')}): "
                 f"{str(cp.get('reason') or 'judged the same activity')[:400]}. Not re-researched.]")
         rows.append((skey(eid, ak), eid, label, old["verdict"], old["priority"], old["summary"][:600], (head + "\n\n" + (old["research"] or ""))[:4000],
                      json.dumps(old["links"]), old.get("model") or model, "reviewer (copied note)", now, sid))
@@ -660,7 +660,7 @@ def main(argv):
         import server
         sid = doc.get("snapshot") or (server.snapshots() or [{"id": ""}])[-1]["id"]
         out = copy_notes({**doc, "snapshot": sid}, (server.correlation(sid) or {}).get("events") or {})
-        _audit("review-copy", str(doc.get("model") or ""), f"review job reviewer: {out['copied']} earlier notes reused", response=json.dumps(doc, default=str))
+        _audit("review-copy", str(doc.get("model") or ""), f"review job event reviewer: {out['copied']} earlier notes reused", response=json.dumps(doc, default=str))
         print(json.dumps(out))
     elif argv[:1] == ["put"]:
         doc = json.load(sys.stdin if argv[1:2] in (["-"], []) else open(argv[1]))

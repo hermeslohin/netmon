@@ -293,7 +293,7 @@ def merge_flows(rows):
 
 
 def extras(rows):
-    """AI notes (verdicts), reviewer classifications, people's notes and times seen for the rows, keyed by each row's event id.
+    """AI notes (verdicts), event reviewer classifications, people's notes and times seen for the rows, keyed by each row's event id.
     A grouped row takes the newest variant that has one."""
     out = {"notes": {}, "classes": {}, "unotes": {}, "seen": {}}
     allids = [m for r in rows for m in r["members"]]
@@ -309,7 +309,7 @@ def extras(rows):
                 if m in src and r["eid"] not in out[dst]:
                     out[dst][r["eid"]] = src[m]
         out["seen"][r["eid"]] = {"n": r["n"], "first": r["first_seen"], "last": r["last_seen"]}
-    # related events from the stored (decision model / reviewer) verdicts, so rows older than the loaded snapshot
+    # related events from the stored (decision model / event reviewer) verdicts, so rows older than the loaded snapshot
     # still get their Related count, the linked events, their artifacts and the decision model's confidence
     try:
         import corr_llm

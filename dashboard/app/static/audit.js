@@ -47,7 +47,7 @@
       ${St.rejected ? `<div style="margin-top:6px"><span class="badge sev-high">${fn(St.rejected)} rejected</span> <span class="muted">${esc(St.last_reject || "")}</span></div>` : ""}
       <div class="muted" style="margin-top:6px">API key: ${St.key_set ? `set <span class="mono">${esc(I?.key_hint || "")}</span>` : "<b>not set</b>"} — it only needs <span class="mono">create_doc</span> and <span class="mono">read</span> on this index, so the dashboard can add and read audit entries but never change or delete them.</div></div>
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
-        <label><input type="checkbox" id="au-rev"${I?.send_reviewer !== false ? " checked" : ""}> Send reviewer events</label>
+        <label><input type="checkbox" id="au-rev"${I?.send_reviewer !== false ? " checked" : ""}> Send event reviewer events</label>
         <label><input type="checkbox" id="au-res"${I?.send_researcher !== false ? " checked" : ""}> Send researcher events</label>
         <span class="muted small">Each switch stops (or resumes) that AI's entries going to Elasticsearch. Takes effect at once; nothing is queued while off.</span> <span id="au-sw" class="small"></span></div>
       <details style="margin-top:8px"><summary>Change the audit key or index</summary>
@@ -72,7 +72,7 @@
   }
 
   V.audit = async (el) => {
-    el.innerHTML = `<h1>Audit log</h1><div class="sub">Who did what in the dashboard, and every conversation between the dashboard and an AI model. <b>User actions</b>: sign-ins (including failed ones), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, settings and user changes, report downloads and every refused request. <b>AI conversations</b>: Ask AI chats, the background correlation reviewer, model comparisons and the AI Research job's input and results, each with its prompt, the model's answer, model, tokens and time. Passwords and keys are never logged. Stored in Elasticsearch <span class="mono">logs-netmon</span> (also searchable in Kibana). Only admins can see this page.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>Audit log</h1><div class="sub">Who did what in the dashboard, and every conversation between the dashboard and an AI model. <b>User actions</b>: sign-ins (including failed ones), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, settings and user changes, report downloads and every refused request. <b>AI conversations</b>: Ask AI chats, the event reviewer, model comparisons and the AI Research job's input and results, each with its prompt, the model's answer, model, tokens and time. Passwords and keys are never logged. Stored in Elasticsearch <span class="mono">logs-netmon</span> (also searchable in Kibana). Only admins can see this page.</div><div class="loading">Loading…</div>`;
     if (!isAdmin()) { el.querySelector(".loading").replaceWith(card("Admins only", `<div class="empty">Only an admin can read the audit log.</div>`)); return; }
     const P = hq(), F = { kind: P.get("kind") || "all", range: P.get("start") || P.get("end") ? "" : P.get("range") || "24h", start: P.get("start") || "", end: P.get("end") || "", user: P.get("user") || "", action: P.get("action") || "",
       outcome: P.get("outcome") || "", model: P.get("model") || "", q: P.get("q") || "", page: +(P.get("page") || 0) };

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""netmon review job: collect -> analyze -> reviewer -> queue. Runs on the schedule set on the AI review page.
+"""netmon review job: collect -> analyze -> event reviewer -> queue. Runs on the schedule set on the AI review page.
 
 Started by scheduler.py on the grid set on the dashboard (review_cfg.py), by Run now, or by hand:
     review.py [--trigger manual|schedule] [--skip-collect] [--daily | --no-daily]
 The daily run is the first run at or after 05:00 UTC each day; it covers 24 h of logs so the device baseline stays daily.
 Other runs cover the lookback window set on the AI review page.
 
-The reviewer is the correlation reviewer's model (AI review > Models, e.g. Gemma on LM Studio). For each event in a
+The event reviewer's model is set on AI review > Models (e.g. Gemma on LM Studio). For each event in a
 "review" category that has no note yet it compares the event with earlier notes (its family, correlated events, similar
 labels) and copies a matching note, marked as copied. Everything it cannot match stays on AI review > Queue for a person.
 The review job never writes new notes of its own.
@@ -23,12 +23,12 @@ import agent  # noqa: E402
 import review_cfg as RC  # noqa: E402
 
 MAX_TOKENS = 25_000_000  # safety stop for one run (a local model costs nothing, but a loop must not run forever)
-BATCH_CHARS = 14_000  # work-item JSON per reviewer call: fits a local model's context (e.g. Gemma at ~25k tokens) with prompt + answer
-BATCH_MAX = 8  # items per reviewer call
+BATCH_CHARS = 14_000  # work-item JSON per event reviewer call: fits a local model's context (e.g. Gemma at ~25k tokens) with prompt + answer
+BATCH_MAX = 8  # items per event reviewer call
 
 
 def compact(x):
-    """What the reviewer needs to match an event with a prior note: no host-note dump, short prior texts."""
+    """What the event reviewer needs to match an event with a prior note: no host-note dump, short prior texts."""
     keep = {k: x[k] for k in ("id", "type", "sev", "label", "when", "repeats", "user_notes", "dns_notes") if x.get(k) not in (None, "", [], {})}
     for k in ("evidence", "detail", "summary"):
         if x.get(k):
@@ -45,7 +45,7 @@ def compact(x):
 
 
 def batches(items):
-    """Split compacted items into reviewer calls of at most BATCH_MAX items / BATCH_CHARS of JSON (never cut mid-item)."""
+    """Split compacted items into event reviewer calls of at most BATCH_MAX items / BATCH_CHARS of JSON (never cut mid-item)."""
     out, cur, size = [], [], 0
     for x in items:
         n = len(json.dumps(x, ensure_ascii=False))
@@ -58,7 +58,7 @@ def batches(items):
 
 
 def reviewer_target():
-    """The correlation reviewer's model (AI review > Models); raises when it is not usable."""
+    """The event reviewer's model (AI review > Models); raises when it is not usable."""
     import corr_llm
     return corr_llm._target()
 
@@ -107,7 +107,7 @@ class Status:
 
 # ------------------------------------------------------------------ the run
 class Review(aijob.Job):
-    LOGDIR, LABEL, SOURCE = os.path.join(NM, "logs", "review"), "Review run", "reviewer"  # its searches show with the reviewer's
+    LOGDIR, LABEL, SOURCE = os.path.join(NM, "logs", "review"), "Review run", "reviewer"  # its searches show with the event reviewer's
 
     def __init__(self, target, daily, args):
         t = target or {"provider": "", "model": ""}
@@ -115,7 +115,7 @@ class Review(aijob.Job):
         self.daily, self.reviewer_ok = daily, bool(target)
 
     def queue(self):
-        """Work list of the newest snapshot; review-category events without a note go to the reviewer, the rest wait in the queue."""
+        """Work list of the newest snapshot; review-category events without a note go to the event reviewer, the rest wait in the queue."""
         out = self.stem + ".work.json"
         for attempt in range(3):  # the dashboard container may be restarting (deploy): retry instead of losing the run
             rc, o, err = sh([os.path.join(NM, "enrich.sh"), "events", out], timeout=600)
@@ -135,7 +135,7 @@ class Review(aijob.Job):
             return
         if not self.reviewer_ok:
             self.counts["queued"] += len(todo)
-            self.errors.append("reviewer model unavailable (AI review > Models): review events left in the queue")
+            self.errors.append("event reviewer model unavailable (AI review > Models): review events left in the queue")
             return
         self.status.phase("reviewer")
         left = self.review_items(todo)
@@ -179,13 +179,13 @@ class Review(aijob.Job):
             except agent.BudgetExceeded:
                 raise
             except Exception as e:  # noqa: BLE001
-                self.errors.append(f"reviewer batch {bn}: {str(e)[:200]}")
+                self.errors.append(f"event reviewer batch {bn}: {str(e)[:200]}")
         copies = [v for v in decided.values() if v]
         if copies:
             rc, out, err = sh([os.path.join(NM, "enrich.sh"), "copy", "-"], timeout=300,
                               inp=json.dumps({"model": self.target["model"], "snapshot": os.path.basename(self.stem), "copies": copies}))
             if rc:
-                self.errors.append(f"reviewer copy failed: {(err or out)[-200:]}")
+                self.errors.append(f"event reviewer copy failed: {(err or out)[-200:]}")
                 copies = []
             else:
                 self.counts["review_copied"] = len(copies)
@@ -215,9 +215,9 @@ class Review(aijob.Job):
     def summary(self):
         c, u = self.counts, self.budget.summary()
         parts = [f"{'Daily run (24 h)' if self.daily else 'Review run'} on {os.path.basename(self.stem or '?')}"
-                 + (f", reviewer {self.target['model']}." if self.reviewer_ok else ", no reviewer model.")]
+                 + (f", event reviewer {self.target['model']}." if self.reviewer_ok else ", no event reviewer model.")]
         parts.append(f"Events without a note: {c.get('without_note', 0)} of {c.get('work_items', 0)}. "
-                     f"Reviewer copied {c.get('review_copied', 0)} earlier notes; {c.get('queued', 0)} left in the queue.")
+                     f"Event reviewer copied {c.get('review_copied', 0)} earlier notes; {c.get('queued', 0)} left in the queue.")
         parts.append(f"Tokens: {u['total']:,} in {u['calls']} calls" + (f", est. ${u['cost_usd']:.2f}" if u["cost_usd"] is not None else "") + ".")
         if self.errors:
             parts.append("Problems: " + "; ".join(self.errors)[:800])
@@ -246,7 +246,7 @@ def main():
     try:
         target = reviewer_target()
     except Exception as e:  # noqa: BLE001 - collect + analyze still run; review events stay queued
-        print(f"reviewer model unavailable: {e}", file=sys.stderr)
+        print(f"event reviewer model unavailable: {e}", file=sys.stderr)
         target = None
     lock = open(os.path.join(RC.STATE, ".review.lock"), "w")
     try:

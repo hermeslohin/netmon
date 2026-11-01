@@ -14,8 +14,8 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 |---|---|---|
 | **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl, systemd (user services) | yes | runs the scheduler, the host broker and the dashboard container |
 | **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The 15-minute watcher uses no LLM. |
-| **LM Studio** (local LLM server) | optional, recommended | the correlation reviewer; can also serve the review job or chat |
-| **Patapsco AI** (local Kubernetes model platform) | optional | alternative to LM Studio: serves the decision model (clef) and the reviewer (Gemma) on loopback NodePorts, see [CORRELATION.md](CORRELATION.md) |
+| **LM Studio** (local LLM server) | optional, recommended | the event reviewer; can also serve the review job or chat |
+| **Patapsco AI** (local Kubernetes model platform) | optional | alternative to LM Studio: serves the decision model (clef) and the event reviewer (Gemma) on loopback NodePorts, see [CORRELATION.md](CORRELATION.md) |
 | **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
 | **Elastic Agent via Fleet** on your endpoints (Elastic Defend + osquery integrations) | recommended | endpoint findings, host posture |
 | **UniFi gateway** + UniFi Site Manager API key | optional | gateway IDS, admin audit, flows. Skipped when missing. |
@@ -139,7 +139,7 @@ Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 M
 
 Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`; the results are stored as `ranges/<id>…` documents in the netmon database, not as files), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
 
-The optional Elasticsearch look-ups of the correlation reviewer and of event research (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
+The optional Elasticsearch look-ups of the event reviewer and of event research (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
 
 ### Local LLM for correlation review (optional, recommended)
 
@@ -150,7 +150,7 @@ lms server start && lms load google/gemma-4-31b-qat     # or load a model in the
 curl -s http://127.0.0.1:1234/v1/models                 # the dashboard uses this endpoint
 ```
 
-Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`, `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2). Instead of LM Studio you can serve both models from Patapsco AI on the same host (FP8, one GPU shared by time-slicing); add the reviewer endpoint as an AI provider and pick **Patapsco AI** as the decision-model backend (details in [CORRELATION.md](CORRELATION.md)). Without an LLM, links show the script's evidence only.
+Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`, `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2). Instead of LM Studio you can serve both models from Patapsco AI on the same host (FP8, one GPU shared by time-slicing); add the event reviewer endpoint as an AI provider and pick **Patapsco AI** as the decision-model backend (details in [CORRELATION.md](CORRELATION.md)). Without an LLM, links show the script's evidence only.
 
 ## 7. Scheduled jobs and the host broker
 
@@ -167,13 +167,13 @@ systemctl --user status netmon-scheduler   # or: /usr/bin/python3 scheduler.py s
 | Job | When | What |
 |---|---|---|
 | watcher | every 15 minutes | `watch.py`: urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
-| review job | every N minutes, set on **Configuration → Review job runs every** (5 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, then the reviewer (the correlation reviewer's model) copies matching earlier notes; everything else waits in the queue. |
+| review job | every N minutes, set on **Configuration → Review job runs every** (5 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, then the event reviewer copies matching earlier notes; everything else waits in the queue. |
 | event research | only when a person clicks **Send to research** | `research.py --event ID`, started by the host broker; a click that has to wait (another research running) is started by the scheduler as soon as the running one ends. Never scheduled. |
 | weekly rebuild | Sundays 03:00 UTC | `weekly_rebuild.sh`: dashboard image rebuild with updated libraries + security scan. |
 
-Jobs never overlap with themselves. A slot missed while the host was down is not made up, except the review job, which starts late within its own slot. The review job runs unless it is paused; without a usable reviewer model it still collects and analyzes, and leaves every event in the queue.
+Jobs never overlap with themselves. A slot missed while the host was down is not made up, except the review job, which starts late within its own slot. The review job runs unless it is paused; without a usable event reviewer model it still collects and analyzes, and leaves every event in the queue.
 
-**`netmon-broker`** (`host_broker.py`) listens on `127.0.0.1:8650` only and needs the bearer key `NETMON_BROKER_KEY` from `dashboard/.env` (with `NETMON_BROKER_URL=http://127.0.0.1:8650`). The dashboard container has no Elasticsearch key, so it asks the broker for exactly three things: `POST /range` (time-range collection for the dashboard's picker), `POST /research-event` (start `research.py` for one event when someone clicks Send to research) and `POST /esquery` (bounded read-only Elasticsearch look-ups for the correlation reviewer, at most 600 an hour). It handles no models, keys or schedules.
+**`netmon-broker`** (`host_broker.py`) listens on `127.0.0.1:8650` only and needs the bearer key `NETMON_BROKER_KEY` from `dashboard/.env` (with `NETMON_BROKER_URL=http://127.0.0.1:8650`). The dashboard container has no Elasticsearch key, so it asks the broker for exactly three things: `POST /range` (time-range collection for the dashboard's picker), `POST /research-event` (start `research.py` for one event when someone clicks Send to research) and `POST /esquery` (bounded read-only Elasticsearch look-ups for the event reviewer, at most 600 an hour). It handles no models, keys or schedules.
 
 ### The review job (`review.py`)
 
@@ -181,7 +181,7 @@ Each run:
 
 1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI review page (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. Builds the work list (`enrich.sh events`): every event without a note, by category (`review_cfg.py` modes: **review**, **queue**, **test**, **skip**). Every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events.
-3. **Reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the reviewer, which is **the correlation reviewer's model** (AI review → Models, e.g. Gemma on LM Studio; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
+3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI review → Models, e.g. Gemma on LM Studio; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
 4. Everything else waits in the **Queue** on the AI review page for a person.
 
 The review job never researches events and never uses the research model. Run state and tokens are in `<state>/review_job.json`, shown on the AI review page; conversations are saved in `logs/review/` (the newest 60). Manual runs:
@@ -194,7 +194,7 @@ The review job never researches events and never uses the research model. Run st
 
 ### Event research (`research.py`)
 
-Research is what happens when a person clicks **🔬 Send to research** on an event, and only then. The dashboard asks the host broker, which starts `research.py --event ID`; it uses the newest snapshot, the **research model** (AI review → Models) and the event research limits. The model works through read-only tools (Elasticsearch search, netmon data, notes and, if web access is on, web search / page fetch; `prompts/analyst.md` + `prompts/enrich.md`) and stores its results with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the correlation reviewer's and replace them; manual verdicts are kept. Tokens and cost per researched event are in `<state>/research_job.json`; conversations in `logs/research/` (the newest 60).
+Research is what happens when a person clicks **🔬 Send to research** on an event, and only then. The dashboard asks the host broker, which starts `research.py --event ID`; it uses the newest snapshot, the **research model** (AI review → Models) and the event research limits. The model works through read-only tools (Elasticsearch search, netmon data, notes and, if web access is on, web search / page fetch; `prompts/analyst.md` + `prompts/enrich.md`) and stores its results with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the event reviewer's and replace them; manual verdicts are kept. Tokens and cost per researched event are in `<state>/research_job.json`; conversations in `logs/research/` (the newest 60).
 
 ```bash
 /usr/bin/python3 research.py --event 'hf|...'   # research one event by hand (same as Send to research)
@@ -211,19 +211,19 @@ instead of editing `.env`. Add as many other providers as you like. Each has a t
 optional base URL (plain `http://` only for LAN or loopback addresses), an API key, and its models, one per line.
 After a model id you can add prices in $ per million tokens, `model input output [cached-input]`; they are used
 for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models
-without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the correlation
+without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the event
 reviewer and comparisons) and an optional number of extra reasoning tokens. Keys are stored in
 the netmon database (`netmon.db`, mode 600), only the last 4 characters are ever shown, and they are scrubbed
 from error messages. Changing a provider's type or base URL requires entering the key again. Model choices are
 stored as `api:<provider id>` or `lmstudio` plus the model name.
 
-**Models.** Three choices: the **correlation reviewer** (also the review job's reviewer), **event research** (used
+**Models.** Three choices: the **event reviewer** (also used by the review job), **event research** (used
 only on Send to research) and the **chat (Ask AI)**. Event research and the chat are off until you choose a model;
-if no correlation reviewer was ever chosen it defaults to Local (LM Studio), so nothing is sent to a cloud provider
-until a person picks one. Under the model menus an admin can also switch the reviewer's and event research's
+if no event reviewer was ever chosen it defaults to Local (LM Studio), so nothing is sent to a cloud provider
+until a person picks one. Under the model menus an admin can also switch the event reviewer's and event research's
 read-only Elasticsearch searches on or off (**Elasticsearch queries · correlation review** with a per-event maximum,
 **Elasticsearch queries · event research**) and set **Notes per event**, the most host and
-account notes the reviewer is given with each event. A provider that is in use can't be deleted (Local
+account notes the event reviewer is given with each event. A provider that is in use can't be deleted (Local
 (LM Studio) can only be disabled, never deleted). On any current correlation decision, the ⇄ button asks up to 4
 models the same question side by side and can store one model's answer as the decision.
 
@@ -232,13 +232,13 @@ reading pages, checking netmon data) and decides what to do next between them, w
 noticeably worse at and sometimes gets stuck looping on. Pick a reasoning model (OpenAI's `o`-series / GPT-5
 family, Anthropic's extended-thinking Claude models, or a local reasoning model such as Qwen/DeepSeek-R1 in LM
 Studio) and give it some **extra reasoning tokens** on its provider row - 0 there effectively turns reasoning off
-and will hurt research quality even on a model that supports it. The correlation reviewer and the chat don't need
-this: the reviewer only ever answers one fixed-format question per call, and the chat still works, just more
+and will hurt research quality even on a model that supports it. The event reviewer and the chat don't need
+this: the event reviewer only ever answers one fixed-format question per call, and the chat still works, just more
 superficially, on a non-reasoning model.
 
 **Event research limits** (also on AI review): $ per research run (default 5), $ per day (default 20), tokens per research run (input + output, works without prices; default 25,000,000), research batches per run (default 10), web searches per event (default 3) and the **Web access** switch (off on a new install: no web search until an admin turns it on). A research run stops when it passes its caps, and Send to research is refused once today's research (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **Review job** card shows the review job's status, schedule and next run, **Run now** / **Pause** and recent runs; the *Time and tokens* chart below it covers review runs, event research and Ask AI, with a cost preview for another research model.
 
-Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The correlation reviewer's model is remembered once chosen; if none has ever been chosen, it is Local (LM Studio).
+Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local (LM Studio).
 
 ## 7c. Web search (event research and chat)
 
@@ -267,8 +267,8 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | UniFi section says "skipped" | No `UNIFI_API_KEY` in `~/.config/netmon/secrets.env` and none on Configuration → Integrations. |
 | Locked out of the dashboard | 8 failed logins → 5-minute lockout. `docker restart netmon-dashboard` clears it. To reset a password: `docker exec -it netmon-dashboard python /app/server.py set-password <user>` |
 | Chat says "not configured" or "unavailable" | Choose a chat model on AI review → Models; **Test** the provider on AI review → AI providers. Errors are in `docker logs netmon-dashboard`. |
-| Review job never runs | `systemctl --user status netmon-scheduler`, `logs/review.log`, `/usr/bin/python3 scheduler.py status`. The job must not be paused; without a reviewer model it still runs but copies nothing. Send to research problems: `logs/research-event.log`, `logs/research.log`, the event research $ caps on AI review. Lingering on? (`loginctl show-user $USER -p Linger`) |
-| Time ranges or reviewer searches fail | `systemctl --user status netmon-broker`; `NETMON_BROKER_URL` / `NETMON_BROKER_KEY` in `dashboard/.env`. |
+| Review job never runs | `systemctl --user status netmon-scheduler`, `logs/review.log`, `/usr/bin/python3 scheduler.py status`. The job must not be paused; without an event reviewer model it still runs but copies nothing. Send to research problems: `logs/research-event.log`, `logs/research.log`, the event research $ caps on AI review. Lingering on? (`loginctl show-user $USER -p Linger`) |
+| Time ranges or event reviewer searches fail | `systemctl --user status netmon-broker`; `NETMON_BROKER_URL` / `NETMON_BROKER_KEY` in `dashboard/.env`. |
 | Push notifications never arrive | The site must be reached over a trusted HTTPS name (tunnel), not the self-signed IP. |
 | Related links all say "AI review pending" | LM Studio running with a model loaded? `curl http://127.0.0.1:1234/v1/models`. The popover footer shows the last error. A first full review takes 1–2 h. |
 | LLM returns empty answers | Reasoning models use the whole token budget on hidden thinking. Keep `NETMON_LLM_REASONING=none`. |

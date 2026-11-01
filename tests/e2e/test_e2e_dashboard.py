@@ -312,7 +312,7 @@ class Api(unittest.TestCase):
         self.assertIn("initial-access", b["tactic_order"])
 
     def test_aireview_reports_llm_disabled(self):
-        """With NETMON_LLM=off the AI review status says the reviewer is disabled, and nothing fails.
+        """With NETMON_LLM=off the AI review status says the event reviewer is disabled, and nothing fails.
         REQ: LLM-02"""
         st = self.c.get("/api/aireview")[1]["status"]
         self.assertFalse(st["enabled"])

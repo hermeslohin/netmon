@@ -13,7 +13,7 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
   POST /section {name: "lateral"} -> the lateral-movement report's data for a period (internal flows, admin sessions, violations).
   POST /clef      {action: status | save | start | stop | restart | enable | disable, settings...} -> the decision-model
                   server (systemd user unit netmon-clef, clef.sh): status, model/runtime choice, start/stop (clef_server.py).
-  POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the correlation reviewer
+  POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the event reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
 
@@ -27,7 +27,7 @@ sys.path.insert(0, NM)
 import store  # noqa: E402
 HOST, PORT = "127.0.0.1", int(os.environ.get("NETMON_BROKER_PORT", "8650"))
 PY = os.environ.get("NETMON_PYTHON") or "/usr/bin/python3"
-ES_RATE = (600, 3600)  # reviewer Elasticsearch look-ups per hour (each one is also capped per event by the dashboard)
+ES_RATE = (600, 3600)  # event reviewer Elasticsearch look-ups per hour (each one is also capped per event by the dashboard)
 _lock, _es_sent = threading.Lock(), []
 RANGES = os.path.join(NM, "dashboard", "state", "ranges")
 RANGE_MAX_H, RANGE_MAX_AGE_D, RANGE_KEEP = 31 * 24, 120, 30
@@ -49,7 +49,7 @@ def esquery(b):
         now = time.time()
         _es_sent[:] = [t for t in _es_sent if now - t < ES_RATE[1]]
         if len(_es_sent) >= ES_RATE[0]:
-            raise ValueError("rate limit: too many reviewer Elasticsearch queries this hour")
+            raise ValueError("rate limit: too many event reviewer Elasticsearch queries this hour")
         _es_sent.append(now)
     t = time.time()
     out = es_context.run(b.get("query"), b.get("anchor"))

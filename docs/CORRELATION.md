@@ -6,7 +6,7 @@ collapsible and rearrangeable boxes). For installation see [SETUP.md](SETUP.md).
 
 ## Life of an event
 
-![Life of an event: suppress list, statistical analysis, correlation review, reviewer, and the optional researcher](img/event-lifecycle.png)
+![Life of an event: suppress list, statistical analysis, correlation review, event reviewer, and the optional researcher](img/event-lifecycle.png)
 
 Every event passes the same stages in order. Each stage removes or resolves some events, so fewer reach the
 next one and AI cost and human attention stay low.
@@ -14,7 +14,7 @@ next one and AI cost and human attention stay low.
 1. **Suppress list.** Never-send rules, checked-off items and known-benign patterns hide matching events. No AI.
 2. **Statistical analysis.** Compares each device to its 30-day baseline and raises events for deviations. No AI.
 3. **Correlation review.** Links related events and the decision model labels them suspicious, benign or expected (section 3).
-4. **Reviewer.** Copies the verdict from an earlier matching note, or leaves the event queued for research (section 6).
+4. **Event reviewer.** Copies the verdict from an earlier matching note, or leaves the event queued for research (section 6).
 5. **Researcher (optional).** Runs only when a person clicks *Send to research* (section 5).
 
 ## 1. Admin access (lateral movement)
@@ -88,25 +88,25 @@ treated as noise and creates no candidates. Each candidate gets a score:
 | Two vulnerabilities on one host | score × 0.5 (context, not an incident chain) |
 
 Kept: score ≥ 1.5, at most 4 of any one type and 10 per event. This is only the *proposal*; the time-window setting,
-the review limits and the reviewer (section 3) decide what is actually looked at.
+the review limits and the event reviewer (section 3) decide what is actually looked at.
 
 **Artifacts read from the event itself.** While it builds the events, `correlate.py` pulls the concrete things each
 event already names: accounts (`user alice`, "accounts alice (1 failed, 2 ok)", login-attempt users), processes
 (executables in program directories, parent process, command line), files (paths, with a SHA-256 when the text has
 one), DNS names (public domains; `.lan`/`.local` ignored), plus the event's host IP and destination IPs. Up to 10 per
 event, as `[kind, value, relation]`, without any lookup and before any review. They appear in the Related popover
-immediately and are handed to the reviewer as "known artifacts" of each event.
+immediately and are handed to the event reviewer as "known artifacts" of each event.
 
 ## Profiles: accounts and frequent IPs
 
-Every correlation pass also records, without any model: the accounts seen in endpoint logins, auth failures, sudo, account changes, admin sessions and suspicious processes (**Network → Users**, `accounts.py`), and how often each IP appears in correlated events, as source or destination, with the accounts, processes and DNS names named in those events. From that it keeps host notes (category *behavior*, tagged `[profile:ip]` / `[profile:users]`, author netmon) up to date for the newest report: "frequent" is 5+ events for an internal IP and 3+ for an external one, top 25. The reviewer reads these as `ai_note`s. Each artifact stays with the IP it belongs to: processes, files and accounts count only for the event's single source host (a host finding's source is the host it was read on; any other IP in it, e.g. "from 10.0.0.5", is a peer), DNS names for the single source or single destination, and an event naming several hosts on one side adds no artifacts to any of them. They are counts, not verdicts; delete a note on the Notes page and it is rewritten next pass if still true.
+Every correlation pass also records, without any model: the accounts seen in endpoint logins, auth failures, sudo, account changes, admin sessions and suspicious processes (**Network → Users**, `accounts.py`), and how often each IP appears in correlated events, as source or destination, with the accounts, processes and DNS names named in those events. From that it keeps host notes (category *behavior*, tagged `[profile:ip]` / `[profile:users]`, author netmon) up to date for the newest report: "frequent" is 5+ events for an internal IP and 3+ for an external one, top 25. The event reviewer reads these as `ai_note`s. Each artifact stays with the IP it belongs to: processes, files and accounts count only for the event's single source host (a host finding's source is the host it was read on; any other IP in it, e.g. "from 10.0.0.5", is a peer), DNS names for the single source or single destination, and an event naming several hosts on one side adds no artifacts to any of them. They are counts, not verdicts; delete a note on the Notes page and it is rewritten next pass if still true.
 
-## 3. Correlation review (decision model + reviewer model)
+## 3. Correlation review (decision model + event reviewer model)
 
 The script only *proposes* links. **Models decide:** the decision model (clef) decides every link and every event's
-label; the reviewer model (Gemma or whichever is selected) writes the notes. `dashboard/app/corr_llm.py` runs as a background thread in the
+label; the event reviewer model (Gemma or whichever is selected) writes the notes. `dashboard/app/corr_llm.py` runs as a background thread in the
 dashboard container. With the **decision model** on (the default, AI review → Decision model) a review pass has two
-stages; with it off, the older reviewer-only flow is used (described at the end of this section).
+stages; with it off, the older event reviewer-only flow is used (described at the end of this section).
 
 1. **Links — decision model (clef).** For the newest snapshot (and any snapshot someone opened in the last hour, at
    most two), every undecided candidate link that the **review limits** (below) allow becomes one yes/no question to
@@ -114,26 +114,26 @@ stages; with it off, the older reviewer-only flow is used (described at the end 
    description, hosts, artifacts, approved owner notes) and the script's score and evidence. The answer is a
    probability; `p ≥ related_min` (default 0.5) = related. **That answer is the verdict** — related and not related
    alike — stored with model name `cloudflare_clef`. 4 questions run in parallel (full clef: ~3 s each, ~70 links/min).
-2. **Events — decision model label, reviewer notes.** Only once **no link of the newest snapshot is undecided**:
+2. **Events — decision model label, event reviewer notes.** Only once **no link of the newest snapshot is undecided**:
    - **Label (clef).** One request per event with the event and **all** its candidate events, each with its link
      probability (clef's; for links decided before clef, derived from the old verdict), plus approved owner notes.
      Two yes/no questions: *suspicious?* and *expected?*. `p(suspicious) ≥ suspicious_min` (default 0.5) →
      **suspicious**; else `p(expected) ≥ 0.5` → **expected**; else **benign**. **That label is final** and drives alarms;
      its confidence is `p(suspicious)` for suspicious, `1 − p(suspicious)` otherwise. Stored in `clef_event`.
-   - **Notes (reviewer model).** One call per event with all of its clef-related events, owner / AI / artifact notes and
+   - **Notes (event reviewer model).** One call per event with all of its clef-related events, owner / AI / artifact notes and
      (if enabled) Elasticsearch look-ups, told the decision model's label. It writes the event's **reason** (why the
-     event is what clef labelled it; it starts with *Reviewer disagrees:* when the evidence clearly contradicts the
+     event is what clef labelled it; it starts with *Event reviewer disagrees:* when the evidence clearly contradicts the
      label) and, for every related event, a **link note** (the verdict's reason, with clef's probability appended) and
      its **artifacts** (file, process, user, IP, DNS name; each benign / expected / suspicious). It also gives its own
      label, which is recorded only for the agreement figure on the AI review page — it never decides a link or a label.
 
    Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. An event is
    labelled and reviewed again when its set of link decisions changes; at most 20 events per pass, never-reviewed and
-   best-connected first. If clef cannot label an event, the event waits for the next pass (the reviewer does not step
-   in). An event whose every link clef rejected still gets a reviewer call: the prompt says the empty
-   candidate list is deliberate, so the reviewer explains the label from the event and its notes alone. If the reviewer
+   best-connected first. If clef cannot label an event, the event waits for the next pass (the event reviewer does not step
+   in). An event whose every link clef rejected still gets an event reviewer call: the prompt says the empty
+   candidate list is deliberate, so the event reviewer explains the label from the event and its notes alone. If the event reviewer
    call fails anyway (prose instead of JSON, an error), clef's label is stored regardless (reason *Decision model: …
-   reviewer note pending*) and the note is retried on the next passes, at most 3 times per set of link decisions. Suspicious medium / high events become alarms. `event_class.model` reads `cloudflare_clef + <reviewer>`.
+   event reviewer note pending*) and the note is retried on the next passes, at most 3 times per set of link decisions. Suspicious medium / high events become alarms. `event_class.model` reads `cloudflare_clef + <reviewer>`.
    Audit-log purpose: `event-review`.
 3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db` (`verdicts`; clef's probabilities in
    `clef`), so each pair is asked once and the decision applies in both directions. A person's decision (✓/✗, or an
@@ -152,7 +152,7 @@ flowchart LR
     CLEF --> DB[("corr_llm.db\nverdicts, clef")]
     DB -- "no link undecided" --> CL2["Decision model (clef)\nsuspicious? expected?\nevent + all candidates"]
     CL2 --> LAB["Event label\nsuspicious / benign / expected\n(final)"]
-    LAB --> REV["Reviewer model\none call per event,\nall related events"]
+    LAB --> REV["Event reviewer model\none call per event,\nall related events"]
     NOTES["Owner / artifact / AI notes,\nuser profiles"] --> REV
     ES["Elasticsearch look-ups\n(optional)"] <--> REV
     REV --> RS["Reason for the label"]
@@ -173,14 +173,14 @@ typed question. netmon asks it *related?* per link and *suspicious?* / *expected
 | Speed (4 parallel, this host) | ~3.3 s per link, ~72 links/min | ~1.0 s per link, ~230–365 links/min |
 | AIT-ADS benchmark, 320 links | F1 22.0, 66 false links | F1 17.0, 157 false links |
 
-(For comparison, the reviewer model deciding links itself on the same benchmark: F1 26.2, ~28 links/min.)
+(For comparison, the event reviewer model deciding links itself on the same benchmark: F1 26.2, ~28 links/min.)
 
 **Why clef labels events.** On the same AIT-ADS benchmark (40 events: 20 attack, 20 normal):
 
 | Who labels the event | Correct | Attacks caught /20 | Normal events flagged /20 | Speed |
 |---|---|---|---|---|
-| Reviewer (Gemma), deciding links itself (older flow) | 62.5 % | 13 | 8 | 3.5 events/min |
-| Reviewer (Gemma), after clef decided links | 52.5 % | 17 | 16 | 7.2 events/min |
+| Event reviewer (Gemma), deciding links itself (older flow) | 62.5 % | 13 | 8 | 3.5 events/min |
+| Event reviewer (Gemma), after clef decided links | 52.5 % | 17 | 16 | 7.2 events/min |
 | **clef, event + all candidates, p ≥ 0.5 (used)** | **72.5 %** | 14 | **5** | 21 events/min |
 | clef, event + related events only, p ≥ 0.5 | 70.0 % | 14 | 6 | 53 events/min |
 | clef, related only, p ≥ 0.8 | 75.0 % | 10 | 0 | 53 events/min |
@@ -194,7 +194,7 @@ but only 10 of 20 attacks). Lab data, 40 events: differences of 2–3 events are
 Kubernetes platform on the monitoring computer, instead of a host service. Two model deployments share the GPU
 (time-slicing, 4 replicas, no memory isolation): **clef** (`Cloudflare/clef`, SGLang, FP8) behind the loopback
 NodePort `http://127.0.0.1:30891` (`/v1/systemone`; requests must carry `"model":"Cloudflare/clef"`), and the
-reviewer **Gemma 4 26B** (vLLM, FP8) behind `http://127.0.0.1:30892/v1`, added as an AI provider and chosen as
+event reviewer **Gemma 4 26B** (vLLM, FP8) behind `http://127.0.0.1:30892/v1`, added as an AI provider and chosen as
 the correlation model. Select it on **AI review → Decision model server → Backend**; the page then shows the
 cluster deployment, replicas, image and what is actually being served instead of systemd. Notes:
 - Memory is unified (CPU and GPU share it): keep both models FP8 and start them one at a time; two bf16 loads can
@@ -204,7 +204,7 @@ cluster deployment, replicas, image and what is actually being served instead of
 - Health: SGLang answers `/health` with an empty 200 (healthy). The review worker tries it 3 times before it
   pauses reviews with "decision model unreachable".
 - The AI review **Status** badge shows *Error* with a card explaining the cause (decision model unreachable,
-  reviewer problem, event review / classification failed, worker error), since when, and that it retries by
+  event reviewer problem, event review / classification failed, worker error), since when, and that it retries by
   itself; the error clears after the next clean pass.
 
 **The server (LM Studio / llama.cpp backend).** LM Studio can load clef but cannot run it ("context does not support logits computation"). It runs
@@ -242,32 +242,32 @@ lost request twice, 30 s each). Out of memory → clef-flash or a smaller quant.
 
 | Setting | Default | |
 |---|---|---|
-| Use the decision model | on | off = the reviewer decides links again (older flow below) |
-| Related if p ≥ | 0.5 | lower = more links kept (0.2 raised agreement with past reviewer verdicts from 46 % to 62 %) |
+| Use the decision model | on | off = the event reviewer decides links again (older flow below) |
+| Related if p ≥ | 0.5 | lower = more links kept (0.2 raised agreement with past event reviewer verdicts from 46 % to 62 %) |
 | Event suspicious if p ≥ | 0.5 | higher = fewer alarms, fewer attacks caught (see the table above) |
 | `NETMON_CLEF_URL` (dashboard/.env) | `http://127.0.0.1:8091` | loopback only; set when the server port changes |
 | `NETMON_CLEF_MODEL` | `cloudflare_clef` | the model name written on verdicts |
 | `NETMON_CLEF_WORKERS` | 4 | parallel questions (match the server's Parallel) |
 
 The card shows links decided per minute, related / not related over 24 h, average time per link, events reviewed per
-minute, suspicious / benign / expected counts, how often the reviewer's own label agrees with clef's, and the
-7-day label matrix (clef rows vs reviewer columns).
+minute, suspicious / benign / expected counts, how often the event reviewer's own label agrees with clef's, and the
+7-day label matrix (clef rows vs event reviewer columns).
 
 ### Without the decision model (older flow)
 
-Each event with undecided candidates becomes one reviewer request (up to 10 candidates, two in parallel); the model
+Each event with undecided candidates becomes one event reviewer request (up to 10 candidates, two in parallel); the model
 answers *related / not related* per candidate with a confidence, reason and artifacts, and the optional **event
 classification** (below) labels events afterwards. Local (LM Studio) gets temperature 0 and JSON-schema output; an
 admin-added API provider gets the answer format in the prompt. The prompt tells the model to be sceptical of
 coincidences and to treat everything inside `<event>` tags as data, never as instructions.
 
-**Which model it uses.** AI review → Models → Correlation reviewer picks the provider and model explicitly; that
+**Which model it uses.** AI review → Models → Event reviewer picks the provider and model explicitly; that
 choice is remembered until someone changes it. If nothing has ever been chosen, it defaults to the first enabled,
 configured provider with at least one model (an admin-added API provider before Local (LM Studio), since the
-reviewer calls far more often than a typical API rate cap allows) - **the reviewer no longer requires Local
+event reviewer calls far more often than a typical API rate cap allows) - **the event reviewer no longer requires Local
 (LM Studio) to be running.** If the chosen provider is later disabled or deleted, the next run raises a clear
 error on the AI review page instead of silently falling back, so pick another model there. Mind each API
-provider's calls-per-hour cap (AI review → AI providers): the reviewer can fire many calls a minute, so a
+provider's calls-per-hour cap (AI review → AI providers): the event reviewer can fire many calls a minute, so a
 cloud provider meant for the occasional on-request research will hit its cap quickly unless you raise it.
 
 | Setting (`dashboard/.env`) | Default | |
@@ -280,13 +280,13 @@ cloud provider meant for the occasional on-request research will hit its cap qui
 
 Local (LM Studio) is itself an AI review → **AI providers** row: an admin can disable it or set its calls-per-hour
 cap there, same as any other provider (no key or URL to enter - those come from `NETMON_LLM_URL` and the live
-model list). Besides Local (LM Studio), the reviewer can use any provider an admin adds on AI review > **AI
+model list). Besides Local (LM Studio), the event reviewer can use any provider an admin adds on AI review > **AI
 providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mode 600)). These are OpenAI-compatible
 (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
 its own calls-per-hour cap.
 
-### What the reviewer is given
+### What the event reviewer is given
 
 Each event in a request carries its type, time, severity, label and **known artifacts** (users, processes, files, DNS
 names and IPs read from the event itself, section 2). On top of that it gets context written by people and by earlier
@@ -299,10 +299,10 @@ shown is not repeated):
 | `<artifact_note>` | A person's notes on a file, process, user, IP or DNS artifact (📝 beside the artifact in the Related popover, subject `art:<kind>:<value>`), up to 25, those named in these events first | authoritative |
 | `<ai_note>` | The research verdict and summary for the event, AI-written and profile host notes (including the *expected behavior* notes below), and each named account's profile from **Network → Users** (usual hosts, sources, methods, hours) | informed but unverified |
 
-**Notes are chosen by artifact first.** Every host note (people's, AI-written, reviewer, internet and profile notes) is indexed
+**Notes are chosen by artifact first.** Every host note (people's, AI-written, event reviewer, internet and profile notes) is indexed
 by the artifacts it is about: IPs (internal and internet), DNS names, ports, processes / files (by base name) and accounts. They
 are read from the note's subject, its `[reviewer:<kind>:<value>]` tag and its text. Before a review prompt is built, the
-reviewer collects the same kinds of artifact from each event (its host and destination IPs, the files, processes, users and DNS
+event reviewer collects the same kinds of artifact from each event (its host and destination IPs, the files, processes, users and DNS
 names the script read from it, and the IPs, ports and names in its label) and looks them up in that index. Notes are then
 ranked by match: IP, DNS name or process = 3 points, account = 2, port = 1; a note that matches only on a port (under 2 points)
 is never picked. Highest score first, then the old order (decision, role, baseline, behavior, config, risk, watch, other, newest
@@ -311,14 +311,14 @@ but name the same IP address or DNS name (for example a note on a backup server 
 shows); those are shown to the model as `(matches ip:…)`. Processes, files, accounts and ports are local to a host, so a note on
 another host never matches on them (an `art:` subject note about that process or account still does). A `[reviewer:…]` tag whose
 value is not of its kind (`[reviewer:ip:25565]`, `[reviewer:dns:LivingRoomTV]`, `[reviewer:process:8.8.8.8]`, a protocol, analyzer or port filed as a process such as `[reviewer:process:dns]`, `[reviewer:process:spicy_stun]`, `[reviewer:process:ssh/publickey]` or `[reviewer:process:8220/tcp]`, a detection name filed as an account (`THREAT_BLOCKED_V3`), or a device name filed as an account) is not indexed;
-`kb.valid_art` checks every reviewer artifact before it is stored or tagged. *Expected* artifact notes (`corr_llm._note_expected`)
+`kb.valid_art` checks every event reviewer artifact before it is stored or tagged. *Expected* artifact notes (`corr_llm._note_expected`)
 go only to the host that owns the artifact: the single source host of an event that really carries it, by artifact key and
 kind (`corr_llm.art_owners`); an artifact in neither event, or in an event with several source hosts, gets no note. Generated `[profile:…]` notes are only used for their own host, never
 matched across hosts. Each note's artifacts are refreshed whenever it is added or edited, and existing notes were indexed once
-at upgrade. Artifacts a reviewer writes into its notes (the `[reviewer:…]` tag and the value in the text) are what make the next
-reviews find them. On the Notes page, the Internet notes pages and the notes cards, each note shows its artifacts as chips under the text (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port), so you can see what the reviewer will match on.
+at upgrade. Artifacts an event reviewer writes into its notes (the `[reviewer:…]` tag and the value in the text) are what make the next
+reviews find them. On the Notes page, the Internet notes pages and the notes cards, each note shows its artifacts as chips under the text (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port), so you can see what the event reviewer will match on.
 
-**DNS notes.** Notes on `dom:<domain>` (or `art:dns:<domain>`) apply by suffix: a note on `example.com` covers `a.b.example.com`; a note on `b.example.com` covers only that name and below. For each event the DNS names are taken from its dns artifacts and its label (`kb.dns_names`), the matching notes are found with `kb.dns_notes_for` (most specific first, up to 6) and are shown to the reviewer as `dns note [domain]` (or `dns note [example.com covers a.b.example.com]`) and to event research as `dns_notes` on each work item. When the reviewer judges a `dns` artifact and adds a `note`, `corr_llm._note_dns` writes a host note on `dom:<name>` (one per name, tagged `[reviewer:dns:<name>]`, updated in place; the name must appear in one of the two events). `GET /api/kb/dns` lists domains with their notes.
+**DNS notes.** Notes on `dom:<domain>` (or `art:dns:<domain>`) apply by suffix: a note on `example.com` covers `a.b.example.com`; a note on `b.example.com` covers only that name and below. For each event the DNS names are taken from its dns artifacts and its label (`kb.dns_names`), the matching notes are found with `kb.dns_notes_for` (most specific first, up to 6) and are shown to the event reviewer as `dns note [domain]` (or `dns note [example.com covers a.b.example.com]`) and to event research as `dns_notes` on each work item. When the event reviewer judges a `dns` artifact and adds a `note`, `corr_llm._note_dns` writes a host note on `dom:<name>` (one per name, tagged `[reviewer:dns:<name>]`, updated in place; the name must appear in one of the two events). `GET /api/kb/dns` lists domains with their notes.
 
 **Note review (accept / reject).** `host_notes` has `status` ('' not reviewed, `approved`, `rejected`), `reviewed_by`, `reviewed_at` (added to `kb.db` automatically). An admin or defender sets it with `POST /api/kb/host {action: approve|reject|clear, id}`. `approved` makes `corr_llm._human()` true, so the note goes in the owner-notes group and research items carry `authoritative: true`. `rejected` notes are dropped by every AI-facing read (`kb.host_notes(..., ai=True)`, `notes_by_artifacts`, `dns_notes_for`, `kb.dump`, `netmon_mcp`) but stay on the pages. `add_host_note` raises for an `ai` author changing an approved/rejected note, and `kb.put` will not delete one, so the AI can neither edit nor recreate them. A person editing a note clears its status.
 
@@ -326,7 +326,7 @@ Host notes are ordered decision, role, baseline, behavior, config, risk, watch, 
 first because they decide most "expected" calls. Unapproved User notes never reach the AI. The prompt tells the model
 never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evidence of harm.
 
-### What the reviewer writes back
+### What the event reviewer writes back
 
 - **Verdict**: related or not, confidence (0–1), reason (under 25 words).
 - **Artifacts** for every related link (the model is asked for at most 6 per candidate; up to 12 are kept, including searches): the file, process, user, IP or DNS name that ties the two events
@@ -348,19 +348,19 @@ never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evid
 ### Event classification (optional, older flow)
 
 With the decision model on, every event is labelled in stage 2 and this switch is not needed.
-**AI review → Review limits → Classify events** (off by default) makes the reviewer give every event whose correlation
+**AI review → Review limits → Classify events** (off by default) makes the event reviewer give every event whose correlation
 review is finished one label: **suspicious** (needs a person's eye), **benign** (odd but harmless) or **expected**
 (normal for this device, user or task), with a confidence and reason. An event qualifies when none of its links is
 undecided and at least one is decided; the confirmed related events are the evidence. `benign` / `expected` need a
 supporting owner, artifact or AI note that the reason names, otherwise it says `suspicious`. At most 20 events are
 classified per pass on the newest snapshot, an event is re-classified when its set of verdicts changes, and events
 that are cleared, excluded or muted are skipped. The label is a 🏷 badge next to the Related count (click for the
-reason) and the page shows the totals. Turning it on offers to enable the reviewer's Elasticsearch look-ups too, which
+reason) and the page shows the totals. Turning it on offers to enable the event reviewer's Elasticsearch look-ups too, which
 classification uses. Audit-log purpose: `event-classify`.
 
 ### Review limits (More → AI review → Review limits)
 
-Admins and network defenders choose which candidate links are **never sent** to the reviewer, to save tokens. Skipped
+Admins and network defenders choose which candidate links are **never sent** to the event reviewer, to save tokens. Skipped
 links are neither reviewed nor shown (links that already have a verdict are unaffected). The box shows how many
 candidate links each setting affects.
 
@@ -368,7 +368,7 @@ candidate links each setting affects.
 |---|---|---|
 | **Link types** (grid) | Every event type (`ids`, `alert`, `admin`, `ti`, `gw`, `host`, `finding`, `vuln`, `seg`) × severity (`low`, `medium`, `high`) against every other: each cell is **review** or **skip**. Click a cell to flip it. Cells you never touched inherit the default. | review, except on a brand-new deployment (no verdicts yet): skip, so nothing is sent until an admin opts in |
 | **Severity of `seg`** | Segmentation issues and findings are their own type. Their severity is set by the port: **high** = admin / remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker and Kubernetes APIs, the policy's `sensitive_ports`), **low** = standard service ports (`standard_ports`, default web, mail, DNS, NTP, LDAP…), **medium** = any other (odd) port. All other types take the event's own severity (critical/severe/investigate = high; moderate/warning/review = medium; anything else low). | – |
-| **Time window for the reviewer** | One setting, in minutes: only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans; links further apart are skipped. Events without a time (open vulnerabilities) are never "apart". `0` = no limit. The box shows how many candidate links are outside the window now. | 0 (no limit) |
+| **Time window for the event reviewer** | One setting, in minutes: only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans; links further apart are skipped. Events without a time (open vulnerabilities) are never "apart". `0` = no limit. The box shows how many candidate links are outside the window now. | 0 (no limit) |
 | **Max links per event** | Undecided links one event may have. Best script score first; a link needs room at both of its events; the rest are skipped. `0` = no cap, at most 200. | 0 |
 | **Never send** (events and rules) | *Excluded events*: one event or its whole **family** (4–5 digit numbers such as ports are masked; watcher alerts use their alert key) from the events with the most links. *Rules*: `name` (event label), `host` (an IP of the event or the host in its label) and/or `id`, with `*` / `?` wildcards (no wildcard = contains); every field a rule has must match; scope *both*, *review* or *research*. Up to 500 exclusions and 200 rules. | none |
 | **Discard old verdicts** | Delete verdicts (and artifacts) whose pair has not been a candidate link for more than N days. Runs hourly after a snapshot has refreshed the "last seen" times; person-made verdicts are kept and the freed space is returned to the disk. `0` = keep forever, at most 3650. | 0 |
@@ -394,21 +394,21 @@ listed in its own card on More → Checked. Nothing is bypassed: the event stays
   off with the note `suppressed: rule N: …` and leave their lists; matching alerts leave the feed and are not pushed (a new alert is checked against the rules when it arrives; its correlated artifacts are checked on the next correlation pass, a minute or so later).
 - *Checked page:* the **🚫 Suppressed** card lists the rules (with how many findings and alerts each hid; *remove rule* brings
   everything back) and the suppressed findings (unticking one restores just that finding; the rule stays).
-- *Reviewer does not override:* suppressed events and alerts are still researched and reviewed (their verdicts and notes are
+- *Event reviewer does not override:* suppressed events and alerts are still researched and reviewed (their verdicts and notes are
   kept), but a *suspicious* verdict never un-suppresses them: only removing the rule (or unticking the single finding) does.
-  This differs from plain check-offs, which move back to the findings when the reviewer calls them suspicious.
+  This differs from plain check-offs, which move back to the findings when the event reviewer calls them suspicious.
 - *Storage:* store tables `suppress_rules` and `suppress_log`; API `GET /api/suppress`, `GET /api/suppress/suggest`, and
   `suppress` / `unsuppress` on `POST /api/llm/review-limits`.
 
 **Checked events.** Checked-off events (Alerts, Posture, Fix list, Lateral movement… listed on the Checked page) are
-reviewed and researched like any other event; nothing is skipped because it was cleared. When the reviewer classifies a
+reviewed and researched like any other event; nothing is skipped because it was cleared. When the event reviewer classifies a
 checked event as *suspicious*, it is un-checked and moves back from Checked into the findings; a later *expected* or
 *benign* classification may auto-close it again (only a person's un-check keeps auto-close off an item for good). An
 event a person marked **Expected** or **Benign** (📝 verdict buttons) is never reopened by the AI.
 
 **People's verdicts.** The 📝 notes popover on every event has **✅ Expected / 🟢 Benign / ⚠️ Suspicious** buttons. Each
 saves an event note (with any text typed in the box) that starts `ANALYST VERDICT: <VERDICT> (... authoritative ...)`,
-so every AI prompt that reads event notes (reviewer, research, Ask AI, MCP) sees it, and the verdict is stored in the
+so every AI prompt that reads event notes (event reviewer, research, Ask AI, MCP) sees it, and the verdict is stored in the
 note's `verdict` column. Expected/Benign check the event off at once and auto-close also closes later repeats of it
 (same stable event key), whatever the four auto-close switches say; Suspicious un-checks it and blocks auto-close. A
 person's verdict outranks every AI verdict. A User-role account's verdict waits for a defender/admin approval like any
@@ -426,19 +426,19 @@ and the model's verdicts after backing up both databases.
 
 ### Elasticsearch look-ups (optional)
 
-Off by default. When an admin turns on **AI review → Models → Elasticsearch queries · correlation review**, the reviewer may search the
+Off by default. When an admin turns on **AI review → Models → Elasticsearch queries · correlation review**, the event reviewer may search the
 Security Onion logs for more context before it decides an event's links, for example to check whether the host
 behind an IDS alert also made the failed SSH logins, or whether a domain was resolved before the connection.
 
 | Setting (AI review → Models, admin only) | Default | |
 |---|---|---|
-| **Elasticsearch queries · correlation review** (checkbox) | off | lets the reviewer search the logs |
+| **Elasticsearch queries · correlation review** (checkbox) | off | lets the event reviewer search the logs |
 | **Elasticsearch queries · event research** (checkbox) | on | separate switch: lets event research (Send to research) search the logs (`es_search` tool) |
-| **Max per event** | 3 | the total number of searches the reviewer may run for one event review (one anchor event and its up to 10 candidates), 1–20; classification uses the same budget |
+| **Max per event** | 3 | the total number of searches the event reviewer may run for one event review (one anchor event and its up to 10 candidates), 1–20; classification uses the same budget |
 | **Note characters** | 6000 | total characters of notes in one review request (1,000–100,000, `context_notes.chars`), set below Notes per event; the re-check of a single link uses a third of it |
-| **Notes per event** | 7 | host + user notes the reviewer is given for each event, 1–100 (the `llm_config` settings `context_notes`); more notes = more tokens in |
+| **Notes per event** | 7 | host + user notes the event reviewer is given for each event, 1–100 (the `llm_config` settings `context_notes`); more notes = more tokens in |
 
-The reviewer's switch and **Max per event** are stored in the netmon database (settings document `llm_config`) (`"es_queries": {"enabled",
+The event reviewer's switch and **Max per event** are stored in the netmon database (settings document `llm_config`) (`"es_queries": {"enabled",
 "max"}`, with who changed them and when); the event research switch is part of the event research settings in the netmon
 store (`es_search`). Both take effect from the next review or run. Model comparisons (⇄) never search, so every model gets exactly the
 same prompt.
@@ -461,43 +461,43 @@ How a review works with searches on:
 5. Every search is kept in `corr_llm.db` (`es_queries`: time, event, candidates, model, query, hit count, error),
    written to the audit log (`aireview.esquery`), and every model round is in the audit log as usual
    (`llm.correlation-review`, with the search results in the prompt). Successful searches also become clickable
-   Kibana artifacts on the links they were run for (see *What the reviewer writes back*). Event research's own
+   Kibana artifacts on the links they were run for (see *What the event reviewer writes back*). Event research's own
    searches (DSL through its `es_search` tool, listed on the same page as *Event research searches*) are attached the
    same way to the research notes and links of that batch, shown under **Elasticsearch searches (open in Kibana)** in
    the notes popup.
 
 The AI review page shows the setting under **Models**, the searches made in the current pass, and a
-**Reviewer searches** box with the newest 50 (event under review, the search and its *why*, hits, model).
+**Event reviewer searches** box with the newest 50 (event under review, the search and its *why*, hits, model).
 
 Searching costs time and, with Anthropic or OpenAI reviewers, tokens: each round resends the event, its candidates
 and the earlier results. Most decisions are clear without searching, and the model is told not to search then.
 
 Throughput with Gemma 4 31B on the monitoring host is about 15–30 links a minute. A full day's snapshot (~2,000
-candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If the reviewer's current
+candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If the event reviewer's current
 provider goes down or hits its rate cap, the worker backs off and retries, and links stay *pending* until it's
 reachable again (or an admin picks a different model on AI review → Models).
 
 ### AI review page (More → AI review)
 
-Shows the review job (status, schedule, last run, note coverage, token and cost history), the correlation
+Shows the review job (status, schedule, last run, note coverage, token and cost history), the event
 reviewer's status (reviewing / waiting / idle / error / off), the queue for the current snapshot with % reviewed and
 an ETA, verdicts per hour, tokens per minute and the average tokens in / out per event review, and every decision
 with both events (linked), the verdict, confidence and the model's reason. Boxes, top to bottom:
 
 | Box | What it holds |
 |---|---|
-| **Review job** | Health, reviewer model, schedule, Run now / Pause, latest run summary, note coverage of the current snapshot |
+| **Review job** | Health, event reviewer model, schedule, Run now / Pause, latest run summary, note coverage of the current snapshot |
 | **Time and tokens: review job, event research and Ask AI chat** | Tokens and estimated cost per day, and per researched event |
 | **Decision model** | clef's speed (links / min, time per link), related / not related, event labels per day, on/off and the related threshold |
 | **Decision model server** | (admins) The `netmon-clef` server: status, served model, model file / runtime / parallel / context / batch / port, Save & restart, start / stop, log, stand-up instructions |
-| **Reviewer** | The correlation reviewer's status, speed (verdicts per hour, tokens per minute, average tokens in / out per event review) and error |
+| **Event reviewer** | The event reviewer's status, speed (verdicts per hour, tokens per minute, average tokens in / out per event review) and error |
 | **Queue: events without a note** / **Links awaiting review** | The two queues. **Clear event queue** and **Clear review queue** (admins) sit under them and ask for confirmation |
-| **Models** | Provider and model for the correlation reviewer (also the review job's reviewer), event research and chat; the Elasticsearch switches (reviewer, event research) and **Max per event**; **Notes per event** |
+| **Models** | Provider and model for the event reviewer (also used by the review job), event research and chat; the Elasticsearch switches (event reviewer, event research) and **Max per event**; **Notes per event** |
 | **AI providers** | Added API providers, calls-per-hour caps, Local (LM Studio) on/off |
 | **Review limits** | Link types grid, time window, max links per event, never-send events and rules, verdict retention, event classification (above) |
 | **Event research limits** | Cost and size caps of event research (section 5) |
 | **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again, **⇄** compares models |
-| **Reviewer searches** / **Event research searches** | The newest Elasticsearch searches of each AI |
+| **Event reviewer searches** / **Event research searches** | The newest Elasticsearch searches of each AI |
 
 ## 4. Working through it on the dashboard
 
@@ -505,7 +505,7 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
   intel, Fix list, Risk). The number opens a popover listing each related event: its type, the event pair
   (e.g. *Alert – IDS*), its time, **✓ confirmed** + the model's reason and ✨ model (or *AI review pending*), the
   script's evidence, and **Correlated artifacts**: host and destination IPs plus the users, processes, files and DNS
-  names read from the event, then the reviewer's own artifacts with their `benign` / `expected` / `suspicious` call and
+  names read from the event, then the event reviewer's own artifacts with their `benign` / `expected` / `suspicious` call and
   relation, and 🔭 query buttons that open the AI's Elasticsearch searches in Kibana. 📝 beside an artifact adds your
   note on it (the AI reads it). Each item jumps to its own list filtered to that one event (`?ev=<id>`). That event has
   its own Related count, so you can keep pivoting. Beside the count: **✨ notes** (the research note, with its
@@ -528,7 +528,7 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 There are two separate host jobs:
 
 - **The review job** (`review.py`) runs on the schedule (or **Run now**). It collects and analyzes a fresh snapshot, then
-  its **reviewer**, which is the correlation reviewer's model (e.g. Gemma on LM Studio), copies earlier notes onto events
+  its **event reviewer** (the event reviewer's model, e.g. Gemma on LM Studio) copies earlier notes onto events
   that repeat. Everything else waits in the **queue**. It never researches an event, has no web access and never writes
   a note of its own.
 - **Event research** (`research.py --event ID`) runs only when a person clicks **Send to research**. It uses the
@@ -550,7 +550,9 @@ flowchart LR
 
     subgraph JOB["Review job — review.py (scheduled / Run now)"]
         C["Collect + analyze\ncollect.py, analyze.py (no model)"]
-        RV{"Reviewer\n(correlation reviewer's model)\nreview-mode events vs prior notes"}
+        RV{"Event reviewer
+(review job)
+review-mode events vs prior notes"}
         Q["Queue\nwaits for a person"]
     end
 
@@ -559,7 +561,7 @@ flowchart LR
     end
 
     subgraph OUT["What they write (validated submit_* tools only)"]
-        COPY["Copied note\n(marked 'Copied by the reviewer')\nenrich.sh copy"]
+        COPY["Copied note\n(marked 'Copied by the event reviewer')\nenrich.sh copy"]
         NOTES["Research note, link verdicts,\nhost notes -> enrich.sh put"]
         SRC2["sources documents (netmon.db)\ncited pages only"]
     end
@@ -581,16 +583,16 @@ flowchart LR
 ```
 
 - **Collect + analyze** (`collect.py`, `analyze.py`) build the snapshot and fold it into the baseline. No model is involved.
-- **Reviewer** (review job) handles events whose category is set to **review** and that have no note of their own.
+- **Event reviewer** (review job) handles events whose category is set to **review** and that have no note of their own.
   `enrich.py` attaches the candidate prior notes to each such event: the note of the same event family, notes of
-  correlated events, and notes on same-type events whose label is at least 60 % similar (numbers masked). The reviewer
+  correlated events, and notes on same-type events whose label is at least 60 % similar (numbers masked). The event reviewer
   (prompt `prompts/reviewer.md`; tools: Elasticsearch, device lookup, notes KB) answers per event with `submit_review`:
   **copy** (naming which prior note and why) or **queue** (leave it for a person). A copy is stored by `enrich.sh copy` /
   `enrich.py copy_notes`: the earlier verdict, priority, summary, links and research text are reused, with a first line
-  `[Copied by the reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
-  re-researched.]`, and the note's source shows "reviewer (copied note)". The reviewer is told to queue an event when
+  `[Copied by the event reviewer (<model>) from the note on <id> (<date>), researched by <model>: <reason>. Not
+  re-researched.]`, and the note's source shows "reviewer (copied note)". The event reviewer is told to queue an event when
   unsure, when a malicious/suspicious prior doesn't clearly match, or when the prior is old; events with no prior at all
-  are queued without asking it. If the reviewer fails, or no reviewer model is usable, its events stay queued, so nothing
+  are queued without asking it. If the event reviewer fails, or no event reviewer model is usable, its events stay queued, so nothing
   is dropped. The run summary shows how many notes were copied and how many stayed queued.
 - **Event research** (`research.py`) runs only on a Send to research click, for one event, with the broadest toolset:
   it can query Elasticsearch, look up a device's full history, read the notes KB, and search/fetch the open web (when
@@ -611,8 +613,8 @@ flowchart LR
 | On / off | on | **Pause** on the Review job card stops scheduled runs |
 
 The per-event-category setting (**review** / **queue** / **test** / **skip**, categories `host`, `ids12`, `gw`, `ti`,
-`alert`, the three `seg_*` severities and `high` / `medium` / `low` / `info` for the rest) decides what the reviewer
-considers and what shows in the queue: *review* events go to the reviewer first, *queue* events go straight to the
+`alert`, the three `seg_*` severities and `high` / `medium` / `low` / `info` for the rest) decides what the event reviewer
+considers and what shows in the queue: *review* events go to the event reviewer first, *queue* events go straight to the
 queue, *test* events are listed and tagged *testing*, *skip* events are ignored. New deployments start every category in
 **test**. These live in the netmon store (`netmon.db`, `meta` table, keys `review_job` and `review_lookback`;
 `review_cfg.py`, `lookback.py`), so the dashboard container and the host scheduler read the same values. Settings
@@ -633,11 +635,11 @@ research). A research run stops at its next model call once a cap is passed; wha
 | Research batches | 10 | Research conversations per run (8 events each), max 40 |
 | Searches per event | 3 | Web searches per researched event, max 20; ignored when web access is off |
 | Web access | off on new deployments | Lets the research model search and read web pages and cite them; off = local data only |
-| Elasticsearch (Models box) | on | Lets event research's `es_search` tool run (separate from the correlation reviewer's switch) |
+| Elasticsearch (Models box) | on | Lets event research's `es_search` tool run (separate from the event reviewer's switch) |
 
-## 6. The reviewer — copy an earlier note or leave the event queued
+## 6. The event reviewer — copy an earlier note or leave the event queued
 
-The reviewer is the model step of a review-job run inside `review.py` (`Review.review_items`), using the correlation reviewer's model. Its job is to avoid
+The event reviewer is the model step of a review-job run inside `review.py` (`Review.review_items`), using the event reviewer's model. Its job is to avoid
 paying for research twice: when an event is the same activity as one already researched, the earlier note is reused;
 everything else stays in the queue until a person sends it to research. Only events whose category is **review**
 (the per-category setting kept in the store) and that have **no note of their own** enter this phase. Events set to *queue*
@@ -654,16 +656,16 @@ flowchart LR
         end
     end
 
-    subgraph REV["Reviewer — review.py review_items"]
+    subgraph REV["Event reviewer — review.py review_items"]
         NP{"Any prior\nnote?"}
-        RM["Reviewer model\nprompts/reviewer.md\nbatches of 16, max 20 turns"]
+        RM["Event reviewer model\nprompts/reviewer.md\nbatches of 16, max 20 turns"]
         TOOLS["Read-only tools\nes_search, device_lookup, notes_kb"]
         SUB["submit_review\nvalidated decision per item"]
         DEC{"Decision"}
     end
 
     subgraph OUT["What happens next"]
-        CP["enrich.sh copy -> copy_notes\nverdict, priority, summary, links, research reused\nfirst line: Copied by the reviewer ... Not re-researched\nsource: reviewer (copied note)"]
+        CP["enrich.sh copy -> copy_notes\nverdict, priority, summary, links, research reused\nfirst line: Copied by the event reviewer ... Not re-researched\nsource: event reviewer (copied note)"]
         RS["Queue\nwaits for a person\n(Send to research)"]
         STAT["Run summary\nnotes copied / left queued"]
     end
@@ -687,16 +689,16 @@ flowchart LR
 **Step by step**
 
 1. **Collect work items.** `enrich.sh events` lists the snapshot's work items. Review-mode items without a note are
-   handed to the reviewer.
+   handed to the event reviewer.
 2. **Attach prior notes** (`enrich.py _prior`). Each item gets a `prior` list: the note of the same event family,
    notes of correlated events (up to 8, see section 2), and notes on same-type events whose label is at least 60 %
    similar with numbers masked (up to 4, via `difflib`). Each prior carries `how` it was found, its label, verdict,
    priority, summary, research (first 800 characters) and age in hours.
 3. **No prior, no model call.** Items with nothing to compare against stay queued.
-4. **Ask the reviewer.** The rest go to the model in batches of 16 (system prompt: analyst + `prompts/reviewer.md`),
+4. **Ask the event reviewer.** The rest go to the model in batches of 16 (system prompt: analyst + `prompts/reviewer.md`),
    with `es_search`, `device_lookup` and `notes_kb` available to check the item's evidence against the prior note.
    It answers once through `submit_review` with `{id, action: "copy"|"queue", from?, reason}` for every item.
-5. **Rules the reviewer follows.** Copy only when it is the same activity: same signature or rule, same kind of
+5. **Rules the event reviewer follows.** Copy only when it is the same activity: same signature or rule, same kind of
    source and destination, same behaviour, nothing in the item's evidence or `user_notes` that contradicts the prior
    verdict. Leave it queued when hosts, ports or behaviour differ, when a malicious/suspicious prior does not clearly
    match, when the prior is old, when the match is loose, or when unsure. A wrong copy hides a real event.
@@ -704,22 +706,22 @@ flowchart LR
    that is not one of that item's prior note ids. If some items get no decision, the tool tells the model to fill
    them in.
 7. **Store copies.** Copy decisions go to `enrich.sh copy` (`copy_notes`), which reuses the earlier verdict,
-   priority, summary, links and research, prefixed with `[Copied by the reviewer (<model>) from the note on <id>
+   priority, summary, links and research, prefixed with `[Copied by the event reviewer (<model>) from the note on <id>
    (<date>), researched by <model>: <reason>. Not re-researched.]`. The note's source reads "reviewer (copied note)".
 8. **Leave the rest queued.** Every item not copied waits in the queue; only a click on **Send to research** researches it (`research.py`).
 
-**Failure behaviour.** Nothing is dropped. If a reviewer batch errors, its items stay queued and the error is
+**Failure behaviour.** Nothing is dropped. If an event reviewer batch errors, its items stay queued and the error is
 listed in the run's errors. If the copy step fails, no copies are stored and all items stay queued. A budget
 overrun stops the run as it would anywhere else.
 
 **Where to see it.** The run summary reports *N earlier notes copied, M left queued*. A copied note shows the
-copy line first and its source on the Notes views, with the usual ✨ model flare for the reviewer's model.
+copy line first and its source on the Notes views, with the usual ✨ model flare for the event reviewer's model.
 
 ## Settings reference
 
 | Setting | Default | Stored in |
 |---|---|---|
-| Correlation reviewer provider + model | first enabled provider with a model | `llm_config` (netmon database) → `correlation` |
+| Event reviewer provider + model | first enabled provider with a model | `llm_config` (netmon database) → `correlation` |
 | Chat provider + model | – | `llm_config` → `chat` |
 | Elasticsearch look-ups for the reviewer: on/off, max per event | off, 3 (1–20) | `llm_config` → `es_queries` |
 | Notes per event | 7 (1–100) | `llm_config` → `context_notes` |
@@ -732,7 +734,7 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 | Review limits: classify events | off | `review_limits.classify` |
 | Decision model on/off, related threshold, event suspicious threshold | on, 0.5, 0.5 | `llm_config` → `clef` |
 | Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
-| Reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `clef_event`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
+| Event reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `clef_event`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
 | Review job schedule and modes; event research settings, pending clicks, dismissed queue | see section 5 | store meta `review_job`, `review_lookback`, `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |
@@ -748,7 +750,7 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
 research notes, device notes, Ask AI answers, and correlation-review reasons (Related popover,
 AI review page). `review.py` records `generated_by: {model, via}` with what it writes. Chat answers record the model that
-answered; correlation verdicts store the reviewer's model id. Fix-list "How to fix" text and risk scores are rule-based (no flare).
+answered; correlation verdicts store the event reviewer's model id. Fix-list "How to fix" text and risk scores are rule-based (no flare).
 
 ## Clearing segmentation findings
 

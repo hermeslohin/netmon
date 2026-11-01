@@ -41,7 +41,7 @@ class AutoCloseOpenEvents(unittest.TestCase):
         return [(a["type"], a["key"]) for a in e["acks"]]
 
     def test_expected_open_events_are_closed(self):
-        """Open events without a snapshot checklist (IDS, gateway) the reviewer calls expected/benign are checked off;
+        """Open events without a snapshot checklist (IDS, gateway) the event reviewer calls expected/benign are checked off;
         a suspicious one stays open, and they leave the Open events list.
         REQ: STO-08
         """
@@ -79,7 +79,7 @@ class AutoCloseOpenEvents(unittest.TestCase):
             store.ack_set(t, k, False)
         autoclose.run({}, {}, [], trigger="test")
         self.assertIn(IDS, {e["eid"] for e in eventstore.open_events()["events"]})
-        _classify(GW, "suspicious")  # the reviewer changes its mind about GW
+        _classify(GW, "suspicious")  # the event reviewer changes its mind about GW
         r = autoclose.run({}, {}, [], trigger="test")
         self.assertEqual(r["reopened_verdict_changed"], 1)
         for t, k in gw_refs:
@@ -120,7 +120,7 @@ class AutoCloseOpenEvents(unittest.TestCase):
 
     def test_person_verdict_is_authoritative(self):
         """A person's Expected/Benign verdict note closes the event even with every option off and is never reopened by
-        an AI 'suspicious'; a person's Suspicious keeps it open even when the reviewer says expected.
+        an AI 'suspicious'; a person's Suspicious keeps it open even when the event reviewer says expected.
         REQ: STO-08
         """
         import kb

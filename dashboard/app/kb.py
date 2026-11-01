@@ -6,7 +6,7 @@ knowledge carries over between runs instead of being re-researched. People can a
 
 Event notes are written by people on any event row (the 📝 button next to the Related count). They are keyed by the
 same stable event key as the AI research notes (enrich.skey), so a note carries over to later snapshots of the same
-finding / alert family. The AI treats them as analyst guidance: the twice-daily enrichment run, the local-LLM correlation
+finding / alert family. The AI treats them as analyst guidance: the twice-daily enrichment run, the local-LLM event
 reviewer and the chat assistant all read them.
 
 Approval gate: notes written by an admin or network defender are approved when written. Notes written by a User-role
@@ -18,7 +18,7 @@ Subjects (host notes):
   mac:<mac>      a network device with a known MAC (preferred - survives DHCP changes)
   ip:<ip>        a network device without a MAC in the registry, or an external IP
   host:<name>    an Elastic Agent endpoint (short host name, lower case)
-  art:<kind>:<value>  a correlated artifact (file path, process, user, ip, dns) listed by the correlation reviewer
+  art:<kind>:<value>  a correlated artifact (file path, process, user, ip, dns) listed by the event reviewer
   dom:<domain>   a DNS domain name (lower case, dot-trimmed) - internal or external
 resolve() turns an IP / MAC / host name / domain into the canonical subject (IP -> MAC via the device registry).
 
@@ -77,7 +77,7 @@ def _db():
 
 # ---------------------------------------------------------------- artifact index
 # Every host note carries the artifacts it is about (IPs, internet IPs, DNS names, ports, processes/files, accounts), read from its
-# subject, its [reviewer:<kind>:<value>] tag and its text. The correlation reviewer looks an event's artifacts up in this index
+# subject, its [reviewer:<kind>:<value>] tag and its text. The event reviewer looks an event's artifacts up in this index
 # BEFORE it chooses which notes to hand to the model (corr_llm._context_notes), so a note about a process, port or internet
 # address reaches the events that show it even when it hangs on a different host.
 _A_IP = re.compile(r"(?<![\d.])((?:\d{1,3}\.){3}\d{1,3})(?![\d.]*\d)")
@@ -298,7 +298,7 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             return resolve(host=v, reg=reg)
         if k == "dom" and v:
             return resolve(dom=v, reg=reg)
-        if k == "art":  # a correlated artifact the reviewer listed: art:<file|process|user|ip|dns>:<value>
+        if k == "art":  # a correlated artifact the event reviewer listed: art:<file|process|user|ip|dns>:<value>
             ak, _, av = v.partition(":")
             av = av.strip()
             if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av and valid_art(ak, av):
@@ -405,7 +405,7 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
 
 
 def review_host_note(note_id, decision, by):
-    """Admin / defender: 'approve' (authoritative for the reviewer and event research), 'reject' (kept, never sent to the AI) or 'clear'."""
+    """Admin / defender: 'approve' (authoritative for the event reviewer and event research), 'reject' (kept, never sent to the AI) or 'clear'."""
     st = {"approve": "approved", "reject": "rejected", "clear": ""}.get(decision)
     if st is None:
         raise ValueError("decision must be approve, reject or clear")
@@ -418,7 +418,7 @@ _RTAG = re.compile(r"\[reviewer:(?:file|process|user|ip|dns):[^\]]{1,200}\]")
 
 
 def tagged_slot(notes, tag, decision=""):
-    """Where the correlation reviewer puts its note for one artifact tag -> (action, note_id).
+    """Where the event reviewer puts its note for one artifact tag -> (action, note_id).
     'update' its own single-artifact note; 'skip' when a consolidated note (several tags, see notes_consolidate.py) already
     covers the tag - overwriting it would wipe the other artifacts - unless the new judgement is suspicious; else 'add'."""
     own = [x for x in notes if x["text"].startswith(tag) and len(_RTAG.findall(x["text"])) == 1]

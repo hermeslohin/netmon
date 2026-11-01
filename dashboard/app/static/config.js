@@ -1,14 +1,14 @@
 // Settings -> Configuration (#/config): Auto-close ("expected"/"benign" events) and Integrations (Elasticsearch, UniFi API).
 (() => {
   const SRC = {
-    reviewer: `the <b>correlation reviewer LLM</b> (it reviews related events and classifies each finished event as suspicious, benign or expected on the Ai pipeline page; runs often, on lighter evidence)`,
+    reviewer: `the <b>event reviewer LLM</b> (it reviews related events and classifies each finished event as suspicious, benign or expected on the Ai pipeline page; runs often, on lighter evidence)`,
     researcher: `the <b>research model</b> (a person clicked <b>Send to research</b>; it searched the logs and wrote a note with a verdict, the “✨” button; a deeper look, so the more conservative source)`,
   };
   const KIND = {
     expected: `<b>Expected</b> — the activity is <i>supposed</i> to happen: a known device doing its known job, or something you did on purpose (a thermostat checking in with its vendor cloud, your own admin SSH logins). The detection is accurate; normal operation explains it.`,
     benign: `<b>Benign</b> — the activity <i>looked</i> suspicious but is harmless and not planned device behavior: an IDS false positive, a one-off anomaly, a device reaching a new but legitimate service. Less predictable than “expected”, so closing it is a bigger leap of trust.`,
   };
-  const LBL = { reviewer: "the reviewer LLM", researcher: "the researcher" };
+  const LBL = { reviewer: "the event reviewer LLM", researcher: "the researcher" };
   const lbl = (o) => { const [s, k] = o.split("_"); return `${LBL[s]} says ${k}`; };
   const OPTS = ["reviewer_expected", "reviewer_benign", "researcher_expected", "researcher_benign"];
   const row = (k, D) => {
@@ -39,11 +39,11 @@
           <span class="muted small">next run ${esc(R.next_run_at ? ft(R.next_run_at) : "?")}${R.last_run_at ? ` · last ${esc(ft(R.last_run_at))} (${esc(R.last_status || "?")})` : ""}</span>
           <span id="rv-msg" class="small"></span></div>
         <div class="muted small">5 to 1440 minutes. Runs sit on a fixed UTC grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day covers 24 h.
-          Each run collects and analyzes the logs, then the reviewer (the correlation reviewer's model, Ai pipeline > Models) copies matching earlier notes; everything else waits in the queue. Events are researched only when a person clicks <b>Send to research</b>.</div>`;
-    const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">Two AI sources judge an event: the <b>reviewer LLM</b> (classifies finished correlation reviews as suspicious, benign or expected) and the <b>researcher</b>
+          Each run collects and analyzes the logs, then the event reviewer (its model is set under Ai pipeline > Models) copies matching earlier notes; everything else waits in the queue. Events are researched only when a person clicks <b>Send to research</b>.</div>`;
+    const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">Two AI sources judge an event: the <b>event reviewer LLM</b> (classifies finished correlation reviews as suspicious, benign or expected) and the <b>researcher</b>
       (event research, run when someone clicks <b>Send to research</b>${iv ? `; never on the review schedule (every ${ivTxt(iv)})` : ""}, writes a note with a verdict: malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event).
       Turn on either or both: the options check off events that the chosen source found “expected” or “benign” (an event either source calls suspicious or malicious is never closed), moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span> naming the source.
-      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after a research note is stored</b> (a Send to research click), and when you press “Run now”. Reviewer verdicts are picked up on those runs too.
+      Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after a research note is stored</b> (a Send to research click), and when you press “Run now”. Event reviewer verdicts are picked up on those runs too.
       Items you have already checked off are untouched; if you uncheck an auto-closed item it stays open; if a later review changes the verdict to something
       else (e.g. suspicious) the item reopens on that run. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
       ${sched}
@@ -72,7 +72,7 @@
       rh.oninput = rm.oninput = chk;
       rs.onclick = async () => {
         const t = tot();
-        if (!confirm(`Run the review job every ${ivTxt(t)}${t < iv ? " (more often = more reviewer calls)" : ""}?`)) return;
+        if (!confirm(`Run the review job every ${ivTxt(t)}${t < iv ? " (more often = more event reviewer calls)" : ""}?`)) return;
         rmsg.className = "small"; rmsg.textContent = "Saving…";
         try { const N = await apiPost("/api/config/review-schedule", { hours: Math.floor(t / 60), minutes: t % 60 }); paint(el, N); }
         catch (e) { rmsg.className = "small sev-high"; rmsg.textContent = String(e); }

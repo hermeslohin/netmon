@@ -1,7 +1,7 @@
 // Notes knowledge base (kb.py): host/device notes (written mostly by the AI, people may add/delete) shown on the host
 // and endpoint pages and on the Notes page, plus people's event notes behind the 📝 button next to every event's
 // Related count (related.js adds the button). The AI reads both before deciding (the review job, event research, correlation
-// reviewer, chat assistant).
+// event reviewer, chat assistant).
 (() => {
   const CATS = ["role", "baseline", "behavior", "decision", "risk", "config", "watch", "other"];
   const when = (t) => (t ? ft(new Date(t * 1000).toISOString()) : "");
@@ -21,19 +21,19 @@
   const VCLS = { expected: "sev-info", benign: "sev-low", suspicious: "sev-high" };
   const vBadge = (n) => (n?.verdict ? `<span class="badge ${VCLS[n.verdict] || ""}" title="A person's verdict: the AI treats it as authoritative">${esc(n.verdict)}</span> ` : "");
   window.kbVBadge = vBadge;
-  // host / internet / DNS notes: a network defender or admin accepts (authoritative for the reviewer and event research) or rejects (kept, never sent to the AI)
+  // host / internet / DNS notes: a network defender or admin accepts (authoritative for the event reviewer and event research) or rejects (kept, never sent to the AI)
   const canRev = () => ["admin", "defender"].includes(S.me?.role);
-  const hnBadge = (n) => n.status === "approved" ? `<span class="badge sev-info" title="Accepted${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: the reviewer and event research treat this note as authoritative">✓ accepted</span>`
-    : n.status === "rejected" ? `<span class="badge sev-high" title="Rejected${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: kept here, never sent to the reviewer or event research">✕ rejected</span>` : "";
-  const hnBtns = (n) => !canRev() ? "" : (n.status === "approved" ? "" : `<button type="button" class="kb-hrev" data-act="approve" data-id="${esc(n.id)}" title="Accept: send to the reviewer and event research as authoritative">✓ Accept</button>`)
-    + (n.status === "rejected" ? "" : `<button type="button" class="kb-hrev" data-act="reject" data-id="${esc(n.id)}" title="Reject: keep the note but never send it to the reviewer or event research">✕ Reject</button>`)
+  const hnBadge = (n) => n.status === "approved" ? `<span class="badge sev-info" title="Accepted${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: the event reviewer and event research treat this note as authoritative">✓ accepted</span>`
+    : n.status === "rejected" ? `<span class="badge sev-high" title="Rejected${n.reviewed_by ? " by " + esc(n.reviewed_by) : ""}: kept here, never sent to the event reviewer or event research">✕ rejected</span>` : "";
+  const hnBtns = (n) => !canRev() ? "" : (n.status === "approved" ? "" : `<button type="button" class="kb-hrev" data-act="approve" data-id="${esc(n.id)}" title="Accept: send to the event reviewer and event research as authoritative">✓ Accept</button>`)
+    + (n.status === "rejected" ? "" : `<button type="button" class="kb-hrev" data-act="reject" data-id="${esc(n.id)}" title="Reject: keep the note but never send it to the event reviewer or event research">✕ Reject</button>`)
     + (n.status ? `<button type="button" class="kb-hrev" data-act="clear" data-id="${esc(n.id)}" title="Undo: back to not reviewed">↺</button>` : "");
   document.addEventListener("click", (e) => { const b = e.target.closest(".kb-hrev"); if (!b) return; e.preventDefault(); e.stopPropagation(); b.disabled = true;
     apiPost("/api/kb/host", { action: b.dataset.act, id: +b.dataset.id }).then(() => rerender(), (er) => { b.disabled = false; alert(er.message); }); }, true);
 
   /* artifact chips under a note: the things the AI matches events against when it picks notes (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port) */
   const AK = { proc: ["⚙️", "process / file"], ip: ["🌐", "IP address"], dns: ["🔎", "DNS name"], user: ["👤", "account"], port: ["🔌", "port"] };
-  const artChips = (n) => { const a = (n.artifacts || []).slice(0, 12); return a.length ? `<div class="note-chips" title="Artifacts in this note. The correlation reviewer matches an event's artifacts against these to choose which notes to read.">${a.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
+  const artChips = (n) => { const a = (n.artifacts || []).slice(0, 12); return a.length ? `<div class="note-chips" title="Artifacts in this note. The event reviewer matches an event's artifacts against these to choose which notes to read.">${a.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
     return `<span class="art-chip" title="${esc(nm)}">${ic} <code>${esc(k.slice(i + 1))}</code></span>`; }).join("")}</div>` : ""; };
   const by = (n) => (n.author === "ai" ? aiFlare({ model: n.model, via: n.via || "AI host notes", at: n.updated ? new Date(n.updated * 1000).toISOString() : "" })
     : `<span class="kb-user" title="Written by a person">👤 ${esc(String(n.author || "").replace(/^user:/, ""))}</span>`);
@@ -79,7 +79,7 @@
     return ip && S.snap?.raw?.devices?.[ip] ? `<a href="#/device/${encodeURIComponent(ip)}">${name}</a> <span class="muted small mono">${esc(ip)}</span>` : `${name} <span class="muted small mono">${esc(v)}</span>`;
   };
   V.notes = async (el) => {
-    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). Event research, the AI Research job, the correlation reviewer and Ask AI read these before deciding.</div>`;
+    el.innerHTML = `<h1>Notes</h1><div class="sub">What the AI has learned about each host and device, and the notes people left on events (📝 next to an event's Related count). Event research, the AI Research job, the event reviewer and Ask AI read these before deciding.</div>`;
     const d = await api("/api/kb/all");
     const hn = d.host_notes || [], en = d.event_notes || [], pend = en.filter((n) => n.status === "pending");
     el.insertAdjacentHTML("beforeend", kpis([["Host notes", hn.length], ["Devices with notes", new Set(hn.map((n) => n.subject)).size], ["By AI", hn.filter((n) => n.author === "ai").length], ["Event notes", en.length], ["Awaiting approval", pend.length]]));
@@ -105,7 +105,7 @@
     const ip = decodeURIComponent(arg || "");
     if (ip.startsWith("dom:")) {  // one domain / subdomain: its notes, the parent domains' notes that cover it, and subdomains with their own notes
       const dom = ip.slice(4), parts = dom.split("."), parents = parts.slice(1, -1).map((_, i) => parts.slice(i + 1).join("."));
-      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › DNS › ${esc(dom)}</div><h1>${esc(dom)}</h1><div class="sub">DNS notes for this name. A note on a domain also covers its subdomains; a note on a subdomain only covers that name and the names below it. The AI reviewers read them when judging DNS activity.</div>`;
+      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › DNS › ${esc(dom)}</div><h1>${esc(dom)}</h1><div class="sub">DNS notes for this name. A note on a domain also covers its subdomains; a note on a subdomain only covers that name and the names below it. The event reviewer and event research read them when judging DNS activity.</div>`;
       el.appendChild(kbCard([`dom:${dom}`, `art:dns:${dom}`], `dom:${dom}`));
       if (parents.length) { el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:10px 0 4px">Notes on parent domains that also apply: ${parents.map((p) => `<a href="#/netnotes/${encodeURIComponent("dom:" + p)}">${esc(p)}</a>`).join(", ")}</div>`);
         el.appendChild(kbCard(parents.flatMap((p) => [`dom:${p}`, `art:dns:${p}`]), `dom:${parents[0]}`)); }
@@ -117,11 +117,11 @@
       return;
     }
     if (ip) {
-      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this external address. The AI reviewers read them when judging whether traffic to it is benign or expected.</div>`;
+      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this external address. The event reviewer and event research read them when judging whether traffic to it is benign or expected.</div>`;
       el.appendChild(kbCard([`ip:${ip}`, `art:ip:${ip}`], `ip:${ip}`));
       return;
     }
-    el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address and DNS name that has a note: what it is, who runs it and why this network talks to it. The correlation reviewer and event research write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
+    el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address and DNS name that has a note: what it is, who runs it and why this network talks to it. The event reviewer and event research write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
     const d = await api("/api/kb/internet"), rows = d.ips || [];
     el.insertAdjacentHTML("beforeend", kpis([["IPs with notes", rows.length], ["Notes", rows.reduce((a, r) => a + r.n, 0)], ["By AI", rows.filter((r) => r.notes.some((n) => n.author === "ai")).length], ["With a person's note", rows.filter((r) => r.notes.some((n) => n.author !== "ai")).length]]));
     el.appendChild(card("Add a note about an external IP", `<form class="kb-form" id="inForm"><input class="kb-ip mono" placeholder="8.8.8.8" aria-label="External IP" size="16"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this address, who runs it, why do we talk to it?"></textarea><button type="submit">Add note</button></form>`));
@@ -135,12 +135,12 @@
       { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "" , sort: (r) => r.notes[0]?.author || "" },
       { k: "notes", t: "Review", fmt: (v) => { const a = v.filter((n) => n.status === "approved").length, r = v.filter((n) => n.status === "rejected").length; return (a ? `<span class="badge sev-info">✓ ${a}</span> ` : "") + (r ? `<span class="badge sev-high">✕ ${r}</span>` : ""); }, sort: (r) => r.notes.filter((n) => n.status).length },
       { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], rows, { sort: "updated", filter: true, onclick: (r) => go("netnotes/" + encodeURIComponent(r.ip)) })
-      : `<div class="empty">No external IP has a note yet. The reviewers add them as they investigate; you can add one above.</div>`));
-    // ---- DNS notes: frequent DNS patterns by domain or subdomain (the correlation reviewer and event research write them, people can too)
+      : `<div class="empty">No external IP has a note yet. The event reviewer and event research add them as they investigate; you can add one above.</div>`));
+    // ---- DNS notes: frequent DNS patterns by domain or subdomain (the event reviewer and event research write them, people can too)
     const dd = await api("/api/kb/dns").catch(() => ({ domains: [] })), drows = dd.domains || [];
     el.insertAdjacentHTML("beforeend", `<h2 style="margin:18px 0 6px">DNS notes</h2>`);
     el.insertAdjacentHTML("beforeend", kpis([["Domains with notes", drows.length], ["Notes", drows.reduce((a, r) => a + r.n, 0)], ["Subdomains", drows.filter((r) => r.parent).length], ["By AI", drows.filter((r) => r.notes.some((n) => n.author === "ai")).length]]));
-    el.appendChild(card("Add a DNS note", `<form class="kb-form" id="dnsForm"><input class="kb-dom mono" placeholder="example.com or sub.example.com" aria-label="Domain or subdomain" size="30"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this DNS name, who queries it and how often, is it normal? A note on a domain also covers its subdomains; a note on a subdomain covers only that name."></textarea><button type="submit">Add note</button></form><div class="small muted">The correlation reviewer and the research job read these when judging DNS activity, and add their own as they find recurring patterns (✨).</div>`));
+    el.appendChild(card("Add a DNS note", `<form class="kb-form" id="dnsForm"><input class="kb-dom mono" placeholder="example.com or sub.example.com" aria-label="Domain or subdomain" size="30"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this DNS name, who queries it and how often, is it normal? A note on a domain also covers its subdomains; a note on a subdomain covers only that name."></textarea><button type="submit">Add note</button></form><div class="small muted">The event reviewer and the research job read these when judging DNS activity, and add their own as they find recurring patterns (✨).</div>`));
     el.querySelector("#dnsForm").addEventListener("submit", (e) => { e.preventDefault();
       const f = e.target, d = f.querySelector(".kb-dom").value.trim().toLowerCase().replace(/\.$/, ""), t = f.querySelector(".kb-text").value.trim(); if (!d || !t) return;
       apiPost("/api/kb/host", { action: "add", subject: "dom:" + d, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
@@ -151,7 +151,7 @@
       { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "", sort: (r) => r.notes[0]?.author || "" },
       { k: "notes", t: "Review", fmt: (v) => { const a = v.filter((n) => n.status === "approved").length, r = v.filter((n) => n.status === "rejected").length; return (a ? `<span class="badge sev-info">✓ ${a}</span> ` : "") + (r ? `<span class="badge sev-high">✕ ${r}</span>` : ""); }, sort: (r) => r.notes.filter((n) => n.status).length },
       { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], drows, { sort: "updated", filter: true, onclick: (r) => go("netnotes/" + encodeURIComponent("dom:" + r.domain)) })
-      : `<div class="empty">No DNS notes yet. The reviewers add them when they see a recurring domain; you can add one above.</div>`));
+      : `<div class="empty">No DNS notes yet. The event reviewer and event research add them when they see a recurring domain; you can add one above.</div>`));
   };
 
   /* ---------- event notes popover (📝) ---------- */
@@ -239,7 +239,7 @@
           || `<div class="muted small">No notes on this ${esc(what)} yet.</div>`}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Known CDN / expected contact. / Flag if seen talking to other hosts."></textarea>
         <div><button type="button" class="kb-save">Add note</button></div>
-        <div class="small muted">${subj.startsWith("art:") ? "The correlation reviewer reads these notes when it decides whether events are related and which artifacts matter." : `Treated the same as device notes: the AI reads these before judging traffic to/from this ${esc(what)}.`}</div>`;
+        <div class="small muted">${subj.startsWith("art:") ? "The event reviewer reads these notes when it decides whether events are related and which artifacts matter." : `Treated the same as device notes: the AI reads these before judging traffic to/from this ${esc(what)}.`}</div>`;
       epop.querySelector(".kb-save").onclick = () => {
         const t = epop.querySelector(".kb-text").value.trim(); if (!t) return;
         apiPost("/api/kb/host", { action: "add", subject: subj, category: "watch", text: t }).then(() => erender(btn), (er) => alert(er.message));

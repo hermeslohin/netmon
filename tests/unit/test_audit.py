@@ -222,10 +222,10 @@ class TestEntries(_AuditBase):
         self.assertNotIn("usage", a["gen_ai"])
 
     def test_background_actor_switched_off(self):
-        """Entries from the background reviewer are skipped when its sending is switched off; users are not.
+        """Entries from the event reviewer are skipped when its sending is switched off; users are not.
         REQ: AUD-01"""
         with mock.patch.object(integrations, "audit_send", lambda who: who != "reviewer"):
-            audit.action("netmon (background reviewer)", "verdict")
+            audit.action("netmon (event reviewer)", "verdict")
             audit.action("netmon (research job)", "put")
             audit.action("alice", "x")
         self.assertEqual([d["user"]["name"] for d in self.queued()], ["netmon (research job)", "alice"])

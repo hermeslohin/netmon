@@ -45,7 +45,7 @@ class ReviewNeverResearchesTest(unittest.TestCase):
         return calls, cmds
 
     def test_reviewer_only_copies_or_queues(self):
-        """The review job's reviewer only sees review-category items with a prior note, gets no web or submit_notes tool,
+        """The review job's event reviewer only sees review-category items with a prior note, gets no web or submit_notes tool,
         and every item it does not copy stays in the queue.
         REQ: OPS-06"""
         r = _review()
@@ -69,7 +69,7 @@ class ReviewNeverResearchesTest(unittest.TestCase):
         self.assertNotIn("research", r.summary().lower())
 
     def test_no_reviewer_model_makes_no_call(self):
-        """Without a usable reviewer model the run still finishes; review items wait in the queue.
+        """Without a usable event reviewer model the run still finishes; review items wait in the queue.
         REQ: OPS-06"""
         r = _review()
         r.reviewer_ok = False
@@ -78,7 +78,7 @@ class ReviewNeverResearchesTest(unittest.TestCase):
         self.assertEqual(r.counts["queued"], 3)
 
     def test_review_uses_the_correlation_reviewer_model(self):
-        """review.py takes its model from the correlation reviewer (corr_llm), not from the research settings.
+        """review.py takes its model from the event reviewer (corr_llm), not from the research settings.
         REQ: OPS-06"""
         fake = types.SimpleNamespace(_target=lambda: {"provider": "lmstudio", "model": "google/gemma"})
         with mock.patch.dict(sys.modules, {"corr_llm": fake}):

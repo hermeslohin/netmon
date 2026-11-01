@@ -3,7 +3,7 @@ artifact may be one of the event itself or of an event correlated with it).
 
 A suppressed finding is checked off (it moves to More > Checked, note "suppressed: rule N ...") and a suppressed alert is
 hidden from the feed and not pushed. Nothing is bypassed: the event stays in the correlation, is researched and reviewed like
-any other, and if the reviewer classifies it as suspicious it moves back to the findings (corr_llm.reopen_checked) and
+any other, and if the event reviewer classifies it as suspicious it moves back to the findings (corr_llm.reopen_checked) and
 the rule does not close it again. Removing a rule brings back what it suppressed. Rules live in the store (suppress_rules).
 Only events that have a check-off list (baseline / endpoint findings, fix-list items, triage alarms) and alerts can be hidden.
 """
@@ -48,7 +48,7 @@ def _targets(raw, analysis, open_issues, E):
 
 
 def apply(E, raw, analysis, open_issues, related=None, sid=None):
-    """Check off the events a rule covers. Idempotent; a person (or the reviewer) un-checking one is respected."""
+    """Check off the events a rule covers. Idempotent; a person (or the event reviewer) un-checking one is respected."""
     rules = store.suppress_list()
     if not rules or not E:
         return 0

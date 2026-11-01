@@ -1,5 +1,5 @@
 [Unit]
-Description=netmon host broker (dashboard time ranges + reviewer Elasticsearch look-ups)
+Description=netmon host broker (dashboard time ranges + event reviewer Elasticsearch look-ups)
 After=network-online.target
 
 [Service]

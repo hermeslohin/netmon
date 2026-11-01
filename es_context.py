@@ -1,7 +1,7 @@
 #!/usr/bin/python3
-"""Read-only Elasticsearch look-ups for the correlation reviewer (host_broker.py POST /esquery).
+"""Read-only Elasticsearch look-ups for the event reviewer (host_broker.py POST /esquery).
 
-The reviewer model may ask for extra context before it decides a link (AI review > Models > "Elasticsearch
+The event reviewer model may ask for extra context before it decides a link (AI review > Models > "Elasticsearch
 queries"). It never sends Elasticsearch DSL: it sends a small structured request, this module validates it and
 builds the query itself, so the model can only run bounded `_search` requests on the Security Onion indices.
 
@@ -14,7 +14,7 @@ builds the query itself, so the model can only run bounded `_search` requests on
    "why":    "<one line: what the model wants to learn>"}
 
 Results are trimmed (selected flat fields, 400 chars per document) and returned as data; the caller wraps them
-in <es_result> tags and the reviewer's system prompt says never to follow instructions inside them.
+in <es_result> tags and the event reviewer's system prompt says never to follow instructions inside them.
 CLI: es_context.py '<request json>' [anchor_epoch]
 """
 import json, os, re, ssl, sys, urllib.request
@@ -141,7 +141,7 @@ def run(req, anchor=None):
 
 
 def describe():
-    """The query help text placed in the reviewer's system prompt."""
+    """The query help text placed in the event reviewer's system prompt."""
     return "\n".join(f"  - {k}: {v[1]}" for k, v in SOURCES.items())
 
 

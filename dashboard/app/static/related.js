@@ -92,7 +92,7 @@
   }
   const llmLine = () => { const L = S.corr?.llm;
     if (!L || !L.enabled) return "Linked by shared hosts, IPs, domains or accounts, time, ATT&CK technique and vulnerabilities on the hosts involved. (Local LLM review is off.)";
-    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the correlation reviewer (${L.model || "?"}) decides, and event research on request (its verdicts replace the reviewer's). `
+    return `The script proposes links (shared hosts/IPs/accounts, time, ATT&CK, vulnerabilities); the event reviewer (${L.model || "?"}) decides, and event research on request (its verdicts replace the event reviewer's). `
       + `${L.confirmed} confirmed, ${L.rejected} rejected, ${L.pending} awaiting review${L.busy ? " (reviewing now)" : ""}${L.error ? ` · last error: ${L.error}` : ""}.`; };
   // while reviews are pending, refresh the verdicts every 2 minutes so counts and badges catch up
   setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
@@ -103,13 +103,13 @@
   function queryArtHtml(a) {
     const d = a.query || {}, url = window.kibanaQueryUrl?.(d) || "";
     const hits = d.total != null ? `${Number(d.total).toLocaleString()} hits` : "";
-    const tip = `${d.by === "research" ? "Event research" : "Reviewer"} search${d.index ? " of " + d.index : ""}${d.from ? ` · ${String(d.from).slice(0, 16)} → ${String(d.to || "").slice(0, 16)}` : ""}${d.approx ? " · opens an approximation (aggregations / complex clauses are not in the link)" : ""}`;
+    const tip = `${d.by === "research" ? "Event research" : "Event reviewer"} search${d.index ? " of " + d.index : ""}${d.from ? ` · ${String(d.from).slice(0, 16)} → ${String(d.to || "").slice(0, 16)}` : ""}${d.approx ? " · opens an approximation (aggregations / complex clauses are not in the link)" : ""}`;
     return `<li><span class="art-k" title="${esc(tip)}">🔭 query</span> ${url ? `<button type="button" class="kib-btn" data-kib="${esc(url)}" title="${esc(tip)}: open in Kibana Discover"><code>${esc(a.value)}</code> ↗</button>` : `<code title="${esc(tip)}">${esc(a.value)}</code>`}
       ${hits ? `<span class="small muted">${esc(hits)}</span>` : ""}${d.approx ? ` <span class="small muted" title="${esc(tip)}">≈</span>` : ""} ${a.model ? aiFlare({ model: a.model, via: "Elasticsearch search", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`;
   }
   // artifacts of a related event, known before any review: host / destination IPs plus the users, processes, files and
-  // DNS names the correlation script read from the event itself (e.arts); the reviewer's own artifacts replace same kind:value
+  // DNS names the correlation script read from the event itself (e.arts); the event reviewer's own artifacts replace same kind:value
   function ipArts(e, arts) {
     const have = new Set((arts || []).map((a) => a.kind + ":" + a.value)), out = [];
     const add = (kind, value, relation) => { const k = kind + ":" + value; if (!have.has(k)) { have.add(k); out.push({ kind, value, relation, decision: "info" }); } };
@@ -198,7 +198,7 @@
         ${n.research ? `<div class="note-research">${esc(n.research)}</div>` : ""}
         ${artifactsHtml((n.queries || []).map((d) => ({ kind: "query", value: d.kql || d.index || "search", relation: d.why, model: n.model, at: n.at, query: d })), "Elasticsearch searches (open in Kibana)")}
         ${links.length ? `<div class="small"><b>Sources</b><ol class="note-links">${links.map((l) => `<li><a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a></li>`).join("")}</ol></div>` : ""}
-        <div class="small muted">AI research (on request, or copied by the reviewer). Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
+        <div class="small muted">AI research (on request, or copied by the event reviewer). Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
       </div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(560, innerWidth - 16);
@@ -218,7 +218,7 @@
       <div class="note-body"><div><span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span></div>
         ${S.corr?.clef_ev?.[id] ? `<div style="margin-top:4px">${clefEvHtml(S.corr.clef_ev[id])}</div>` : ""}
         <p>${esc(c.reason || "")}</p>
-        <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the reviewer's. Verify before acting.</div></div>`;
+        <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the event reviewer's. Verify before acting.</div></div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
     pop.style.width = w + "px";
@@ -259,7 +259,7 @@
     const d = document.createElement("div"); d.className = "modal-back";
     d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
       <h3>🚫 Suppress this finding</h3>
-      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked/suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
+      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked/suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the event reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
       <div class="small mono sp-label" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
       <input class="sp-name" value="${esc(alertName(sg.label))}" style="width:100%;box-sizing:border-box" title="Signature name">
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small">Only when it involves</span>

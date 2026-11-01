@@ -42,12 +42,12 @@ the dashboard's in-memory copy when Elasticsearch is unreachable).
 | `acks.check` / `acks.uncheck` | Checking an event off / restoring it. |
 | `kb.event`, `kb.host` (`.add`, `.delete`, `.approve`, `.reject`) | 📝 event notes and host notes, and approving User notes. |
 | `aireview.*`, `compare.item`, `compare.adopt`, `aireview.compare` | Confirming/rejecting AI correlation verdicts, running model comparisons, adopting a model's answer, **Clear review queue** / **Clear event queue** (`aireview.clear-review`, `aireview.clear-queue`). |
-| `aireview.esquery` | Each Elasticsearch look-up the background correlation reviewer ran (user `netmon (background reviewer)`, category `database`): the structured query, hit count and error. Written by the app, not by a person. |
+| `aireview.esquery` | Each Elasticsearch look-up the event reviewer ran (user `netmon (event reviewer)`, category `database`): the structured query, hit count and error. Written by the app, not by a person. |
 | `llm.review-limits` | Changes on AI review → Review limits: link-type modes, time window, max links per event, never-send events and rules (including **mute** on an alert, which also deletes the alerts that already fired), verdict retention, event classification on/off. The entry's parameters show the new values. |
 | `research.request` | **Send to research** on an event. |
 | `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask AI: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
 | `users.*` | Adding and deleting users, password resets, role changes, device assignment. Console changes (`docker exec ... server.py add-user / set-role / set-password`) are logged as user `console`. |
-| `config.*`, `llm.config`, `llm.research`, `llm.providers.*`, `llm.esqueries`, `llm.notes` | Integrations (Elasticsearch, UniFi, web search, audit key), Auto-close settings, review-job schedule and lookback, model choice (reviewer, event research, chat), the review job's categories, "Run now" and Pause (`llm.review`), **Event research limits** and its Elasticsearch / web switches (`llm.research`), adding / editing / testing / deleting AI providers, the reviewer's Elasticsearch look-up setting and max per event (`llm.esqueries`), notes per event (`llm.notes`). |
+| `config.*`, `llm.config`, `llm.research`, `llm.providers.*`, `llm.esqueries`, `llm.notes` | Integrations (Elasticsearch, UniFi, web search, audit key), Auto-close settings, review-job schedule and lookback, model choice (event reviewer, event research, chat), the review job's categories, "Run now" and Pause (`llm.review`), **Event research limits** and its Elasticsearch / web switches (`llm.research`), adding / editing / testing / deleting AI providers, the event reviewer's Elasticsearch look-up setting and max per event (`llm.esqueries`), notes per event (`llm.notes`). |
 | `push.*`, `alerts.read`, `account.password` | Notification subscriptions and preferences, marking alerts read, changing your own password. |
 | `ti.lookup`, `compare.item.history`, `aireview.compare.history` | Threat-intel lookups and opening comparison history. |
 | `audit.search` / `audit.open` | Reading the audit log itself (so admins' reading is audited too). |
@@ -66,12 +66,12 @@ note id, ...) and the request parameters with secrets redacted.
 | Action | Who talks to the model | What is stored |
 |---|---|---|
 | `llm.chat` | Ask AI chat, for the signed-in user | The exact text sent to the model (including the context block of the page the 💬 was opened from), the full answer, the chat session id, the tools the model used, provider and model, tokens when reported, duration, status (`completed`, `failed`, `cancelled`, `disconnected`). |
-| `llm.correlation-review` | The background correlation reviewer, user `netmon (background reviewer)` | System prompt, prompt (the anchor event, its known artifacts, the candidate links, and the host / user / artifact notes given as context), the model's JSON answer with artifacts, model, tokens, seconds. With Elasticsearch look-ups on, one entry per round (the search results are in the next prompt). |
-| `llm.event-classify` | The background reviewer when **Classify events** is on, same user | The event, its confirmed related events and notes, and the label (suspicious / benign / expected) with confidence and reason. |
+| `llm.correlation-review` | The event reviewer, user `netmon (event reviewer)` | System prompt, prompt (the anchor event, its known artifacts, the candidate links, and the host / user / artifact notes given as context), the model's JSON answer with artifacts, model, tokens, seconds. With Elasticsearch look-ups on, one entry per round (the search results are in the next prompt). |
+| `llm.event-classify` | The event reviewer when **Classify events** is on, same user | The event, its confirmed related events and notes, and the label (suspicious / benign / expected) with confidence and reason. |
 | `llm.correlation-compare` | AI review → compare models, for the user who ran it | Same as above, one entry per model. |
 | `llm.item-compare` | "Compare models" on a single finding, for the user who ran it | System prompt, the item as sent, the model's answer, verdict in the message, tokens, seconds. One entry per model. |
 | `llm.review-input` | The review job (`review.py` on the host), user `netmon (review job)` | The work list of the newest snapshot (`enrich.sh events`). |
-| `llm.review-copy` | The review job's reviewer | Earlier notes it decided to reuse for similar events (`enrich.sh copy`): the decisions with their reasons. |
+| `llm.review-copy` | The review job's event reviewer | Earlier notes it decided to reuse for similar events (`enrich.sh copy`): the decisions with their reasons. |
 | `llm.research-input` | Event research (`research.py`, started by Send to research), user `netmon (event research)` | The event handed to the research model (`enrich.sh events --only`). |
 | `llm.research-result` | Event research | Everything the model sent back: research notes, verdicts, correlation links (`enrich.sh put`). |
 | `llm.research-hostnotes` | Event research | AI-written host notes it added, changed or deleted (`enrich.sh kbput`). |
@@ -87,9 +87,9 @@ each), and tokens and estimated cost are on the AI review page.
 
 ### Switching the AI sources off
 
-On the Audit log page, **Audit log storage** has two checkboxes: *Send reviewer events* (user `netmon (background reviewer)`: `llm.correlation-review`, `llm.event-classify` and `aireview.esquery`) and *Send researcher events* (user `netmon (event research)`: `llm.research-input`, `-result`, `-hostnotes`). The review job's entries (user `netmon (review job)`) follow *Send reviewer events*. Each is independent and on by default; when off, those entries are dropped (not queued). Stored in the `integrations` settings section `audit` as `send_reviewer` / `send_researcher`; the status API counts them as `skipped`.
+On the Audit log page, **Audit log storage** has two checkboxes: *Send event reviewer events* (user `netmon (event reviewer)`: `llm.correlation-review`, `llm.event-classify` and `aireview.esquery`) and *Send researcher events* (user `netmon (event research)`: `llm.research-input`, `-result`, `-hostnotes`). The review job's entries (user `netmon (review job)`) follow *Send event reviewer events*. Each is independent and on by default; when off, those entries are dropped (not queued). Stored in the `integrations` settings section `audit` as `send_reviewer` / `send_researcher`; the status API counts them as `skipped`.
 
-These switches are separate from the Elasticsearch look-up switches on AI review → Models, which decide whether the reviewer (`llm.esqueries`) or event research (`llm.research`, `es_search`) may *search* Security Onion at all. Event research's own searches are kept for the AI review page and as Kibana links on its notes, but are not individual audit entries; its prompts and results are.
+These switches are separate from the Elasticsearch look-up switches on AI review → Models, which decide whether the event reviewer (`llm.esqueries`) or event research (`llm.research`, `es_search`) may *search* Security Onion at all. Event research's own searches are kept for the AI review page and as Kibana links on its notes, but are not individual audit entries; its prompts and results are.
 Comparisons (`llm.correlation-compare`, `llm.item-compare`) are tied to the person who ran them and are not affected by either switch.
 
 ## What is not recorded
@@ -192,7 +192,7 @@ index for that name.
 | `event.category`, `event.type` | ECS categories: `authentication`, `web`, `iam`, `file`, `process`; `access`, `change`, `info`. |
 | `event.duration` | AI call duration in nanoseconds. |
 | `event.id` | Unique id of the entry. |
-| `user.name`, `user.roles` | Who; `admin`, `defender` or `user`. Background work is `netmon (background reviewer)`, `netmon (review job)` or `netmon (event research)`; console commands are `console`. |
+| `user.name`, `user.roles` | Who; `admin`, `defender` or `user`. Background work is `netmon (event reviewer)`, `netmon (review job)` or `netmon (event research)`; console commands are `console`. |
 | `source.ip`, `user_agent.original` | Client address and browser. |
 | `http.request.method`, `http.response.status_code`, `url.path` | The request. |
 | `message` | One-line summary (shown in the list). |
@@ -225,7 +225,7 @@ Security Onion's detection rules can alert on these too, for example on several 
 ## Retention and volume
 
 There is no automatic deletion yet: the index grows until you add a policy. Most entries come from the background
-correlation reviewer (about one per 3–30 seconds while it is working through new events, several thousand a day on a busy
+event reviewer (about one per 3–30 seconds while it is working through new events, several thousand a day on a busy
 day). User actions are a few hundred a day. An entry with a prompt and answer is typically 2–10 KB.
 
 To keep, for example, 90 days, delete old entries on a schedule with an account that can (the dashboard's key can't):
@@ -248,7 +248,7 @@ or move to a data stream with an ILM policy if you want rollover and automatic d
 | *N rejected* | A field didn't fit the mapping. The storage box shows the Elasticsearch error; check the template. |
 | Page shows *the server answered HTTP … without data* | The dashboard or the Cloudflare tunnel answered with an error page instead of data. Check that the container is running. |
 | No research-job entries | They appear when the review job runs (`enrich.sh events` / `copy`) or someone clicks **Send to research** (`put` / `kbput`), and only if *Send researcher events* is on. |
-| No reviewer entries | *Send reviewer events* is off, or the reviewer is idle (no undecided links). |
+| No event reviewer entries | *Send event reviewer events* is off, or the event reviewer is idle (no undecided links). |
 
 On startup the container log says `audit log -> <url>/logs-netmon (key set)` or `(key NOT set - spooling)`.
 
@@ -259,7 +259,7 @@ On startup the container log says `audit log -> <url>/logs-netmon (key set)` or 
 | `dashboard/app/audit.py` | `action()` and `llm()` build entries; `clean()` redacts secrets; the writer thread, spool, `search()`, `doc()`, `status()`. |
 | `dashboard/app/server.py` | `do_POST` / `do_GET` wrappers write one entry per request (`audit_action_name`, `AUDIT_GET`); the Ask AI handler writes the `llm.chat` entry; `/api/audit*` endpoints (admin only); console commands. |
 | `dashboard/app/chat.py` | `stream()` fills the record of a chat turn (input, answer, tools, status). |
-| `dashboard/app/corr_llm.py`, `itemcmp.py` | Wrap every model call (`_complete`, `_ask`) with an `llm.*` entry, also on errors; the reviewer's Elasticsearch look-ups write `aireview.esquery`. |
+| `dashboard/app/corr_llm.py`, `itemcmp.py` | Wrap every model call (`_complete`, `_ask`) with an `llm.*` entry, also on errors; the event reviewer's Elasticsearch look-ups write `aireview.esquery`. |
 | `dashboard/app/enrich.py`, `kb.py` | Review job and event research input and results. |
 | `integrations.py` | `audit_key()`, `audit_index()`; the `audit` section of the `integrations` document and its **Test**. |
 | `dashboard/app/static/audit.js` | The More → Audit log page. `app.js` reports page views (`auditView`). |

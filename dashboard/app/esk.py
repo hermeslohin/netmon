@@ -1,6 +1,6 @@
 """Elasticsearch searches of the AIs -> Kibana Discover "artifact" descriptors (stdlib only; used by the dashboard and review.py).
 
-An artifact of kind "query" keeps what Discover needs to reproduce a search the reviewer or the research AI ran:
+An artifact of kind "query" keeps what Discover needs to reproduce a search the event reviewer or the research AI ran:
   {"kql": ..., "from": ..., "to": ..., "index": ..., "total": ..., "why": ..., "approx": bool, "by": "reviewer"|"research"}
 `approx` is true when part of the search (aggregations, scripts, odd clauses) cannot be written as KQL: the link then
 opens a broader search than the one the AI ran. The page builds the URL from the site settings (More → Settings) (kibana_url, kibana_data_view).
@@ -43,7 +43,7 @@ def _text_kql(text):
 
 
 def from_norm(norm, total=None, by="reviewer"):
-    """Reviewer's normalised request (es_context.build) -> descriptor."""
+    """Event reviewer's normalised request (es_context.build) -> descriptor."""
     parts = [_index_kql(norm.get("es_index")) or None]
     for f, v in (norm.get("match") or {}).items():
         if _SAFE_FIELD.match(str(f)):

@@ -250,7 +250,7 @@ alone**, so one noisy zone pair cannot flood the high bucket:
 
 Unanswered flows with fewer than 5 attempts, gateway services and flows covered by `allow` are not flagged. The
 severity sets the base of the `seg` Fix-list issue (high 45, medium 28, low 14) and the points the violation gives in
-the source host's *reach* (1 each, max 4). The correlation reviewer's segmentation categories use the same three
+the source host's *reach* (1 each, max 4). The event reviewer's segmentation categories use the same three
 severities ([CORRELATION.md](CORRELATION.md)).
 
 ### Link (edge) score

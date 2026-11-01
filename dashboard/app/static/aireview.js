@@ -1,4 +1,4 @@
-// AI review (#/aireview): the correlation reviewer that confirms or rejects correlation links (corr_llm.py), the
+// AI review (#/aireview): the event reviewer that confirms or rejects correlation links (corr_llm.py), the
 // review job (review.py) and the AI providers / models / cost caps they use.
 // Worker health, queue + ETA, throughput, and every verdict with the model's reason; people can override a verdict
 // (confirm / reject) or send it back to the model for another look.
@@ -29,18 +29,18 @@
     const J = (C.jobs || [])[0], N = C.notes || {}, L = C.links || {}, R = C.runs || [];
     const now = Date.now() / 1000, stale = C.exported && now - C.exported > 3600;
     const lastRun = J && (J.runs || []).find((r) => r.status !== "running" && r.status !== "claimed");
-    const health = !J ? ["No job found", "sev-unknown"] : !J.model ? ["No reviewer model", "sev-medium"] : !J.enabled ? ["Paused", "sev-unknown"] : J.running ? ["Running now", "sev-good"]
+    const health = !J ? ["No job found", "sev-unknown"] : !J.model ? ["No event reviewer model", "sev-medium"] : !J.enabled ? ["Paused", "sev-unknown"] : J.running ? ["Running now", "sev-good"]
       : J.requested ? ["Starting (requested)", "sev-medium"]
       : lastRun && lastRun.status === "failed" ? ["Last run failed", "sev-high"] : J.failure_streak ? ["Failing", "sev-high"] : ["Idle · scheduled", "sev-good"];
     const cov = N.current_events ? Math.round((100 * N.current_with_note) / N.current_events) : 0;
     const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "Review job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
     const c = card(`Review job (${every(null, J && J.interval_minutes)})`, `
-      <div class="small muted" style="margin-bottom:8px">Each run collects and analyzes the logs, then the reviewer (the correlation reviewer's model, see Models) compares
+      <div class="small muted" style="margin-bottom:8px">Each run collects and analyzes the logs, then the event reviewer (its model is set under Models) compares
         new events with earlier notes and copies a matching note. Everything else waits in the <b>Queue</b> for a person. Events are researched only when someone clicks <b>Send to research</b>.</div>
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
-        ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no reviewer model - pick the correlation reviewer in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)} · reviewer</span>` : ""}</span>
+        ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no event reviewer model - pick the event reviewer in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)} · event reviewer</span>` : ""}</span>
         <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
           ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
         ${D.admin ? `<span class="k">Run every</span><span class="rj-iv" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><input class="rj-m" type="number" min="5" max="1440" step="1" value="${J.interval_minutes || 0}" style="width:5.5em"> <span class="small">minutes</span> <span class="small rj-ivmsg"></span> <span class="small muted">5 to 1440 · saves automatically</span></span>` : ""}
@@ -202,7 +202,7 @@
     if (ch) ch.update();
   }
 
-  // ---- model choice (correlation reviewer = review job reviewer, event research, chat) and per-decision model comparison
+  // ---- model choice (event reviewer = also the review job's, event research, chat) and per-decision model comparison
   let MODELS = null;
   const loadModels = async () => { MODELS = MODELS || await api("/api/llm/models"); for (const g of MODELS.custom || []) PROV[g.provider] = g.name; return MODELS; };
   // the local server; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
@@ -231,9 +231,9 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Correlation reviewer: decides every proposed link, continuously, and is also the review job's reviewer (copies matching earlier notes onto new events). Cloud models are billed per call; local models are free but need LM Studio. Event research: used only when a person clicks Send to research - never on a schedule. It needs a reasoning-capable model (several tool calls per event); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
+    note.textContent = D.admin ? "Event reviewer: decides every proposed link, continuously, and is also used by the review job (copies matching earlier notes onto new events). Cloud models are billed per call; local models are free but need LM Studio. Event research: used only when a person clicks Send to research - never on a schedule. It needs a reasoning-capable model (several tool calls per event); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
       : "Only an admin can change models.";
-    const rows = [["correlation", "Correlation reviewer · review job", D.config?.correlation || {}], ["research", "Event research (Send to research only) · needs reasoning", D.research && !D.research.error ? D.research : {}],
+    const rows = [["correlation", "Event reviewer · review job", D.config?.correlation || {}], ["research", "Event research (Send to research only) · needs reasoning", D.research && !D.research.error ? D.research : {}],
       ["chat", "Chat (Ask AI)", D.chat || {}]];
     loadModels().then((M) => {
       if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start LM Studio. " + note.textContent;
@@ -272,14 +272,14 @@
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
-  // Elasticsearch look-ups by the correlation reviewer: on/off + the most it may run for one event review (admin)
+  // Elasticsearch look-ups by the event reviewer: on/off + the most it may run for one event review (admin)
   function esQueriesRow(D) {
     const cfg = D.config?.es_queries || { enabled: false, max: 3, limit: 20 };
     const r = document.createElement("div"); r.className = "llm-row";
     r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries · correlation review" }));
     const lab = r.appendChild(document.createElement("label")); lab.className = "small";
     const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: !!cfg.enabled }));
-    lab.append(" correlation reviewer may search the logs for more context");
+    lab.append(" event reviewer may search the logs for more context");
     const lab2 = r.appendChild(document.createElement("label")); lab2.className = "small";
     lab2.append("max per event ");
     const num = lab2.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: cfg.limit || 20, step: 1, value: cfg.max || 3 }));
@@ -297,10 +297,10 @@
       try { const r2 = await apiPost("/api/llm/esqueries", { enabled: chk.checked, max: mx }); Object.assign(cfg, r2.es_queries || {}); msg.textContent = "saved · " + show(cfg) + " (from the next review)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
-    r.title = "When on, the correlation reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
+    r.title = "When on, the event reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
     return r;
   }
-  // Elasticsearch searches by event research (separate from the correlation reviewer's setting above)
+  // Elasticsearch searches by event research (separate from the event reviewer's setting above)
   function esResearchRow(D) {
     const R = D.research && !D.research.error ? D.research : {};
     const r = document.createElement("div"); r.className = "llm-row";
@@ -318,7 +318,7 @@
       catch (e) { msg.textContent = "error: " + e.message; chk.checked = !chk.checked; }
       chk.disabled = !D.admin;
     });
-    r.title = "When on, event research (Send to research) may run read-only Elasticsearch searches (es_search tool) while researching an event. Independent of the correlation reviewer's setting.";
+    r.title = "When on, event research (Send to research) may run read-only Elasticsearch searches (es_search tool) while researching an event. Independent of the event reviewer's setting.";
     return r;
   }
   // Elasticsearch searches by the Ask AI chat (admin switch)
@@ -339,7 +339,7 @@
       catch (e) { msg.textContent = "error: " + e.message; chk.checked = !chk.checked; }
       chk.disabled = !D.admin;
     });
-    r.title = "When on, the Ask AI chat may run read-only Elasticsearch searches of the Security Onion logs (elasticsearch_search tool) through the host broker. Every search is written to the audit log. Independent of the reviewer and research settings.";
+    r.title = "When on, the Ask AI chat may run read-only Elasticsearch searches of the Security Onion logs (elasticsearch_search tool) through the host broker. Every search is written to the audit log. Independent of the event reviewer and research settings.";
     return r;
   }
   // Nightly host note consolidation (notes_consolidate.py): settings, Consolidate now, last runs
@@ -354,7 +354,7 @@
     kp.innerHTML = kpis([["Host notes", fn(N.notes || 0)], ["AI notes it may merge", fn(N.editable || 0)], ["Hosts to do", fn(N.pending || 0)],
       ["Last run", last ? `${fn(last.notes_before)} → ${fn(last.notes_after)}` : "never"]]);
     const intro = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    intro.textContent = `Once a night the reviewer model (${N.model || "Ai pipeline > Models, Correlation reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
+    intro.textContent = `Once a night the event reviewer model (${N.model || "Ai pipeline > Models, Event reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
     const row = c.appendChild(document.createElement("div")); row.className = "llm-row";
     row.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Nightly run" }));
     const lab = row.appendChild(document.createElement("label")); lab.className = "small";
@@ -401,13 +401,13 @@
       N.runs, { search: false, limit: 10 }));
     return c;
   }
-  // Host / user notes given to the reviewer with each event (admin sets the cap; more notes = more tokens in)
+  // Host / user notes given to the event reviewer with each event (admin sets the cap; more notes = more tokens in)
   function notesLimitRow(D) {
     const cfg = D.config?.context_notes || { max: 7, limit: 100, default: 7 };
     const r = document.createElement("div"); r.className = "llm-row";
     r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Notes per event" }));
     const lab = r.appendChild(document.createElement("label")); lab.className = "small";
-    lab.append("host + user notes the reviewer sees for each event, max ");
+    lab.append("host + user notes the event reviewer sees for each event, max ");
     const num = lab.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: cfg.limit, step: 1, value: cfg.max }));
     num.style.width = "4.5em"; num.setAttribute("aria-label", "Maximum host and user notes per event");
     const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
@@ -423,7 +423,7 @@
       try { const r2 = await apiPost("/api/llm/notes", { max: mx }); Object.assign(cfg, r2.context_notes || {}); msg.textContent = "saved · " + show(cfg) + " (from the next review)"; }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
-    r.title = "Host notes about the hosts an event involves and notes / profiles of the accounts it names are added to each event the reviewer sees. Raising this gives it more context (and more input tokens: see Avg tokens in / event); lowering it makes reviews cheaper.";
+    r.title = "Host notes about the hosts an event involves and notes / profiles of the accounts it names are added to each event the event reviewer sees. Raising this gives it more context (and more input tokens: see Avg tokens in / event); lowering it makes reviews cheaper.";
     return r;
   }
   // Most notes stored per host / user / domain (admin)
@@ -448,7 +448,7 @@
       try { const r2 = await apiPost("/api/llm/notes", { per_subject: v }); Object.assign(cfg, r2.context_notes || {}); msg.textContent = "saved · " + show(cfg); }
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
-    r.title = "How many notes the AI jobs and people can store for one host, user or domain. Once a subject is full, new notes are refused until old ones are updated or deleted. Existing notes are never removed when you lower this. This is the storage cap; 'Notes per event' above is how many the reviewer reads.";
+    r.title = "How many notes the AI jobs and people can store for one host, user or domain. Once a subject is full, new notes are refused until old ones are updated or deleted. Existing notes are never removed when you lower this. This is the storage cap; 'Notes per event' above is how many the event reviewer reads.";
     return r;
   }
   // Total characters of notes in one review prompt (below Notes per event)
@@ -476,7 +476,7 @@
     r.title = "The notes picked for each event are cut off once this many characters are in the request, whatever Notes per event allows (one note is at most 300-400 characters). A request that also has several candidate events shares the budget. More characters = more input tokens and slower reviews; the single-link re-check uses a third of it.";
     return r;
   }
-  // Elasticsearch searches of one AI: the reviewer (structured requests; correlation + review job) or event research (raw query DSL)
+  // Elasticsearch searches of one AI: the event reviewer (structured requests; correlation + review job) or event research (raw query DSL)
   function esCard(D, who) {
     const R = who === "research", E = (R ? D.es_queries?.research : D.es_queries) || { total: 0, last_day: 0, recent: [] };
     const on = R ? true : D.config?.es_queries?.enabled;
@@ -485,9 +485,9 @@
       const m = Object.entries(q.match || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(" ");
       return `<span class="mono">${esc(q.source || "?")}</span> ${esc(m)}${q.text ? ` "${esc(q.text)}"` : ""}${q.group_by ? ` <span class="muted">top ${esc(q.group_by)}</span>` : ""}` +
         `${q.start ? ` <span class="muted small">${esc(String(q.start).slice(5, 16))}→${esc(String(q.end || "").slice(5, 16))}</span>` : ""}${q.why ? `<div class="small muted">${esc(q.why)}</div>` : ""}`; };
-    const title = R ? "Event research Elasticsearch queries" : "Reviewer Elasticsearch queries";
+    const title = R ? "Event research Elasticsearch queries" : "Event reviewer Elasticsearch queries";
     const c = card(`${title} (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
-      `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the reviewer search the logs for more context."}</div>`);
+      `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The event reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the event reviewer search the logs for more context."}</div>`);
     c.id = R ? "ai-es-research" : "ai-es";
     if (E.recent.length) c.appendChild(table(null, [
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
@@ -498,7 +498,7 @@
     ], E.recent, { sort: "ts", limit: 20 }));
     return c;
   }
-  // ---- review limits (admin or network defender): link types and events that are never sent to the correlation reviewer
+  // ---- review limits (admin or network defender): link types and events that are never sent to the event reviewer
   const TYPE_INFO = {
     alert: "Watcher alerts: the 15-minute watcher's urgent notices (new device, host notice, policy breach). The most numerous event type.",
     vuln: "Open fix-list issues: vulnerabilities and misconfigurations (code scan findings, endpoint protection off, recurring system errors). Time-less state, related to events by host.",
@@ -539,12 +539,12 @@
   function limitsCard(D) {
     const Lm = D.limits || { pairs: [], top_events: [], excluded: [] };
     const c = card(`Review limits (${fn(Lm.total || 0)} candidate links)`, `
-      <div class="small muted">Links that are skipped or excluded here are never sent to the reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
+      <div class="small muted">Links that are skipped or excluded here are never sent to the event reviewer (no model call) and leave the queue. Links that already have a verdict are kept.
         Changes apply from the next review round.</div>
       <div class="rl-class" style="margin:10px 0 4px"><label><input type="checkbox" class="rl-cls"> <b>Classify events</b></label>
-        <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the reviewer model.</span>
+        <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the event reviewer model.</span>
         <div class="small rl-clsinfo" style="margin-top:3px"></div></div>
-      <div class="rl-win" style="margin:10px 0 4px"><b>Time window for the reviewer</b>
+      <div class="rl-win" style="margin:10px 0 4px"><b>Time window for the event reviewer</b>
         only correlate events within <input type="number" class="rl-wmax" min="0" step="any" style="width:6em"> minutes before or after each other
         <button type="button" class="rl-wsave">Save</button>
         <span class="small rl-wmsg"></span>
@@ -572,13 +572,13 @@
     cls.checked = !!Lm.classify; cls.disabled = !D.can_limit;
     const cc = Lm.class_counts || {}, ccn = ["suspicious", "benign", "expected"].map((k) => `<span class="note-v v-${k}">${k}</span> ${fn(cc[k] || 0)}`).join(" ");
     clsi.innerHTML = `${Lm.classify ? "<b>On</b>" : "Off"} · classified so far: ${ccn}` +
-      ` · Elasticsearch for the reviewer: ${esCfg.enabled ? `<b>on</b> (up to ${esCfg.max} look-ups per event, used for classification too)` : `off${D.admin ? ' <button type="button" class="rl-es">Let the reviewer use Elasticsearch</button>' : " (an admin can turn it on in the Models box)"}`}`;
+      ` · Elasticsearch for the event reviewer: ${esCfg.enabled ? `<b>on</b> (up to ${esCfg.max} look-ups per event, used for classification too)` : `off${D.admin ? ' <button type="button" class="rl-es">Let the event reviewer use Elasticsearch</button>' : " (an admin can turn it on in the Models box)"}`}`;
     const esb = clsi.querySelector(".rl-es");
     const enableEs = async () => { await apiPost("/api/llm/esqueries", { enabled: true, max: esCfg.max || 3 }); };
     if (esb) esb.onclick = async () => { try { await enableEs(); refresh(); } catch (e) { msg.textContent = "error: " + e.message; } };
     cls.onchange = async () => {
       try {
-        if (cls.checked && !esCfg.enabled && D.admin && confirm("Also let the reviewer search Elasticsearch (read-only Security Onion logs) for more context when it classifies events and reviews links?")) await enableEs();
+        if (cls.checked && !esCfg.enabled && D.admin && confirm("Also let the event reviewer search Elasticsearch (read-only Security Onion logs) for more context when it classifies events and reviews links?")) await enableEs();
         await post({ classify: cls.checked });
       } catch (e) { msg.textContent = "error: " + e.message; }
     };
@@ -639,7 +639,7 @@
     const c = card("AI providers", `<div class="small muted"><b>Local (LM Studio)</b> is the LM Studio server on this host (no key; its enabled flag and rate limit can be set here;
       the model list comes live from LM Studio). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
       OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
-      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the correlation reviewer, event research and the chat,
+      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the event reviewer, event research and the chat,
       and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
       <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
       <div style="margin-top:8px"><button type="button" class="prov-add">Add provider</button> <span class="small muted prov-msg"></span></div>`);
@@ -694,7 +694,7 @@
             <button type="button" class="pf-add">+ Add model</button>
             <div class="small muted">Pick the LM Studio models that can be used, from the drop-down of what is installed. Prices are optional, $ per million tokens (empty = free).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
-          <span class="small muted">cap on single calls (correlation reviewer + comparisons) - limits cost/load if something loops</span></div>
+          <span class="small muted">cap on single calls (event reviewer + comparisons) - limits cost/load if something loops</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
         <div class="llm-row"><span class="k"></span><button type="button" class="pf-save">Save</button><button type="button" class="pf-cancel">Cancel</button>
           <span class="small muted pf-msg"></span></div></div>`;
@@ -723,7 +723,7 @@
             <button type="button" class="pf-add">+ Add model</button> <button type="button" class="pf-fetch">Fetch available models from provider</button>
             <div class="small muted">Pick each model from the drop-down (use Fetch to fill it, or choose "Custom…" to type an id). Prices are optional, in $ per million tokens; with them the dashboard estimates costs and enforces the event research $ caps (token caps work without).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
-          <span class="small muted">cap on this provider's single calls (correlation reviewer + comparisons) - limits cost if something loops</span></div>
+          <span class="small muted">cap on this provider's single calls (event reviewer + comparisons) - limits cost if something loops</span></div>
         <div class="llm-row"><span class="k">Extra reasoning tokens</span><input name="reasoning_tokens" type="number" min="0" max="32000" step="500" style="width:7em">
           <span class="small muted">added to each answer's token limit for models that think first (OpenAI gpt-5 / o-series: ~3000; others 0)</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
@@ -767,23 +767,23 @@
 
   // ---- event research cost caps (research_cfg.py): $ per research run / per day, tokens per run, batches
   // events sent through the review phase per day (review_events: one row per event review, kept 30 days)
-  // Decision model (clef-flash) decides every link; the reviewer model makes one pass per event (suspicious / benign / expected + link notes)
+  // Decision model (clef-flash) decides every link; the event reviewer model makes one pass per event (suspicious / benign / expected + link notes)
   function clefCard(D) {
     const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {}, ev = K.events_day || {};
     const pc = (n, t) => (t ? Math.round((100 * n) / t) + "%" : "—");
     const c = card("Decision model", K.error ? `<div class="bad">Unavailable: ${esc(K.error)}</div>` : `
       <div class="small muted">Correlation review in two stages. <b>1.</b> The correlation script proposes links → <b>${esc(cfg.model || "clef-flash")}</b>
-        answers yes/no <i>related?</i> for every link; that answer is the verdict. <b>2.</b> Once no link is left undecided, the reviewer model
+        answers yes/no <i>related?</i> for every link; that answer is the verdict. <b>2.</b> Once no link is left undecided, the event reviewer model
         (${esc(D.status?.model || "")}) makes one call per event with all its related events and notes. The <b>decision model labels the event</b>
-        suspicious / benign / expected (yes/no <i>suspicious?</i> and <i>expected?</i> over the event and all its candidate events); the reviewer writes the
-        reason, a link note and artifacts for each related event, and its own label is kept only for the agreement figure. The reviewer never decides a link or a label.</div>
+        suspicious / benign / expected (yes/no <i>suspicious?</i> and <i>expected?</i> over the event and all its candidate events); the event reviewer writes the
+        reason, a link note and artifacts for each related event, and its own label is kept only for the agreement figure. The event reviewer never decides a link or a label.</div>
       ${kpis([["Links decided / min (5 min)", fn(K.per_min || 0)], ["Links decided (24 h)", fn(d.pairs || 0)],
               ["Related (24 h)", `${fn(d.related || 0)} · ${pc(d.related || 0, d.pairs)}`], ["Not related (24 h)", fn(d.not_related || 0)],
               ["Avg time per link", d.ms_related == null ? "—" : fn(d.ms_related) + " ms"], ["Events reviewed / min (10 min)", fn(K.events_per_min || 0)],
               ["Events 24 h: suspicious / benign / expected", `${fn(ev.suspicious || 0)} / ${fn(ev.benign || 0)} / ${fn(ev.expected || 0)}`],
               ["All time", `${fn(a.pairs || 0)} links · ${fn(a.related || 0)} related`],
-              ["Reviewer agrees with the label (7 d)", K.compare?.n ? `${pc(K.compare.agree, K.compare.n)} of ${fn(K.compare.n)}` : "—"]])}
-      ${K.compare?.n ? `<div class="small" style="margin-top:6px"><b>Event label: decision model (rows) vs the reviewer's own view (columns), last 7 days</b>
+              ["Event reviewer agrees with the label (7 d)", K.compare?.n ? `${pc(K.compare.agree, K.compare.n)} of ${fn(K.compare.n)}` : "—"]])}
+      ${K.compare?.n ? `<div class="small" style="margin-top:6px"><b>Event label: decision model (rows) vs the event reviewer's own view (columns), last 7 days</b>
         <table class="mini"><tr><th></th>${["suspicious", "benign", "expected"].map((l) => `<th>${l}</th>`).join("")}</tr>
         ${["suspicious", "benign", "expected"].map((r) => `<tr><th>${r}</th>${["suspicious", "benign", "expected"].map((g) => `<td class="num${r === g ? " good" : ""}">${fn((K.compare.matrix || {})[r + "|" + g] || 0)}</td>`).join("")}</tr>`).join("")}</table></div>` : ""}
       <div class="idgrid" style="margin-top:8px">
@@ -893,7 +893,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   }
   // Review log: every correlation-review pass that did work or failed, and every review-job run (Elasticsearch netmon.review)
   function reviewLogCard() {
-    const c = card("Review log", `<div class="small muted">One entry per correlation-review pass (decision model links and labels, reviewer notes) that did work or
+    const c = card("Review log", `<div class="small muted">One entry per correlation-review pass (decision model links and labels, event reviewer notes) that did work or
       hit a problem, and one per review-job run. Sent to Elasticsearch (event.dataset <span class="mono">netmon.review</span>, daily index
       <span class="mono">logs-netmon.YYYY.MM.DD</span>).</div>
       <div class="llm-row" style="margin-top:6px"><span class="k">Period</span><select name="h"><option value="1">1 h</option><option value="24" selected>24 h</option>
@@ -912,7 +912,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         body.innerHTML = `${kpis([["Correlation passes", `${fn(cr.entries || 0)} · ${fn(cr.problems || 0)} with problems`],
             ["Events processed (passes)", fn(cr.events || 0)], ["Events processed (review jobs)", fn(rj.events || 0)],
             ["Links decided", fn(cr.links || 0)], ["Events labelled / reviewed", `${fn(cr.labelled || 0)} / ${fn(cr.reviewed || 0)}`],
-            ["Reviewer failures", fn(cr.rfail || 0)], ["Review-job runs", `${fn(rj.entries || 0)} · ${fn(rj.problems || 0)} failed`]])}
+            ["Event reviewer failures", fn(cr.rfail || 0)], ["Review-job runs", `${fn(rj.entries || 0)} · ${fn(rj.problems || 0)} failed`]])}
           <div class="idgrid" style="margin-top:6px">
             <span class="k">Correlation review</span><span>last ${when(cr.last)} ${cr.last_status ? badge(cr.last_status) : ""} · last problem: ${lastProb(cr)}</span>
             <span class="k">Review job</span><span>last ${when(rj.last)} ${rj.last_status ? badge(rj.last_status) : ""} · last problem: ${lastProb(rj)}</span></div>`;
@@ -940,7 +940,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     const avg = (rows, k) => (rows.length ? rows.reduce((a, r) => a + r[k], 0) / rows.length : null);
     const f1 = (v) => (v == null ? "—" : fn(Math.round(v * 10) / 10));
     const w7 = full.slice(0, 7);
-    const c = card("Events per day through review", `<div class="small muted">Events sent to the reviewer model, per day (a day is counted once it has ended; today is shown but not averaged). Kept for 30 days.</div>`);
+    const c = card("Events per day through review", `<div class="small muted">Events sent to the event reviewer model, per day (a day is counted once it has ended; today is shown but not averaged). Kept for 30 days.</div>`);
     const sums = [["Average / day (last 7 full days)", w7], ["Average / day (all " + full.length + " full days)", full]];
     c.insertAdjacentHTML("beforeend", kpis(sums.map(([t, r]) => [t, f1(avg(r, "events"))])));
     c.appendChild(days.length ? table(null, [
@@ -974,7 +974,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <div class="llm-row"><span class="k">Web access</span><span><label><input type="checkbox" name="web_research"> on</label></span>
           <span class="small muted" style="flex:1 1 380px">Lets the research model search and read web pages and cite them. Turn it off for cheaper, local-data-only research (no web tools, no links or citations).</span></div>
       </div>
-      <div class="small muted" style="margin-top:8px">The correlation reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
+      <div class="small muted" style="margin-top:8px">The event reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
         chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
       <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>`);
     c.id = "ai-cost";
@@ -1090,7 +1090,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       pick.textContent = "Loading models…";
       let M; try { M = await loadModels(); } catch (e) { pick.textContent = e.message; return; }
       pick.textContent = "";
-      pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the correlation reviewer uses, for this one link." }));
+      pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the event reviewer uses, for this one link." }));
       const cor = D.config?.correlation || {}, curLocal = cor.model || D.status.model || (M.local || []).find((m) => m.loaded)?.id || "";
       const def = new Set([optKey(cor.provider, curLocal), optKey(D.research?.provider, D.research?.model)]);
       const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]),
@@ -1122,7 +1122,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   }
 
   const build = async (el, bg) => {
-    el.innerHTML = `<h1>Ai pipeline</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The correlation reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>Ai pipeline</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});
@@ -1139,7 +1139,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
 
     if (st.enabled && st.error) {  // say what the Error badge means, since when, and whether it fixes itself
       const ex = document.createElement("div"); ex.className = "card"; ex.style.cssText = "margin:8px 0;border-left:3px solid var(--bad, #f85149)";
-      const kind = { decision: "Decision model unreachable", reviewer: "Reviewer model problem", event: "Event review failed", classify: "Classification failed", loop: "Review worker error" }[st.error_kind] || "Review problem";
+      const kind = { decision: "Decision model unreachable", reviewer: "Event reviewer model problem", event: "Event review failed", classify: "Classification failed", loop: "Review worker error" }[st.error_kind] || "Review problem";
       ex.innerHTML = `<b>${esc(kind)}</b>${st.error_at ? ` <span class="small muted">· since ${esc(ago(st.error_at))}</span>` : ""}
         <div class="small" style="margin-top:4px">${esc(st.error_help || "The review worker reported a problem. It retries automatically and this clears after the next clean pass.")}</div>
         <div class="small muted mono" style="margin-top:4px;word-break:break-all">${esc(st.error)}</div>`;
@@ -1170,7 +1170,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       (el.querySelector(".kpis") || el.lastElementChild).after(box);
       try {
         const Q = await api("/api/aireview/queue");
-        box.querySelector(".loading").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events with no note that the reviewer could not match to an earlier note${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode)` : ""}. Open one and click <b>Send to research</b> to research it. Snapshot ${esc(Q.snapshot || "")}.</div>`;
+        box.querySelector(".loading").outerHTML = `<div class="small muted">${fn(Q.count || 0)} events with no note that the event reviewer could not match to an earlier note${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode)` : ""}. Open one and click <b>Send to research</b> to research it. Snapshot ${esc(Q.snapshot || "")}.</div>`;
         if (Q.items?.length) box.appendChild(table(null, [
           { k: "type", t: "Type", cls: "mono small" }, { k: "sev", t: "Severity" },
           { k: "label", t: "Event", fmt: (v, r) => (r.testing ? '<span class="badge sev-unknown" title="test mode">testing</span> ' : "") + (r.link ? `<a href="${esc(r.link)}">${esc(v)}</a>` : esc(v)) },
@@ -1186,7 +1186,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       (el.querySelector("#ai-rq") || el.querySelector(".kpis") || el.lastElementChild).after(box);
       try {
         const Q = await api("/api/aireview/review-queue");
-        box.querySelector(".loading").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the reviewer has not decided yet${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
+        box.querySelector(".loading").outerHTML = `<div class="small muted">${fn(Q.count || 0)} links the event reviewer has not decided yet${Q.testing ? `, plus ${fn(Q.testing)} tagged <i>testing</i> (test mode: listed, never sent)` : ""}${Q.count > Q.items.length ? ` (showing the best-scoring ${fn(Q.items.length)})` : ""}. Links held back by Review limits are not listed.</div>`;
         const ln = (l, lk, t, id) => `<span class="mono muted small">${esc(t)}</span> ${lk ? `<a href="${esc(lk)}">${esc(l)}</a>` : esc(l)}${id ? `<div class="mono muted small" style="word-break:break-all">${esc(id)}</div>` : ""}`;
         if (Q.items?.length) box.appendChild(table(null, [
           { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => esc(pairText(r.a_type, r.b_type)) },
@@ -1210,7 +1210,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.append(...reviewJobCard(D.review_status || {}, D));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
-    const info = card("Reviewer", `<div class="idgrid">
+    const info = card("Event reviewer", `<div class="idgrid">
         <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local (LM Studio)")} · <a href="#/aireview?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>

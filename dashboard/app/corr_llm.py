@@ -9,7 +9,7 @@ Runs as a background thread in the dashboard server:
 apply() merges verdicts into /api/correlate: rejected links are dropped, confirmed ones carry the model's reason,
 undecided ones are shown as "awaiting review" until the worker gets to them.
 
-Elasticsearch look-ups (AI review > Models, admin; llm_config.json "es_queries": {enabled, max}): when on, the reviewer
+Elasticsearch look-ups (AI review > Models, admin; llm_config.json "es_queries": {enabled, max}): when on, the event reviewer
 may answer a review with structured search requests instead of decisions; the host broker (POST /esquery, es_context.py)
 validates and runs them read-only, the results go back to the model as <es_result> data and it asks again, up to
 `max` searches per event review. Every search is kept in corr_llm.db `es_queries` and shown on the AI review page.
@@ -66,7 +66,7 @@ def cloud_complete(target, system, user, max_tokens):
 
 NOTE_BUDGET = 6000  # characters of host / user notes in one review prompt (a note already shown is not repeated)
 CHARS_MIN, CHARS_LIMIT = 1000, 100000  # total characters of notes per review prompt: the most / least an admin can set (default NOTE_BUDGET)
-NOTES_DEFAULT, NOTES_LIMIT = 7, 100  # host / user notes fed to the reviewer per event: default and the most an admin can set
+NOTES_DEFAULT, NOTES_LIMIT = 7, 100  # host / user notes fed to the event reviewer per event: default and the most an admin can set
 ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review: default and the most an admin can set
 
 
@@ -83,7 +83,7 @@ def _save_config(c):
 
 
 def notes_limit():
-    """Most host / user notes the reviewer is given for one event (admin setting AI review > Models)."""
+    """Most host / user notes the event reviewer is given for one event (admin setting AI review > Models)."""
     try:
         return max(1, min(int((_raw_config().get("context_notes") or {}).get("max") or NOTES_DEFAULT), NOTES_LIMIT))
     except (TypeError, ValueError):
@@ -150,7 +150,7 @@ def config():
             "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "per_subject": kb_per_subject(), "per_subject_default": 40, "per_subject_limit": 500, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
 
 
-# ---------------------------------------------------------------- review limits (admin): what is never sent to the reviewer
+# ---------------------------------------------------------------- review limits (admin): what is never sent to the event reviewer
 import re as _re
 _PORTLIKE = _re.compile(r"(?<![\d.])\d{4,5}(?![\d.])")
 
@@ -217,7 +217,7 @@ def pair_mode(pm, pd, ca, cb):
     return next((pm[k] for k in cands if k in pm), pd)
 
 
-RULE_SCOPES = ("both", "queue", "review")  # queue: kept out of the review job's queue; review: out of the correlation reviewer
+RULE_SCOPES = ("both", "queue", "review")  # queue: kept out of the review job's queue; review: out of the event reviewer
 
 
 def _glob(pat, text, sub):
@@ -336,7 +336,7 @@ def _is_new_deployment():
 
 
 DISCARD_MAX_DAYS = 3650  # retention for old verdicts (0 = keep forever)
-WINDOW_MAX_MIN = 365 * 24 * 60  # time window for the reviewer: largest allowed gap (minutes) between the two events of a link
+WINDOW_MAX_MIN = 365 * 24 * 60  # time window for the event reviewer: largest allowed gap (minutes) between the two events of a link
 
 
 def _num(v, lo, hi):
@@ -379,7 +379,7 @@ def limits():
         pm.setdefault(str(x), "skip")
     return {"skip_pairs": sorted(k for k, v in pm.items() if v == "skip"), "pair_modes": pm, "pair_default": c["pair_default"],
             "excluded": [],  # exclusions were removed (AI review page no longer has them)
-            "rules": [],  # "Never send" rules were removed: nothing is held back from the queue / reviewer by name
+            "rules": [],  # "Never send" rules were removed: nothing is held back from the queue / event reviewer by name
             "classify": bool(c.get("classify")),
             "window_minutes": _num(c.get("window_minutes"), 0, WINDOW_MAX_MIN),
             "discard_days": _num(c.get("discard_days"), 0, DISCARD_MAX_DAYS),
@@ -547,7 +547,7 @@ def set_chat_es(enabled, user):
 
 
 def set_es_queries(enabled, mx, user):
-    """Admin setting: may the reviewer run Elasticsearch look-ups, and how many per event review (1..ES_MAX_LIMIT)."""
+    """Admin setting: may the event reviewer run Elasticsearch look-ups, and how many per event review (1..ES_MAX_LIMIT)."""
     mx = int(mx)
     if not 1 <= mx <= ES_MAX_LIMIT:
         raise ValueError(f"max queries per event must be 1-{ES_MAX_LIMIT}")
@@ -640,8 +640,8 @@ QSCHEMA = {"type": "object", "properties": {"decisions": SCHEMA["properties"]["d
 
 CLASS_LABELS = ("suspicious", "benign", "expected")
 CLASS_SYSTEM = """You are a senior SOC analyst for a home network. The correlation review of one security event (the ANCHOR) is
-finished: the CANDIDATES are the events the reviewer confirmed as related to it (the "script evidence" line holds the
-reviewer's reason; there may be none). Classify the ANCHOR event as one of:
+finished: the CANDIDATES are the events the event reviewer confirmed as related to it (the "script evidence" line holds the
+event reviewer's reason; there may be none). Classify the ANCHOR event as one of:
 - suspicious: needs a person's eye (possible compromise, misuse, unknown actor, or a real weakness being exploited)
 - benign: looks odd but is harmless
 - expected: normal for this device, user or task
@@ -695,7 +695,7 @@ def _schema(c):
         pass
     c.execute("""CREATE TABLE IF NOT EXISTS es_queries (id INTEGER PRIMARY KEY, ts REAL, anchor TEXT, candidates TEXT, model TEXT,
                  query TEXT, total INTEGER, seconds REAL, error TEXT)""")
-    try:  # which AI ran the search: reviewer (default) or research (written by review.py on the host)
+    try:  # which AI ran the search: event reviewer (default) or research (written by review.py on the host)
         c.execute("ALTER TABLE es_queries ADD COLUMN source TEXT DEFAULT 'reviewer'")
     except sqlite3.OperationalError:
         pass
@@ -704,10 +704,10 @@ def _schema(c):
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
     # decision model (clef) answers per pair: p_related always, p_suspicious for pairs it judged related; ms = call time
-    # decision model's own event decision (compared with the reviewer model's event_class label)
+    # decision model's own event decision (compared with the event reviewer model's event_class label)
     c.execute("""CREATE TABLE IF NOT EXISTS clef_event (eid TEXT PRIMARY KEY, p_suspicious REAL, p_expected REAL, label TEXT, sig TEXT,
                  model TEXT, ts REAL, ms REAL)""")
-    try:  # the reviewer model's own label for the same event (kept for the agreement figure; the decision model's label is used)
+    try:  # the event reviewer model's own label for the same event (kept for the agreement figure; the decision model's label is used)
         c.execute("ALTER TABLE clef_event ADD COLUMN reviewer_label TEXT")
     except sqlite3.OperationalError:
         pass
@@ -752,7 +752,7 @@ def _kb():
 
 
 def clean_artifacts(arts):
-    """The artifacts a reviewer listed for one link: [{kind, value, relation, decision}] -> validated, deduped, max 12."""
+    """The artifacts an event reviewer listed for one link: [{kind, value, relation, decision}] -> validated, deduped, max 12."""
     out, seen = [], set()
     for a in arts or []:
         if not isinstance(a, dict):
@@ -778,7 +778,7 @@ def query_artifacts(descs):
 
 
 def set_query_artifacts(c, p, descs, model, now):
-    """Replace only the Elasticsearch-search artifacts of a link (event research's searches; keeps the reviewer's file/process/... artifacts)."""
+    """Replace only the Elasticsearch-search artifacts of a link (event research's searches; keeps the event reviewer's file/process/... artifacts)."""
     c.execute("DELETE FROM pair_artifacts WHERE pair=? AND kind='query'", (p,))
     c.executemany("INSERT OR REPLACE INTO pair_artifacts (pair, kind, value, relation, decision, model, ts, meta) VALUES (?,?,?,?,?,?,?,?)",
                   [(p, a["kind"], a["value"], a["relation"], a["decision"], model, now, a["meta"]) for a in query_artifacts(descs)])
@@ -922,7 +922,7 @@ def apply(base):
             v = V.get(pair(a, r["id"]))
             if v is None and ((a in CL and r["id"] in CL) or skipped(a, r["id"]) or pair(a, r["id"]) in over):
                 X.add(pair(a, r["id"]))
-            elif v is None and skipped.testing(a, r["id"]):  # test mode: listed as "testing", never sent to the reviewer
+            elif v is None and skipped.testing(a, r["id"]):  # test mode: listed as "testing", never sent to the event reviewer
                 T.append((a, r["id"]))
             elif v is None:
                 keep.append({**r, "llm": "pending"}); P.add(pair(a, r["id"]))
@@ -948,7 +948,7 @@ def apply(base):
 
 
 def pending_list(base, limit=500):
-    """Undecided links the reviewer will look at (after limits), best score first, plus links held in test mode (testing=True)."""
+    """Undecided links the event reviewer will look at (after limits), best score first, plus links held in test mode (testing=True)."""
     E = (base or {}).get("events") or {}
     A = apply(base)
     rel = {}
@@ -977,7 +977,7 @@ def pending_list(base, limit=500):
 
 def clear_pending(sids, user):
     """Start fresh: every undecided candidate pair of these snapshots gets a verdict "not related" from model
-    "dismissed:<user>" (reason: queue cleared), so the background reviewer stops waiting on them. Undo by deleting
+    "dismissed:<user>" (reason: queue cleared), so the event reviewer stops waiting on them. Undo by deleting
     verdicts WHERE model LIKE 'dismissed:%'. Returns {snapshot: pairs dismissed}."""
     import server
     out, now = {}, time.time()
@@ -1029,7 +1029,7 @@ QFMT = ("Return ONLY a JSON object of the form {\"decisions\": [{\"id\", \"relat
         "(one of the two lists empty) - no prose, no code fences.")
 
 
-def _complete(target, system, user, max_tokens, purpose="correlation-review", actor="netmon (background reviewer)", queries=False, schemas=None, fmts=None):
+def _complete(target, system, user, max_tokens, purpose="correlation-review", actor="netmon (event reviewer)", queries=False, schemas=None, fmts=None):
     """One JSON completion from the chosen provider -> (text, usage dict, seconds). Every call is audit-logged.
     queries=True: the answer may be a list of Elasticsearch look-ups instead of decisions (QSCHEMA)."""
     t = time.time()
@@ -1067,9 +1067,9 @@ def _complete_raw(target, system, user, max_tokens, t, queries=False, schemas=No
 
 _ERR_HELP = {
     "decision": "The decision model (clef) did not answer its health check, so the review paused instead of guessing. It retries every minute and clears itself once the model answers. If it persists, check AI review > Decision model server, or switch the decision model off.",
-    "reviewer": "The reviewer model returned an error or could not be reached (restarting, overloaded, or its context was exceeded). The affected events stay queued and are retried on the next pass; this clears after the next clean pass.",
-    "event": "Reviewing an event with the reviewer model failed. The event stays queued and is retried on the next pass; this clears after the next clean pass.",
-    "classify": "Classifying events with the reviewer model failed. It is retried on the next pass; this clears after the next clean pass.",
+    "reviewer": "The event reviewer model returned an error or could not be reached (restarting, overloaded, or its context was exceeded). The affected events stay queued and are retried on the next pass; this clears after the next clean pass.",
+    "event": "Reviewing an event with the event reviewer model failed. The event stays queued and is retried on the next pass; this clears after the next clean pass.",
+    "classify": "Classifying events with the event reviewer model failed. It is retried on the next pass; this clears after the next clean pass.",
     "loop": "The review worker hit an unexpected error (often the model server restarting). It backs off 3 minutes, then retries on its own.",
 }
 
@@ -1087,10 +1087,10 @@ def _target(model=None):
     c = config()["correlation"]
     if llm_providers.is_custom(c["provider"]):
         if not llm_providers.allowed(c["provider"], c["model"]):
-            raise RuntimeError(f"reviewer model {c['model']} on {llm_providers.name(c['provider'])} is no longer available - pick another on AI review > Models")
+            raise RuntimeError(f"event reviewer model {c['model']} on {llm_providers.name(c['provider'])} is no longer available - pick another on AI review > Models")
         return {"provider": c["provider"], "model": c["model"]}
     if c["provider"] != "lmstudio":
-        raise RuntimeError(f"reviewer provider {c['provider']} is no longer available - pick another model on AI review > Models")
+        raise RuntimeError(f"event reviewer provider {c['provider']} is no longer available - pick another model on AI review > Models")
     if not llm_providers.local_enabled():
         raise RuntimeError("Local (LM Studio) is disabled on AI review > AI providers - pick another model on AI review > Models")
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
@@ -1124,13 +1124,13 @@ def _json(txt):
             dec.append(o)
         j = e
     if dec:
-        print(f"corr_llm: repaired reviewer JSON by salvaging {len(dec)} decision objects", file=sys.stderr, flush=True)
+        print(f"corr_llm: repaired event reviewer JSON by salvaging {len(dec)} decision objects", file=sys.stderr, flush=True)
         return {"decisions": dec}
-    print(f"corr_llm: unparseable reviewer JSON ({len(txt)} chars): {txt[:1500]!r}", file=sys.stderr, flush=True)
-    raise ValueError("reviewer returned unparseable JSON")
+    print(f"corr_llm: unparseable event reviewer JSON ({len(txt)} chars): {txt[:1500]!r}", file=sys.stderr, flush=True)
+    raise ValueError("event reviewer returned unparseable JSON")
 
 
-def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, purpose="correlation-review", actor="netmon (background reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120):
+def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, purpose="correlation-review", actor="netmon (event reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120):
     """notes: {"anchor" | "c<i>": [owner note text, ...]} from kb.event_notes (optional).
     es_max > 0: the model may first ask for up to es_max Elasticsearch look-ups in total (run through the broker,
     results appended to the prompt as <es_result> data); once they are used up it must decide. on_query(norm, result
@@ -1233,7 +1233,7 @@ _TAG = _re.compile(r"^\[profile:\w+\]\s*")
 
 
 def _human(n):
-    """A host / artifact note written by a person (not the AI, the reviewer or the profile pass)."""
+    """A host / artifact note written by a person (not the AI, the event reviewer or the profile pass)."""
     return str(n.get("author") or "").startswith("user:") or str(n.get("via") or "") == "dashboard" or n.get("status") == "approved"  # approved by a defender/admin = authoritative
 
 
@@ -1252,7 +1252,7 @@ def _user_profiles():
 def _context_notes(tags, E):
     """Host notes (about the hosts an event involves) and user notes (about the accounts it names) for each event.
     -> (owner, ai): owner[tag] = notes people wrote (trusted), ai[tag] = AI / profile notes + account profiles (informed, unverified).
-    The reviewer bases its benign / expected calls on these."""
+    The event reviewer bases its benign / expected calls on these."""
     owner, ai = {}, {}
     import kb
     prof, lim = _user_profiles(), notes_limit()
@@ -1326,7 +1326,7 @@ def _owner_notes(aid, ids, E=None):
 
 
 def _ai_notes(aid, ids, E):
-    """Earlier AI work as context for the reviewer, keyed like the prompt tags: the research note on each event
+    """Earlier AI work as context for the event reviewer, keyed like the prompt tags: the research note on each event
     (verdict + summary + start of the research), the AI-written / profile host notes about the hosts the event involves and the
     profiles of the accounts it names. People's notes are handled by _owner_notes (approved only); these are labelled as the AI's own."""
     out = {}
@@ -1349,7 +1349,7 @@ def _ai_notes(aid, ids, E):
 
 
 def _es_logger(aid, ids, mname):
-    def logq(q, res, err):  # every reviewer look-up: corr_llm.db (AI review page) + audit log
+    def logq(q, res, err):  # every event reviewer look-up: corr_llm.db (AI review page) + audit log
         if res and not err and isinstance(res.get("query"), dict):  # kept as a Kibana artifact of the links reviewed
             logq.found.append(esk.from_norm(res["query"], res.get("total")))
         STATUS["es_queries_this_run"] = STATUS.get("es_queries_this_run", 0) + 1
@@ -1357,8 +1357,8 @@ def _es_logger(aid, ids, mname):
             c.execute("INSERT INTO es_queries (ts, anchor, candidates, model, query, total, seconds, error) VALUES (?,?,?,?,?,?,?,?)",
                       (time.time(), aid, json.dumps(ids), mname, json.dumps(q, default=str)[:2000],
                        (res or {}).get("total"), (res or {}).get("seconds"), err))
-        audit.action("netmon (background reviewer)", "aireview.esquery", outcome="failure" if err else "success", category="database",
-                     params={"query": q, "total": (res or {}).get("total"), "error": err}, target=aid, message=f"correlation reviewer searched Elasticsearch ({mname})")
+        audit.action("netmon (event reviewer)", "aireview.esquery", outcome="failure" if err else "success", category="database",
+                     params={"query": q, "total": (res or {}).get("total"), "error": err}, target=aid, message=f"event reviewer searched Elasticsearch ({mname})")
     logq.found = []
     return logq
 
@@ -1412,7 +1412,7 @@ NOTE_TAG = "[reviewer:{kind}:{value}]"
 
 
 def _note_internet(model, aid, E, cands, dec):
-    """External-IP artifacts the reviewer wrote a `note` for -> an internet note (host note on ip:<ip>), one per IP and reviewer
+    """External-IP artifacts the event reviewer wrote a `note` for -> an internet note (host note on ip:<ip>), one per IP and event reviewer
     (found by its tag and updated in place). The IP must appear in one of the two events; unverified, deletable on Network > Internet notes."""
     if not HOST_NOTES:
         return 0
@@ -1431,12 +1431,12 @@ def _note_internet(model, aid, E, cands, dec):
             if ip not in seen:
                 continue
             tag = f"[reviewer:ip:{ip}]"
-            text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Reviewer judgement ({mname}), unverified.)"
+            text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Event reviewer judgement ({mname}), unverified.)"
             try:
                 act, nid = kb.tagged_slot(kb.host_notes([f"ip:{ip}"]), tag, art["decision"])
                 if act == "skip":
                     continue
-                kb.add_host_note({"ip": ip}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="correlation reviewer",
+                kb.add_host_note({"ip": ip}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="event reviewer",
                                  note_id=nid)
                 n += 1
             except ValueError as ex:
@@ -1445,8 +1445,8 @@ def _note_internet(model, aid, E, cands, dec):
 
 
 def _note_dns(model, aid, E, cands, dec):
-    """DNS artifacts the reviewer wrote a `note` for -> a DNS note (host note on dom:<name>; a subdomain gets its own note), one per
-    name and reviewer (found by its tag, updated in place). The name must appear in one of the two events. Unverified, deletable on
+    """DNS artifacts the event reviewer wrote a `note` for -> a DNS note (host note on dom:<name>; a subdomain gets its own note), one per
+    name and event reviewer (found by its tag, updated in place). The name must appear in one of the two events. Unverified, deletable on
     Network > Internet notes."""
     if not HOST_NOTES:
         return 0
@@ -1463,12 +1463,12 @@ def _note_dns(model, aid, E, cands, dec):
             if art["kind"] != "dns" or not art.get("note") or name not in seen:
                 continue
             tag = f"[reviewer:dns:{name}]"
-            text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Reviewer judgement ({mname}), unverified.)"
+            text = f"{tag} {art['note']} ({art['decision']}; seen in '{E[aid]['label'][:60]}' / '{e['label'][:60]}'. Event reviewer judgement ({mname}), unverified.)"
             try:
                 act, nid = kb.tagged_slot(kb.host_notes([f"dom:{name}"]), tag, art["decision"])
                 if act == "skip":
                     continue
-                kb.add_host_note({"dom": name}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="correlation reviewer",
+                kb.add_host_note({"dom": name}, text, "risk" if art["decision"] == "suspicious" else "behavior", author="ai", model=mname, via="event reviewer",
                                  note_id=nid)
                 n += 1
             except ValueError as ex:
@@ -1495,7 +1495,7 @@ def art_owners(kind, value, events):
 
 
 def _note_expected(model, aid, E, cands, dec):
-    """Turn the reviewer's `expected` artifact judgements into host notes (category behavior) on the host(s) both events
+    """Turn the event reviewer's `expected` artifact judgements into host notes (category behavior) on the host(s) both events
     involve, so the next reviews and event research see them as ai_notes. One note per host + artifact (found by its
     tag and updated in place), only for confident related links; they are marked unverified and can be deleted on the
     Notes page."""
@@ -1516,13 +1516,13 @@ def _note_expected(model, aid, E, cands, dec):
                 continue
             tag = NOTE_TAG.format(kind=art["kind"], value=art["value"][:120])
             text = (f"{tag} Expected {art['kind']} {art['value'][:160]}: {art['relation'] or str(d.get('reason') or '')[:150]}. "
-                    f"Seen in a correlation between '{E[aid]['label'][:80]}' and '{e['label'][:80]}'. Reviewer judgement ({mname}), unverified; delete if wrong.")
+                    f"Seen in a correlation between '{E[aid]['label'][:80]}' and '{e['label'][:80]}'. Event reviewer judgement ({mname}), unverified; delete if wrong.")
             for ip in hosts[:2]:
                 try:
                     act, nid = kb.tagged_slot(kb.host_notes(kb.subjects_for_ip(ip)), tag, "expected")
                     if act == "skip":
                         continue
-                    kb.add_host_note({"ip": ip}, text, "behavior", author="ai", model=mname, via="correlation reviewer", note_id=nid)
+                    kb.add_host_note({"ip": ip}, text, "behavior", author="ai", model=mname, via="event reviewer", note_id=nid)
                     n += 1
                 except ValueError as ex:  # note limit reached / unresolvable subject
                     print(f"corr_llm: host note not added for {ip}: {ex}", file=sys.stderr)
@@ -1714,7 +1714,7 @@ def sync_alarms(base):
 
 
 # ---------------------------------------------------------------- decision model stage (clef.py)
-# With the decision model on, the reviewer model never decides a link:
+# With the decision model on, the event reviewer model never decides a link:
 #   1. clef answers related yes/no for every candidate link (verdicts, model = the clef model);
 #   2. once no link of the snapshot is undecided, the selected correlation model makes ONE call per event with all of
 #      its clef-related events and every note: suspicious / benign / expected for the event, and for each link the
@@ -1724,7 +1724,7 @@ RELATED to the ANCHOR event: the CANDIDATES below are exactly those (the "script
 model's probability and the correlation script's evidence). Do not question whether they are related. The decision model has also LABELLED the anchor event (the line
 "DECISION MODEL LABEL" at the end of these instructions); that label is final. Your job:
 1. Write the anchor's "reason" (under 25 words): why the event is what the decision model labelled it, citing the related
-   events and notes that support it; if the evidence clearly contradicts the label, start the reason with "Reviewer
+   events and notes that support it; if the evidence clearly contradicts the label, start the reason with "Event reviewer
    disagrees:" and say why. Also give YOUR OWN independent "label" and "confidence" (recorded for comparison only), one of:
    - suspicious: needs a person's eye (possible compromise, misuse, unknown actor, or a real weakness being exploited)
    - benign: looks odd but is harmless
@@ -1747,7 +1747,7 @@ candidate {"id": "c<n>", "label": "link", "confidence" (0-1, how sure you are of
 NO_CANDS = ("\nThis event has NO related events: the CANDIDATES list is empty on purpose (the decision model judged every proposed "
             "link unrelated). Do not ask for candidates. Answer with decisions holding ONLY the anchor object "
             "{\"id\": \"anchor\", \"label\", \"confidence\", \"reason\", \"artifacts\": []}: explain the label from the event itself and its notes.")
-REVIEW_RETRIES = 3  # reviewer calls per event signature before its label is kept without a reviewer note
+REVIEW_RETRIES = 3  # event reviewer calls per event signature before its label is kept without an event reviewer note
 _ART = SCHEMA["properties"]["decisions"]["items"]["properties"]["artifacts"]
 ESCHEMA = {"type": "object", "properties": {"decisions": {"type": "array", "items": {"type": "object", "properties": {
     "id": {"type": "string"}, "label": {"type": "string", "enum": [*CLASS_LABELS, "link"]}, "confidence": {"type": "number"},
@@ -1824,7 +1824,7 @@ def clef_pass(base, pairs):
 
 
 def _event_review(model, eid, base, rel_ids, sig):
-    """Stage 2 for one event: the reviewer model gets the event, ALL its clef-related events and the notes, classifies
+    """Stage 2 for one event: the event reviewer model gets the event, ALL its clef-related events and the notes, classifies
     the event and writes a link note + artifacts per related event (and the host / internet / DNS notes from those)."""
     E = base["events"]
     rows = {r["id"]: r for r in (base.get("related") or {}).get(eid, [])}
@@ -1838,10 +1838,10 @@ def _event_review(model, eid, base, rel_ids, sig):
     es, mname = config()["es_queries"], model["model"]
     with _db() as c:
         ce = c.execute("SELECT label, p_suspicious, p_expected, model FROM clef_event WHERE eid=? AND sig=?", (eid, sig)).fetchone()
-    if not ce:  # the decision model could not label it this pass: try again next pass rather than let the reviewer decide
+    if not ce:  # the decision model could not label it this pass: try again next pass rather than let the event reviewer decide
         return 0
     sysmsg = EVENT_SYSTEM + f"\nDECISION MODEL LABEL: {ce[0]} (p suspicious {ce[1]:.2f}, p expected {ce[2]:.2f})"
-    if not cands:  # nothing is related: without this the reviewer sometimes answers in prose ("no candidate events were provided")
+    if not cands:  # nothing is related: without this the event reviewer sometimes answers in prose ("no candidate events were provided")
         sysmsg += NO_CANDS
     logq = _es_logger(eid, rel_ids, mname) if es["enabled"] else None
     kw = dict(purpose="event-review", on_query=logq, system=sysmsg, schemas=(ESCHEMA, EQSCHEMA), fmts=(EFMT, EQFMT), base_tokens=500)
@@ -1864,22 +1864,22 @@ def _event_review(model, eid, base, rel_ids, sig):
                 dec, usage, _s = _ask_full(model, E[eid], cands, notes, ai_notes=ainotes, note_cap=1, es_max=0, **kw)
     except Exception as e:  # noqa: BLE001 - the decision model's label is stored anyway; the notes are retried on a later pass
         failed, dec = f"{type(e).__name__}: {str(e)[:150]}", []
-        print(f"corr_llm: event review {eid[:60]}: reviewer failed ({failed}) - storing the decision model's label, notes retried later", file=sys.stderr, flush=True)
+        print(f"corr_llm: event review {eid[:60]}: event reviewer failed ({failed}) - storing the decision model's label, notes retried later", file=sys.stderr, flush=True)
     D = {d.get("id"): d for d in dec if isinstance(d, dict)}
     a = D.get("anchor") or next((d for d in dec if isinstance(d, dict) and d.get("label") in CLASS_LABELS), None) or {}
     label, p_sus = ce[0], float(ce[1])
     conf = p_sus if label == "suspicious" else 1 - p_sus
-    reason = str(a.get("reason") or f"Decision model: {label} (p suspicious {p_sus:.2f}){' - reviewer note pending' if failed else ''}")[:300]
+    reason = str(a.get("reason") or f"Decision model: {label} (p suspicious {p_sus:.2f}){' - event reviewer note pending' if failed else ''}")[:300]
     now = time.time()
     with _db() as c:
         prev = (c.execute("SELECT sig FROM event_class WHERE eid=?", (eid,)).fetchone() or [""])[0] or ""
     tries = int(prev.rsplit("|retry", 1)[1]) + 1 if prev.startswith(sig + "|retry") and prev.rsplit("|retry", 1)[1].isdigit() else 1
-    # a failed reviewer call stores the label under a "<sig>|retry<n>" signature so event_pass asks again (at most REVIEW_RETRIES times)
+    # a failed event reviewer call stores the label under a "<sig>|retry<n>" signature so event_pass asks again (at most REVIEW_RETRIES times)
     store_sig = f"{sig}|retry{tries}" if failed and tries < REVIEW_RETRIES else sig
-    with _lock, _db() as c:  # the decision model's label, the reviewer's reason; the reviewer's own label kept for comparison
+    with _lock, _db() as c:  # the decision model's label, the event reviewer's reason; the event reviewer's own label kept for comparison
         c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, round(conf, 3), reason, f"{ce[3]} + {mname}", store_sig, now))
         c.execute("UPDATE clef_event SET reviewer_label=? WHERE eid=?", (a.get("label") if a.get("label") in CLASS_LABELS else None, eid))
-        for n, (e, r) in enumerate(cands, 1):  # the link note: the decision model's verdict stays, the reviewer writes the reason
+        for n, (e, r) in enumerate(cands, 1):  # the link note: the decision model's verdict stays, the event reviewer writes the reason
             d, k = D.get(f"c{n}"), pair(eid, r["id"])
             if not d:
                 continue
@@ -1911,7 +1911,7 @@ def _event_review(model, eid, base, rel_ids, sig):
 
 
 def event_pass(base):
-    """Stage 2, only once the decision model has decided every link of the snapshot: one reviewer call per event whose
+    """Stage 2, only once the decision model has decided every link of the snapshot: one event reviewer call per event whose
     set of decisions changed since its last review (suspicious / benign / expected + link notes). Events with no
     related event are classified too (from the event and its notes alone). At most CLASS_PER_PASS events per pass."""
     import hashlib
@@ -1935,7 +1935,7 @@ def event_pass(base):
         todo.append((a, sig, [i for i, v in dec if v["related"]], [i for i, _ in dec]))
     todo.sort(key=lambda t: (t[0] in have, -len(t[2])))  # never-reviewed first, then the best-connected
     todo = todo[:CLASS_PER_PASS]
-    clef_events(base, todo)  # the decision model labels each event (suspicious / benign / expected) before the reviewer writes notes
+    clef_events(base, todo)  # the decision model labels each event (suspicious / benign / expected) before the event reviewer writes notes
     STATUS.update(classifying=len(todo), clef_stage="events" if todo else "")
 
     def one(t):
@@ -1982,7 +1982,7 @@ def clef_events(base, todo):
         ids = [i for i in allc if i in E]
         CD, V = clef_decisions([pair(eid, i) for i in ids]), verdicts([pair(eid, i) for i in ids])
 
-        def prob(i):  # the link probability: the decision model's, else derived from an older reviewer / manual verdict
+        def prob(i):  # the link probability: the decision model's, else derived from an older event reviewer / manual verdict
             k = pair(eid, i)
             if k in CD:
                 return CD[k]["p_related"]
@@ -2011,7 +2011,7 @@ def clef_events(base, todo):
 
 
 def clef_compare(since=0):
-    """Decision model vs reviewer model on the same events (same decision signature): agreement and the confusion matrix."""
+    """Decision model vs event reviewer model on the same events (same decision signature): agreement and the confusion matrix."""
     with _db() as c:
         rows = c.execute("SELECT k.eid, k.label, k.reviewer_label, k.p_suspicious, k.p_expected, g.confidence, g.reason, g.ts FROM clef_event k "
                          "JOIN event_class g ON g.eid = k.eid AND g.sig = k.sig WHERE g.ts >= ? AND k.reviewer_label IS NOT NULL ORDER BY g.ts DESC", (since,)).fetchall()
@@ -2048,7 +2048,7 @@ def clef_overview():
 
 def run_once(get_base, latest_sid):
     """One pass: review every undecided candidate of the newest snapshot (and recently opened ones).
-    With the decision model on: clef decides every undecided link (clef_pass); once none is left, the selected reviewer
+    With the decision model on: clef decides every undecided link (clef_pass); once none is left, the selected event reviewer
     makes one call per event with all its related events and notes (event_pass) - it never decides a link itself."""
     sids = [latest_sid] + [s for s, t in sorted(_wanted.items(), key=lambda x: -x[1]) if s != latest_sid and time.time() - t < 3600][:2]
     model = _target()
@@ -2127,7 +2127,7 @@ def _safe_review(model, aid, base, todo):
         n = _review(model, aid, base, todo)
         return n
     except Exception as e:  # noqa: BLE001 - one bad answer must not stop the run
-        print(f"reviewer error ({aid[:60]}): {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
+        print(f"event reviewer error ({aid[:60]}): {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
         _set_error("reviewer", f"{type(e).__name__}: {str(e)[:200]}")
         STATUS["review_failed_this_run"] = STATUS.get("review_failed_this_run", 0) + 1
         return 0
@@ -2155,7 +2155,7 @@ def _log_pass(t0, n, crashed=None):
                 _JOBLOG["last"] = 0.0
         if reviewlog.job_runs(_JOBLOG):
             store.doc_put("reviewlog_job", {"last": _JOBLOG["last"]})
-    except Exception as e:  # noqa: BLE001 - logging must never stop the reviewer
+    except Exception as e:  # noqa: BLE001 - logging must never stop the event reviewer
         print(f"review log failed: {e}", file=sys.stderr)
 
 
@@ -2173,14 +2173,14 @@ def start(get_base, latest_sid_fn, every=60):
                     last_prune = time.time()
                     try:
                         prune_verdicts()
-                    except Exception as e:  # noqa: BLE001 - never stop the reviewer for housekeeping
+                    except Exception as e:  # noqa: BLE001 - never stop the event reviewer for housekeeping
                         print(f"verdict prune failed: {e}", file=sys.stderr)
                 t0 = time.time()
                 n = run_once(get_base, latest_sid_fn())
                 _log_pass(t0, n)
                 time.sleep(5 if n else every)
             except Exception as e:  # noqa: BLE001 - LM Studio down / model unloading: back off and retry
-                print(f"reviewer loop error: {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
+                print(f"event reviewer loop error: {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
                 STATUS.update(busy=False); _set_error("loop", f"{type(e).__name__}: {str(e)[:200]}")
                 _log_pass(t0, 0, f"{type(e).__name__}: {str(e)[:300]}")
                 time.sleep(180)
@@ -2305,7 +2305,7 @@ def _clef_ov_safe():
 
 
 def es_overview(events, limit=50):
-    """Elasticsearch look-ups by the reviewer (correlation + review job) and by event research: counts (24 h / total) and the newest ones of each."""
+    """Elasticsearch look-ups by the event reviewer (correlation + review job) and by event research: counts (24 h / total) and the newest ones of each."""
     now = time.time()
     out = {}
     with _db() as c:
@@ -2323,7 +2323,7 @@ def es_overview(events, limit=50):
                 recent.append({"ts": ts, "anchor": a, "anchor_label": e.get("label") or a, "anchor_link": e.get("link") or "", "model": m,
                                "query": q, "total": tot, "seconds": s, "error": err})
             out[src] = {"total": total or 0, "last_day": day or 0, "recent": recent}
-    r = dict(out["reviewer"])  # old shape stays for the reviewer
+    r = dict(out["reviewer"])  # old shape stays for the event reviewer
     r["research"] = out["research"]
     return r
 
@@ -2334,7 +2334,7 @@ def override(p, related, user):
     if "\x1f" not in p or len(p) > 2000:
         raise ValueError("bad pair")
     with _lock, _db() as c:
-        if related is None:  # "ask again" starts the whole chain over: decision model first, then the reviewer's notes
+        if related is None:  # "ask again" starts the whole chain over: decision model first, then the event reviewer's notes
             c.execute("DELETE FROM verdicts WHERE pair=?", (p,))
             c.execute("DELETE FROM clef WHERE pair=?", (p,))
         else:

@@ -1,4 +1,4 @@
-"""Host note consolidation: once a night the reviewer model (AI review > Models, Correlation reviewer) reads every host's
+"""Host note consolidation: once a night the event reviewer model (AI review > Models, Event reviewer) reads every host's
 AI-written notes and merges the ones that repeat or overlap, so a host keeps a few complete notes instead of hundreds of
 near-duplicates.
 
@@ -14,7 +14,7 @@ Safety:
     subject itself or a bare port); a group of notes about different artifacts is kept unmerged, so consolidation never links
     artifacts the notes did not link. A merged text that adds an identifier none of its notes had is rejected too.
   - Every valid [reviewer:kind:value] tag of the merged notes is kept at the start of the merged note, so the artifact index and
-    the reviewer's own look-ups still find it.
+    the event reviewer's own look-ups still find it.
   - Notes are re-read inside the write transaction; a note changed by someone else since it was read is left alone.
   - A host whose notes did not change since its last consolidation is skipped.
 
@@ -231,12 +231,12 @@ def _prompt(subject, label, chunk, fixed):
 
 
 _BOILER = (re.compile(r"\s*Seen in a correlation between '.*?' and '.*?'\.", re.S),
-           re.compile(r"\s*\(?(?:Reviewer|reviewer) judgement \([^)]*\),? unverified(?:; delete if wrong)?\.?\)?"),
+           re.compile(r"\s*\(?(?:(?:[Ee]vent |[Cc]orrelation )?[Rr]eviewer) judgement \([^)]*\),? unverified(?:; delete if wrong)?\.?\)?"),
            re.compile(r";\s*seen in '.*?' / '.*?'\.", re.S))
 
 
 def clean(text):
-    """A note without its tags and the reviewer's boilerplate (event labels it was seen in, model name, 'unverified')."""
+    """A note without its tags and the event reviewer's boilerplate (event labels it was seen in, model name, 'unverified')."""
     t = _TAG.sub(" ", text or "")
     for rx in _BOILER:
         t = rx.sub(" ", t)

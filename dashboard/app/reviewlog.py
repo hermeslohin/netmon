@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 RING = collections.deque(maxlen=300)
 _lock = threading.Lock()
-ACTOR = "netmon (review log)"  # not a reviewer/researcher actor: always sent, independent of those audit switches
+ACTOR = "netmon (review log)"  # not an event reviewer/researcher actor: always sent, independent of those audit switches
 
 
 def _iso(t):
@@ -42,7 +42,7 @@ def correlation_pass(t0, t1, st, done, crashed=None):
         return None
     status = "crashed" if crashed else "waiting" if st.get("error_kind") == "decision" else "error" if err else "partial" if (rfail or dfail) else "ok"
     msg = (f"Correlation review pass {status}: {events} events processed, {links} links decided, {labelled} events labelled, {reviewed} events reviewed"
-           + (f", {rfail} reviewer failures" if rfail else "") + (f", {dfail} decision-model failures" if dfail else "") + (f" - {str(err)[:200]}" if err else ""))
+           + (f", {rfail} event reviewer failures" if rfail else "") + (f", {dfail} decision-model failures" if dfail else "") + (f" - {str(err)[:200]}" if err else ""))
     return _emit("review.correlation_pass", "success" if status == "ok" else "failure", t0, t1,
                  {"kind": "correlation", "status": status, "events_processed": events, "links_decided": links, "events_labelled": labelled, "events_reviewed": reviewed,
                   "reviewer_failures": rfail, "decision_failures": dfail, "decision_model": st.get("clef_model"), "reviewer_model": st.get("model"),

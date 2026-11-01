@@ -754,7 +754,7 @@ def autoclose_inputs():
 
 def review_job():
     """The review job's settings + run state (review_cfg.py / review_job.json) for the AI review and Configuration pages.
-    Its reviewer is the correlation reviewer's model."""
+    Its model is the event reviewer's model."""
     try:
         cfg, st = review_cfg.get(), review_cfg.status()
     except Exception as e:  # noqa: BLE001 - page still works, schedule just isn't shown
@@ -1199,7 +1199,7 @@ class H(BaseHTTPRequestHandler):
                     autoclose.run(*inp, trigger=f"run now ({user})")
                 r = autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}
                 return self._json({**r, "review": review_job(), "admin": True})
-            if u.path == "/api/llm/config":  # choose the model of the correlation reviewer (also the review job's reviewer), event research or the chat
+            if u.path == "/api/llm/config":  # choose the model of the event reviewer (also used by the review job), event research or the chat
                 sec, prov, model = str(body.get("section", "")), str(body.get("provider", "")), str(body.get("model", ""))[:120]
                 if sec not in ("correlation", "research", "chat") or not llm_allowed(prov, model):
                     return self._json({"error": "unknown section, provider or model"}, 400)
@@ -1237,7 +1237,7 @@ class H(BaseHTTPRequestHandler):
                 pass  # logged by the generic POST audit
                 print(f"llm clef: {user} set enabled={res['enabled']} related_min={res['related_min']} suspicious_min={res['suspicious_min']}", file=sys.stderr)
                 return self._json({"ok": True, "clef": res})
-            if u.path == "/api/llm/esqueries":  # may the correlation reviewer search Elasticsearch, and how often per event
+            if u.path == "/api/llm/esqueries":  # may the event reviewer search Elasticsearch, and how often per event
                 try:
                     res = corr_llm.set_es_queries(bool(body.get("enabled")), body.get("max"), user)
                 except (TypeError, ValueError) as e:
@@ -1256,7 +1256,7 @@ class H(BaseHTTPRequestHandler):
                 except (TypeError, ValueError) as e:
                     return self._json({"error": str(e)[:200]}, 400)
                 return self._json({"ok": True, "notes_consolidate": notes_consolidate.view()})
-            if u.path == "/api/llm/notes":  # most host / user notes the reviewer gets per event
+            if u.path == "/api/llm/notes":  # most host / user notes the event reviewer gets per event
                 try:
                     res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"), body.get("per_subject"))
                 except (TypeError, ValueError) as e:
@@ -1298,7 +1298,7 @@ class H(BaseHTTPRequestHandler):
                 _CORR.clear()
                 print(f"alert mute: {user} removed rule {body.get('id')}; {n} alerts restored", file=sys.stderr)
                 return self._json({"ok": True, "restored": n})
-            if u.path == "/api/llm/review-limits":  # which candidate links the reviewer never sees (admin)
+            if u.path == "/api/llm/review-limits":  # which candidate links the event reviewer never sees (admin)
                 try:
                     corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"), discard_days=body.get("discard_days"))
                 except ValueError as e:
@@ -1390,7 +1390,7 @@ class H(BaseHTTPRequestHandler):
                     if act == "delete":
                         pid = str(body.get("id") or "")
                         cfg, rj = corr_llm.config(), research_cfg.get()
-                        use = [n for n, p in (("correlation reviewer", cfg["correlation"]["provider"]), ("chat", cfg["chat"]["provider"]),
+                        use = [n for n, p in (("event reviewer", cfg["correlation"]["provider"]), ("chat", cfg["chat"]["provider"]),
                                               ("event research", rj["provider"])) if p == llm_providers.PREFIX + pid]
                         if use:
                             return self._json({"error": f"this provider is used by the {' and the '.join(use)} - pick another model there first"}, 400)
@@ -1793,7 +1793,7 @@ class H(BaseHTTPRequestHandler):
                     ov["notes_consolidate"] = {"error": str(e)[:200]}
                 try:
                     ov["review_status"] = enrich.status((base.get("events") or {}).keys())
-                except Exception as e:  # noqa: BLE001 - the reviewer view must not depend on the review job status
+                except Exception as e:  # noqa: BLE001 - the event reviewer view must not depend on the review job status
                     ov["review_status"] = {"error": str(e)[:200]}
                 return self._json(ov)
             if path == "/api/correlate":
@@ -1801,7 +1801,7 @@ class H(BaseHTTPRequestHandler):
                 if sid == "latest":
                     s_ = snapshots()
                     sid = s_[-1]["id"] if s_ else ""
-                corr_llm.want(sid)  # the LLM reviewer also covers snapshots people are looking at
+                corr_llm.want(sid)  # the LLM event reviewer also covers snapshots people are looking at
                 res_ = kb.apply(enrich.apply(corr_llm.apply(correlation(sid))))
                 if res_:
                     res_ = {k: v for k, v in res_.items() if k != "items"}
@@ -2004,7 +2004,7 @@ def main():
                     correlation(ss[-1]["id"])
             except Exception as e:  # noqa: BLE001
                 print(f"eventstore ingest: {e}", file=sys.stderr)
-            try:  # apply new AI verdicts (reviewer classifications arrive continuously, not only with the review job)
+            try:  # apply new AI verdicts (event reviewer classifications arrive continuously, not only with the review job)
                 if True:  # always: people's Expected / Benign verdicts also close later repeats, whatever the switches say
                     inp = autoclose_inputs()
                     if inp:

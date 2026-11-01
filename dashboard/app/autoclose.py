@@ -1,6 +1,6 @@
 """Security Triage auto-close (More -> Configuration).
 
-Four options (settings reviewer_expected, reviewer_benign, researcher_expected, researcher_benign): close events the correlation reviewer LLM classified expected/benign
+Four options (settings reviewer_expected, reviewer_benign, researcher_expected, researcher_benign): close events the event reviewer LLM classified expected/benign
 (corr_llm event_class), and/or events whose AI research note (enrich.py) has verdict "expected"/"benign". A source calling
 the event suspicious/malicious blocks closing. Events are checked off automatically, i.e. moved to the closed findings on the Checked page, with the note "auto-closed: AI verdict ...".
 
@@ -16,7 +16,7 @@ Rules:
     it is reopened automatically;
   - turning an option off stops new closures; "reopen" (reopen_all) restores everything auto-closed.
 When: right after each review (research) job stores its notes (enrich.sh put -> `python /app/autoclose.py run`), so new
-verdicts are applied once per review run; every 5 minutes from the dashboard's ingest thread (so new reviewer
+verdicts are applied once per review run; every 5 minutes from the dashboard's ingest thread (so new event reviewer
 classifications close without waiting for a review job); plus "Run now" on the Configuration page.
 Settings live in the store's meta table (key "autoclose"); the closure log in table autoclose_log; the last pass in
 meta "autoclose_last".
@@ -33,7 +33,7 @@ import store
 from risk import seg_key_finding, seg_key_issue
 
 KINDS = ("expected", "benign")  # verdicts that close an item
-SOURCES = ("reviewer", "researcher")  # who decided: the correlation reviewer's classification / the research note
+SOURCES = ("reviewer", "researcher")  # who decided: the event reviewer's classification / the research note
 OPTS = tuple(f"{src}_{k}" for src in SOURCES for k in KINDS)  # the four switches: reviewer_expected, reviewer_benign, ...
 NOTE_PREFIX = "auto-closed: AI verdict "
 PERSON_PREFIX = "auto-closed: analyst verdict "  # a person's Expected / Benign button on the event's 📝 notes (always applied)
@@ -46,7 +46,7 @@ def _init(c):
     c.execute("""CREATE TABLE IF NOT EXISTS autoclose_log (type TEXT NOT NULL, key TEXT NOT NULL, eid TEXT, verdict TEXT,
                  model TEXT, at TEXT, state TEXT NOT NULL, PRIMARY KEY (type, key))""")
     if "source" not in {r[1] for r in c.execute("PRAGMA table_info(autoclose_log)")}:
-        c.execute("ALTER TABLE autoclose_log ADD COLUMN source TEXT")  # NULL = researcher (rows written before the reviewer option)
+        c.execute("ALTER TABLE autoclose_log ADD COLUMN source TEXT")  # NULL = researcher (rows written before the event reviewer option)
     if "refs" not in {r[1] for r in c.execute("PRAGMA table_info(autoclose_log)")}:
         c.execute("ALTER TABLE autoclose_log ADD COLUMN refs TEXT")  # JSON [[type, key], ...] also checked off (Open events groups)
 
@@ -59,7 +59,7 @@ def settings(c=None):
     c = c or _c()
     r = c.execute("SELECT v FROM meta WHERE k='autoclose'").fetchone()
     s = json.loads(r[0]) if r else {}
-    if not any(o in s for o in OPTS):  # saved before the reviewer option: expected/benign meant the research note's verdict
+    if not any(o in s for o in OPTS):  # saved before the event reviewer option: expected/benign meant the research note's verdict
         old = {"researcher_expected": s.get("expected"), "researcher_benign": s.get("benign")}  # very first version
         for src in SOURCES:  # intermediate version: one switch per source covered both verdicts
             if src in s:
@@ -120,7 +120,7 @@ def last_run(c=None):
 
 
 def _verdicts(eid, notes, cls, pv=None):
-    """{source: verdict} - researcher = the research note's verdict, reviewer = the correlation reviewer's label,
+    """{source: verdict} - researcher = the research note's verdict, event reviewer = the event reviewer's label,
     person = a person's approved verdict note (📝 Expected / Benign / Suspicious)."""
     out = {}
     v = ((pv or {}).get(eid) or {}).get("verdict")
