@@ -119,8 +119,12 @@ class Consolidate(unittest.TestCase):
         """
         self.assertEqual(kb.artifact_keys("[reviewer:ip:25565] [reviewer:dns:25565] [reviewer:process:443/tcp]"), {"port:25565", "port:443"} & kb.artifact_keys("[reviewer:ip:25565] [reviewer:dns:25565] [reviewer:process:443/tcp]"))
         self.assertFalse(kb.valid_art("ip", "25565"))
-        self.assertFalse(kb.valid_art("dns", "LGwebOSTV"))
+        self.assertFalse(kb.valid_art("dns", "LivingRoomTV"))
         self.assertFalse(kb.valid_art("process", "8.8.8.8"))
+        self.assertFalse(kb.valid_art("process", "SSH"))
+        self.assertFalse(kb.valid_art("process", "8220/tcp"))
+        self.assertFalse(kb.valid_art("user", "10.20.30.40"))
+        self.assertTrue(kb.valid_art("process", "chrome.exe"))
         self.assertTrue(kb.valid_art("process", "/usr/bin/python3.12"))
         self.assertTrue(kb.valid_art("dns", "doh.dns.apple.com"))
         x = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] [reviewer:ip:25565] x.example.com also on 25565/tcp. Unverified.", "behavior", author="ai", via="correlation reviewer")

@@ -310,7 +310,7 @@ first), and the first **Notes per event** are sent. This also pulls in notes tha
 but name the same IP address or DNS name (for example a note on a backup server that mentions the internet address this event
 shows); those are shown to the model as `(matches ip:…)`. Processes, files, accounts and ports are local to a host, so a note on
 another host never matches on them (an `art:` subject note about that process or account still does). A `[reviewer:…]` tag whose
-value is not of its kind (`[reviewer:ip:25565]`, `[reviewer:dns:LGwebOSTV]`, `[reviewer:process:8.8.8.8]`) is not indexed;
+value is not of its kind (`[reviewer:ip:25565]`, `[reviewer:dns:LivingRoomTV]`, `[reviewer:process:8.8.8.8]`, a protocol or port filed as a process such as `[reviewer:process:SSH]` / `[reviewer:process:8220/tcp]`, or a device name filed as an account) is not indexed;
 `kb.valid_art` checks every reviewer artifact before it is stored or tagged. *Expected* artifact notes (`corr_llm._note_expected`)
 go only to the host that owns the artifact: the single source host of an event that really carries it, by artifact key and
 kind (`corr_llm.art_owners`); an artifact in neither event, or in an event with several source hosts, gets no note. Generated `[profile:…]` notes are only used for their own host, never

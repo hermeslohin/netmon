@@ -98,9 +98,32 @@ _V_PORTISH = re.compile(r"^\d{1,5}(?:/(?:tcp|udp))?$", re.I)
 _V_USER = re.compile(r"^[\w.$@\\-]{1,64}$")
 
 
+_V_PROCNAME = re.compile(r"^[a-z0-9][a-z0-9_.+-]{1,63}$")
+_V_WINEXE = re.compile(r"^[\w .+-]{1,80}\.(?:exe|dll|app|ps1|bat|cmd|scr|msi)$", re.I)
+_dev_names = {"t": 0, "names": set()}
+
+
+def _device_names():
+    """Lowercased device / host names from the registry (a device name is never a process or an account); cached 10 minutes."""
+    import time as _t
+    if _t.time() - _dev_names["t"] > 600:
+        names = set()
+        for k, d in (_registry() or {}).items():
+            for n in (d.get("name"), d.get("hostname")):
+                if n:
+                    names.add(str(n).strip().lower())
+        _dev_names.update(t=_t.time(), names=names)
+    return _dev_names["names"]
+
+
 def valid_art(kind, value):
-    """An artifact value really is of its kind (an IP is an address, a DNS name a domain, a process / file is neither a bare port
-    nor an address, an account a single name). Anything else is dropped, never re-filed under a guessed kind."""
+    """An artifact value really is of its kind, so a note is linked only to what it is about:
+      ip      a dotted-quad address
+      dns     a domain name (has a dot and a TLD; not an IP, not a port)
+      process a path (/usr/bin/x, C:\\x.exe), a Windows image name (x.exe) or a lowercase binary name (sshd, python3.12) -
+      file    not a port, protocol (SSH, DNS), address, device name or a phrase
+      user    a single account name, not an address or a device name
+    Anything else is dropped, never re-filed under a guessed kind."""
     v = str(value or "").strip()
     if not v or len(v) > 300 or "\n" in v:
         return False
@@ -109,9 +132,13 @@ def valid_art(kind, value):
     if kind == "dns":
         return bool(_V_DNS.match(v.strip("."))) and not _IP.match(v)
     if kind in ("process", "file"):
-        return not _V_PORTISH.match(v) and not _IP.match(v) and not re.search(r"\s(?:rejected|conns?|connections?)\b", v, re.I)
+        if "/" in v or "\\" in v:
+            return not re.match(r"^\d{1,5}/(?:tcp|udp)$", v, re.I) and not _IP.match(v.split("/")[0]) and " " not in v.strip()
+        if _V_PORTISH.match(v) or _IP.match(v) or v.lower() in _device_names():
+            return False
+        return bool(_V_PROCNAME.match(v) or _V_WINEXE.match(v))
     if kind == "user":
-        return bool(_V_USER.match(v))
+        return bool(_V_USER.match(v)) and not _IP.match(v) and v.lower() not in _device_names()
     return False
 
 
