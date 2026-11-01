@@ -55,7 +55,7 @@
     const label = { k: "label", t: "Event", fmt: (v) => linkifyIps(v) };
     const hosts = { k: "ips", t: "Hosts", fmt: (v) => (v || []).slice(0, 3).map((ip) => ipLink(ip)).join(" "), sort: (x) => (x.ips || [])[0] || "~" };
     const by = {
-      finding: [{ k: "kind", t: "Kind", fmt: (v, x) => esc(itemOf(x).kind || ""), sort: (x) => itemOf(x).kind || "" }, { k: "device", t: "Device", fmt: (v, x) => ipLink(itemOf(x).device || ""), sort: (x) => itemOf(x).device || "" },
+      finding: [{ k: "kind", t: "Kind", fmt: (v, x) => esc(itemOf(x).kind || ""), sort: (x) => itemOf(x).kind || "" }, { k: "device", t: "Device", fmt: (v, x) => { const it = itemOf(x); return devCell(it.device, findHostIp(it), it.name); }, sort: (x) => { const it = itemOf(x); return `${devNameFor(it.device, findHostIp(it), it.name) || "~"} ${it.device || ""}`; } },
         { k: "detail", t: "Detail", fmt: (v, x) => linkifyIps(itemOf(x).detail || x.label), sort: (x) => itemOf(x).detail || "" }],
       host: [{ k: "text", t: "Finding", fmt: (v, x) => linkifyIps(itemOf(x).text || x.label), sort: (x) => itemOf(x).text || "" }],
       ids: [{ k: "name", t: "Signature", fmt: (v, x) => esc(itemOf(x).name || x.label), sort: (x) => itemOf(x).name || "" },

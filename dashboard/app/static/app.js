@@ -350,6 +350,20 @@ const findHostIp = (f) => {
   const m = d.toLowerCase(), dev = S.snap?.raw?.devices || {};
   return Object.keys(dev).find((ip) => String(dev[ip]?.mac || "").toLowerCase() === m) || "";
 };
+// Device column of a finding: its name (device registry by MAC, the finding's own name, inventory / DHCP / endpoint name
+// by IP); the MAC (or IP) is shown only when no name is known, otherwise it is in the tooltip. Links to the device page.
+const isMac = (s) => /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i.test(String(s || ""));
+function devNameFor(key, ip, fname) {
+  const k = String(key || "").toLowerCase(), reg = S.reg?.devices_seen || {};
+  const ok = (n) => (n && String(n).toLowerCase() !== k && !isMac(n) ? String(n) : "");
+  return ok(reg[k]?.name) || ok(fname) || ok(ip && S.idx?.nameOf(ip)) || ok(!isMac(k) && S.idx?.nameOf(k)) || ok(reg[k]?.hostname) || "";
+}
+function devCell(key, ip, fname) {
+  if (!key || key === "-") return "—";
+  const nm = devNameFor(key, ip, fname), ipx = ip || (isMac(key) ? "" : key);
+  const label = nm ? `<span title="${esc(key)}${ipx && ipx !== key ? " · " + esc(ipx) : ""}">${esc(nm)}</span>` : `<span class="mono">${esc(key)}</span>`;
+  return ipx && S.snap?.raw?.devices?.[ipx] ? `<a href="#/device/${encodeURIComponent(ipx)}">${label}</a>` : label;
+}
 const baseFind = (an) => ((an && an.findings) || []).filter((f) => f.kind !== "segmentation").map((f) => (f.host_ip === undefined ? Object.assign(f, { host_ip: findHostIp(f) }) : f));
 const ACK_LABEL = { alarm: "Triage alarm", finding: "Baseline finding", issue: "Fix-list / vulnerability", host: "Endpoint finding", admin: "Admin session", beacon: "Beacon candidate", dnstunnel: "DNS-tunnel domain", seg: "Cleared segmentation flow", gw: "Gateway event", event: "Other event" };
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
@@ -1111,7 +1125,7 @@ V.security = (el) => {
   el.innerHTML = `<h1>Posture</h1><div class="small muted" style="margin:-4px 0 10px">The history of the selected time range, not the to-do list. Time based: the findings, IDS signatures, segmentation violations, beacons and threat-intel hits below show only what happened in the time range chosen in the header 🕒 (a nightly report window loads instantly; any other range is collected for exactly that time). The AI triage alarms and research notes always follow the nightly report that ends inside the range. Check-offs and suppress rules are not time based: they stay in force for every range, and anything unchecked and older than the range remains on <a href="#/events">Open events</a>. Each finding is listed as reported, so one condition can appear as several rows; Open events collapses repeats into one.</div>`;
   { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
   const BF = ackSplit("finding", baseFind(an), "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v) => ipLink(v) }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => r.device && S.snap.raw.devices?.[r.device] && go("device/" + r.device),
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v, x) => devCell(v, x.host_ip, x.name), sort: (x) => `${devNameFor(x.device, x.host_ip, x.name) || "~"} ${x.device || ""}` }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => { const ip = r.host_ip || r.device; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); },
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];

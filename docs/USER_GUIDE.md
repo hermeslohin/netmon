@@ -339,7 +339,7 @@ What happened **in the selected time range** 🕒, listed as reported: each find
 
 | Box | What it is |
 |---|---|
-| Baseline findings | Things a device did differently from its own normal: new ports or services, traffic spikes, new countries or ASNs, new DNS habits, new TLS fingerprints. Needs 3 days of history. Columns include the device, its **Host IP** and **Last seen**; a filter box searches the table. |
+| Baseline findings | Things a device did differently from its own normal: new ports or services, traffic spikes, new countries or ASNs, new DNS habits, new TLS fingerprints. Needs 3 days of history. Columns include the **Device** (its name from the device registry, inventory or DHCP; the MAC address only when no name is known, otherwise on hover), its **Host IP** and **Last seen**; a filter box searches the table. |
 | Cleared segmentation | Flows you marked as expected. |
 | Host findings | Problems seen on the computers themselves: new accounts or groups, failed logins, sudo use, agent problems, Defend failures, system-log errors, new listening ports, unusual processes. Has a **Last seen** column and a filter box; **show N checked** folds checked-off findings back in. The Endpoints page's *Investigate* and *Checked off* tiles open this box already filtered. |
 | IDS signatures / alerts | Suricata detections in the window, grouped by rule. |
