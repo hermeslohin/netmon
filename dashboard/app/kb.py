@@ -101,6 +101,11 @@ _V_USER = re.compile(r"^[\w.$@\\-]{1,64}$")
 _V_PROCNAME = re.compile(r"^[a-z0-9][a-z0-9_.+-]{1,63}$")
 _V_WINEXE = re.compile(r"^[\w .+-]{1,80}\.(?:exe|dll|app|ps1|bat|cmd|scr|msi)$", re.I)
 _dev_names = {"t": 0, "names": set()}
+# protocol / analyzer names a model files as a "process": never a program on the host
+_V_PROTO = {"dns", "mdns", "llmnr", "http", "https", "http2", "http3", "quic", "ssl", "tls", "dtls", "ssh", "sftp", "scp", "ftp", "tftp", "smtp",
+            "imap", "pop3", "icmp", "icmpv6", "tcp", "udp", "ip", "ipv4", "ipv6", "arp", "dhcp", "dhcpv6", "ntp", "snmp", "smb", "smb2", "cifs",
+            "nfs", "rdp", "vnc", "telnet", "ldap", "kerberos", "krb", "rpc", "dce_rpc", "sip", "rtp", "stun", "turn", "upnp", "ssdp", "mqtt",
+            "syslog", "radius", "netbios", "nbns", "wireguard", "openvpn", "ipsec", "ike", "gre", "bittorrent", "websocket", "grpc"}
 
 
 def _device_names():
@@ -111,7 +116,7 @@ def _device_names():
         for k, d in (_registry() or {}).items():
             for n in (d.get("name"), d.get("hostname")):
                 if n:
-                    names.add(str(n).strip().lower())
+                    names |= {str(n).strip().lower(), str(n).strip().lower().split(".")[0]}
         _dev_names.update(t=_t.time(), names=names)
     return _dev_names["names"]
 
@@ -132,13 +137,17 @@ def valid_art(kind, value):
     if kind == "dns":
         return bool(_V_DNS.match(v.strip("."))) and not _IP.match(v)
     if kind in ("process", "file"):
-        if "/" in v or "\\" in v:
-            return not re.match(r"^\d{1,5}/(?:tcp|udp)$", v, re.I) and not _IP.match(v.split("/")[0]) and " " not in v.strip()
-        if _V_PORTISH.match(v) or _IP.match(v) or v.lower() in _device_names():
+        if "/" in v or "\\" in v:  # a path: absolute (/usr/bin/x, C:\\x, \\\\share\\x), never "ssh/publickey" or "443/tcp"
+            if " " in v.strip():
+                return False
+            return bool(re.match(r"^(?:/|[A-Za-z]:\\|\\\\)", v)) or kind == "file" and bool(re.search(r"\.[A-Za-z0-9]{1,8}$", v)) \
+                and not re.match(r"^\d{1,5}/", v)  # a relative file path needs an extension (static/app.js), never "443/tcp"
+        lv = v.lower()
+        if _V_PORTISH.match(v) or _IP.match(v) or lv in _device_names() or lv in _V_PROTO or lv.startswith(("spicy_", "zeek_")):
             return False
         return bool(_V_PROCNAME.match(v) or _V_WINEXE.match(v))
     if kind == "user":
-        return bool(_V_USER.match(v)) and not _IP.match(v) and v.lower() not in _device_names()
+        return bool(_V_USER.match(v)) and not _IP.match(v) and v.lower() not in _device_names() and not re.fullmatch(r"[A-Z0-9]+(?:_[A-Z0-9]+)+", v)
     return False
 
 

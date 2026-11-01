@@ -125,6 +125,10 @@ class Consolidate(unittest.TestCase):
         self.assertFalse(kb.valid_art("process", "8220/tcp"))
         self.assertFalse(kb.valid_art("user", "10.20.30.40"))
         self.assertTrue(kb.valid_art("process", "chrome.exe"))
+        for proto in ("dns", "icmp", "ssl", "http", "spicy_stun", "ssh/publickey"):
+            self.assertFalse(kb.valid_art("process", proto), proto)
+        self.assertFalse(kb.valid_art("user", "THREAT_BLOCKED_V3"))
+        self.assertTrue(kb.valid_art("file", "app/static/app.js"))
         self.assertTrue(kb.valid_art("process", "/usr/bin/python3.12"))
         self.assertTrue(kb.valid_art("dns", "doh.dns.apple.com"))
         x = kb.add_host_note(SUBJ, "[reviewer:dns:x.example.com] [reviewer:ip:25565] x.example.com also on 25565/tcp. Unverified.", "behavior", author="ai", via="correlation reviewer")
