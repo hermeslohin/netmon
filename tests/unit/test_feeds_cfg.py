@@ -134,6 +134,16 @@ class TestFeedConfig(unittest.TestCase):
         self.assertEqual(rows["opencti_hashes"]["sources"], {"MalwareBazaar": 1})
         self.assertEqual(rows["opencti_ips"]["by_type"], {"ips": 2})
 
+    def test_trend_counts_malicious_signatures(self):
+        """The threat-intel trend counts malware-category IDS signatures per snapshot (guards tintel's module constants).
+        REQ: OCTI-02
+        """
+        import tintel
+        rows = tintel.trend([("s1", {"alerts": {"signatures": [{"category": "A Network Trojan was detected", "name": "x", "severity": 2, "count": 3},
+                                                               {"category": "Misc activity", "name": "y", "severity": 3, "count": 5}]}})])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["mal_alerts"], 3)
+
 
 class TestFileArtifacts(unittest.TestCase):
     def setUp(self):

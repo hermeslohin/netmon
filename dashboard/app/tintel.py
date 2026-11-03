@@ -28,6 +28,9 @@ def _source(meta):
     return head
 
 
+MAL_CAT = re.compile(r"trojan|malware|command and control|c2|exploit|botnet|coin|ransom|phish|compromised|attempted admin|attempted user|web application attack", re.I)
+
+
 def _sig():
     fl = extras.apply_feed_config()
     out = [("cfg", tuple((f["name"], f["url"], f["active"], f["serious"]) for f in fl))]
