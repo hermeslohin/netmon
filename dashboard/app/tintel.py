@@ -52,12 +52,12 @@ def feed_status():
         octi = ""
     src = [(f["name"], f["url"], f["kind"], f["inactive_why"], not f["builtin"]) for f in extras.feed_list()]
     src += [(n, octi, k, "", False) for n, k in extras.LOCAL_FEEDS.items()]  # written by opencti.py
-    for n, url, kind, why, custom in src:
+    for n, url, kind, why, custom in src:  # URLs are shown with long hex runs (API keys) masked
         p = os.path.join(extras.INTEL, n + ".txt")
         if n in extras.LOCAL_FEEDS and not os.path.exists(p):
             continue  # OpenCTI not set up: no rows
         mt = os.path.getmtime(p) if os.path.exists(p) else None
-        rows.append({"feed": n, "kind": kind, "url": re.sub(r"[0-9A-Fa-f]{24,}", "…", url or ""),  # never show an API key in a URL "entries": 0 if why else per.get(n, 0), "serious": n in extras.SERIOUS,
+        rows.append({"feed": n, "kind": kind, "url": re.sub(r"[0-9A-Fa-f]{24,}", "…", url or ""), "entries": 0 if why else per.get(n, 0), "serious": n in extras.SERIOUS,
                      "active": not why, "inactive_why": why, "custom": custom,
                      "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mt)) if mt else None,
                      "age_h": round((time.time() - mt) / 3600, 1) if mt else None})

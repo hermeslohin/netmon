@@ -103,6 +103,13 @@ class TestFeedConfig(unittest.TestCase):
         self.assertIn("https://y.example/d.txt", got)
         self.assertTrue(open(os.path.join(self.tmp, "my_doms.txt")).read().startswith("# netmon-source: https://y.example/d.txt"))
         self.assertEqual(extras.count_feed("a.example\n10.0.0.1\n", "hosts"), 1)
+        import tintel
+        tintel._cache["sig"] = None
+        with mock.patch.object(tintel.extras, "INTEL", self.tmp):
+            rows = {r["feed"]: r for r in tintel.feed_status()}
+        self.assertEqual(rows["my_doms"]["entries"], 1)
+        self.assertEqual((rows["cins_badguys"]["active"], rows["cins_badguys"]["entries"]), (False, 0))
+        self.assertTrue(all({"entries", "serious", "url", "age_h"} <= set(r) for r in rows.values()))
 
 
 class TestFileArtifacts(unittest.TestCase):
