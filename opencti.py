@@ -46,7 +46,7 @@ _FPAT = re.compile(r"^\[(?:file|artifact):hashes\.(?:'([A-Za-z0-9-]+)'|([A-Za-z0
 _NPAT = re.compile(r"^\[file:name\s*=\s*'([^'\\]+)'\]$")
 _UPAT = re.compile(r"^\[url:value\s*=\s*'([^'\\]+)'\]$")
 SAMPLE_SCORE = 90          # a malware sample observable (MalwareBazaar) without a score of its own
-PULL_VERSION = 3           # bump when the list format changes: forces one full rebuild
+PULL_VERSION = 4           # bump when the list format changes: forces one full rebuild
 SEV_RANK = {"low": 1, "medium": 2, "high": 3, "urgent": 4}
 OCTI_SEV = {"urgent": "critical", "high": "high", "medium": "medium", "low": "low"}
 NEW_INCIDENTS_PER_RUN = 25
@@ -118,16 +118,20 @@ class Client:
 LISTS = {"opencti_ips": "ips", "opencti_high_ips": "ips", "opencti_hosts": "hosts", "opencti_high_hosts": "hosts",
          "opencti_cidrs": "cidrs", "opencti_high_cidrs": "cidrs",
          "opencti_hashes": "hashes", "opencti_filenames": "filenames", "opencti_high_filenames": "filenames"}
-# A malicious URL on one of these shared hosts says nothing about the host itself: never list the host.
+# A malicious URL on one of these shared hosts (or any subdomain of them) says nothing about the host itself: never list it.
 SHARED_HOSTS = ("github.com", "githubusercontent.com", "gitlab.com", "bitbucket.org", "google.com", "googleapis.com",
                 "googleusercontent.com", "drive.google.com", "docs.google.com", "dropbox.com", "dropboxusercontent.com",
-                "onedrive.live.com", "1drv.ms", "sharepoint.com", "microsoft.com", "windows.net", "azurewebsites.net",
-                "amazonaws.com", "cloudfront.net", "discord.com", "discordapp.com", "discordapp.net", "cdn.discordapp.com",
+                "onedrive.live.com", "1drv.ms", "sharepoint.com", "microsoft.com", "windows.net", "amazonaws.com",
+                "cloudfront.net", "discord.com", "discordapp.com", "discordapp.net", "cdn.discordapp.com",
                 "telegram.org", "t.me", "pastebin.com", "paste.ee", "mediafire.com", "mega.nz", "transfer.sh",
-                "cloudflare.com", "workers.dev", "pages.dev", "r2.dev", "web.app", "firebaseapp.com", "appspot.com",
-                "herokuapp.com", "vercel.app", "netlify.app", "glitch.me", "wordpress.com", "blogspot.com", "weebly.com",
-                "wixsite.com", "000webhostapp.com", "ngrok.io", "ngrok-free.app", "trycloudflare.com", "duckdns.org",
-                "archive.org", "bit.ly", "tinyurl.com", "yandex.ru", "apple.com", "icloud.com", "facebook.com", "youtube.com")
+                "cloudflare.com", "archive.org", "bit.ly", "tinyurl.com", "yandex.ru", "apple.com", "icloud.com",
+                "facebook.com", "youtube.com")
+# Hosting platforms that give each tenant its own subdomain (evil-login.vercel.app): the platform itself is never listed,
+# but a tenant subdomain is the attacker's own and is listed.
+TENANT_PLATFORMS = ("workers.dev", "pages.dev", "r2.dev", "web.app", "firebaseapp.com", "appspot.com", "herokuapp.com",
+                    "vercel.app", "netlify.app", "glitch.me", "wordpress.com", "blogspot.com", "weebly.com", "wixsite.com",
+                    "000webhostapp.com", "ngrok.io", "ngrok-free.app", "trycloudflare.com", "duckdns.org",
+                    "azurewebsites.net")
 OBS_MAX_AGE_D = 7          # a feed observable (no indicator) counts while its feed re-sent it within this many days
 _HEX = {32: "md5", 40: "sha1", 64: "sha256", 128: "sha512"}
 # names legitimate software also uses: matching them alone says nothing
@@ -172,7 +176,11 @@ def _addr(v):
 
 
 def _shared(host):
-    return any(host == d or host.endswith("." + d) for d in SHARED_HOSTS)
+    """True when a URL host must not be listed: a shared platform or any subdomain of it, or the bare (www.) name of a
+    tenant platform. A tenant subdomain (x.vercel.app) is not shared."""
+    if any(host == d or host.endswith("." + d) for d in SHARED_HOSTS):
+        return True
+    return any(host in (d, "www." + d) for d in TENANT_PLATFORMS)
 
 
 def url_host(u):

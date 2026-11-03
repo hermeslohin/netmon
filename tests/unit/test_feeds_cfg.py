@@ -212,9 +212,24 @@ class TestOpenCTIFeedMigration(unittest.TestCase):
         self.assertEqual(P("[url:value = 'http://45.33.32.7:8080/i']"), ("ips", "45.33.32.7"))
         self.assertEqual(P("[url:value = 'http://evil-site.top/a.exe']"), ("hosts", "evil-site.top"))
         self.assertIsNone(P("[url:value = 'https://raw.githubusercontent.com/x/y.ps1']"))
-        self.assertIsNone(P("[url:value = 'https://abc.r2.dev/p']"))
+        self.assertIsNone(P("[url:value = 'https://gist.github.com/x/y']"))
+        self.assertIsNone(P("[url:value = 'https://cdn.discordapp.com/attachments/1/a.exe']"))
         self.assertEqual(P("[ipv4-addr:value = '1.10.16.0/20']"), ("cidrs", "1.10.16.0/20"))
         self.assertIsNone(P("[ipv4-addr:value = '10.0.0.0/8']"))
+
+    def test_tenant_platform_subdomains_listed(self):
+        """A URL on a tenant subdomain of a hosting platform lists that subdomain; the platform itself never.
+        REQ: FEED-03
+        """
+        P = opencti.parse_pattern
+        self.assertEqual(P("[url:value = 'https://binance-red-packet.vercel.app/claim']"), ("hosts", "binance-red-packet.vercel.app"))
+        self.assertEqual(P("[url:value = 'https://abc.r2.dev/p']"), ("hosts", "abc.r2.dev"))
+        self.assertEqual(P("[url:value = 'https://green-a.acct.workers.dev/']"), ("hosts", "green-a.acct.workers.dev"))
+        self.assertIsNone(P("[url:value = 'https://vercel.app/x']"))
+        self.assertIsNone(P("[url:value = 'https://www.blogspot.com/x']"))
+        f = {"hosts": {"binance-red-packet.vercel.app": {"opencti_high_hosts"}}}
+        self.assertEqual(extras.match_domain("binance-red-packet.vercel.app", f)[0], "binance-red-packet.vercel.app")
+        self.assertIsNone(extras.match_domain("my-app.vercel.app", f)[0])
 
     def test_feed_observables_and_cidr_match(self):
         """Scored feed IP / range observables join the lists below indicators; a range hit names the range.

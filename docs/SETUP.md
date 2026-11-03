@@ -283,7 +283,8 @@ default; a changed URL is downloaded on the next run), *Serious* (an outbound hi
 built-in except the SSLBL JA3 list is marked by default: URLhaus and ThreatFox come from the OpenCTI abuse.ch
 connectors, Feodo, ET compromised, CINS and Spamhaus DROP from OpenCTI CSV feeds (`~/talos/upgrade/opencti/csv-feeds.py`,
 Data > Ingestion in OpenCTI). The pull lists the host of each malicious URL (never shared platforms such as GitHub or
-Discord), and scored IP / CIDR observables that feeds bring in without an indicator (IPsum, CINS, ET, Spamhaus,
+Discord; on tenant hosting such as vercel.app, workers.dev or blogspot.com it lists the tenant's own subdomain, never the
+platform), and scored IP / CIDR observables that feeds bring in without an indicator (IPsum, CINS, ET, Spamhaus,
 DShield...) while a feed has re-sent them in the last 7 days. Built-in feeds can be turned off
 but not deleted. **Add a feed** takes a name, an http(s) URL and what the list holds: domains (hosts file or one per
 line), IPs, CIDR ranges, JA3 (SSLBL CSV) or file hashes. **Test** downloads the URL and counts the entries.
