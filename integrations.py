@@ -16,7 +16,7 @@ API keys are never sent back to the browser (public() returns a masked hint only
 
 CLI: integrations.py show            effective settings (keys masked) and where each value comes from
 """
-import json, os, ssl, sys, time, urllib.error, urllib.request
+import json, os, re, ssl, sys, time, urllib.error, urllib.request
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -142,6 +142,17 @@ def _mask(k):
     return f"••••{k[-4:]}" if k and len(k) > 8 else ("••••" if k else "")
 
 
+def _feeds_public(d):
+    try:
+        import extras
+        rows = extras.feed_list()
+        kinds = extras.FEED_KINDS
+    except Exception:  # noqa: BLE001
+        rows, kinds = [], {}
+    f = d.get("feeds") or {}
+    return {"items": rows, "kinds": kinds, "updated_by": f.get("updated_by"), "updated_at": f.get("updated_at")}
+
+
 def public():
     """What the Configuration page shows: values + source of each, keys masked."""
     d = load()
@@ -177,6 +188,7 @@ def public():
             "key_set": bool(w.get("api_key")), "key_hint": _mask(w.get("api_key") or ""),
             "key_fallback": "the host secrets file (FIRECRAWL_API_KEY / BRAVE_API_KEY / TAVILY_API_KEY)",
             "updated_by": w.get("updated_by"), "updated_at": w.get("updated_at")},
+        "feeds": _feeds_public(d),
         "opencti": {
             **{k: oc[k] for k in OPENCTI_DEFAULTS if k != "ca_pem"}, "url": oc["url"], "ca_set": bool(oc.get("ca_pem")),
             "key_set": bool(oc["api_key"]), "key_hint": _mask(oc["api_key"]), "sevs": list(OPENCTI_SEVS),
@@ -252,9 +264,51 @@ def _opencti_candidate(cur, body):
     return new
 
 
+FEED_NAME = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+MAX_CUSTOM_FEEDS = 40
+
+
+def _clean_feed_url(v):
+    v = str(v or "").strip()
+    if v and (not v.startswith(("https://", "http://")) or any(c in v for c in " \"'<>\n\r\t") or len(v) > 500):
+        raise ValueError("feed URL must start with https:// (or http://), contain no spaces or quotes, at most 500 characters")
+    return v
+
+
+def _feeds_candidate(cur, body):
+    """body: {"items": [{name, url, kind, enabled, serious, opencti}], "delete": [names]}. Built-ins keep their kind;
+    a blank URL means the built-in default. Custom feeds need a name, an http(s) URL and a kind."""
+    import extras
+    items = {k: dict(v) for k, v in ((cur.get("items") or {}).items())}
+    for n in body.get("delete") or []:
+        if n in extras.FEEDS:
+            raise ValueError(f"{n} is built in: turn it off instead of deleting it")
+        items.pop(n, None)
+    for it in body.get("items") or []:
+        n = str(it.get("name") or "").strip().lower()
+        if not FEED_NAME.match(n) or n.startswith("opencti_"):
+            raise ValueError(f"feed name '{n}': 2-40 characters, a-z, 0-9 and _, starting with a letter (opencti_ is reserved)")
+        url = _clean_feed_url(it.get("url"))
+        e = {"enabled": bool(it.get("enabled", True)), "serious": bool(it.get("serious")), "opencti": bool(it.get("opencti"))}
+        if n in extras.FEEDS:
+            e["url"] = "" if url == extras.FEEDS[n][0] else url
+        else:
+            if not url:
+                raise ValueError(f"feed {n}: enter its URL")
+            if it.get("kind") not in extras.FEED_KINDS:
+                raise ValueError(f"feed {n}: choose what the list holds")
+            e.update(url=url, kind=it["kind"], custom=True)
+        items[n] = e
+    if sum(1 for v in items.values() if v.get("custom")) > MAX_CUSTOM_FEEDS:
+        raise ValueError(f"at most {MAX_CUSTOM_FEEDS} custom feeds")
+    return {"items": items}
+
+
 def candidate(section, body):
     """Merged section dict from a form post, without saving. Empty api_key keeps the current one unless clear_key."""
     cur = dict(load().get(section) or {})
+    if section == "feeds":
+        return _feeds_candidate(cur, body)
     if section == "opencti":
         new = _opencti_candidate(cur, body)
         k = _clean_key(body.get("api_key"))
@@ -285,7 +339,7 @@ def candidate(section, body):
 
 
 def save(section, body, user):
-    if section not in ("elasticsearch", "unifi", "audit", "web", "opencti"):
+    if section not in ("elasticsearch", "unifi", "audit", "web", "opencti", "feeds"):
         raise ValueError("unknown integration")
     d = load()
     d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -315,6 +369,26 @@ def _err(e):
             body = ""
         return f"HTTP {e.code} {e.reason}" + (f": {str(body)[:200]}" if body else "")
     return str(getattr(e, "reason", e))[:200]
+
+
+def test_feed(body):
+    """Download one feed URL and count what it parses into as the chosen kind."""
+    import extras
+    kind = body.get("kind") or "hosts"
+    if kind not in extras.FEED_KINDS:
+        return {"ok": False, "error": "unknown list type"}
+    try:
+        url = _clean_feed_url(body.get("url"))
+        if not url:
+            return {"ok": False, "error": "enter a URL"}
+        req = urllib.request.Request(url, headers={"User-Agent": "netmon/1.0 (home SOC)"})
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - admin-entered http(s) URL
+            data = r.read(64 * 1024 * 1024)
+        n = extras.count_feed(data.decode("utf-8", "replace"), kind)
+        return {"ok": n > 0, "url": url, "entries": n, "bytes": len(data),
+                "error": "" if n else f"downloaded {len(data):,} bytes but found no {extras.FEED_KINDS[kind].lower()}"}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": _err(e) if isinstance(e, (urllib.error.URLError,)) else str(e)[:300]}
 
 
 def test(section, body):
@@ -364,6 +438,8 @@ def test(section, body):
             return {"ok": bool(res), "provider": prov, "results": len(res), "error": "" if res else "no results"}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "provider": prov, "error": str(e)[:300]}
+    if section == "feeds":
+        return test_feed(body)
     if section == "opencti":
         if not c.get("url") or not c.get("api_key"):
             return {"ok": False, "error": "enter the OpenCTI URL and API token to test"}

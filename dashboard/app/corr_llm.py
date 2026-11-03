@@ -1190,7 +1190,7 @@ def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, p
     lines = ["ANCHOR:", ev("anchor", anchor), "", "CANDIDATES (with the correlation script's evidence):"]
     for i, (e, r) in enumerate(cands, 1):
         lines.append(ev(f"c{i}", e, f'\n  script evidence (score {r.get("score", 0)}): {"; ".join(r.get("why") or []) or "none"}'))
-    try:  # people's notes on artifacts (files, processes, users, IPs, DNS) seen in earlier reviews
+    try:  # people's notes on artifacts (files, processes, users, IPs, DNS, hashes) seen in earlier reviews
         import kb
         hay = " ".join(str(x) for e_ in [anchor, *(c[0] for c in cands)] for x in (e_.get("label"), *(e_.get("ips") or []), *(a[1] for a in e_.get("arts") or []))).lower()
         allan = [n for n in kb.host_notes(ai=True) if str(n["subject"]).startswith("art:")]

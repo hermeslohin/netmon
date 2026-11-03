@@ -19,7 +19,7 @@ something odd). Score = sum over shared entities of a rarity-weighted value (an 
 events says little) + time proximity + shared ATT&CK technique. Only pairs that share at least one entity
 are ever considered, so unrelated events are never linked just for being close in time.
 """
-import math
+import ipaddress, math
 import re
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -51,13 +51,15 @@ _PATH = re.compile(r"(?<![\w/.:-])((?:/(?:usr|bin|sbin|opt|etc|var|tmp|home|lib|
 _USER = re.compile(r"\buser ([A-Za-z_][\w.-]{0,31})(?=\s*(?:[,)]|parent\b|cmd\b|$))", re.M)
 _ACCTS = re.compile(r"\baccounts? ([A-Za-z_][^\[\]]*)")
 _SHA = re.compile(r"\bsha256 ([0-9a-f]{8,64})\b")
+_HASH = re.compile(r"(?<![0-9A-Fa-f])((?:[0-9a-fA-F]{32})|(?:[0-9a-fA-F]{40})|(?:[0-9a-fA-F]{64}))(?![0-9A-Fa-f])")
+_FNAME = re.compile(r"(?<![\w/\\.-])([\w()+-][\w.()+-]{0,80}?\.(?:exe|dll|scr|msi|ps1|bat|cmd|vbs|jse?|hta|lnk|jar|apk|iso|img|docm|xlsm|pptm|one))\b", re.I)
 _PARENT = re.compile(r"\bparent (\S+)")
 _CMD = re.compile(r"\bcmd: (.+)$")
 _PROC_KEYS = ("proc", "exec", "hnet", "net-new", "net-", "persist", "lolbin")
 _FILE_KEYS = ("file", "fim", "ransom")
 _BIN_DIRS = ("/bin/", "/sbin/", "/usr/bin/", "/usr/sbin/", "/usr/local/bin/", "/usr/libexec/", "/opt/")
 _STOP_USERS = {"and", "the", "from", "with", "that", "this", "has", "was", "were", "for", "failed", "ok", "none", "unknown", "id", "agent", "name", "names"}
-MAX_ARTS = 10
+MAX_ARTS = 14
 
 
 def artifacts_of(text, key="", users=(), extra=(), host_label=""):
@@ -114,9 +116,46 @@ def artifacts_of(text, key="", users=(), extra=(), host_label=""):
     for d in _DOM.findall(text):
         if not d.lower().endswith((".lan", ".local", ".hades")):
             put("dns", d.lower(), "domain in event")
+    for m in _HASH.finditer(text):  # full md5 / sha1 / sha256 digests (shortened ones in "sha256 ab12..." stay in the relation)
+        h = m.group(1).lower()
+        if len(set(h)) > 4:
+            put("hash", h, "file hash in event")
+    for m in _FNAME.finditer(text):  # bare file names (payload.exe, invoice.docm) not already part of a path
+        n = m.group(1).strip()
+        if not any(n in a[1] for a in out if a[0] in ("file", "process")):
+            put("file", n, "file name in event" + on)
+    for ip in _IP.findall(text):
+        if _public_ip(ip):
+            put("ip", ip, "external address in event")
     for kind, value, rel in extra:
         put(kind, value, rel)
-    return out[:MAX_ARTS]
+    return _ti_mark(out[:MAX_ARTS])
+
+
+def _public_ip(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return not (a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved or a.is_unspecified)
+
+
+def _ti_mark(arts):
+    """Append 'listed in <feeds>' to the relation of every artifact a threat-intel feed or OpenCTI lists."""
+    try:
+        import intelmatch
+        hs = intelmatch.hits({"arts": arts})
+    except Exception:  # noqa: BLE001 - artifacts work without threat intel
+        return arts
+    by = {(h["kind"], str(h["value"]).lower()): h for h in hs}
+    for a in arts:
+        k = "file" if a[0] in ("file", "process") else a[0]
+        v = a[1].lower() if a[0] not in ("file", "process") else re.split(r"[\\/]", a[1].split()[0])[-1].lower()
+        h = by.get((k, v))
+        if h:
+            tag = " · listed in " + ", ".join(h["feeds"]) + (f" (score {h['score']})" if h.get("score") is not None else "")
+            a[2] = (a[2] + tag)[:160]
+    return arts
 
 
 def _topics_finding(kind):

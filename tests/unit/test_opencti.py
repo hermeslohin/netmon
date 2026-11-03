@@ -81,8 +81,12 @@ class TestSettings(unittest.TestCase):
         self.assertFalse(integrations.opencti()["usable"])
         integrations.save("opencti", {"url": "https://octi.example", "enabled": True}, "admin")
         self.assertFalse(integrations.opencti()["usable"])
-        with mock.patch.object(opencti, "Client", side_effect=AssertionError("must not connect")):
-            self.assertEqual(opencti.run(), {"enabled": False})
+        tmp = tempfile.mkdtemp()
+        try:  # run() removes the lists when disabled: never against the live intel/ directory
+            with mock.patch.object(opencti, "INTEL", tmp), mock.patch.object(opencti, "Client", side_effect=AssertionError("must not connect")):
+                self.assertEqual(opencti.run(), {"enabled": False})
+        finally:
+            shutil.rmtree(tmp, True)
 
 
 class TestIndicators(unittest.TestCase):

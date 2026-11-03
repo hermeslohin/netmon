@@ -138,6 +138,85 @@ for b in buckets(r["aggregations"]["d"]):
         alert(f"tiip|{b['key']}|{src[:1]}", f"**Threat-intel IP:** {', '.join(map(nm, src))} -> {b['key']}:{[x['key'] for x in buckets(b['p'])]} "
                                             f"x{b['doc_count']} (listed in {', '.join(fl)})")
 
+
+def file_intel():
+    """4b. File hashes and file names on the threat-intel lists (OpenCTI hashes / names, hash feeds): files Zeek saw
+    on the wire (md5/sha1) and processes / files Elastic Defend saw on endpoints (sha256, image and file names). The ES
+    query filters on the listed values (a few thousand), never aggregates every hash or name seen."""
+    hset = sorted(feeds.get("hashes") or {})
+    names = set()
+    for n, k in extras.LOCAL_FEEDS.items():  # file-name lists keep the original case; keyword fields are case-sensitive
+        if k == "filenames":
+            try:
+                for line in open(os.path.join(extras.INTEL, n + ".txt"), encoding="utf-8"):
+                    v = line.split(" # ")[0].strip()
+                    if v and not v.startswith("#"):
+                        names.update({v, v.lower()})
+            except OSError:
+                pass
+    if not hset and not names:
+        return
+    import intelmatch
+    _, meta = intelmatch.feeds()
+
+    def about(v):
+        sc, m = meta.get(str(v).lower(), (None, ""))
+        return f"; {m}" if m else ""
+
+    def hit(kind, value, host, what, count):
+        fl = extras.match_hash(value, feeds) if kind == "hash" else extras.match_filename(value, feeds)
+        if not fl:
+            return
+        if any(f.startswith("opencti_") for f in fl):
+            octi_hits.append({"value": value, "feeds": fl, "count": count, "sources": [host]})
+        if set(fl) & extras.SERIOUS:
+            label = "file hash" if kind == "hash" else "file name"
+            alert(f"ti{kind}|{value.lower()}|{host}", f"**Threat-intel {label}:** {host} {what} (listed in {', '.join(fl)}{about(value)})")
+    chunks = [hset[i:i + 5000] for i in range(0, len(hset), 5000)]
+    for ch in chunks:
+        for fld in ("hash.md5", "hash.sha1", "hash.sha256"):
+            r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.file"), {"terms": {fld: ch}}]}},
+                                   "aggs": {"h": {"terms": {"field": fld, "size": 200}, "aggs": {
+                                       "d": {"terms": {"field": "destination.ip", "size": 2}}, "s": {"terms": {"field": "source.ip", "size": 1}},
+                                       "n": {"terms": {"field": "file.name", "size": 1}}, "m": {"terms": {"field": "file.mime_type", "size": 1}}}}}})
+            for b in buckets(r["aggregations"]["h"]):
+                ends = [x["key"] for x in buckets(b["s"]) + buckets(b["d"])]
+                inside = [x for x in ends if SITE.is_internal(x)] or ends
+                other = [x for x in ends if x not in inside]
+                fname = (buckets(b["n"]) or [{}])[0].get("key") or (buckets(b["m"]) or [{}])[0].get("key") or "a file"
+                hit("hash", b["key"], ", ".join(map(nm, inside)) or "?",
+                    f"transferred {fname}{' with ' + ', '.join(other) if other else ''} ({fld.split('.')[1]} {b['key']})", b["doc_count"])
+        r = q("logs-endpoint.events.process-*", {"size": 0, "query": {"bool": {"filter": [R, {"terms": {"process.hash.sha256": ch}}]}},
+                                                 "aggs": {"h": {"terms": {"field": "process.hash.sha256", "size": 200}, "aggs": {
+                                                     "host": {"terms": {"field": "host.name", "size": 3}}, "exe": {"terms": {"field": "process.executable", "size": 1}}}}}})
+        for b in buckets(r["aggregations"]["h"]):
+            exe = (buckets(b["exe"]) or [{}])[0].get("key", "a process")
+            for hb in buckets(b["host"]):
+                hit("hash", b["key"], hb["key"], f"ran {exe} (sha256 {b['key']})", hb["doc_count"])
+    if names:
+        nl = sorted(names)
+        for idx, fld, verb in (("logs-endpoint.events.process-*", "process.name", "ran"), ("logs-endpoint.events.file-*", "file.name", "wrote")):
+            r = q(idx, {"size": 0, "query": {"bool": {"filter": [R, {"terms": {fld: nl}}]}},
+                        "aggs": {"n": {"terms": {"field": fld, "size": 100}, "aggs": {"host": {"terms": {"field": "host.name", "size": 3}},
+                                                                                     "p": {"terms": {"field": "file.path" if fld == "file.name" else "process.executable", "size": 1}}}}}})
+            for b in buckets(r["aggregations"]["n"]):
+                path = (buckets(b["p"]) or [{}])[0].get("key", b["key"])
+                for hb in buckets(b["host"]):
+                    hit("file", b["key"], hb["key"], f"{verb} {path}", hb["doc_count"])
+        r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.file"), {"terms": {"file.name": nl}}]}},
+                               "aggs": {"n": {"terms": {"field": "file.name", "size": 100}, "aggs": {"d": {"terms": {"field": "destination.ip", "size": 2}},
+                                                                                                  "s": {"terms": {"field": "source.ip", "size": 2}}}}}})
+        for b in buckets(r["aggregations"]["n"]):
+            ends = [x["key"] for x in buckets(b["s"]) + buckets(b["d"])]
+            inside = [x for x in ends if SITE.is_internal(x)] or ends
+            hit("file", b["key"], ", ".join(map(nm, inside)) or "?", f"transferred {b['key']} over the network", b["doc_count"])
+
+
+try:
+    file_intel()
+except Exception as e:  # noqa: BLE001 - one missing index must not stop the watcher
+    print(f"file threat intel: {type(e).__name__}: {e}", file=sys.stderr)
+
 if octi_hits:
     import opencti
     print("opencti sightings:", opencti.report_sightings(octi_hits, WINDOW), file=sys.stderr)

@@ -333,9 +333,21 @@ def pull(cli, cfg, st, force_full=False):
 
 # ------------------------------------------------------------------ sightings (called by watch.py)
 def _find_indicator(cli, value):
-    f = {"mode": "and", "filters": [{"key": "name", "values": [value]}, {"key": "revoked", "values": ["false"]}], "filterGroups": []}
+    """The object a sighting of `value` points at: the best-scored live indicator named after it, else (hashes and
+    file names of malware samples, which often have no indicator) the observable that carries it."""
+    vals = sorted({value, value.lower(), value.upper()})
+    f = {"mode": "and", "filters": [{"key": "name", "values": vals}, {"key": "revoked", "values": ["false"]}], "filterGroups": []}
     e = cli.q("query($f:FilterGroup){ indicators(first:1, orderBy:x_opencti_score, orderMode:desc, filters:$f){ edges{ node{ id } } } }",
               {"f": f})["indicators"]["edges"]
+    if e:
+        return e[0]["node"]["id"]
+    if _hash(value):
+        f = {"mode": "or", "filters": [{"key": "hashes." + a, "values": vals} for a in ("MD5", "SHA-1", "SHA-256", "SHA-512")], "filterGroups": []}
+    elif _fname(value):
+        f = {"mode": "or", "filters": [{"key": "name", "values": [value]}, {"key": "x_opencti_additional_names", "values": [value]}], "filterGroups": []}
+    else:
+        return None
+    e = cli.q("query($f:FilterGroup){ stixCyberObservables(first:1, filters:$f){ edges{ node{ id } } } }", {"f": f})["stixCyberObservables"]["edges"]
     return e[0]["node"]["id"] if e else None
 
 

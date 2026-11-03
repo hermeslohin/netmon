@@ -98,7 +98,7 @@
   setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
   let pop = null;
   const close = () => { pop?.remove(); pop = null; };
-  const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎" };
+  const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎", hash: "🧬" };
   // an AI Elasticsearch search kept as an artifact: click to open the same search in Kibana Discover
   function queryArtHtml(a) {
     const d = a.query || {}, url = window.kibanaQueryUrl?.(d) || "";

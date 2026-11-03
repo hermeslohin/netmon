@@ -14,8 +14,9 @@ MAL_CAT = re.compile(r"trojan|malware|command and control|c2|exploit|botnet|coin
 
 
 def _sig():
-    out = []
-    for n in list(extras.FEEDS) + list(extras.LOCAL_FEEDS):
+    fl = extras.apply_feed_config()
+    out = [("cfg", tuple((f["name"], f["url"], f["active"], f["serious"]) for f in fl))]
+    for n in list(extras.ACTIVE) + list(extras.LOCAL_FEEDS):
         p = os.path.join(extras.INTEL, n + ".txt")
         out.append((n, os.path.getmtime(p) if os.path.exists(p) else 0))
     return tuple(out)
@@ -26,22 +27,22 @@ def feeds():
         s = _sig()
         if _cache["sig"] != s:
             f = extras.load_feeds()
-            per = {n: 0 for n in list(extras.FEEDS) + list(extras.LOCAL_FEEDS)}
-            for src in f["hosts"].values():
-                for n in src:
-                    per[n] += 1
-            for k in ("ips", "hashes", "filenames"):
+            per = {}
+            for k in ("hosts", "ips", "hashes", "filenames"):
                 for src in (f.get(k) or {}).values():
                     for n in src:
                         per[n] = per.get(n, 0) + 1
             for c in f["cidrs"]:
-                per[c[3]] += 1
-            per["sslbl_ja3"] = len(f["ja3"])
+                per[c[3]] = per.get(c[3], 0) + 1
+            for n, (_, kind) in extras.ACTIVE.items():
+                if kind == "ja3":
+                    per[n] = len(f["ja3"])
             _cache.update(sig=s, feeds=f, per=per)
         return _cache["feeds"], _cache["per"]
 
 
 def feed_status():
+    """Every configured feed (inactive ones say why) and the OpenCTI lists when present."""
     _, per = feeds()
     rows = []
     try:
@@ -49,13 +50,15 @@ def feed_status():
         octi = integrations.opencti().get("url") or ""
     except Exception:  # noqa: BLE001
         octi = ""
-    rows_src = list(extras.FEEDS.items()) + [(n, (octi, k)) for n, k in extras.LOCAL_FEEDS.items()]  # written by opencti.py
-    for n, (url, kind) in rows_src:
+    src = [(f["name"], f["url"], f["kind"], f["inactive_why"], not f["builtin"]) for f in extras.feed_list()]
+    src += [(n, octi, k, "", False) for n, k in extras.LOCAL_FEEDS.items()]  # written by opencti.py
+    for n, url, kind, why, custom in src:
         p = os.path.join(extras.INTEL, n + ".txt")
         if n in extras.LOCAL_FEEDS and not os.path.exists(p):
             continue  # OpenCTI not set up: no rows
         mt = os.path.getmtime(p) if os.path.exists(p) else None
-        rows.append({"feed": n, "kind": kind, "url": url, "entries": per.get(n, 0), "serious": n in extras.SERIOUS,
+        rows.append({"feed": n, "kind": kind, "url": re.sub(r"[0-9A-Fa-f]{24,}", "…", url or ""),  # never show an API key in a URL "entries": 0 if why else per.get(n, 0), "serious": n in extras.SERIOUS,
+                     "active": not why, "inactive_why": why, "custom": custom,
                      "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mt)) if mt else None,
                      "age_h": round((time.time() - mt) / 3600, 1) if mt else None})
     return rows

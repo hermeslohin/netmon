@@ -21,6 +21,9 @@ NM = os.environ.get("NETMON_DIR") or os.path.dirname(os.path.abspath(__file__))
 INTEL = os.path.join(NM, "intel")
 POLICY = os.path.join(NM, "policy.json")
 
+# Built-in feed defaults. What actually runs is configurable (More > Configuration > Integrations > Threat-intel feeds,
+# integrations section "feeds"): each feed can be turned off, pointed at another URL, marked serious or "covered by
+# OpenCTI", and custom feeds can be added. apply_feed_config() refreshes ACTIVE and SERIOUS from that config.
 FEEDS = {
     "urlhaus_hosts": ("https://urlhaus.abuse.ch/downloads/hostfile/", "hosts"),
     "threatfox_hosts": ("https://threatfox.abuse.ch/downloads/hostfile/", "hosts"),
@@ -31,15 +34,66 @@ FEEDS = {
     "spamhaus_drop": ("https://www.spamhaus.org/drop/drop.txt", "cidrs"),
     "sslbl_ja3": ("https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv", "ja3"),
 }
+FEED_KINDS = {"hosts": "Domains (hosts file or one per line)", "ips": "IP addresses", "cidrs": "IP ranges (CIDR)",
+              "ja3": "JA3 fingerprints (SSLBL CSV)", "hashes": "File hashes (one per line)"}
 # Feeds whose hits on OUTBOUND traffic are serious (C2 / malware infra). CINS / ET are scanner lists:
 # they matter for inbound sessions that succeeded, and only as context for outbound.
-SERIOUS = {"urlhaus_hosts", "threatfox_hosts", "feodo_ips", "sslbl_ips", "spamhaus_drop", "sslbl_ja3"}
+BUILTIN_SERIOUS = {"urlhaus_hosts", "threatfox_hosts", "feodo_ips", "sslbl_ips", "spamhaus_drop", "sslbl_ja3"}
+# Built-in feeds whose data the OpenCTI abuse.ch connectors (URLhaus, ThreatFox) already bring in: skipped while the
+# OpenCTI pull is on, so the same indicator is not matched (and alerted) twice.
+OPENCTI_COVERS = {"urlhaus_hosts", "threatfox_hosts"}
 # Feeds written locally by opencti.py from the OpenCTI platform (not downloaded): name -> kind. The *_high lists hold
 # indicators at or above the configured high-confidence score and count as SERIOUS (they alert like Feodo/URLhaus);
 # every hash entry is SERIOUS (an exact match). File names below the high score are context for the reviewer only.
 LOCAL_FEEDS = {"opencti_ips": "ips", "opencti_hosts": "hosts", "opencti_high_ips": "ips", "opencti_high_hosts": "hosts",
                "opencti_hashes": "hashes", "opencti_filenames": "filenames", "opencti_high_filenames": "filenames"}
-SERIOUS |= {"opencti_high_ips", "opencti_high_hosts", "opencti_hashes", "opencti_high_filenames"}
+LOCAL_SERIOUS = {"opencti_high_ips", "opencti_high_hosts", "opencti_hashes", "opencti_high_filenames"}
+SERIOUS = set(BUILTIN_SERIOUS | LOCAL_SERIOUS)  # updated in place by apply_feed_config()
+ACTIVE = {n: v for n, v in FEEDS.items()}       # name -> (url, kind) of the feeds that run; updated in place
+
+
+def feed_list():
+    """Every feed (built-in + custom) with its settings: name, url, default_url, kind, builtin, enabled, serious,
+    opencti (covered by OpenCTI), active, inactive_why."""
+    try:
+        import integrations
+        items = (integrations.load().get("feeds") or {}).get("items") or {}
+        o = integrations.opencti()
+        octi_on = bool(o["usable"] and o["pull"])
+    except Exception:  # noqa: BLE001 - no config yet: built-in defaults
+        items, octi_on = {}, False
+    out = []
+    for n, (url, kind) in FEEDS.items():
+        c = items.get(n) or {}
+        out.append({"name": n, "url": c.get("url") or url, "default_url": url, "kind": kind, "builtin": True,
+                    "enabled": c.get("enabled", True), "serious": c.get("serious", n in BUILTIN_SERIOUS),
+                    "opencti": c.get("opencti", n in OPENCTI_COVERS)})
+    for n, c in items.items():
+        if n in FEEDS or not c.get("custom") or not c.get("url") or c.get("kind") not in FEED_KINDS:
+            continue
+        out.append({"name": n, "url": c["url"], "default_url": "", "kind": c["kind"], "builtin": False,
+                    "enabled": c.get("enabled", True), "serious": bool(c.get("serious")), "opencti": bool(c.get("opencti"))})
+    for f in out:
+        covered = f["opencti"] and octi_on
+        f["active"] = bool(f["enabled"] and not covered)
+        f["inactive_why"] = "" if f["active"] else ("turned off" if not f["enabled"] else "covered by OpenCTI")
+    return out
+
+
+def apply_feed_config():
+    fl = feed_list()
+    ACTIVE.clear()
+    ACTIVE.update({f["name"]: (f["url"], f["kind"]) for f in fl if f["active"]})
+    SERIOUS.clear()
+    SERIOUS.update({f["name"] for f in fl if f["serious"]} | LOCAL_SERIOUS)
+    return fl
+
+
+def count_feed(text, kind):
+    """Entries a feed body parses into (used by the settings page Test button)."""
+    f = {"hosts": defaultdict(set), "ips": defaultdict(set), "cidrs": [], "ja3": {}, "hashes": defaultdict(set), "filenames": defaultdict(set)}
+    _parse(text, kind, "test", f)
+    return len(f[kind])
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -90,18 +144,34 @@ def zone_role(zone, policy=None):
 
 
 # ----------------------------------------------------------------------------- threat intel feeds
+def _src_url(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            first = f.readline()
+    except OSError:
+        return None
+    return first[len("# netmon-source: "):].strip() if first.startswith("# netmon-source: ") else None
+
+
 def refresh_feeds(max_age_h=12):
+    """Download the active feeds that are older than max_age_h or whose URL changed. Each file starts with a
+    '# netmon-source: <url>' line (a comment for every parser) so a changed URL is fetched at once."""
+    apply_feed_config()
     os.makedirs(INTEL, exist_ok=True)
     status = {}
-    for name, (url, _) in FEEDS.items():
+    for name, (url, _) in ACTIVE.items():
         path = os.path.join(INTEL, name + ".txt")
-        fresh = os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age_h * 3600
+        fresh = os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age_h * 3600 and _src_url(path) in (url, None)
         if not fresh:
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "netmon/1.0 (home SOC)"})
-                data = urllib.request.urlopen(req, timeout=60).read()
+                with urllib.request.urlopen(req, timeout=60) as r:  # noqa: S310 - admin-configured http(s) URL
+                    data = r.read(64 * 1024 * 1024)
                 if len(data) > 100:
-                    open(path, "wb").write(data)
+                    tmp = path + ".tmp"
+                    with open(tmp, "wb") as f:
+                        f.write(f"# netmon-source: {url}\n".encode() + data)
+                    os.replace(tmp, path)
             except Exception as e:
                 status[name] = f"download failed: {e}"
         if os.path.exists(path):
@@ -109,50 +179,57 @@ def refresh_feeds(max_age_h=12):
     return status
 
 
+def _parse(text, kind, name, acc):
+    hosts, ips, cidrs, ja3, hashes, fnames = acc["hosts"], acc["ips"], acc["cidrs"], acc["ja3"], acc["hashes"], acc["filenames"]
+    if kind == "ja3":
+        for row in csv.reader(io.StringIO(text)):
+            if row and not row[0].startswith("#") and len(row) >= 4:
+                ja3[row[0].strip()] = f"{row[3].strip()} (listed {row[1][:10]}..{row[2][:10]})"
+        return
+    if kind in ("hashes", "filenames"):  # "<value> # score N | meta" (opencti.py) or one value per line
+        for line in text.splitlines():
+            v = line.split(" # ")[0].split(",")[0].strip()
+            if v and not v.startswith("#") and (kind == "filenames" or re.fullmatch(r"[0-9A-Fa-f]{32,128}", v)):
+                (hashes if kind == "hashes" else fnames)[v.lower()].add(name)
+        return
+    for line in text.splitlines():
+        line = line.split("#")[0].split(";")[0].strip()
+        if not line:
+            continue
+        if kind == "hosts":
+            parts = line.split()
+            d = parts[1] if len(parts) >= 2 else parts[0]  # hosts-file line, or a bare domain per line
+            d = d.lower().rstrip(".")
+            if "." in d and not re.fullmatch(r"[\d.]+", d) and d not in ("localhost", "localhost.localdomain"):
+                hosts[d].add(name)
+        elif kind == "ips":
+            tok = line.split()[0].split(",")[0]
+            try:
+                ipaddress.ip_address(tok)
+                ips[tok].add(name)
+            except ValueError:
+                pass
+        elif kind == "cidrs":
+            try:
+                n = ipaddress.ip_network(line.split()[0], strict=False)
+                if n.version == 4:
+                    cidrs.append((int(n.network_address), int(n.broadcast_address), str(n), name))
+            except ValueError:
+                pass
+
+
 def load_feeds():
-    hosts, ips, cidrs, ja3 = defaultdict(set), defaultdict(set), [], {}
-    hashes, fnames = defaultdict(set), defaultdict(set)
-    for name, kind in [(n, k) for n, (_, k) in FEEDS.items()] + list(LOCAL_FEEDS.items()):
+    """Active downloaded feeds + the OpenCTI lists. Turned-off or OpenCTI-covered feeds are not loaded even when
+    their file is still on disk."""
+    apply_feed_config()
+    acc = {"hosts": defaultdict(set), "ips": defaultdict(set), "cidrs": [], "ja3": {}, "hashes": defaultdict(set), "filenames": defaultdict(set)}
+    for name, kind in [(n, k) for n, (_, k) in ACTIVE.items()] + list(LOCAL_FEEDS.items()):
         path = os.path.join(INTEL, name + ".txt")
         if not os.path.exists(path):
             continue
-        text = open(path, encoding="utf-8", errors="replace").read()
-        if kind == "ja3":
-            for row in csv.reader(io.StringIO(text)):
-                if row and not row[0].startswith("#") and len(row) >= 4:
-                    ja3[row[0].strip()] = f"{row[3].strip()} (listed {row[1][:10]}..{row[2][:10]})"
-            continue
-        if kind in ("hashes", "filenames"):  # "<value> # score N | meta" (opencti.py); values are matched lowercase
-            for line in text.splitlines():
-                v = line.split(" # ")[0].strip()
-                if v and not v.startswith("#"):
-                    (hashes if kind == "hashes" else fnames)[v.lower()].add(name)
-            continue
-        for line in text.splitlines():
-            line = line.split("#")[0].split(";")[0].strip()
-            if not line:
-                continue
-            if kind == "hosts":
-                parts = line.split()
-                if len(parts) >= 2:
-                    hosts[parts[1].lower().rstrip(".")].add(name)
-            elif kind == "ips":
-                tok = line.split()[0].split(",")[0]
-                try:
-                    ipaddress.ip_address(tok)
-                    ips[tok].add(name)
-                except ValueError:
-                    pass
-            elif kind == "cidrs":
-                try:
-                    n = ipaddress.ip_network(line.split()[0], strict=False)
-                    if n.version == 4:
-                        cidrs.append((int(n.network_address), int(n.broadcast_address), str(n), name))
-                except ValueError:
-                    pass
-    cidrs.sort()
-    return {"hosts": hosts, "ips": ips, "cidrs": cidrs, "cidr_starts": [c[0] for c in cidrs], "ja3": ja3,
-            "hashes": hashes, "filenames": fnames}
+        _parse(open(path, encoding="utf-8", errors="replace").read(), kind, name, acc)
+    acc["cidrs"].sort()
+    return {**acc, "cidr_starts": [c[0] for c in acc["cidrs"]]}
 
 
 def match_domain(name, feeds):

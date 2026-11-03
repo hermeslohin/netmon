@@ -99,6 +99,7 @@ _V_USER = re.compile(r"^[\w.$@\\-]{1,64}$")
 
 
 _V_PROCNAME = re.compile(r"^[a-z0-9][a-z0-9_.+-]{1,63}$")
+_V_FNAME = re.compile(r"^[\w .()+-]{1,120}\.(?:exe|dll|scr|msi|ps1|bat|cmd|vbs|js|jse|hta|lnk|jar|apk|elf|bin|sh|py|iso|img|zip|rar|7z|gz|docm|xlsm|pptm|doc|xls|pdf|one)$", re.I)
 _V_WINEXE = re.compile(r"^[\w .+-]{1,80}\.(?:exe|dll|app|ps1|bat|cmd|scr|msi)$", re.I)
 _dev_names = {"t": 0, "names": set()}
 # protocol / analyzer names a model files as a "process": never a program on the host
@@ -128,10 +129,15 @@ def valid_art(kind, value):
       process a path (/usr/bin/x, C:\\x.exe), a Windows image name (x.exe) or a lowercase binary name (sshd, python3.12) -
       file    not a port, protocol (SSH, DNS), address, device name or a phrase
       user    a single account name, not an address or a device name
+      hash    an md5 / sha1 / sha256 / sha512 hex digest
     Anything else is dropped, never re-filed under a guessed kind."""
     v = str(value or "").strip()
     if not v or len(v) > 300 or "\n" in v:
         return False
+    if kind == "hash":
+        return bool(re.fullmatch(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{128}", v)) and len(set(v.lower())) > 4
+    if kind == "file" and _V_FNAME.match(v) and not _IP.match(v):
+        return True
     if kind == "ip":
         return bool(_IP.match(v)) and all(int(x) <= 255 for x in v.split("."))
     if kind == "dns":
@@ -282,7 +288,7 @@ def _registry():
         return {}
 
 
-ART_KINDS = ("file", "process", "user", "ip", "dns")
+ART_KINDS = ("file", "process", "user", "ip", "dns", "hash")
 
 
 def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):

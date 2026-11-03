@@ -3,7 +3,7 @@ and the dashboard.
 
 hits(event) checks every IP, domain, file name, process image name and file hash the event carries (its `arts`
 [kind, value, relation], `ips`, `dst_ips` and `host_ips`) against all loaded feeds: the downloaded ones in
-extras.FEEDS and the OpenCTI lists that opencti.py writes. For OpenCTI entries the score, source and labels
+extras.ACTIVE (configured feeds) and the OpenCTI lists that opencti.py writes. For OpenCTI entries the score, source and labels
 (malware family, campaign...) come along, so the reviewer sees *why* a value is listed, not just that it is.
 
 Feeds are re-read only when a list file changes (mtime signature), so calling this per event is cheap.
@@ -28,8 +28,9 @@ MAX_HITS = 8
 
 
 def _sig():
-    out = []
-    for n in list(extras.FEEDS) + list(extras.LOCAL_FEEDS):
+    fl = extras.apply_feed_config()
+    out = [("cfg", tuple((f["name"], f["url"], f["active"], f["serious"]) for f in fl))]
+    for n in list(extras.ACTIVE) + list(extras.LOCAL_FEEDS):
         p = os.path.join(extras.INTEL, n + ".txt")
         out.append((n, os.path.getmtime(p) if os.path.exists(p) else 0))
     return tuple(out)

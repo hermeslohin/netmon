@@ -179,6 +179,61 @@
       } catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
     };
   }
+  /* ---------- Threat-intel feeds: on/off, URL, serious, covered by OpenCTI, custom feeds ---------- */
+  function feedsCard(F, O, done) {
+    const kinds = F.kinds || {}, octiOn = !!(O && O.enabled && O.pull);
+    const kindSel = (id, cur) => `<select id="${id}">${Object.entries(kinds).map(([k, l]) => `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    const row = (f, i) => `<tr data-i="${i}" data-name="${esc(f.name)}" data-builtin="${f.builtin ? 1 : 0}" data-kind="${esc(f.kind)}">
+        <td><input type="checkbox" class="fd-on"${f.enabled ? " checked" : ""} title="Use this feed"></td>
+        <td><span class="mono">${esc(f.name)}</span> ${f.builtin ? '<span class="badge">built-in</span>' : '<span class="badge">custom</span>'}
+          ${f.active ? "" : `<div class="small"><span class="badge sev-low">${esc(f.inactive_why)}</span></div>`}</td>
+        <td class="small">${esc(kinds[f.kind] || f.kind)}</td>
+        <td><input class="fd-url mono" value="${esc(f.builtin && f.url === f.default_url ? "" : f.url)}" placeholder="${esc(f.default_url || "https://…")}" spellcheck="false" autocomplete="off" style="width:min(380px,40vw);font-size:12px"></td>
+        <td style="text-align:center"><input type="checkbox" class="fd-ser"${f.serious ? " checked" : ""} title="An outbound hit is malware / C2 and raises an alert"></td>
+        <td style="text-align:center"><input type="checkbox" class="fd-oc"${f.opencti ? " checked" : ""} title="OpenCTI already brings this data in: skip this feed while the OpenCTI pull is on"></td>
+        <td>${f.builtin ? "" : '<label class="small"><input type="checkbox" class="fd-del"> delete</label>'} <button class="fd-test small" type="button">Test</button></td></tr>`;
+    const c = card("Threat-intel feeds", `<div class="sub" style="margin:0 0 6px">Block lists netmon downloads (every 12 h) and matches against DNS look-ups, TLS server names and connections. Turn feeds on or off, point them at another URL (leave blank for the default), or add your own. A feed marked <b>covered by OpenCTI</b> is skipped while the OpenCTI pull is on${octiOn ? " (it is on now)" : " (it is off now, so they run)"}, so the same indicator is not matched twice. <b>Serious</b>: an outbound hit means malware / C2 and raises a Threat-intel alert; otherwise it is reputation context.</div>
+      <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>On</th><th>Feed</th><th>Holds</th><th>URL</th><th>Serious</th><th>Covered by OpenCTI</th><th></th></tr></thead>
+        <tbody>${(F.items || []).map(row).join("")}</tbody></table></div>
+      <div class="small" style="margin-top:12px"><b>Add a feed</b></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px">
+        <input id="fd-new-name" placeholder="name (e.g. my_blocklist)" spellcheck="false" style="width:170px" class="mono">
+        ${kindSel("fd-new-kind", "hosts")}
+        <input id="fd-new-url" placeholder="https://…" spellcheck="false" style="width:min(380px,50vw)" class="mono">
+        <label class="small"><input type="checkbox" id="fd-new-ser"> serious</label>
+        <button type="button" id="fd-new-test" class="small">Test</button></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px"><button class="cfg-save">Save</button><span class="cfg-msg small"></span></div>
+      <div class="cfg-res small" style="margin-top:6px"></div>
+      <div class="muted small" style="margin-top:6px">${who(F)} Changes apply on the next watcher or review run.</div>`);
+    c.dataset.sec = "feeds";
+    const msg = c.querySelector(".cfg-msg"), res = c.querySelector(".cfg-res");
+    const test = async (url, kind, label) => {
+      res.textContent = `Testing ${label}…`;
+      try { const R = await apiPost("/api/config/integrations/feeds/test", { url, kind });
+        res.innerHTML = R.ok ? `✅ ${esc(label)}: ${Number(R.entries).toLocaleString()} entries (${Number(R.bytes).toLocaleString()} bytes)` : `❌ ${esc(label)}: ${esc(R.error || "failed")}`;
+      } catch (e) { res.innerHTML = `❌ ${esc(String(e))}`; }
+    };
+    c.querySelectorAll("tbody tr").forEach((tr) => {
+      const f = F.items[+tr.dataset.i];
+      tr.querySelector(".fd-test").onclick = () => test(tr.querySelector(".fd-url").value.trim() || f.url, f.kind, f.name);
+    });
+    c.querySelector("#fd-new-test").onclick = () => test(c.querySelector("#fd-new-url").value.trim(), c.querySelector("#fd-new-kind").value, c.querySelector("#fd-new-name").value.trim() || "new feed");
+    c.querySelector(".cfg-save").onclick = async () => {
+      const items = [], del = [];
+      c.querySelectorAll("tbody tr").forEach((tr) => {
+        if (tr.querySelector(".fd-del")?.checked) { del.push(tr.dataset.name); return; }
+        items.push({ name: tr.dataset.name, kind: tr.dataset.kind, url: tr.querySelector(".fd-url").value.trim() || (tr.dataset.builtin === "1" ? "" : F.items[+tr.dataset.i].url),
+          enabled: tr.querySelector(".fd-on").checked, serious: tr.querySelector(".fd-ser").checked, opencti: tr.querySelector(".fd-oc").checked });
+      });
+      const nn = c.querySelector("#fd-new-name").value.trim(), nu = c.querySelector("#fd-new-url").value.trim();
+      if (nn || nu) items.push({ name: nn, url: nu, kind: c.querySelector("#fd-new-kind").value, enabled: true, serious: c.querySelector("#fd-new-ser").checked, opencti: false });
+      if (del.length && !confirm(`Delete ${del.join(", ")}?`)) return;
+      msg.textContent = "Saving…";
+      try { const R = await apiPost("/api/config/integrations/feeds", { items, delete: del }); done(R, "Saved. Feeds change on the next watcher / review run."); }
+      catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
+    };
+    return c;
+  }
   function paintInt(wrap, D, flash) {
     wrap.innerHTML = `<h2 style="margin:18px 0 4px">Integrations</h2><div class="sub">Where netmon reads its data. Blank fields use the defaults shown, so
       saving an empty form changes nothing. The host jobs (review runs, event research, the watcher every 15 min) use these on their next run.</div>`;
@@ -218,7 +273,8 @@
       + cb("oc-inc", O.incidents, "Incidents", "Open events the reviewer labelled suspicious become OpenCTI incidents, with their external IPs and domains attached (internal addresses stay in the description). Up to 25 new per run.")
       + `<label class="cfg-f" style="display:inline-block;margin:4px 16px 4px 22px"><span class="small"><b>Minimum severity</b></span><br><select id="oc-sev">${O.sevs.map((x) => `<option${x === O.incident_min_sev ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>`
       + `<label class="cfg-f" style="display:inline-block;margin:4px 0"><span class="small"><b>Minimum reviewer confidence</b></span><br><input id="oc-conf" type="number" min="0.5" max="1" step="0.05" value="${esc(String(O.incident_min_conf))}" style="width:90px"></label>`, O);
-    wrap.append(ce, cu, cw, co);
+    const cf = feedsCard(D.feeds || { items: [], kinds: {} }, O, (R, m) => paintInt(wrap, R, { sec: "feeds", m }));
+    wrap.append(ce, cu, cw, co, cf);
     const rerender = (R, sec, m) => { paintInt(wrap, R, { sec, m }); };
     wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender); wire(co, "opencti", O, rerender);
     if (flash) { const m = wrap.querySelector(`[data-sec="${flash.sec}"] .cfg-msg`); if (m) m.innerHTML = `<span class="badge sev-good">${esc(flash.m)}</span>`; }

@@ -274,6 +274,20 @@ What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes, 5 minutes
 
 Switching the integration off removes the local lists at the next run.
 
+### Threat-intel feeds
+
+**More > Configuration > Integrations > Threat-intel feeds** lists the block lists netmon downloads (every 12 h) and
+matches against DNS look-ups, TLS server names, connections and file hashes. Per feed: on/off, URL (blank = the built-in
+default; a changed URL is downloaded on the next run), *Serious* (an outbound hit is malware / C2 and alerts) and
+*Covered by OpenCTI* (skipped while the OpenCTI pull is on, so the same indicator is not matched twice; URLhaus and
+ThreatFox are marked by default because the OpenCTI abuse.ch connectors bring them in). Built-in feeds can be turned off
+but not deleted. **Add a feed** takes a name, an http(s) URL and what the list holds: domains (hosts file or one per
+line), IPs, CIDR ranges, JA3 (SSLBL CSV) or file hashes. **Test** downloads the URL and counts the entries.
+
+The watcher also checks file hashes and file names on the lists: files Zeek saw on the wire (md5/sha1) and processes /
+files Elastic Defend saw (sha256, image and file names). Event artifacts carry full hashes, bare file names and external
+IPs, and any artifact a list names says `listed in <feeds>`.
+
 ## 8. Ask AI chat (optional)
 
 The chat runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on **AI review → Models**. It has no terminal, file, memory or settings tools. It can only search and read the web and query netmon through the read-only `netmon_*` tools (from `netmon_mcp.py`, which opens SQLite read-only). Admins can also pick a model per message in the chat header.

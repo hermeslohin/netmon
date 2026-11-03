@@ -31,7 +31,8 @@ def fingerprint():
         diff = subprocess.run(["git", "diff", "--", ".", ":(exclude)tests"], cwd=REPO, capture_output=True, text=True).stdout
     except OSError:
         st = diff = ""
-    backups = {p: os.path.getmtime(p) for p in glob.glob(os.path.join(REPO, "baseline", "backup", "*"))}
+    backups = {p: os.path.getmtime(p) for p in glob.glob(os.path.join(REPO, "baseline", "backup", "*"))
+               + glob.glob(os.path.join(REPO, "intel", "*.txt"))}  # live feed / OpenCTI lists: a test must never touch them
     return st, hash(diff), backups
 
 
