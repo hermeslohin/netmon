@@ -72,6 +72,7 @@ Want to run this on your own network? Follow **[docs/SETUP.md](docs/SETUP.md)**:
 - **Outputs:** SQLite state and the HTTPS dashboard with Web Push. Nothing is posted to chat.
 - **Ask AI:** the dashboard's chat (and the 💬 button on every finding) runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on AI review → Models. It has no terminal, file or memory tools: only web search / page fetch plus the read-only `netmon_*` query tools from `netmon_mcp.py` over the netmon data (overview, findings, devices, endpoint findings, IDS and recent alerts, notes). Those tools open SQLite read-only.
 - **Audit log:** every user action (sign-ins, page views, check-offs, notes, settings, user changes, refused requests) and every conversation between netmon and an AI model (Ask AI, the event reviewer, model comparisons, the review job and event research; prompt, answer, model, tokens) is written to Security Onion's Elasticsearch, index `logs-netmon`, with an append-and-read-only key. Admins read it on **More → Audit log**. Secrets are redacted. See [docs/AUDIT_LOG.md](docs/AUDIT_LOG.md).
+- **More detail:** processes, trust boundaries, data flow, AI stages and storage are in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 - Regenerate the diagram with `python3 docs/make_architecture.py`.
 
 ## Components
