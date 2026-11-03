@@ -3,7 +3,7 @@
 Generate docs/architecture.svg (netmon architecture) in the architecture-diagram skill's design system."""
 from html import escape as E
 
-W, H = 1300, 1046
+W, H = 1300, 1080
 C = {  # semantic palette: fill, stroke
     "front": ("rgba(8,51,68,0.4)", "#22d3ee"), "back": ("rgba(6,78,59,0.4)", "#34d399"),
     "db": ("rgba(76,29,149,0.4)", "#a78bfa"), "cloud": ("rgba(120,53,15,0.3)", "#fbbf24"),
@@ -78,6 +78,7 @@ node("fleet", 50, 206, 320, 52, "back", "Fleet Server", ["agent enrollment + pol
 node("sensor", 56, 312, 308, 70, "sec", "Network sensor", ["Suricata IDS · Zeek · PCAP", "mirrors all LAN traffic"], "NSM")
 node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/dns/tls/files", "endpoint events · osquery results", "detection-rule hits", "read-only API key for netmon", "audit log: logs-netmon (append + read)"], "SIEM")
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
+node("octi", 50, 690, 250, 100, "sec", "OpenCTI", ["threat-intel platform (Talos k8s)", "abuse.ch · OTX · CISA KEV · MITRE", "DShield · IPsum · Feodo · Spamhaus", "indicators · sightings · incidents"], "CTI")
 
 # ---------------- monitoring host
 node("llm", 460, 100, 150, 76, "ai", "Patapsco AI (k8s)", ["clef + Gemma models", "LM Studio optional"], "LOCAL LLM")
@@ -103,14 +104,18 @@ arrow(anchor("ep", "b"), anchor("fleet", "t"), "#34d399", "enroll / policy", ldy
 arrows.append('<path d="M50,160 C10,200 10,470 56,490" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
 arrows.append('<rect x="2" y="318" width="34" height="40" fill="#020617" opacity="0.9"/><text x="19" y="332" text-anchor="middle" fill="#34d399" font-size="9">events</text><text x="19" y="346" text-anchor="middle" fill="#34d399" font-size="9">via</text><text x="19" y="358" text-anchor="middle" fill="#34d399" font-size="9">Fleet</text>')
 arrow(anchor("sensor", "b"), anchor("es", "t"), "#fb7185", "alerts + logs", ldy=4)
+# OpenCTI <-> netmon: opencti.py (scheduler, 15 min) pulls indicators into the local intel lists the watcher matches;
+# the watcher reports matches back as sightings (incidents optional). Drawn first so the labels in the gap mask it.
+arrows.append('<path d="M300,740 L424,740 L424,282 L460,282" fill="none" stroke="#fb7185" stroke-width="1.5" marker-start="url(#ah-fb7185)" marker-end="url(#ah-fb7185)"/>')
+lab2(424, 700, "#fb7185", "indicators", "sightings")
 # Elasticsearch read-only query bus (gap between agent row and job row) feeding both jobs
 arrows.append('<path d="M364,470 C425,470 415,201 452,201 L880,201" fill="none" stroke="#a78bfa" stroke-width="1.6"/>')
 arrows.append('<path d="M545,201 L545,226" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#ah-a78bfa)"/>')
 arrows.append('<path d="M880,201 L880,226" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#ah-a78bfa)"/>')
 arrows.append('<rect x="372" y="300" width="64" height="26" rx="3" fill="#020617" opacity="0.92"/><text x="404" y="311" text-anchor="middle" fill="#a78bfa" font-size="9">_search</text><text x="404" y="322" text-anchor="middle" fill="#a78bfa" font-size="9">read-only</text>')
 # UniFi gateway -> cloud API (around the bottom/right edge) -> nightly pipeline
-arrows.append('<path d="M210,670 L210,796 L1272,796 L1272,280 L1260,280" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
-arrows.append('<rect x="222" y="689" width="132" height="13" rx="3" fill="#020617"/><text x="288" y="699" text-anchor="middle" fill="#fbbf24" font-size="9">telemetry via UniFi cloud</text>')
+arrows.append('<path d="M350,670 L350,800 L1272,800 L1272,280 L1260,280" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
+lab2(350, 752, "#fbbf24", "telemetry via", "UniFi cloud")
 arrow(anchor("uapi", "l", 0.4), (920, 259), "#fbbf24", dash="6,3")
 lab2(960, 236, "#fbbf24", "events", "flows")
 # review job <-> cloud AI provider (event reviewer)
@@ -170,6 +175,7 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and event reviewer look-ups go through host_broker.py.",
          "Correlation: the script proposes links; review limits filter them; the chosen model confirms or rejects each and keeps artifacts (Elasticsearch searches open in Kibana).",
          "Patapsco AI: single-node Kubernetes on the monitoring host serves the decision model (clef, SGLang) and the event reviewer (Gemma, vLLM) on loopback NodePorts; both FP8, sharing one GPU by time-slicing. LM Studio / llama.cpp remains a selectable backend.",
+         "OpenCTI (Talos k8s cluster on the home LAN): opencti.py pulls scored indicators every 15 min into local intel lists; the watcher matches them and reports sightings back; the event reviewer sees the matches.",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
@@ -180,7 +186,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{
 <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>{markers}</defs>
 <rect width="{W}" height="{H}" fill="#020617"/><rect width="{W}" height="{H}" fill="url(#grid)"/>
 <circle cx="30" cy="34" r="5" fill="#22d3ee"/><text x="44" y="39" fill="#f8fafc" font-size="18" font-weight="700">netmon · home network &amp; endpoint security monitoring</text>
-<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · AI provider of your choice · web search · Patapsco AI / local LLM (optional)</text>
+<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · OpenCTI · AI provider · web search · Patapsco AI / local LLM</text>
 {"".join(arrows)}
 {"".join(out)}
 {"".join(out_leg)}
