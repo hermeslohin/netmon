@@ -30,9 +30,10 @@ def feeds():
             for src in f["hosts"].values():
                 for n in src:
                     per[n] += 1
-            for src in f["ips"].values():
-                for n in src:
-                    per[n] += 1
+            for k in ("ips", "hashes", "filenames"):
+                for src in (f.get(k) or {}).values():
+                    for n in src:
+                        per[n] = per.get(n, 0) + 1
             for c in f["cidrs"]:
                 per[c[3]] += 1
             per["sslbl_ja3"] = len(f["ja3"])
