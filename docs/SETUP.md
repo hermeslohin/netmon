@@ -85,7 +85,7 @@ Optional extras:
 |---|---|---|
 | Elasticsearch API key | `~/.config/netmon/secrets.env` → `ES_API_KEY=<key>`, or **Configuration → Integrations** | Create a **read-only** key: Kibana → Stack Management → API keys, with `read` + `view_index_metadata` on `logs-*`. |
 | UniFi Site Manager API key | `~/.config/netmon/secrets.env` → `UNIFI_API_KEY=<key>`, or **Configuration → Integrations** | https://unifi.ui.com → API. Optional. |
-| Web search key (optional) | `~/.config/netmon/secrets.env` → `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` | Only if you pick that search backend (step 7c). DuckDuckGo needs no key. |
+| Web search key (optional) | `~/.config/netmon/secrets.env` → `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` | Only if you pick that search backend (step 7c). DuckDuckGo needs no key, nor does a self-hosted Firecrawl (the cloud key is never sent to it). |
 | AI provider API keys | **AI review → AI providers** on the dashboard | Stored in the netmon database (owner-only file `dashboard/state/netmon.db`, mode 600). See step 7b. |
 | Dashboard login + host broker key | `dashboard/.env` | Created by `setup.sh` (`DASH_PASS`, `NETMON_BROKER_URL`, `NETMON_BROKER_KEY`). |
 
@@ -242,7 +242,7 @@ Only dashboard **Admins** can change providers, models or limits, or run compari
 
 ## 7c. Web search (event research and chat)
 
-Event research and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in the netmon database, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Without a working key, search falls back to DuckDuckGo.
+Event research and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in the netmon database, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Firecrawl can be the cloud (key required) or a self-hosted instance: enter its base URL in **Firecrawl URL** (key optional, and the host-file `FIRECRAWL_API_KEY` is never sent to it) and, for a private CA, paste the CA in **Firecrawl CA certificate**; TLS is always verified. A page Firecrawl reached through a redirect to a non-public address is discarded, but a self-hosted instance should also be blocked from the LAN by its own network policy. Without a working key or URL, search falls back to DuckDuckGo.
 
 ## 7d. OpenCTI threat intelligence (optional)
 

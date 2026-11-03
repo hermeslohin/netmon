@@ -494,7 +494,7 @@ Settings that apply to everyone. Admins can change them; network defenders see t
     3. **Hold a host after a suspicious event** (always on, 24 h): while an open event on a device (MAC, host name or host IP) was called suspicious or malicious, by the AI or by a person, and was seen in the last 24 hours, nothing else on that device is auto-closed. AI closures of that device's events active in the window are reopened, so you see the whole picture. Checking the suspicious event off (or marking it Expected / Benign) lifts the hold.
     4. **AI closures expire after N days** (default 7, 0 = never): when an AI-closed event shows up again after that, it reopens and closes again only on a verdict newer than the old closure. Your own closures never expire.
     The card shows how many events each rule holds back right now, which hosts are on hold, and examples. Rules 1 and 2 do not reopen what was closed before they were set; **Reopen N closed earlier that these rules would hold** does that on demand.
-- **Integrations (admins):** the Elasticsearch URL, API key and indices, the UniFi API URL and key, and the web search provider (DuckDuckGo needs no key; Firecrawl, Brave Search and Tavily do). Each has **Test connection**. Keys are write-only.
+- **Integrations (admins):** the Elasticsearch URL, API key and indices, the UniFi API URL and key, and the web search provider (DuckDuckGo needs no key; Brave Search and Tavily do; Firecrawl needs a key for its cloud, or the **Firecrawl URL** of your own instance, plus its CA certificate if it uses a private CA). Each has **Test connection**. Keys are write-only.
 
 ### More → Settings
 

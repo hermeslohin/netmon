@@ -30,6 +30,7 @@ INDEX_LABELS = {"zeek": "Network logs (Zeek: conn, dns, ssl, dhcp, notice…)", 
 UNIFI_DEFAULT = "https://api.ui.com"
 AUDIT_INDEX = "logs-netmon"  # dashboard audit log (dashboard/app/audit.py); its own key: create_doc + read on this index only
 WEB_PROVIDERS = {"duckduckgo": "DuckDuckGo (no key)", "firecrawl": "Firecrawl", "brave": "Brave Search", "tavily": "Tavily"}
+FIRECRAWL_DEFAULT = "https://api.firecrawl.dev"  # Firecrawl cloud; a self-hosted instance gets its own URL (key optional)
 # OpenCTI threat-intel platform (opencti.py): pull indicators into the feed matcher, report sightings/incidents back.
 OPENCTI_DEFAULTS = {"enabled": False, "ca_pem": "", "pull": True, "min_score": 50, "high_score": 80,
                     "sightings": True, "incidents": False, "incident_min_sev": "high", "incident_min_conf": 0.8}
@@ -120,12 +121,25 @@ def unifi_key():
     return (load().get("unifi") or {}).get("api_key") or _file_unifi_key()
 
 
-def web():
-    """Web search backend for the AI research job and chat: {provider, api_key}."""
-    w = load().get("web") or {}
+def _web_eff(w, host_fallback=True):
+    """Effective web settings from a stored/candidate section: {provider, api_key, url, ca_pem}.
+    Firecrawl: url = the instance (blank = cloud). A self-hosted instance works without a key, and the host
+    secrets file key (meant for the cloud) is never sent to it."""
     p = w.get("provider") if w.get("provider") in WEB_PROVIDERS else "duckduckgo"
-    k = w.get("api_key") or host_secret({"firecrawl": "FIRECRAWL_API_KEY", "brave": "BRAVE_API_KEY", "tavily": "TAVILY_API_KEY"}.get(p, "-"))
-    return {"provider": p if (p == "duckduckgo" or k) else "duckduckgo", "api_key": k if p != "duckduckgo" else ""}
+    url = (w.get("url") or "").rstrip("/") if p == "firecrawl" else ""
+    own = bool(url) and url != FIRECRAWL_DEFAULT
+    k = w.get("api_key") or ""
+    if not k and host_fallback and not own:
+        k = host_secret({"firecrawl": "FIRECRAWL_API_KEY", "brave": "BRAVE_API_KEY", "tavily": "TAVILY_API_KEY"}.get(p, "-"))
+    ok = p == "duckduckgo" or bool(k) or own
+    return {"provider": p if ok else "duckduckgo", "api_key": k if ok and p != "duckduckgo" else "",
+            "url": (url or FIRECRAWL_DEFAULT) if ok and p == "firecrawl" else "",
+            "ca_pem": (w.get("ca_pem") or "") if ok and own else ""}
+
+
+def web():
+    """Web search backend for the AI research job and chat: {provider, api_key, url, ca_pem}."""
+    return _web_eff(load().get("web") or {})
 
 
 def opencti():
@@ -187,6 +201,7 @@ def public():
             "provider": w.get("provider") or "duckduckgo", "providers": WEB_PROVIDERS,
             "key_set": bool(w.get("api_key")), "key_hint": _mask(w.get("api_key") or ""),
             "key_fallback": "the host secrets file (FIRECRAWL_API_KEY / BRAVE_API_KEY / TAVILY_API_KEY)",
+            "url": w.get("url") or "", "url_fallback": FIRECRAWL_DEFAULT, "ca_set": bool(w.get("ca_pem")),
             "updated_by": w.get("updated_by"), "updated_at": w.get("updated_at")},
         "feeds": _feeds_public(d),
         "opencti": {
@@ -319,8 +334,16 @@ def candidate(section, body):
         if body.get("provider") not in WEB_PROVIDERS:
             raise ValueError("unknown web search provider")
         new["provider"] = body["provider"]
-        if new["provider"] != cur.get("provider") and not body.get("api_key"):
-            cur["api_key"] = ""  # a key belongs to one provider: never send it to another
+        new["url"] = _clean_url(body.get("url")) if "url" in body else cur.get("url", "")
+        if (new["provider"] != cur.get("provider") or new["url"] != cur.get("url", "")) and not body.get("api_key"):
+            cur["api_key"] = ""  # a key belongs to one provider / Firecrawl instance: never send it to another
+        if body.get("clear_ca"):
+            new["ca_pem"] = ""
+        elif body.get("ca_pem"):
+            try:
+                new["ca_pem"] = _clean_pem(body["ca_pem"])
+            except ssl.SSLError as e:
+                raise ValueError(f"CA certificate is not valid: {e}") from None
     k = _clean_key(body.get("api_key"))
     new["api_key"] = "" if body.get("clear_key") else (k or cur.get("api_key") or "")
     if section == "elasticsearch":
@@ -431,10 +454,11 @@ def test(section, body):
     if section == "web":
         import webtools
         prov = c.get("provider") or "duckduckgo"
-        if prov != "duckduckgo" and not c.get("api_key"):
-            return {"ok": False, "error": "enter the API key to test it"}
+        eff = _web_eff(c, host_fallback=False)
+        if eff["provider"] != prov:
+            return {"ok": False, "error": "enter the API key to test it" + (" (or the URL of a self-hosted Firecrawl)" if prov == "firecrawl" else "")}
         try:
-            res = webtools.search("Security Onion documentation", 3, cfg={"provider": prov, "api_key": c.get("api_key") or ""})
+            res = webtools.search("Security Onion documentation", 3, cfg=eff)
             return {"ok": bool(res), "provider": prov, "results": len(res), "error": "" if res else "no results"}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "provider": prov, "error": str(e)[:300]}

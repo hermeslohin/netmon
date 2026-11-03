@@ -85,6 +85,12 @@ REQUIREMENTS = {
     "FEED-01": ("Threat intel", "Feeds are configurable: built-ins can be turned off, re-pointed or marked serious / covered by OpenCTI (never deleted); custom feeds need a valid name, http(s) URL and list type; covered feeds are inactive while the OpenCTI pull is on.", "SETUP.md (threat-intel feeds)"),
     "FEED-02": ("Threat intel", "Only active feeds are downloaded and matched (an inactive feed's old file is ignored); a changed URL is downloaded again at once; domain lists may be hosts files or one domain per line.", "SETUP.md (threat-intel feeds)"),
     "FEED-03": ("Threat intel", "With OpenCTI pulling, the built-in block lists come from OpenCTI (URL indicators list their non-shared host, scored IP / CIDR feed observables re-sent within 7 days list their address or range); only the JA3 list is still downloaded.", "SETUP.md (threat-intel feeds)"),
+    "WEB-01": ("Web search", "A self-hosted Firecrawl (its own URL) works without an API key, and the host secrets file key meant for the Firecrawl cloud is never sent to it.", "SETUP.md (web search)"),
+    "WEB-02": ("Web search", "Firecrawl without a URL is the Firecrawl cloud and may use the host secrets file key.", "SETUP.md (web search)"),
+    "WEB-03": ("Web search", "A saved web search key is dropped when the provider or the Firecrawl URL changes without a new key.", "SETUP.md (web search)"),
+    "WEB-04": ("Web search", "An invalid Firecrawl URL or CA certificate is refused; a saved CA is used only for a self-hosted instance and TLS is always verified.", "SETUP.md (web search)"),
+    "WEB-05": ("Web search", "Search and page reads go to the configured Firecrawl instance, with an Authorization header only when a key is set.", "SETUP.md (web search)"),
+    "WEB-06": ("Web search", "A page Firecrawl reached through a redirect to a non-public address is refused.", "SETUP.md (web search)"),
     # ---- dashboard ----
     "DASH-01": ("Dashboard", "The single-page app and its assets are served with a build hash for cache busting.", "USER_GUIDE.md §3"),
     "DASH-02": ("Dashboard", "The JSON API serves snapshots and their derived views (overview, issues, risk, ATT&CK, lateral) from stored data.", "USER_GUIDE.md §6"),

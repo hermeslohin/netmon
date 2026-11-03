@@ -150,7 +150,8 @@
     const v = (id) => c.querySelector("#" + id)?.value.trim() || "";
     const b = { url: v(sec + "-url"), api_key: v(sec + "-key"), clear_key: !!c.querySelector(".cfg-clr")?.checked };
     if (sec === "elasticsearch") b.indices = Object.fromEntries(Object.keys(I.index_defaults).map((k) => [k, v("es-ix-" + k)]));
-    if (sec === "web") b.provider = c.querySelector("#web-provider")?.value || "duckduckgo";
+    if (sec === "web") Object.assign(b, { provider: c.querySelector("#web-provider")?.value || "duckduckgo",
+      ca_pem: c.querySelector("#web-ca")?.value.trim() || "", clear_ca: !!c.querySelector("#web-ca-clr")?.checked });
     if (sec === "opencti") {
       const ck = (id) => !!c.querySelector("#" + id)?.checked;
       Object.assign(b, { enabled: ck("oc-enabled"), pull: ck("oc-pull"), sightings: ck("oc-sight"), incidents: ck("oc-inc"),
@@ -248,10 +249,14 @@
       fld("unifi-url", "URL", U.url, U.url_fallback, `Default <span class="mono">${esc(U.url_fallback)}</span> (Ubiquiti cloud). Use your console's address only if you run a local API proxy that speaks the same paths.`)
       + fld("unifi-key", "API key", "", U.key_set ? U.key_hint : "UniFi Site Manager API key", keyHelp(U), "password"), U);
     const Wb = D.web || { provider: "duckduckgo", providers: { duckduckgo: "DuckDuckGo (no key)" } };
-    const cw = intCard("web", "Web search (AI research and chat)", "Used by event research (Send to research) and the Ask AI chat to look things up and read web pages. DuckDuckGo needs no key; Firecrawl, Brave Search and Tavily need an API key from their sites (Firecrawl is also used to read pages).",
+    const cw = intCard("web", "Web search (AI research and chat)", "Used by event research (Send to research) and the Ask AI chat to look things up and read web pages. DuckDuckGo needs no key; Brave Search and Tavily need an API key from their sites. Firecrawl (also used to read pages) needs a key for its cloud, or the URL of your own Firecrawl instance (a key only if you set one there).",
       `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Provider</b></span><br><select id="web-provider">${Object.entries(Wb.providers).map(([k, l]) =>
         `<option value="${esc(k)}"${k === Wb.provider ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`
-      + fld("web-key", "API key", "", Wb.key_set ? Wb.key_hint : "API key (not needed for DuckDuckGo)", keyHelp(Wb), "password"), Wb);
+      + fld("web-key", "API key", "", Wb.key_set ? Wb.key_hint : "API key (not needed for DuckDuckGo or a self-hosted Firecrawl)", keyHelp(Wb), "password")
+      + fld("web-url", "Firecrawl URL", Wb.url || "", Wb.url_fallback || "https://api.firecrawl.dev", `Firecrawl only. Blank = Firecrawl cloud (<span class="mono">${esc(Wb.url_fallback || "https://api.firecrawl.dev")}</span>); enter your own instance's base URL to use it instead.`)
+      + `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Firecrawl CA certificate (PEM, optional)</b></span><div class="muted small">Self-hosted Firecrawl only. The certificate is always verified; if your instance uses a private CA, paste that CA here.</div>
+         <textarea id="web-ca" rows="3" spellcheck="false" placeholder="${Wb.ca_set ? "A CA is saved. Paste a new one to replace it." : "-----BEGIN CERTIFICATE-----"}" style="width:min(560px,100%);box-sizing:border-box;font-family:var(--mono,monospace)"></textarea>
+         ${Wb.ca_set ? `<div class="muted small"><label><input type="checkbox" id="web-ca-clr"> remove the saved CA</label></div>` : ""}</label>`, Wb);
     const O = D.opencti, OS = O.status || {};
     const cb = (id, on, label, help) => `<label style="display:block;margin:6px 0"><input type="checkbox" id="${id}"${on ? " checked" : ""}> <b class="small">${label}</b>${help ? `<div class="muted small" style="margin-left:22px">${help}</div>` : ""}</label>`;
     const ocStatus = O.enabled ? `<div class="small" style="margin:6px 0">Status: ${OS.last_pull ? `${Number(OS.indicators || 0).toLocaleString()} indicators pulled (${Number(OS.high || 0).toLocaleString()} high-confidence, ${Number(OS.hashes || 0).toLocaleString()} hashes, ${Number(OS.filenames || 0).toLocaleString()} file names), last pull ${esc(ft(OS.last_pull))}` : "not pulled yet"}`

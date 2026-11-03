@@ -1,13 +1,13 @@
 """Web search + page fetch for event research (research.py) and the dashboard chat (stdlib only).
 
 search(query, n)  -> [{title, url, snippet}]  via the backend set in Configuration > Integrations > Web search
-                     (integrations.web()): DuckDuckGo (no key), Firecrawl, Brave or Tavily.
+                     (integrations.web()): DuckDuckGo (no key), Firecrawl (cloud or self-hosted URL), Brave or Tavily.
 fetch(url, chars) -> {url, title, text}       public http(s) pages only: every redirect hop is resolved and refused if it
                      points at a loopback / private / link-local / reserved address (the model must not reach the LAN or the
                      local AI / broker endpoints through this). With Firecrawl configured, pages are fetched through it.
 Results are untrusted text; callers wrap them as data in the prompt.
 """
-import html, ipaddress, json, re, socket, urllib.error, urllib.parse, urllib.request
+import html, ipaddress, json, re, socket, ssl, urllib.error, urllib.parse, urllib.request
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) netmon-research/1.0"
 MAX_BYTES = 3_000_000
@@ -18,9 +18,17 @@ def _cfg():
     return integrations.web()
 
 
-def _post(url, body, headers, timeout=30):
+def _post(url, body, headers, timeout=30, ca=""):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers})
-    return json.load(urllib.request.urlopen(req, timeout=timeout))  # noqa: S310 - fixed https API URLs
+    ctx = ssl.create_default_context(cadata=ca) if ca else None  # private CA of a self-hosted Firecrawl (still verified)
+    return json.load(urllib.request.urlopen(req, timeout=timeout, context=ctx))  # noqa: S310 - fixed / admin-set API URLs
+
+
+def _fc(cfg, path, body, timeout=30):
+    """POST to the configured Firecrawl (cloud or self-hosted); the key is optional for a self-hosted instance."""
+    base = (cfg.get("url") or "https://api.firecrawl.dev").rstrip("/")
+    hdr = {"Authorization": f"Bearer {cfg['api_key']}"} if cfg.get("api_key") else {}
+    return _post(base + path, body, hdr, timeout=timeout, ca=cfg.get("ca_pem") or "")
 
 
 def _get(url, headers, timeout=30):
@@ -36,7 +44,7 @@ def search(query, n=6, cfg=None):
     q, n = str(query)[:300], max(1, min(int(n or 6), 10))
     p, k = cfg.get("provider"), cfg.get("api_key") or ""
     if p == "firecrawl":
-        d = _post("https://api.firecrawl.dev/v1/search", {"query": q, "limit": n}, {"Authorization": f"Bearer {k}"})
+        d = _fc(cfg, "/v1/search", {"query": q, "limit": n})
         rows = d.get("data") or []
         rows = rows.get("web", []) if isinstance(rows, dict) else rows
         return [{"title": r.get("title") or "", "url": r.get("url") or "", "snippet": (r.get("description") or "")[:400]} for r in rows][:n]
@@ -94,11 +102,14 @@ def fetch(url, chars=8000, cfg=None):
     cfg = cfg or _cfg()
     chars = max(500, min(int(chars or 8000), 20000))
     _public(url)
-    if cfg.get("provider") == "firecrawl" and cfg.get("api_key"):
-        d = _post("https://api.firecrawl.dev/v1/scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True},
-                  {"Authorization": f"Bearer {cfg['api_key']}"}, timeout=60)
+    if cfg.get("provider") == "firecrawl" and (cfg.get("api_key") or cfg.get("url")):
+        d = _fc(cfg, "/v1/scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True}, timeout=60)
         dd = d.get("data") or {}
-        return {"url": url, "title": (dd.get("metadata") or {}).get("title") or "", "text": (dd.get("markdown") or "")[:chars]}
+        md = dd.get("metadata") or {}
+        final = md.get("url") or md.get("sourceURL") or url
+        if final != url:
+            _public(final)  # Firecrawl followed redirects itself: refuse a page that ended up on a private address
+        return {"url": final, "title": md.get("title") or "", "text": (dd.get("markdown") or "")[:chars]}
     op = urllib.request.build_opener(_NoRedirect)
     cur = url
     for _ in range(5):
