@@ -34,6 +34,12 @@ FEEDS = {
 # Feeds whose hits on OUTBOUND traffic are serious (C2 / malware infra). CINS / ET are scanner lists:
 # they matter for inbound sessions that succeeded, and only as context for outbound.
 SERIOUS = {"urlhaus_hosts", "threatfox_hosts", "feodo_ips", "sslbl_ips", "spamhaus_drop", "sslbl_ja3"}
+# Feeds written locally by opencti.py from the OpenCTI platform (not downloaded): name -> kind. The *_high lists hold
+# indicators at or above the configured high-confidence score and count as SERIOUS (they alert like Feodo/URLhaus);
+# every hash entry is SERIOUS (an exact match). File names below the high score are context for the reviewer only.
+LOCAL_FEEDS = {"opencti_ips": "ips", "opencti_hosts": "hosts", "opencti_high_ips": "ips", "opencti_high_hosts": "hosts",
+               "opencti_hashes": "hashes", "opencti_filenames": "filenames", "opencti_high_filenames": "filenames"}
+SERIOUS |= {"opencti_high_ips", "opencti_high_hosts", "opencti_hashes", "opencti_high_filenames"}
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -105,7 +111,8 @@ def refresh_feeds(max_age_h=12):
 
 def load_feeds():
     hosts, ips, cidrs, ja3 = defaultdict(set), defaultdict(set), [], {}
-    for name, (_, kind) in FEEDS.items():
+    hashes, fnames = defaultdict(set), defaultdict(set)
+    for name, kind in [(n, k) for n, (_, k) in FEEDS.items()] + list(LOCAL_FEEDS.items()):
         path = os.path.join(INTEL, name + ".txt")
         if not os.path.exists(path):
             continue
@@ -114,6 +121,12 @@ def load_feeds():
             for row in csv.reader(io.StringIO(text)):
                 if row and not row[0].startswith("#") and len(row) >= 4:
                     ja3[row[0].strip()] = f"{row[3].strip()} (listed {row[1][:10]}..{row[2][:10]})"
+            continue
+        if kind in ("hashes", "filenames"):  # "<value> # score N | meta" (opencti.py); values are matched lowercase
+            for line in text.splitlines():
+                v = line.split(" # ")[0].strip()
+                if v and not v.startswith("#"):
+                    (hashes if kind == "hashes" else fnames)[v.lower()].add(name)
             continue
         for line in text.splitlines():
             line = line.split("#")[0].split(";")[0].strip()
@@ -138,7 +151,8 @@ def load_feeds():
                 except ValueError:
                     pass
     cidrs.sort()
-    return {"hosts": hosts, "ips": ips, "cidrs": cidrs, "cidr_starts": [c[0] for c in cidrs], "ja3": ja3}
+    return {"hosts": hosts, "ips": ips, "cidrs": cidrs, "cidr_starts": [c[0] for c in cidrs], "ja3": ja3,
+            "hashes": hashes, "filenames": fnames}
 
 
 def match_domain(name, feeds):
@@ -149,6 +163,17 @@ def match_domain(name, feeds):
         if cand in feeds["hosts"]:
             return cand, sorted(feeds["hosts"][cand])
     return None, []
+
+
+def match_hash(h, feeds):
+    """Feeds listing a file hash (md5 / sha1 / sha256 / sha512, any case)."""
+    return sorted((feeds.get("hashes") or {}).get(str(h or "").strip().lower(), ()))
+
+
+def match_filename(name, feeds):
+    """Feeds listing a file's base name (case-insensitive; a path is reduced to its last component)."""
+    base = re.split(r"[\\/]", str(name or "").strip())[-1].lower()
+    return sorted((feeds.get("filenames") or {}).get(base, ())) if base else []
 
 
 def match_ip(ip, feeds):

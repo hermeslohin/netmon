@@ -1726,9 +1726,10 @@ class H(BaseHTTPRequestHandler):
                 return self._json(tintel.feed_status())
             if path == "/api/ti/lookup":
                 return self._json(tintel.lookup((q.get("q") or [""])[0][:300]))
-            if path == "/api/ti/trend":
-                rows = [(x["id"], load_json(os.path.join(DATA, x["id"] + ".json"))) for x in snapshots()]
-                return self._json(tintel.trend([(i, r) for i, r in rows if r]))
+            if path == "/api/ti/trend":  # one snapshot at a time, uncached: all of them together exceed the container's memory
+                return self._json(tintel.trend_cached([x["id"] for x in snapshots()],
+                                                      lambda sid: store.doc_mtime(store.doc_name(os.path.join(DATA, sid + ".json"))),
+                                                      lambda sid: store.doc_get(store.doc_name(os.path.join(DATA, sid + ".json")), None)))
             if path == "/api/history":
                 return self._json(history())
             if path == "/api/issues":

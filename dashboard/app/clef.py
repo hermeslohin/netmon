@@ -223,6 +223,13 @@ def _ev(e, when, desc, notes=None):
     arts = [f"{a[0]}={str(a[1])[:90]}" for a in (e.get("arts") or [])[:8]]
     if arts:
         d["artifacts"] = arts
+    try:  # feed / OpenCTI matches on the event's IPs, domains, file names and hashes
+        import intelmatch
+        ti = intelmatch.lines(e)
+        if ti:
+            d["threat_intel_hits"] = ti[:5]
+    except Exception:  # noqa: BLE001
+        pass
     if notes:
         d["owner_notes"] = [str(n)[:300] for n in notes[:3]]
     return d

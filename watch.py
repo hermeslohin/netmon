@@ -114,6 +114,7 @@ for b in buckets(r["aggregations"]["p"]):
 # 4. Threat intel (feeds cached by the nightly run; refresh only if very stale)
 extras.refresh_feeds(max_age_h=36)
 feeds = extras.load_feeds()
+octi_hits = []  # matches on OpenCTI lists -> reported back as sightings (opencti.py; no-op unless configured)
 for idx, field, dset in (("logs-zeek-so", "dns.query.name", "zeek.dns"), ("logs-zeek-so", "ssl.server_name", "zeek.ssl")):
     r = q(idx, {"size": 0, "query": {"bool": {"filter": [R, ds(dset), INT]}},
                 "aggs": {"n": {"terms": {"field": field, "size": 10000}, "aggs": {"s": {"terms": {"field": "source.ip", "size": 2}}}}}})
@@ -121,16 +122,25 @@ for idx, field, dset in (("logs-zeek-so", "dns.query.name", "zeek.dns"), ("logs-
         m, fl = extras.match_domain(b["key"], feeds)
         if m:
             src = [x["key"] for x in buckets(b["s"])]
+            if any(f.startswith("opencti_") for f in fl):
+                octi_hits.append({"value": m, "feeds": fl, "count": b["doc_count"], "sources": [nm(x) for x in src]})
             alert(f"tidom|{m}|{src[:1]}", f"**Threat-intel domain:** {', '.join(map(nm, src))} -> {b['key']} (listed in {', '.join(fl)})")
 r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), INT, {"term": {"connection.local.responder": False}}]}},
                        "aggs": {"d": {"terms": {"field": "destination.ip", "size": 20000},
                                       "aggs": {"s": {"terms": {"field": "source.ip", "size": 2}}, "p": {"terms": {"field": "destination.port", "size": 2}}}}}})
 for b in buckets(r["aggregations"]["d"]):
-    fl = [f for f in extras.match_ip(b["key"], feeds) if f in extras.SERIOUS]
+    allf = extras.match_ip(b["key"], feeds)
+    if any(f.startswith("opencti_") for f in allf):
+        octi_hits.append({"value": b["key"], "feeds": allf, "count": b["doc_count"], "sources": [nm(x["key"]) for x in buckets(b["s"])]})
+    fl = [f for f in allf if f in extras.SERIOUS]
     if fl:
         src = [x["key"] for x in buckets(b["s"])]
         alert(f"tiip|{b['key']}|{src[:1]}", f"**Threat-intel IP:** {', '.join(map(nm, src))} -> {b['key']}:{[x['key'] for x in buckets(b['p'])]} "
                                             f"x{b['doc_count']} (listed in {', '.join(fl)})")
+
+if octi_hits:
+    import opencti
+    print("opencti sightings:", opencti.report_sightings(octi_hits, WINDOW), file=sys.stderr)
 
 # 5. DNS tunnel burst (last hour)
 H = {"range": {"@timestamp": {"gte": "now-60m"}}}

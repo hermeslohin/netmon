@@ -617,3 +617,4 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
   .oe-title{padding-right:34px}
   .oe-tools>*{flex:none}
 }
+.oe-sum:not(:empty){background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin:0 0 10px}.oe-sumh{margin-bottom:2px}

@@ -30,6 +30,12 @@ INDEX_LABELS = {"zeek": "Network logs (Zeek: conn, dns, ssl, dhcp, notice…)", 
 UNIFI_DEFAULT = "https://api.ui.com"
 AUDIT_INDEX = "logs-netmon"  # dashboard audit log (dashboard/app/audit.py); its own key: create_doc + read on this index only
 WEB_PROVIDERS = {"duckduckgo": "DuckDuckGo (no key)", "firecrawl": "Firecrawl", "brave": "Brave Search", "tavily": "Tavily"}
+# OpenCTI threat-intel platform (opencti.py): pull indicators into the feed matcher, report sightings/incidents back.
+OPENCTI_DEFAULTS = {"enabled": False, "ca_pem": "", "pull": True, "min_score": 50, "high_score": 80,
+                    "sightings": True, "incidents": False, "incident_min_sev": "high", "incident_min_conf": 0.8}
+OPENCTI_SEVS = ("urgent", "high", "medium", "low")
+OPENCTI_STATE = os.path.join(os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state")),
+                             "opencti_sync.json")  # a docs-table document (store.DOC_FILES), never a file
 
 
 def path():
@@ -122,6 +128,15 @@ def web():
     return {"provider": p if (p == "duckduckgo" or k) else "duckduckgo", "api_key": k if p != "duckduckgo" else ""}
 
 
+def opencti():
+    """Effective OpenCTI settings (defaults filled in). Usable only when enabled with a URL and an API token."""
+    o = {**OPENCTI_DEFAULTS, **(load().get("opencti") or {})}
+    o["url"] = (o.get("url") or "").rstrip("/")
+    o["api_key"] = o.get("api_key") or ""
+    o["usable"] = bool(o["enabled"] and o["url"] and o["api_key"])
+    return o
+
+
 # ------------------------------------------------------------------ dashboard
 def _mask(k):
     return f"••••{k[-4:]}" if k and len(k) > 8 else ("••••" if k else "")
@@ -131,6 +146,12 @@ def public():
     """What the Configuration page shows: values + source of each, keys masked."""
     d = load()
     e, u, a, w = d.get("elasticsearch") or {}, d.get("unifi") or {}, d.get("audit") or {}, d.get("web") or {}
+    oc = opencti()
+    try:
+        import store
+        oc_status = store.jload(OPENCTI_STATE, {}) or {}
+    except Exception:  # noqa: BLE001
+        oc_status = {}
     in_container = bool(os.environ.get("NETMON_IN_DASHBOARD"))
     host_es, host_un = (None, None) if in_container else (bool(_env_es_key()), bool(_file_unifi_key()))
     return {
@@ -156,6 +177,12 @@ def public():
             "key_set": bool(w.get("api_key")), "key_hint": _mask(w.get("api_key") or ""),
             "key_fallback": "the host secrets file (FIRECRAWL_API_KEY / BRAVE_API_KEY / TAVILY_API_KEY)",
             "updated_by": w.get("updated_by"), "updated_at": w.get("updated_at")},
+        "opencti": {
+            **{k: oc[k] for k in OPENCTI_DEFAULTS if k != "ca_pem"}, "url": oc["url"], "ca_set": bool(oc.get("ca_pem")),
+            "key_set": bool(oc["api_key"]), "key_hint": _mask(oc["api_key"]), "sevs": list(OPENCTI_SEVS),
+            "status": {k: oc_status.get(k) for k in ("last_pull", "last_full", "indicators", "high", "hashes", "filenames", "last_report",
+                                                     "sightings_total", "incidents_total", "last_error")},
+            "updated_by": (d.get("opencti") or {}).get("updated_by"), "updated_at": (d.get("opencti") or {}).get("updated_at")},
     }
 
 
@@ -180,9 +207,59 @@ def _clean_key(v):
     return v
 
 
+def _num(v, lo, hi, name, cast=int):
+    try:
+        n = cast(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a number") from None
+    if not lo <= n <= hi:
+        raise ValueError(f"{name} must be between {lo} and {hi}")
+    return n
+
+
+def _clean_pem(v):
+    v = str(v or "").strip()
+    if v and ("-----BEGIN CERTIFICATE-----" not in v or len(v) > 20000):
+        raise ValueError("CA certificate must be PEM text (-----BEGIN CERTIFICATE----- ...)")
+    if v:
+        ssl.create_default_context(cadata=v)  # parse check: raises ssl.SSLError on a bad certificate
+    return v
+
+
+def _opencti_candidate(cur, body):
+    new = {"url": _clean_url(body.get("url")) if "url" in body else cur.get("url", "")}
+    for b in ("enabled", "pull", "sightings", "incidents"):
+        new[b] = bool(body[b]) if b in body else cur.get(b, OPENCTI_DEFAULTS[b])
+    if "min_score" in body:
+        new["min_score"] = _num(body["min_score"], 0, 100, "minimum score")
+    if "high_score" in body:
+        new["high_score"] = _num(body["high_score"], 0, 100, "high-confidence score")
+    if "incident_min_conf" in body:
+        new["incident_min_conf"] = _num(body["incident_min_conf"], 0.5, 1.0, "incident minimum confidence", float)
+    if "incident_min_sev" in body:
+        if body["incident_min_sev"] not in OPENCTI_SEVS:
+            raise ValueError("unknown severity")
+        new["incident_min_sev"] = body["incident_min_sev"]
+    if body.get("clear_ca"):
+        new["ca_pem"] = ""
+    elif body.get("ca_pem"):
+        try:
+            new["ca_pem"] = _clean_pem(body["ca_pem"])
+        except ssl.SSLError as e:
+            raise ValueError(f"CA certificate is not valid: {e}") from None
+    if new.get("enabled") and not new["url"]:
+        raise ValueError("enter the OpenCTI URL before enabling it")
+    return new
+
+
 def candidate(section, body):
     """Merged section dict from a form post, without saving. Empty api_key keeps the current one unless clear_key."""
     cur = dict(load().get(section) or {})
+    if section == "opencti":
+        new = _opencti_candidate(cur, body)
+        k = _clean_key(body.get("api_key"))
+        new["api_key"] = "" if body.get("clear_key") else (k or cur.get("api_key") or "")
+        return {**cur, **new}
     new = {} if section in ("audit", "web") else {"url": _clean_url(body.get("url"))}
     if section == "web":
         if body.get("provider") not in WEB_PROVIDERS:
@@ -208,7 +285,7 @@ def candidate(section, body):
 
 
 def save(section, body, user):
-    if section not in ("elasticsearch", "unifi", "audit", "web"):
+    if section not in ("elasticsearch", "unifi", "audit", "web", "opencti"):
         raise ValueError("unknown integration")
     d = load()
     d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -287,6 +364,14 @@ def test(section, body):
             return {"ok": bool(res), "provider": prov, "results": len(res), "error": "" if res else "no results"}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "provider": prov, "error": str(e)[:300]}
+    if section == "opencti":
+        if not c.get("url") or not c.get("api_key"):
+            return {"ok": False, "error": "enter the OpenCTI URL and API token to test"}
+        import opencti
+        try:
+            return {"ok": True, **opencti.Client({**OPENCTI_DEFAULTS, **c}).check()}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "url": c["url"], "error": opencti.err_text(e)}
     raise ValueError("unknown integration")
 
 

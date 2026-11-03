@@ -151,6 +151,12 @@
     const b = { url: v(sec + "-url"), api_key: v(sec + "-key"), clear_key: !!c.querySelector(".cfg-clr")?.checked };
     if (sec === "elasticsearch") b.indices = Object.fromEntries(Object.keys(I.index_defaults).map((k) => [k, v("es-ix-" + k)]));
     if (sec === "web") b.provider = c.querySelector("#web-provider")?.value || "duckduckgo";
+    if (sec === "opencti") {
+      const ck = (id) => !!c.querySelector("#" + id)?.checked;
+      Object.assign(b, { enabled: ck("oc-enabled"), pull: ck("oc-pull"), sightings: ck("oc-sight"), incidents: ck("oc-inc"),
+        min_score: v("oc-min"), high_score: v("oc-high"), incident_min_sev: c.querySelector("#oc-sev")?.value || "high",
+        incident_min_conf: v("oc-conf"), ca_pem: c.querySelector("#oc-ca")?.value.trim() || "", clear_ca: ck("oc-ca-clr") });
+    }
     return b;
   }
   function wire(c, sec, I, rerender) {
@@ -168,6 +174,7 @@
         if (sec === "elasticsearch" && R.indices) res.innerHTML = Object.entries(R.indices).map(([k, x]) =>
           `<div>${x.ok ? "✅" : "❌"} <span class="mono">${esc(x.index)}</span> — ${x.ok ? `${Number(x.docs_24h).toLocaleString()} docs in the last 24h` : esc(x.error)}</div>`).join("");
         else if (sec === "web") res.innerHTML = R.ok ? `Search works: ${R.results} result(s) for a test query.` : esc(R.error || "");
+        else if (sec === "opencti") res.innerHTML = R.ok ? `Reached OpenCTI ${esc(R.version)} at <span class="mono">${esc(R.url)}</span> as ${esc(R.user)}: ${Number(R.indicators).toLocaleString()} indicators.` : esc(R.error || "");
         else res.innerHTML = R.ok ? `Reached <span class="mono">${esc(R.url)}</span>: ${R.consoles} console(s), ${R.hosts} host(s) on this account.` : esc(R.error || "");
       } catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
     };
@@ -190,9 +197,30 @@
       `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Provider</b></span><br><select id="web-provider">${Object.entries(Wb.providers).map(([k, l]) =>
         `<option value="${esc(k)}"${k === Wb.provider ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`
       + fld("web-key", "API key", "", Wb.key_set ? Wb.key_hint : "API key (not needed for DuckDuckGo)", keyHelp(Wb), "password"), Wb);
-    wrap.append(ce, cu, cw);
+    const O = D.opencti, OS = O.status || {};
+    const cb = (id, on, label, help) => `<label style="display:block;margin:6px 0"><input type="checkbox" id="${id}"${on ? " checked" : ""}> <b class="small">${label}</b>${help ? `<div class="muted small" style="margin-left:22px">${help}</div>` : ""}</label>`;
+    const ocStatus = O.enabled ? `<div class="small" style="margin:6px 0">Status: ${OS.last_pull ? `${Number(OS.indicators || 0).toLocaleString()} indicators pulled (${Number(OS.high || 0).toLocaleString()} high-confidence, ${Number(OS.hashes || 0).toLocaleString()} hashes, ${Number(OS.filenames || 0).toLocaleString()} file names), last pull ${esc(ft(OS.last_pull))}` : "not pulled yet"}`
+      + ` · sightings sent ${Number(OS.sightings_total || 0).toLocaleString()} · incidents ${Number(OS.incidents_total || 0).toLocaleString()}`
+      + `${OS.last_error ? ` · <span class="sev-high">last error: ${esc(OS.last_error)}</span>` : ""}</div>` : "";
+    const co = intCard("opencti", "OpenCTI (threat intelligence)", "Optional. netmon pulls indicators from your OpenCTI platform (IPs, domains, file hashes, file names and malware-sample hashes) into the threat-intel matcher and hands every match to the event reviewer, and reports back what it sees. Create a dedicated OpenCTI user for netmon (Settings › Security › Users) and paste its API token; it needs to read indicators and create sightings, observables and incidents.",
+      ocStatus + cb("oc-enabled", O.enabled, "Enabled")
+      + fld("opencti-url", "URL", O.url, "https://opencti.example.com", "Base URL of the OpenCTI platform (no /graphql).")
+      + fld("opencti-key", "API token", "", O.key_set ? O.key_hint : "OpenCTI user API token", O.key_set ? keyHelp({ ...O, key_fallback: "nothing (the integration stops)" }) : "Write-only: stored on the server and never shown again.", "password")
+      + `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>CA certificate (PEM, optional)</b></span><div class="muted small">The certificate is always verified. If OpenCTI uses a private or self-signed CA, paste that CA here.</div>
+         <textarea id="oc-ca" rows="3" spellcheck="false" placeholder="${O.ca_set ? "A CA is saved. Paste a new one to replace it." : "-----BEGIN CERTIFICATE-----"}" style="width:min(560px,100%);box-sizing:border-box;font-family:var(--mono,monospace)"></textarea>
+         ${O.ca_set ? `<div class="muted small"><label><input type="checkbox" id="oc-ca-clr"> remove the saved CA</label></div>` : ""}</label>`
+      + `<div class="small" style="margin-top:12px"><b>Use OpenCTI as threat intel</b></div>`
+      + cb("oc-pull", O.pull, "Pull indicators into the feed matcher", "IPv4/IPv6 addresses, domains, hostnames, file hashes and file names that are not revoked or expired, plus malware-sample hashes (MalwareBazaar). Full refresh daily, changes every hour.")
+      + fld("oc-min", "Minimum score", String(O.min_score), "50", "Indicators below this OpenCTI score are ignored (0–100).", "number")
+      + fld("oc-high", "High-confidence score", String(O.high_score), "80", "At or above this score a hit counts as serious and raises a Threat-intel alert, like Feodo or URLhaus.", "number")
+      + `<div class="small" style="margin-top:12px"><b>Report back to OpenCTI</b></div>`
+      + cb("oc-sight", O.sightings, "Sightings", "Each OpenCTI indicator netmon sees in traffic gets a sighting by the identity \"netmon (site name)\", with the number of connections / look-ups.")
+      + cb("oc-inc", O.incidents, "Incidents", "Open events the reviewer labelled suspicious become OpenCTI incidents, with their external IPs and domains attached (internal addresses stay in the description). Up to 25 new per run.")
+      + `<label class="cfg-f" style="display:inline-block;margin:4px 16px 4px 22px"><span class="small"><b>Minimum severity</b></span><br><select id="oc-sev">${O.sevs.map((x) => `<option${x === O.incident_min_sev ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>`
+      + `<label class="cfg-f" style="display:inline-block;margin:4px 0"><span class="small"><b>Minimum reviewer confidence</b></span><br><input id="oc-conf" type="number" min="0.5" max="1" step="0.05" value="${esc(String(O.incident_min_conf))}" style="width:90px"></label>`, O);
+    wrap.append(ce, cu, cw, co);
     const rerender = (R, sec, m) => { paintInt(wrap, R, { sec, m }); };
-    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender);
+    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender); wire(co, "opencti", O, rerender);
     if (flash) { const m = wrap.querySelector(`[data-sec="${flash.sec}"] .cfg-msg`); if (m) m.innerHTML = `<span class="badge sev-good">${esc(flash.m)}</span>`; }
   }
 

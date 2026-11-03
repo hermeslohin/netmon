@@ -31,7 +31,8 @@ JOBS = {
     "watch": [PY, os.path.join(NM, "watch.py")],
     "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
-    "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
+    "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],
+    "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
 running = {}
 
@@ -72,6 +73,15 @@ def reap():
             del running[n]
 
 
+def _opencti_wanted():
+    """Configured, or switched off with its lists still on disk (one more run removes them)."""
+    try:
+        import integrations
+        return integrations.opencti()["usable"] or os.path.exists(os.path.join(NM, "intel", "opencti_ips.txt"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def tick(now=None):
     now = now or time.time()
     t = dt.datetime.fromtimestamp(now, dt.timezone.utc)
@@ -81,6 +91,10 @@ def tick(now=None):
     if s.get("watch") != q:
         if start("watch", why="(15-min slot)"):
             s["watch"] = q
+    # OpenCTI sync: once per 15-minute slot, 5 minutes in (off the watcher's start); opencti.py decides what is due
+    oq = int((now - 300) // 900)
+    if s.get("opencti") != oq and _opencti_wanted() and start("opencti", why="(15-min slot)"):
+        s["opencti"] = oq
     # UniFi pre-warm: every 5-minute slot (a still-running one is not doubled)
     uq = int(now // 300)
     if s.get("unifi") != uq and start("unifi", why="(5-min slot)"):

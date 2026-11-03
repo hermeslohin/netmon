@@ -244,6 +244,36 @@ Only dashboard **Admins** can change providers, models or limits, or run compari
 
 Event research and the chat search and read the web through `webtools.py`. The backend is set under **Configuration → Integrations → Web search** (stored in the netmon database, section `web`): **DuckDuckGo** (no key, the default), **Firecrawl**, **Brave** or **Tavily** (with a key). The key can also go in the host secrets file as `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY`. When Firecrawl is configured, pages are fetched through it too. Without a working key, search falls back to DuckDuckGo.
 
+## 7d. OpenCTI threat intelligence (optional)
+
+netmon can use an [OpenCTI](https://filigran.io/solutions/open-cti/) platform as a threat-intel source and report back to
+it. It is off until an admin fills in **More > Configuration > Integrations > OpenCTI** (settings are stored in the
+integrations document; the API token is write-only).
+
+1. In OpenCTI create a dedicated user for netmon (Settings > Security > Users, group *Connectors*) and an API token for it.
+2. On the card: enable it, enter the base URL (e.g. `https://opencti.example.com`) and the token. The certificate is always
+   verified: if OpenCTI uses a private CA, paste the CA certificate (PEM). **Test** shows the version,
+   user and indicator count.
+3. Thresholds: *Minimum score* (default 50) drops weaker indicators; at or above the *High-confidence score*
+   (default 80) a match counts as serious and raises a Threat-intel alert like Feodo or URLhaus.
+
+What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes, 5 minutes past the watcher):
+
+- **Pull**: IP, domain, hostname, file-hash and file-name indicators that are not revoked or expired, plus the hashes of
+  malware-sample observables (e.g. MalwareBazaar artifacts), into `intel/opencti_*.txt`. Full rebuild daily, changes
+  hourly. Every hash entry is serious (an exact match); generic file names (setup.exe, svchost.exe ...) are skipped and a
+  file-name match below the high score is only context.
+- **Reviewer context**: `intelmatch.py` checks every event's IPs, domains, file names and hashes against all feeds; the
+  event reviewer and the decision model see a *threat-intel hits* line with the OpenCTI score, source and labels
+  (malware family, campaign). A new hit re-reviews the event.
+- **Sightings** (on by default): each OpenCTI indicator the watcher sees in traffic gets one sighting by the identity
+  `netmon (<site name>)`; later hits add to its count.
+- **Incidents** (off by default): open events the reviewer labelled suspicious at or above the chosen severity and
+  confidence become OpenCTI incidents with their external IPs and domains attached (internal addresses stay in the
+  description); up to 25 new per run, one per logical event.
+
+Switching the integration off removes the local lists at the next run.
+
 ## 8. Ask AI chat (optional)
 
 The chat runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on **AI review → Models**. It has no terminal, file, memory or settings tools. It can only search and read the web and query netmon through the read-only `netmon_*` tools (from `netmon_mcp.py`, which opens SQLite read-only). Admins can also pick a model per message in the chat header.

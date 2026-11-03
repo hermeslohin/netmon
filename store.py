@@ -130,7 +130,8 @@ def now_iso():
 # files in DOC_FILES) live in the `docs` table, zlib-compressed; any other path is still read/written as a plain file.
 # jload / jdump / jexists / jglob / jmtime / jdelete are drop-in replacements for the open()/json/glob/os.path calls.
 import threading, zlib
-DOC_FILES = {"research_job.json", "scheduler.json", "llm_config.json", "llm_providers.json", "integrations.json", "users.json"}
+DOC_FILES = {"research_job.json", "scheduler.json", "llm_config.json", "llm_providers.json", "integrations.json", "users.json",
+             "opencti_sync.json"}
 _dl = threading.local()
 
 

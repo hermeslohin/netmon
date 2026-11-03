@@ -15,7 +15,7 @@ MAL_CAT = re.compile(r"trojan|malware|command and control|c2|exploit|botnet|coin
 
 def _sig():
     out = []
-    for n in extras.FEEDS:
+    for n in list(extras.FEEDS) + list(extras.LOCAL_FEEDS):
         p = os.path.join(extras.INTEL, n + ".txt")
         out.append((n, os.path.getmtime(p) if os.path.exists(p) else 0))
     return tuple(out)
@@ -26,7 +26,7 @@ def feeds():
         s = _sig()
         if _cache["sig"] != s:
             f = extras.load_feeds()
-            per = {n: 0 for n in extras.FEEDS}
+            per = {n: 0 for n in list(extras.FEEDS) + list(extras.LOCAL_FEEDS)}
             for src in f["hosts"].values():
                 for n in src:
                     per[n] += 1
@@ -43,8 +43,16 @@ def feeds():
 def feed_status():
     _, per = feeds()
     rows = []
-    for n, (url, kind) in extras.FEEDS.items():
+    try:
+        import integrations
+        octi = integrations.opencti().get("url") or ""
+    except Exception:  # noqa: BLE001
+        octi = ""
+    rows_src = list(extras.FEEDS.items()) + [(n, (octi, k)) for n, k in extras.LOCAL_FEEDS.items()]  # written by opencti.py
+    for n, (url, kind) in rows_src:
         p = os.path.join(extras.INTEL, n + ".txt")
+        if n in extras.LOCAL_FEEDS and not os.path.exists(p):
+            continue  # OpenCTI not set up: no rows
         mt = os.path.getmtime(p) if os.path.exists(p) else None
         rows.append({"feed": n, "kind": kind, "url": url, "entries": per.get(n, 0), "serious": n in extras.SERIOUS,
                      "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mt)) if mt else None,
@@ -91,6 +99,31 @@ def lookup(q):
         out["rdap"] = _rdap(q)
         return out
     out["type"] = "unknown"
+    return out
+
+
+_trend_rows = {}  # sid -> (doc mtime, row): a few hundred bytes each instead of the whole snapshot
+
+
+def trend_cached(sids, mtime, load):
+    """trend() over many snapshots without holding them in memory: each snapshot is loaded, reduced to its counter
+    row and dropped; rows are cached by the snapshot's mtime."""
+    out = []
+    for sid in sids:
+        mt = mtime(sid)
+        if mt is None:
+            continue
+        hit = _trend_rows.get(sid)
+        if not hit or hit[0] != mt:
+            raw = load(sid)
+            if not raw:
+                continue
+            hit = (mt, trend([(sid, raw)])[0])
+            _trend_rows[sid] = hit
+            del raw
+        out.append(hit[1])
+    for sid in set(_trend_rows) - set(sids):
+        _trend_rows.pop(sid, None)
     return out
 
 

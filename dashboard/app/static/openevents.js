@@ -97,26 +97,33 @@
     for (const a of rel.flatMap((r) => r.llm_artifacts || [])) { if (a.kind === "ip" && /^\d+\.\d+\.\d+\.\d+$/.test(a.value)) ips.push(a.value); else if (a.kind === "port" && +a.value > 0) ports.push(+a.value); }
     return { ips: [...new Set(ips)], ports };
   }
+  // related events, artifacts and Elasticsearch queries for a set of event ids (one firing, or every variant for the window header)
+  function relBlock(d, eids, openRel) {
+    const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};
+    const byId = new Map();
+    for (const e of eids) for (const r of BY[e] || []) { const o = byId.get(r.id);
+      if (!o || (r.llm === "yes" && (o.llm !== "yes" || (r.llm_conf || 0) > (o.llm_conf || 0)))) byId.set(r.id, { ...r, llm_artifacts: [...(o?.llm_artifacts || []), ...(r.llm_artifacts || [])] });
+      else o.llm_artifacts = [...(o.llm_artifacts || []), ...(r.llm_artifacts || [])]; }
+    const rel = [...byId.values()].sort((a, b) => (b.llm === "yes") - (a.llm === "yes") || (b.llm_conf || 0) - (a.llm_conf || 0));
+    const own = U.ipArts ? eids.flatMap((e) => U.ipArts(EV[e] || {}, [])) : [];  // artifacts read from the event itself
+    const seenA = new Set(), arts = [], qs = [];
+    for (const a of [...own, ...rel.flatMap((r) => r.llm_artifacts || [])]) { const k = a.kind + ":" + a.value; if (seenA.has(k)) continue; seenA.add(k); (a.kind === "query" ? qs : arts).push(a); }
+    const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
+      const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
+      return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
+        ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${r.variants} occurrences</span>` : ""}
+        ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the event reviewer adds them as it links events.</div>`;
+    return `<details class="oe-det oe-sub"${openRel ? " open" : ""}><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
+      <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
+      <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;
+  }
   function firesHtml(d, x) {
     const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};
     let F = d.fires || [];
     const note = d.fires_since ? `Recorded since ${when(d.fires_since)}.` : "Recording starts now.";
     const earlier = 0;
     const vids = [...new Set((d.occurrences || []).map((o) => o.eid))].reverse(), nv = vids.length, vi = (e) => vids.indexOf(e) + 1;  // oldest variant = 1
-    const body = (f) => {
-      const rel = BY[f.eid] || [], me = EV[f.eid] || {};
-      const own = U.ipArts ? U.ipArts(me, []) : [];  // artifacts read from the event itself
-      const seenA = new Set(), arts = [], qs = [];
-      for (const a of [...own, ...rel.flatMap((r) => r.llm_artifacts || [])]) { const k = a.kind + ":" + a.value; if (seenA.has(k)) continue; seenA.add(k); (a.kind === "query" ? qs : arts).push(a); }
-      const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
-        const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
-        return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
-          ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${r.variants} occurrences</span>` : ""}
-          ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the event reviewer adds them as it links events.</div>`;
-      return `<details class="oe-det oe-sub"><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
-        <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
-        <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;
-    };
+    const body = (f) => relBlock(d, [f.eid]);
     const vHtml = nv > 1 ? `<div class="oe-variants small"><div class="muted">${nv} variants - same condition, different numbers in the text. Click one to show only its firings (click again for all):</div>${vids.map((e) => {
       const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
       return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
@@ -167,6 +174,7 @@
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
       ${aiBadges ? `<div class="oe-ais">${aiBadges}</div>` : ""}
       ${verdictHtml}
+      <div class="oe-sum"></div>
       <div class="oe-body"><div class="loading">Loading…</div></div></div>`;
     document.body.appendChild(back);
     back.onclick = (e) => { if (e.target === back || e.target.closest(".oe-x")) close(); };
@@ -174,6 +182,8 @@
     try { d = await api("/api/events/detail?e=" + encodeURIComponent(x.eid)); }
     catch (e) { back.querySelector(".oe-body").innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     if (!back.isConnected) return;
+    { const all = [...new Set([x.eid, ...Object.keys(d.by_event || {}), ...(d.fires || []).map((f) => f.eid)])];
+      back.querySelector(".oe-sum").innerHTML = `<div class="oe-sumh small muted">All firings${all.length > 1 ? ` and variants (${all.length})` : ""} together</div>${relBlock(d, all, false)}`; }
     back.querySelector(".oe-body").innerHTML = `${kidsHtml(x)}<h4>When it fired (${(d.fires || []).length || (d.occurrences || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}`;
     wireKids(back, x);
     back.addEventListener("click", (e) => { const b = e.target.closest(".oe-vchip"); if (!b) return;

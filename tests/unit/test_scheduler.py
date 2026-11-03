@@ -118,9 +118,10 @@ class SchedulerStatusTest(unittest.TestCase):
         RC._meta_put(RC.KEY, None)
 
     def test_jobs_defined(self):
-        """The watch, review, weekly and unifi jobs (event research is never a scheduled job) are configured with the expected scripts.
+        """The watch, review, weekly, unifi and opencti jobs (event research is never a scheduled job) are configured with the expected scripts.
         REQ: OPS-03"""
-        self.assertEqual(set(scheduler.JOBS), {"watch", "review", "weekly", "unifi"})
+        self.assertEqual(set(scheduler.JOBS), {"watch", "review", "weekly", "unifi", "opencti"})
+        self.assertTrue(scheduler.JOBS["opencti"][1].endswith("opencti.py"))
         self.assertTrue(scheduler.JOBS["watch"][-1].endswith("watch.py"))
         self.assertIn("review.py", scheduler.JOBS["review"][1])
         self.assertTrue(scheduler.JOBS["weekly"][0].endswith("weekly_rebuild.sh"))

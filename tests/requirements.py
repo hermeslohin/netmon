@@ -72,6 +72,14 @@ REQUIREMENTS = {
     "CFG-01": ("Configuration", "Site settings fall back to safe defaults; the browser receives only the public subset.", "SETUP.md §2"),
     "CFG-02": ("Configuration", "The research lookback is an integer number of hours within 1-24; invalid values are rejected.", "CORRELATION.md §5"),
     "CFG-03": ("Configuration", "Collection windows end 'now' or at NETMON_WINDOW_END and produce Elasticsearch range filters.", "SETUP.md (Time ranges)"),
+    # ---- OpenCTI integration ----
+    "OCTI-01": ("OpenCTI", "OpenCTI settings are validated (URL, scores 0-100, confidence 0.5-1, known severity, PEM CA), the API token is write-only (masked in the public view) and nothing runs unless enabled with a URL and token.", "SETUP.md (OpenCTI)"),
+    "OCTI-02": ("OpenCTI", "Pulled indicators become local feed lists: only single-value IP / domain / hostname STIX patterns, never private addresses; revoked, expired or below-minimum indicators are dropped; at or above the high score they are SERIOUS.", "SETUP.md (OpenCTI)"),
+    "OCTI-03": ("OpenCTI", "Switching the integration off removes the local OpenCTI lists so stale indicators stop matching.", "SETUP.md (OpenCTI)"),
+    "OCTI-04": ("OpenCTI", "Matches on OpenCTI lists are reported as one sighting per indicator by netmon's identity (created once, then its count and last_seen are bumped); a failure never stops the watcher.", "SETUP.md (OpenCTI)"),
+    "OCTI-05": ("OpenCTI", "Only open events labelled suspicious at or above the configured severity and confidence become incidents, once per logical event; only external IPs and public domains are attached as observables.", "SETUP.md (OpenCTI)"),
+    "OCTI-06": ("OpenCTI", "File-hash and file-name indicators and malware-sample hashes are pulled into local lists (generic file names and junk hashes are skipped); every hash entry is SERIOUS and matching is case-insensitive.", "SETUP.md (OpenCTI)"),
+    "OCTI-07": ("OpenCTI", "The event reviewer gets the threat-intel hits on an event's IPs, domains, file names and hashes (with OpenCTI score and labels); a new hit changes the review signature so the event is reviewed again.", "SETUP.md (OpenCTI)"),
     # ---- dashboard ----
     "DASH-01": ("Dashboard", "The single-page app and its assets are served with a build hash for cache busting.", "USER_GUIDE.md §3"),
     "DASH-02": ("Dashboard", "The JSON API serves snapshots and their derived views (overview, issues, risk, ATT&CK, lateral) from stored data.", "USER_GUIDE.md §6"),
@@ -79,6 +87,7 @@ REQUIREMENTS = {
     "DASH-04": ("Dashboard", "/healthz answers without authentication for the container health check.", "SETUP.md §6"),
     "DASH-05": ("Dashboard", "Check-offs made on the dashboard are persisted and reflected in later reads.", "USER_GUIDE.md §5"),
     "DASH-06": ("Dashboard", "Every script and stylesheet referenced by the HTML pages exists in the static directory.", "USER_GUIDE.md §3"),
+    "DASH-07": ("Dashboard", "The threat-intel trend reads one snapshot at a time and caches only its counter row, so it never holds every snapshot in memory.", "USER_GUIDE.md"),
     # ---- operations ----
     "OPS-01": ("Operations", "Console recovery commands (server.py set-role / add-user / set-password) work without the web UI.", "ACCESS_CONTROL.md"),
     "OPS-02": ("Operations", "The dashboard container runs read-only, non-root, with a passing health check.", "SETUP.md §6"),
