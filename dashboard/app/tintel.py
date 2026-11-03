@@ -9,16 +9,32 @@ import extras  # noqa: E402
 
 extras.INTEL = os.path.join(ROOT, "intel")
 _lock = threading.Lock()
-_cache = {"sig": None, "feeds": None, "per": None}
-MAL_CAT = re.compile(r"trojan|malware|command and control|c2|exploit|botnet|coin|ransom|phish|compromised|attempted admin|attempted user|web application attack", re.I)
+_cache = {"sig": None, "feeds": None, "per": None, "src": None}
+# Built-in feeds that OpenCTI brings in instead (OPENCTI_COVERS): the OpenCTI author ("source" in the list meta) each
+# one arrives as, so the Feeds card can say how many indicators the feed still contributes through OpenCTI.
+OCTI_SOURCE = {"urlhaus_hosts": re.compile(r"^abuse\.ch$|urlhaus", re.I), "threatfox_hosts": re.compile(r"^threat ?fox", re.I),
+               "feodo_ips": re.compile(r"feodo", re.I), "et_compromised": re.compile(r"emerging threats", re.I),
+               "cins_badguys": re.compile(r"^cins", re.I), "spamhaus_drop": re.compile(r"^spamhaus", re.I)}
+
+
+def _source(meta):
+    """OpenCTI author of a list entry ('source | labels' meta). Samples carry 'labels | file ...' with no author:
+    those are MalwareBazaar's."""
+    head = (meta or "").split(" | ")[0].strip()
+    if not head:
+        return "unattributed"
+    if "," in head or "malwarebazaar" in (meta or "").lower().split(" | ")[0]:
+        return "MalwareBazaar"
+    return head
 
 
 def _sig():
     fl = extras.apply_feed_config()
     out = [("cfg", tuple((f["name"], f["url"], f["active"], f["serious"]) for f in fl))]
-    for n in list(extras.ACTIVE) + list(extras.LOCAL_FEEDS):
+    for n in list(extras.ACTIVE):
         p = os.path.join(extras.INTEL, n + ".txt")
         out.append((n, os.path.getmtime(p) if os.path.exists(p) else 0))
+    out.append(("local", tuple(sorted(extras.local_status().items()))))
     return tuple(out)
 
 
@@ -39,8 +55,19 @@ def feeds():
             for n, (_, kind) in extras.ACTIVE.items():
                 if kind == "ja3":
                     per.setdefault(n, {})["ja3"] = len(f["ja3"])
-            _cache.update(sig=s, feeds=f, per=per)
+            src = {}  # OpenCTI list -> {source: {indicator type: count}}
+            for n, rows in extras.local_lists().items():
+                k = extras.LOCAL_FEEDS[n]
+                for _, _, meta in rows:
+                    d = src.setdefault(n, {}).setdefault(_source(meta), {})
+                    d[k] = d.get(k, 0) + 1
+            _cache.update(sig=s, feeds=f, per=per, src=src)
         return _cache["feeds"], _cache["per"]
+
+
+def octi_sources():
+    feeds()
+    return _cache["src"] or {}
 
 
 _LISTED = re.compile(r"listed in ([A-Za-z0-9_.\-]+(?:, [A-Za-z0-9_.\-]+)*)")
@@ -58,6 +85,10 @@ def feed_hits():
         if _hits_cache["key"] == key:
             return _hits_cache["val"]
         acc = {}
+        vsrc = {}  # listed value -> OpenCTI author, to credit OpenCTI hits to the built-in feed they came from
+        for rows in extras.local_lists().values():
+            for v, _, meta in rows:
+                vsrc[v.lower()] = _source(meta)
         for eid, typ, n, ls, doc in c.execute("SELECT eid, type, n, last_seen, doc FROM events WHERE doc LIKE '%listed in %' OR eid LIKE 'ti|%'"):
             try:
                 d = json.loads(doc or "{}")
@@ -74,6 +105,12 @@ def feed_hits():
                 v = it.get("ip") or it.get("domain") or it.get("name") or eid.split("|", 2)[-1]
                 for fd in it.get("feeds") or []:
                     fv.setdefault(fd, set()).add(f"{'dns' if it.get('domain') or it.get('name') else 'ip'}:{str(v).lower()}")
+            for fd, vals in list(fv.items()):
+                if fd.startswith("opencti_"):
+                    for x in vals:
+                        a = vsrc.get(x.split(":", 1)[1])
+                        if a:
+                            fv.setdefault("src:" + a, set()).add(x)
             for fd, vals in fv.items():
                 r = acc.setdefault(fd, {"events": 0, "sightings": 0, "ind": set(), "last": None, "by_type": {}})
                 r["events"] += 1
@@ -96,24 +133,50 @@ def feed_status():
     and hit counts from the event store."""
     _, per = feeds()
     hits = feed_hits()
+    src = octi_sources()
     rows = []
     try:
         import integrations
         octi = integrations.opencti().get("url") or ""
     except Exception:  # noqa: BLE001
         octi = ""
-    src = [(f["name"], f["url"], f["kind"], f["inactive_why"], not f["builtin"]) for f in extras.feed_list()]
-    src += [(n, octi, k, "", False) for n, k in extras.LOCAL_FEEDS.items()]  # written by opencti.py
-    for n, url, kind, why, custom in src:  # URLs are shown with long hex runs (API keys) masked
-        p = os.path.join(extras.INTEL, n + ".txt")
-        if n in extras.LOCAL_FEEDS and not os.path.exists(p):
-            continue  # OpenCTI not set up: no rows
-        mt = os.path.getmtime(p) if os.path.exists(p) else None
+    src_rows = [(f["name"], f["url"], f["kind"], f["inactive_why"], not f["builtin"]) for f in extras.feed_list()]
+    src_rows += [(n, octi, k, "", False) for n, k in extras.LOCAL_FEEDS.items()]  # written by opencti.py into ti_local
+    local = extras.local_status()
+    for n, url, kind, why, custom in [x for x in src_rows]:  # URLs are shown with long hex runs (API keys) masked
+        if n in extras.LOCAL_FEEDS:
+            if n not in local:
+                continue  # OpenCTI not set up: no rows
+            mt = local[n][1]
+        else:
+            p = os.path.join(extras.INTEL, n + ".txt")
+            mt = os.path.getmtime(p) if os.path.exists(p) else None
         rows.append({"feed": n, "kind": kind, "url": re.sub(r"[0-9A-Fa-f]{24,}", "…", url or ""), "entries": 0 if why else sum((per.get(n) or {}).values()),
                      "by_type": {} if why else dict(per.get(n) or {}), "hits": hits.get(n) or {}, "serious": n in extras.SERIOUS,
                      "active": not why, "inactive_why": why, "custom": custom,
                      "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mt)) if mt else None,
                      "age_h": round((time.time() - mt) / 3600, 1) if mt else None})
+        r = rows[-1]
+        if n in extras.LOCAL_FEEDS:  # which OpenCTI authors fill this list
+            r["sources"] = {a: sum(t.values()) for a, t in sorted((src.get(n) or {}).items(), key=lambda x: -sum(x[1].values()))}
+        elif why == "covered by OpenCTI" and n in OCTI_SOURCE and local:
+            bt, lists = {}, set()
+            for ln, by in src.items():
+                for a, t in by.items():
+                    if OCTI_SOURCE[n].search(a):
+                        lists.add(ln)
+                        for k, c in t.items():
+                            bt[k] = bt.get(k, 0) + c
+            ln_up = [local[x][1] for x in lists if x in local]
+            hs = [h for k, h in hits.items() if k.startswith("src:") and OCTI_SOURCE[n].search(k[4:])]
+            if hs:  # hits through OpenCTI added to the ones the feed scored itself before OpenCTI covered it
+                hs.append(r["hits"] or {})
+                r["hits"] = {"events": sum(h.get("events", 0) for h in hs), "sightings": sum(h.get("sightings", 0) for h in hs),
+                             "indicators": sum(h.get("indicators", 0) for h in hs), "last": max(h.get("last") or "" for h in hs) or None,
+                             "by_type": {}, "via_opencti": True}
+            r.update(via_opencti=True, by_type=bt, entries=sum(bt.values()), opencti_lists=sorted(lists),
+                     updated=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(max(ln_up))) if ln_up else r["updated"],
+                     age_h=round((time.time() - max(ln_up)) / 3600, 1) if ln_up else r["age_h"])
     return rows
 
 

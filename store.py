@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS ids_suppress (
 CREATE TABLE IF NOT EXISTS sec_findings (
   key TEXT PRIMARY KEY, tool TEXT, severity TEXT, title TEXT, location TEXT, fix TEXT, detail TEXT,
   first_seen TEXT, last_seen TEXT, status TEXT NOT NULL DEFAULT 'open', fixed_at TEXT, notified INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS ti_local (
+  list TEXT NOT NULL, value TEXT NOT NULL, kind TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0, meta TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (list, value));
+CREATE TABLE IF NOT EXISTS ti_lists (list TEXT PRIMARY KEY, kind TEXT NOT NULL, n INTEGER NOT NULL, updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS docs (
   name TEXT PRIMARY KEY, doc BLOB NOT NULL, updated REAL NOT NULL, size INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS cfg (
@@ -410,6 +414,48 @@ def cfg_has(doc, c=None):
 
 
 # ------------------------------------------------------------------ acks (dashboard check-offs)
+# ---- local threat-intel lists (opencti.py writes them; extras / intelmatch / watch / dashboard read them)
+def ti_local_write(lists, c=None):
+    """lists {name: (kind, [(value, score, meta)])} -> replaces every given list in one transaction."""
+    c = c or _dc()
+    now = time.time()
+    with tx(c):
+        for name, (kind, rows) in lists.items():
+            c.execute("DELETE FROM ti_local WHERE list=?", (name,))
+            c.executemany("INSERT OR REPLACE INTO ti_local(list, value, kind, score, meta) VALUES (?,?,?,?,?)",
+                          [(name, v, kind, int(sc or 0), m or "") for v, sc, m in rows])
+            c.execute("INSERT OR REPLACE INTO ti_lists(list, kind, n, updated) VALUES (?,?,?,?)", (name, kind, len(rows), now))
+    return {n: len(r) for n, (_, r) in lists.items()}
+
+
+def ti_local_read(names=None, c=None):
+    """{name: [(value, score, meta)]} for the stored lists (all, or just `names`)."""
+    c = c or _dc()
+    out = {}
+    q = "SELECT list, value, score, meta FROM ti_local" + (f" WHERE list IN ({','.join('?' * len(names))})" if names else "")
+    for r in c.execute(q, tuple(names or ())):
+        out.setdefault(r[0], []).append((r[1], r[2], r[3]))
+    return out
+
+
+def ti_local_status(c=None):
+    """{name: (count, updated epoch)} of the stored lists; a list that was never written is absent."""
+    c = c or _dc()
+    return {r[0]: (r[1], r[2]) for r in c.execute("SELECT list, n, updated FROM ti_lists")}
+
+
+def ti_local_clear(names=None, c=None):
+    c = c or _dc()
+    with tx(c):
+        if names:
+            ph = ",".join("?" * len(names))
+            c.execute(f"DELETE FROM ti_local WHERE list IN ({ph})", tuple(names))
+            c.execute(f"DELETE FROM ti_lists WHERE list IN ({ph})", tuple(names))
+        else:
+            c.execute("DELETE FROM ti_local")
+            c.execute("DELETE FROM ti_lists")
+
+
 def acks_load(c=None):
     c = c or _dc()
     out = {"issue": {}, "alarm": {}, "finding": {}, "host": {}}

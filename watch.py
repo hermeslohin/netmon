@@ -145,15 +145,12 @@ def file_intel():
     query filters on the listed values (a few thousand), never aggregates every hash or name seen."""
     hset = sorted(feeds.get("hashes") or {})
     names = set()
-    for n, k in extras.LOCAL_FEEDS.items():  # file-name lists keep the original case; keyword fields are case-sensitive
-        if k == "filenames":
-            try:
-                for line in open(os.path.join(extras.INTEL, n + ".txt"), encoding="utf-8"):
-                    v = line.split(" # ")[0].strip()
-                    if v and not v.startswith("#"):
-                        names.update({v, v.lower()})
-            except OSError:
-                pass
+    for n, rows in extras.local_lists().items():  # file-name lists keep the original case; keyword fields are case-sensitive
+        if extras.LOCAL_FEEDS.get(n) == "filenames":
+            for v, _, _ in rows:
+                v = (v or "").strip()
+                if v:
+                    names.update({v, v.lower()})
     if not hset and not names:
         return
     import intelmatch

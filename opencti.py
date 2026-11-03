@@ -2,7 +2,8 @@
 """OpenCTI integration (optional; More > Configuration > Integrations > OpenCTI).
 
   pull       indicators (IPv4/IPv6/domain/hostname, STIX patterns, not revoked, not expired, score >= min) into the
-             local feed files intel/opencti_*.txt, which extras.load_feeds() matches like any downloaded feed.
+             SQLite table ti_local (one named list per opencti_* feed; store.ti_local_*), which extras.load_feeds()
+             matches like any downloaded feed.
              Indicators at or above the high-confidence score go to the *_high lists, which count as SERIOUS.
              A full rebuild runs once a day; in between only indicators updated since the last pull are merged.
   sightings  watch.py hands over every match on an OpenCTI list; each becomes (or bumps) one STIX sighting of that
@@ -224,59 +225,46 @@ def parse_pattern(p):
     return None
 
 
-def _feed_path(name):
-    return os.path.join(INTEL, name + ".txt")
-
-
 def _clean_meta(meta):
-    return re.sub(r"[\r\n#]+", " ", str(meta or ""))[:160].strip()
+    return re.sub(r"\s+", " ", str(meta or ""))[:160].strip()
 
 
 def read_local():
-    """Current local lists: {value: (kind, score, meta)} (meta: 'source | labels' for the reviewer)."""
+    """Current local lists from the store (table ti_local): {value: (kind, score, meta)} (meta: 'source | labels')."""
     out = {}
-    for name, kind in LISTS.items():
-        try:
-            for line in open(_feed_path(name), encoding="utf-8"):
-                if line.startswith("#"):
-                    continue
-                body, _, rest = line.rstrip("\n").partition(" # ")
-                if kind == "hosts":
-                    parts = body.split()
-                    v = parts[1] if len(parts) > 1 else ""
-                else:
-                    v = body.strip()
-                m = re.match(r"score (\d+)(?: \| (.*))?$", rest.strip())
-                if v:
-                    out[v] = (kind, int(m.group(1)) if m else 0, (m.group(2) or "") if m else "")
-        except OSError:
-            pass
+    for name, rows in store.ti_local_read(list(LISTS)).items():
+        for v, sc, meta in rows:
+            out[v] = (LISTS[name], int(sc or 0), meta or "")
     return out
 
 
 def write_local(entries, high):
-    """entries {value: (kind, score[, meta])} -> the list files (each value in exactly one)."""
-    os.makedirs(INTEL, exist_ok=True)
-    files = {n: [] for n in LISTS}
+    """entries {value: (kind, score[, meta])} -> the lists in the store (each value in exactly one list)."""
+    lists = {n: (k, []) for n, k in LISTS.items()}
     for v, e in sorted(entries.items()):
         kind, score, meta = (tuple(e) + ("",))[:3]
         n = "opencti_hashes" if kind == "hashes" else "opencti_" + ("high_" if score >= high else "") + kind
-        tail = f" # score {score}" + (f" | {_clean_meta(meta)}" if meta else "")
-        files[n].append(("0.0.0.0 " if kind == "hosts" else "") + v + tail)
-    for n, lines in files.items():
-        tmp = _feed_path(n) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(f"# OpenCTI indicators written by netmon opencti.py at {_now_iso()}\n" + "\n".join(lines) + ("\n" if lines else ""))
-        os.replace(tmp, _feed_path(n))
-    return {n: len(v) for n, v in files.items()}
+        lists[n][1].append((v, score, _clean_meta(meta)))
+    sizes = store.ti_local_write(lists)
+    _drop_legacy_files()
+    return sizes
+
+
+def have_local():
+    return "opencti_ips" in store.ti_local_status()
+
+
+def _drop_legacy_files():
+    for n in LISTS:  # intel/opencti_*.txt from before the lists moved into SQLite
+        try:
+            os.remove(os.path.join(INTEL, n + ".txt"))
+        except OSError:
+            pass
 
 
 def remove_local():
-    for n in LISTS:
-        try:
-            os.remove(_feed_path(n))
-        except OSError:
-            pass
+    store.ti_local_clear(list(LISTS))
+    _drop_legacy_files()
 
 
 _IND_Q = """query($a:ID, $f:FilterGroup){ indicators(first:%d, after:$a, orderBy:updated_at, orderMode:asc, filters:$f){
@@ -392,7 +380,7 @@ def pull(cli, cfg, st, force_full=False):
     now = time.time()
     full = force_full or not st.get("last_full_ts") or now - st["last_full_ts"] > FULL_EVERY \
         or st.get("pulled_min_score") != cfg["min_score"] or st.get("pull_version") != PULL_VERSION \
-        or not os.path.exists(_feed_path("opencti_ips"))
+        or not have_local()
     if not full and st.get("last_pull_ts") and now - st["last_pull_ts"] < PULL_EVERY:
         return None
     if full:

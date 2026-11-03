@@ -74,10 +74,11 @@ def reap():
 
 
 def _opencti_wanted():
-    """Configured, or switched off with its lists still on disk (one more run removes them)."""
+    """Configured, or switched off with its lists still in the store (one more run removes them)."""
     try:
         import integrations
-        return integrations.opencti()["usable"] or os.path.exists(os.path.join(NM, "intel", "opencti_ips.txt"))
+        return integrations.opencti()["usable"] or bool(store.ti_local_status()) \
+            or os.path.exists(os.path.join(NM, "intel", "opencti_ips.txt"))  # pre-SQLite files
     except Exception:  # noqa: BLE001
         return False
 

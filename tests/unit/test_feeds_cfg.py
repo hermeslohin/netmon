@@ -111,6 +111,29 @@ class TestFeedConfig(unittest.TestCase):
         self.assertEqual((rows["cins_badguys"]["active"], rows["cins_badguys"]["entries"]), (False, 0))
         self.assertTrue(all({"entries", "serious", "url", "age_h"} <= set(r) for r in rows.values()))
 
+    def test_feed_card_breakdown_via_opencti(self):
+        """The Feeds card shows indicators per type for each feed; a built-in feed OpenCTI covers is counted from the
+        OpenCTI lists by author, and OpenCTI lists say which authors fill them.
+        REQ: OCTI-02
+        """
+        import opencti
+        import tintel
+        integrations.save("opencti", {"url": "https://octi.example", "api_key": "x" * 12 + "abcd", "enabled": True}, "admin")
+        with mock.patch.object(opencti, "INTEL", self.tmp):
+            opencti.write_local({"45.33.32.9": ("ips", 50, "CINS Army (Collective Intelligence Network Security)"),
+                                 "45.33.32.10": ("ips", 50, "IPsum"), "1.10.16.0/20": ("cidrs", 90, "Spamhaus"),
+                                 "bad.example": ("hosts", 60, "Threat Fox | Abuse.ch | botnet_cc"),
+                                 "a" * 64: ("hashes", 90, "exe, malwarebazaar | file x.exe")}, 80)
+        tintel._cache["sig"] = None
+        with mock.patch.object(tintel.extras, "INTEL", self.tmp):
+            rows = {r["feed"]: r for r in tintel.feed_status()}
+        self.assertEqual((rows["cins_badguys"]["via_opencti"], rows["cins_badguys"]["by_type"]), (True, {"ips": 1}))
+        self.assertEqual(rows["spamhaus_drop"]["by_type"], {"cidrs": 1})
+        self.assertEqual(rows["threatfox_hosts"]["entries"], 1)
+        self.assertEqual(rows["opencti_ips"]["sources"], {"CINS Army (Collective Intelligence Network Security)": 1, "IPsum": 1})
+        self.assertEqual(rows["opencti_hashes"]["sources"], {"MalwareBazaar": 1})
+        self.assertEqual(rows["opencti_ips"]["by_type"], {"ips": 2})
+
 
 class TestFileArtifacts(unittest.TestCase):
     def setUp(self):

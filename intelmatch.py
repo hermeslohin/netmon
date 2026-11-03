@@ -30,29 +30,20 @@ MAX_HITS = 8
 def _sig():
     fl = extras.apply_feed_config()
     out = [("cfg", tuple((f["name"], f["url"], f["active"], f["serious"]) for f in fl))]
-    for n in list(extras.ACTIVE) + list(extras.LOCAL_FEEDS):
+    for n in list(extras.ACTIVE):
         p = os.path.join(extras.INTEL, n + ".txt")
         out.append((n, os.path.getmtime(p) if os.path.exists(p) else 0))
+    out.append(("local", tuple(sorted(extras.local_status().items()))))
     return tuple(out)
 
 
 def _load_meta():
-    """value(lowercase) -> (score, 'source | labels') from the OpenCTI lists."""
+    """value(lowercase) -> (score, 'source | labels') from the OpenCTI lists (store table ti_local)."""
     meta = {}
-    for n, kind in extras.LOCAL_FEEDS.items():
-        try:
-            f = open(os.path.join(extras.INTEL, n + ".txt"), encoding="utf-8")
-        except OSError:
-            continue
-        with f:
-            for line in f:
-                if line.startswith("#"):
-                    continue
-                body, _, rest = line.rstrip("\n").partition(" # ")
-                v = body.split()[1] if kind == "hosts" and len(body.split()) > 1 else body.strip()
-                m = re.match(r"score (\d+)(?: \| (.*))?$", rest.strip())
-                if v and m:
-                    meta[v.lower()] = (int(m.group(1)), m.group(2) or "")
+    for rows in extras.local_lists().values():
+        for v, sc, about in rows:
+            if v:
+                meta[v.lower()] = (int(sc or 0), about or "")
     return meta
 
 

@@ -260,7 +260,7 @@ integrations document; the API token is write-only).
 What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes, 5 minutes past the watcher):
 
 - **Pull**: IP, domain, hostname, file-hash and file-name indicators that are not revoked or expired, plus the hashes of
-  malware-sample observables (e.g. MalwareBazaar artifacts), into `intel/opencti_*.txt`. Full rebuild daily, changes
+  malware-sample observables (e.g. MalwareBazaar artifacts), into the SQLite table `ti_local` (one `opencti_*` list each; `ti_lists` holds counts and update times). Full rebuild daily, changes
   hourly. Every hash entry is serious (an exact match); generic file names (setup.exe, svchost.exe ...) are skipped and a
   file-name match below the high score is only context.
 - **Reviewer context**: `intelmatch.py` checks every event's IPs, domains, file names and hashes against all feeds; the

@@ -140,9 +140,26 @@ class TestIndicators(unittest.TestCase):
         REQ: OCTI-03
         """
         opencti.write_local({"45.33.32.9": ("ips", 90, "")}, 80)
-        self.assertTrue(os.path.exists(os.path.join(self.tmp, "opencti_high_ips.txt")))
+        self.assertEqual(store.ti_local_status()["opencti_high_ips"][0], 1)
+        open(os.path.join(self.tmp, "opencti_ips.txt"), "w").write("1.2.3.4\n")  # pre-SQLite leftover
         opencti.run()
+        self.assertEqual(store.ti_local_status(), {})
+        self.assertEqual(extras.local_lists(), {})
         self.assertFalse(any(n.startswith("opencti_") for n in os.listdir(self.tmp)))
+
+    def test_lists_live_in_sqlite(self):
+        """The OpenCTI lists are rows in the store (table ti_local), never files; a pull drops pre-SQLite files.
+        REQ: OCTI-02
+        """
+        open(os.path.join(self.tmp, "opencti_hosts.txt"), "w").write("0.0.0.0 old.example\n")
+        sizes = opencti.write_local({"45.33.32.9": ("ips", 90, "ThreatFox # c2\nx"), "bad.example": ("hosts", 60, "")}, 80)
+        self.assertEqual((sizes["opencti_high_ips"], sizes["opencti_hosts"], sizes["opencti_ips"]), (1, 1, 0))
+        self.assertEqual(os.listdir(self.tmp), [])
+        rows = store.connect().execute("SELECT list, value, kind, score, meta FROM ti_local ORDER BY value").fetchall()
+        self.assertEqual([tuple(r) for r in rows], [("opencti_high_ips", "45.33.32.9", "ips", 90, "ThreatFox # c2 x"), ("opencti_hosts", "bad.example", "hosts", 60, "")])
+        self.assertEqual(set(store.ti_local_status()), set(opencti.LISTS))
+        self.assertTrue(opencti.have_local())
+        self.assertEqual(extras.match_domain("a.bad.example", extras.load_feeds()), ("bad.example", ["opencti_hosts"]))
 
     def test_pull_full_then_incremental(self):
         """The first pull is a full one filtered server-side; the next (after an hour) only asks for updated indicators.

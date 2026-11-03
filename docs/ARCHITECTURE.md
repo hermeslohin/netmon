@@ -28,7 +28,7 @@ These hold everywhere in the code and explain most of the layout below.
 | `scheduler.py` | systemd user unit `netmon-scheduler` | always on | `review_cfg`, job state | starts jobs, `logs/<job>.log` |
 | `watch.py` (watcher) | child of the scheduler | every 15 min | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
 | `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `data/unifi_cache` |
-| `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | `intel/opencti_*.txt`, sightings/incidents back to OpenCTI |
+| `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |
 | `review.py` (review job) | child of the scheduler | grid set on AI review (5 min–24 h, anchored 05:00 UTC) or **Run now** | Elasticsearch, UniFi cache, earlier notes | snapshot, `review_job.json`, copied notes |
 | `research.py` (event research) | started by the host broker | only **Send to research** | event, web, optional Elasticsearch | event note (`enrich.db`), host notes (`kb.db`), `logs/` |
 | `weekly_rebuild.sh` | child of the scheduler | Sunday 03:00 UTC | — | new dashboard image, security scan results |

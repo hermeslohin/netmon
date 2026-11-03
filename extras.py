@@ -220,16 +220,37 @@ def _parse(text, kind, name, acc):
                 pass
 
 
+def local_lists():
+    """{name: [(value, score, meta)]} of the OpenCTI lists opencti.py keeps in the store (table ti_local)."""
+    try:
+        import store
+        return store.ti_local_read(list(LOCAL_FEEDS))
+    except Exception as e:  # noqa: BLE001 - matching works on the downloaded feeds alone
+        print(f"extras.local_lists: {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
+
+
+def local_status():
+    """{name: (count, updated epoch)} of the stored OpenCTI lists (absent = never written)."""
+    try:
+        import store
+        return {n: v for n, v in store.ti_local_status().items() if n in LOCAL_FEEDS}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def load_feeds():
     """Active downloaded feeds + the OpenCTI lists. Turned-off or OpenCTI-covered feeds are not loaded even when
     their file is still on disk."""
     apply_feed_config()
     acc = {"hosts": defaultdict(set), "ips": defaultdict(set), "cidrs": [], "ja3": {}, "hashes": defaultdict(set), "filenames": defaultdict(set)}
-    for name, kind in [(n, k) for n, (_, k) in ACTIVE.items()] + list(LOCAL_FEEDS.items()):
+    for name, kind in [(n, k) for n, (_, k) in ACTIVE.items()]:
         path = os.path.join(INTEL, name + ".txt")
         if not os.path.exists(path):
             continue
         _parse(open(path, encoding="utf-8", errors="replace").read(), kind, name, acc)
+    for name, rows in local_lists().items():  # OpenCTI lists: SQLite table ti_local (opencti.py), not files
+        _parse("\n".join(v for v, _, _ in rows), LOCAL_FEEDS[name], name, acc)
     acc["cidrs"].sort()
     return {**acc, "cidr_starts": [c[0] for c in acc["cidrs"]]}
 
