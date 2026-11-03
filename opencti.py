@@ -40,12 +40,13 @@ PULL_EVERY = 3600          # incremental indicator pull
 FULL_EVERY = 24 * 3600     # full rebuild (drops revoked / expired / re-scored indicators)
 PAGE = 500
 MAX_PAGES = 400            # 200k indicators per pull at most
-OBS_TYPES = ("IPv4-Addr", "IPv6-Addr", "Domain-Name", "Hostname", "StixFile", "Artifact")
+OBS_TYPES = ("IPv4-Addr", "IPv6-Addr", "Domain-Name", "Hostname", "Url", "StixFile", "Artifact")
 _PAT = re.compile(r"^\[(ipv4-addr|ipv6-addr|domain-name|hostname):value\s*=\s*'([^'\\]+)'\]$")
 _FPAT = re.compile(r"^\[(?:file|artifact):hashes\.(?:'([A-Za-z0-9-]+)'|([A-Za-z0-9_-]+))\s*=\s*'([0-9A-Fa-f]+)'\]$")
 _NPAT = re.compile(r"^\[file:name\s*=\s*'([^'\\]+)'\]$")
+_UPAT = re.compile(r"^\[url:value\s*=\s*'([^'\\]+)'\]$")
 SAMPLE_SCORE = 90          # a malware sample observable (MalwareBazaar) without a score of its own
-PULL_VERSION = 2           # bump when the list format changes: forces one full rebuild
+PULL_VERSION = 3           # bump when the list format changes: forces one full rebuild
 SEV_RANK = {"low": 1, "medium": 2, "high": 3, "urgent": 4}
 OCTI_SEV = {"urgent": "critical", "high": "high", "medium": "medium", "low": "low"}
 NEW_INCIDENTS_PER_RUN = 25
@@ -115,7 +116,19 @@ class Client:
 # list file -> kind. Each value sits in exactly one list; "high" lists hold score >= high_score and count as SERIOUS
 # (extras.SERIOUS). Every hash list entry is SERIOUS: a hash match is exact. File names are a weak signal on their own.
 LISTS = {"opencti_ips": "ips", "opencti_high_ips": "ips", "opencti_hosts": "hosts", "opencti_high_hosts": "hosts",
+         "opencti_cidrs": "cidrs", "opencti_high_cidrs": "cidrs",
          "opencti_hashes": "hashes", "opencti_filenames": "filenames", "opencti_high_filenames": "filenames"}
+# A malicious URL on one of these shared hosts says nothing about the host itself: never list the host.
+SHARED_HOSTS = ("github.com", "githubusercontent.com", "gitlab.com", "bitbucket.org", "google.com", "googleapis.com",
+                "googleusercontent.com", "drive.google.com", "docs.google.com", "dropbox.com", "dropboxusercontent.com",
+                "onedrive.live.com", "1drv.ms", "sharepoint.com", "microsoft.com", "windows.net", "azurewebsites.net",
+                "amazonaws.com", "cloudfront.net", "discord.com", "discordapp.com", "discordapp.net", "cdn.discordapp.com",
+                "telegram.org", "t.me", "pastebin.com", "paste.ee", "mediafire.com", "mega.nz", "transfer.sh",
+                "cloudflare.com", "workers.dev", "pages.dev", "r2.dev", "web.app", "firebaseapp.com", "appspot.com",
+                "herokuapp.com", "vercel.app", "netlify.app", "glitch.me", "wordpress.com", "blogspot.com", "weebly.com",
+                "wixsite.com", "000webhostapp.com", "ngrok.io", "ngrok-free.app", "trycloudflare.com", "duckdns.org",
+                "archive.org", "bit.ly", "tinyurl.com", "yandex.ru", "apple.com", "icloud.com", "facebook.com", "youtube.com")
+OBS_MAX_AGE_D = 7          # a feed observable (no indicator) counts while its feed re-sent it within this many days
 _HEX = {32: "md5", 40: "sha1", 64: "sha256", 128: "sha512"}
 # names legitimate software also uses: matching them alone says nothing
 GENERIC_NAMES = {"setup.exe", "install.exe", "installer.exe", "update.exe", "updater.exe", "svchost.exe", "explorer.exe", "rundll32.exe",
@@ -143,24 +156,55 @@ def _fname(v):
     return v
 
 
+def _addr(v):
+    """IP or CIDR text -> ("ips", ip) / ("cidrs", net) for public addresses, else None."""
+    try:
+        a = ipaddress.ip_network(str(v).strip(), strict=False)
+    except ValueError:
+        return None
+    if a.is_private or a.is_loopback or a.is_multicast or a.is_reserved or a.is_link_local or a.is_unspecified:
+        return None  # private / special addresses never match outside traffic usefully
+    if a.num_addresses == 1:
+        return "ips", str(a.network_address)
+    if a.version == 4 and a.prefixlen >= 8:
+        return "cidrs", str(a)
+    return None
+
+
+def _shared(host):
+    return any(host == d or host.endswith("." + d) for d in SHARED_HOSTS)
+
+
+def url_host(u):
+    """Host of a malicious URL as a list entry: ("ips", ip) for an IP host, ("hosts", domain) for a domain that is not a
+    shared / hosting platform, else None."""
+    m = re.match(r"^[a-z][a-z0-9+.-]*://(?:[^/@]*@)?(\[[0-9a-f:]+\]|[^/:?#]+)", str(u or "").strip(), re.I)
+    if not m:
+        return None
+    h = m.group(1).strip("[]").lower().rstrip(".")
+    if re.fullmatch(r"[\d.]+|[0-9a-f:]+", h) and (":" in h or h.count(".") == 3):
+        a = _addr(h)
+        return a if a and a[0] == "ips" else None
+    if "." not in h or " " in h or len(h) > 253 or _shared(h):
+        return None
+    return "hosts", h
+
+
 def parse_pattern(p):
-    """Single-value STIX pattern -> (kind, value) with kind ips|hosts|hashes|filenames, or None
-    (compound patterns, URLs, private addresses...)."""
+    """Single-value STIX pattern -> (kind, value) with kind ips|cidrs|hosts|hashes|filenames, or None
+    (compound patterns, private addresses, URLs on shared hosting...). A URL indicator lists its host."""
     p = (p or "").strip()
     m = _PAT.match(p)
     if m:
         typ, v = m.group(1), m.group(2).strip().lower().rstrip(".")
         if typ in ("ipv4-addr", "ipv6-addr"):
-            try:
-                a = ipaddress.ip_network(v, strict=False)
-            except ValueError:
-                return None
-            if a.num_addresses != 1 or a.is_private or a.is_loopback or a.is_multicast or a.is_reserved:
-                return None  # private / special addresses and ranges never match outside traffic usefully
-            return "ips", str(a.network_address)
+            return _addr(v)
         if "." not in v or " " in v or len(v) > 253:
             return None
         return "hosts", v
+    m = _UPAT.match(p)
+    if m:
+        return url_host(m.group(1))
     m = _FPAT.match(p)
     if m:
         h = _hash(m.group(3))
@@ -237,6 +281,11 @@ _OBS_Q = """query($a:ID, $f:FilterGroup){ stixCyberObservables(first:%d, after:$
   ... on StixFile{ name hashes{ algorithm hash } x_opencti_additional_names } } } } }""" % PAGE
 
 
+_IPOBS_Q = """query($a:ID, $f:FilterGroup){ stixCyberObservables(first:%d, after:$a, types:["IPv4-Addr", "IPv6-Addr"],
+  orderBy:created_at, orderMode:asc, filters:$f){ pageInfo{ hasNextPage endCursor } edges{ node{ observable_value
+  refreshed_at x_opencti_score createdBy{ name } objectLabel{ value } } } } }""" % PAGE
+
+
 def _pages(cli, query, key, f):
     after = None
     for _ in range(MAX_PAGES):
@@ -263,6 +312,27 @@ def fetch_samples(cli, since=None):
     """Malware sample observables (MalwareBazaar Artifacts, files from reports) that carry hashes but no indicator."""
     flt = [{"key": "updated_at", "values": [since], "operator": "gt"}] if since else []
     return _pages(cli, _OBS_Q, "stixCyberObservables", {"mode": "and", "filters": flt, "filterGroups": []})
+
+
+def fetch_feed_ips(cli, min_score, since=None, now=None):
+    """Scored IP / CIDR observables that block-list feeds bring in without an indicator (IPsum, CINS, ET, Spamhaus
+    DROP, Feodo, DShield...): the ones a feed re-sent within OBS_MAX_AGE_D days (older ones dropped off the list)."""
+    floor = _now_iso((now or time.time()) - OBS_MAX_AGE_D * 86400)
+    flt = [{"key": "x_opencti_score", "values": [str(min_score)], "operator": "gte"},
+           {"key": "refreshed_at", "values": [max(since or "", floor)], "operator": "gt"}]
+    return _pages(cli, _IPOBS_Q, "stixCyberObservables", {"mode": "and", "filters": flt, "filterGroups": []})
+
+
+def merge_feed_ips(entries, nodes, min_score):
+    """IP / CIDR observables -> entries; an indicator already listing the value keeps its own score and source."""
+    newest = ""
+    for n in nodes:
+        newest = max(newest, n.get("refreshed_at") or "")
+        a = _addr(n.get("observable_value"))
+        score = int(n.get("x_opencti_score") or 0)
+        if a and score >= min_score and a[1] not in entries:
+            entries[a[1]] = (a[0], score, _meta(n))
+    return entries, newest
 
 
 def _meta(n, extra=""):
@@ -320,13 +390,16 @@ def pull(cli, cfg, st, force_full=False):
     if full:
         entries, newest = merge({}, fetch_indicators(cli, None, cfg["min_score"]), cfg["min_score"])
         entries, onewest = merge_samples(entries, fetch_samples(cli, None))
+        entries, inewest = merge_feed_ips(entries, fetch_feed_ips(cli, cfg["min_score"]), cfg["min_score"])
         st.update(last_full_ts=now, last_full=_now_iso(now), pulled_min_score=cfg["min_score"], pull_version=PULL_VERSION)
     else:
         entries, newest = merge(read_local(), fetch_indicators(cli, st.get("cursor")), cfg["min_score"])
         entries, onewest = merge_samples(entries, fetch_samples(cli, st.get("obs_cursor")))
+        entries, inewest = merge_feed_ips(entries, fetch_feed_ips(cli, cfg["min_score"], st.get("ip_cursor")), cfg["min_score"])
     sizes = write_local(entries, cfg["high_score"])
     st.update(last_pull_ts=now, last_pull=_now_iso(now), cursor=newest or st.get("cursor"), obs_cursor=onewest or st.get("obs_cursor"),
-              indicators=len(entries), high=sizes["opencti_high_ips"] + sizes["opencti_high_hosts"] + sizes["opencti_high_filenames"],
+              ip_cursor=inewest or st.get("ip_cursor"), cidrs=sizes["opencti_cidrs"] + sizes["opencti_high_cidrs"],
+              indicators=len(entries), high=sizes["opencti_high_ips"] + sizes["opencti_high_hosts"] + sizes["opencti_high_cidrs"] + sizes["opencti_high_filenames"],
               hashes=sizes["opencti_hashes"], filenames=sizes["opencti_filenames"] + sizes["opencti_high_filenames"])
     return {"full": full, "indicators": len(entries), **sizes}
 

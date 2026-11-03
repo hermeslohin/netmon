@@ -22,7 +22,7 @@ _lock = threading.Lock()
 _cache = {"sig": None, "feeds": None, "meta": {}}
 _HEX = re.compile(r"^[0-9a-f]{32}$|^[0-9a-f]{40}$|^[0-9a-f]{64}$|^[0-9a-f]{128}$")
 FEED_DESC = {"urlhaus_hosts": "URLhaus malware-distribution host", "threatfox_hosts": "ThreatFox IOC host",
-             "feodo_ips": "Feodo Tracker botnet C2", "sslbl_ips": "SSLBL botnet C2", "et_compromised": "ET known-compromised host",
+             "feodo_ips": "Feodo Tracker botnet C2", "et_compromised": "ET known-compromised host",
              "cins_badguys": "CINS scanner/attacker list", "spamhaus_drop": "Spamhaus DROP (hijacked netblock)", "sslbl_ja3": "SSLBL malicious JA3"}
 MAX_HITS = 8
 
@@ -115,6 +115,8 @@ def hits(ev):
         if k == "ip":
             fl = extras.match_ip(v, f) if _is_public_ip(v) else []
             m = v
+            if fl and m.lower() not in meta:  # listed through a range: report the range and its source
+                m = next((c for c, _ in extras.cidrs_of(v, f) if c in meta), next((c for c, _ in extras.cidrs_of(v, f)), v))
         elif k == "dns":
             m, fl = extras.match_domain(v, f)
         elif k == "hash":

@@ -84,6 +84,7 @@ REQUIREMENTS = {
     "OCTI-09": ("OpenCTI", "A sighting points at the live indicator named after the value, else at the observable carrying that hash or file name; the watcher alerts on serious file-hash / file-name hits from Zeek files and endpoint process / file events.", "SETUP.md (OpenCTI)"),
     "FEED-01": ("Threat intel", "Feeds are configurable: built-ins can be turned off, re-pointed or marked serious / covered by OpenCTI (never deleted); custom feeds need a valid name, http(s) URL and list type; covered feeds are inactive while the OpenCTI pull is on.", "SETUP.md (threat-intel feeds)"),
     "FEED-02": ("Threat intel", "Only active feeds are downloaded and matched (an inactive feed's old file is ignored); a changed URL is downloaded again at once; domain lists may be hosts files or one domain per line.", "SETUP.md (threat-intel feeds)"),
+    "FEED-03": ("Threat intel", "With OpenCTI pulling, the built-in block lists come from OpenCTI (URL indicators list their non-shared host, scored IP / CIDR feed observables re-sent within 7 days list their address or range); only the JA3 list is still downloaded.", "SETUP.md (threat-intel feeds)"),
     # ---- dashboard ----
     "DASH-01": ("Dashboard", "The single-page app and its assets are served with a build hash for cache busting.", "USER_GUIDE.md §3"),
     "DASH-02": ("Dashboard", "The JSON API serves snapshots and their derived views (overview, issues, risk, ATT&CK, lateral) from stored data.", "USER_GUIDE.md §6"),

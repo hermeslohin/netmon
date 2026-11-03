@@ -28,7 +28,6 @@ FEEDS = {
     "urlhaus_hosts": ("https://urlhaus.abuse.ch/downloads/hostfile/", "hosts"),
     "threatfox_hosts": ("https://threatfox.abuse.ch/downloads/hostfile/", "hosts"),
     "feodo_ips": ("https://feodotracker.abuse.ch/downloads/ipblocklist.txt", "ips"),
-    "sslbl_ips": ("https://sslbl.abuse.ch/blacklist/sslipblacklist.txt", "ips"),
     "et_compromised": ("https://rules.emergingthreats.net/blockrules/compromised-ips.txt", "ips"),
     "cins_badguys": ("https://cinsscore.com/list/ci-badguys.txt", "ips"),
     "spamhaus_drop": ("https://www.spamhaus.org/drop/drop.txt", "cidrs"),
@@ -38,16 +37,19 @@ FEED_KINDS = {"hosts": "Domains (hosts file or one per line)", "ips": "IP addres
               "ja3": "JA3 fingerprints (SSLBL CSV)", "hashes": "File hashes (one per line)"}
 # Feeds whose hits on OUTBOUND traffic are serious (C2 / malware infra). CINS / ET are scanner lists:
 # they matter for inbound sessions that succeeded, and only as context for outbound.
-BUILTIN_SERIOUS = {"urlhaus_hosts", "threatfox_hosts", "feodo_ips", "sslbl_ips", "spamhaus_drop", "sslbl_ja3"}
-# Built-in feeds whose data the OpenCTI abuse.ch connectors (URLhaus, ThreatFox) already bring in: skipped while the
-# OpenCTI pull is on, so the same indicator is not matched (and alerted) twice.
-OPENCTI_COVERS = {"urlhaus_hosts", "threatfox_hosts"}
+BUILTIN_SERIOUS = {"urlhaus_hosts", "threatfox_hosts", "feodo_ips", "spamhaus_drop", "sslbl_ja3"}
+# Built-in feeds OpenCTI brings in (abuse.ch URLhaus / ThreatFox connectors; Feodo, ET, CINS and Spamhaus DROP as
+# OpenCTI CSV feeds, ~/talos/upgrade/opencti/csv-feeds.py): skipped while the OpenCTI pull is on, so every list has one
+# source and the same indicator is not matched (and alerted) twice. Only the JA3 list stays local: OpenCTI has no JA3
+# pattern. (The SSLBL IP list was retired by abuse.ch in 2025 and is no longer a built-in.)
+OPENCTI_COVERS = {"urlhaus_hosts", "threatfox_hosts", "feodo_ips", "et_compromised", "cins_badguys", "spamhaus_drop"}
 # Feeds written locally by opencti.py from the OpenCTI platform (not downloaded): name -> kind. The *_high lists hold
 # indicators at or above the configured high-confidence score and count as SERIOUS (they alert like Feodo/URLhaus);
 # every hash entry is SERIOUS (an exact match). File names below the high score are context for the reviewer only.
 LOCAL_FEEDS = {"opencti_ips": "ips", "opencti_hosts": "hosts", "opencti_high_ips": "ips", "opencti_high_hosts": "hosts",
+               "opencti_cidrs": "cidrs", "opencti_high_cidrs": "cidrs",
                "opencti_hashes": "hashes", "opencti_filenames": "filenames", "opencti_high_filenames": "filenames"}
-LOCAL_SERIOUS = {"opencti_high_ips", "opencti_high_hosts", "opencti_hashes", "opencti_high_filenames"}
+LOCAL_SERIOUS = {"opencti_high_ips", "opencti_high_hosts", "opencti_high_cidrs", "opencti_hashes", "opencti_high_filenames"}
 SERIOUS = set(BUILTIN_SERIOUS | LOCAL_SERIOUS)  # updated in place by apply_feed_config()
 ACTIVE = {n: v for n, v in FEEDS.items()}       # name -> (url, kind) of the feeds that run; updated in place
 
@@ -253,15 +255,24 @@ def match_filename(name, feeds):
     return sorted((feeds.get("filenames") or {}).get(base, ())) if base else []
 
 
-def match_ip(ip, feeds):
-    hits = set(feeds["ips"].get(ip, ()))
+def cidrs_of(ip, feeds):
+    """[(cidr, feed)] of every listed range holding `ip` (ranges from different lists may nest or overlap)."""
     try:
         v = int(ipaddress.ip_address(ip))
     except ValueError:
-        return sorted(hits)
+        return []
+    out = []
     i = bisect.bisect_right(feeds["cidr_starts"], v) - 1
-    if i >= 0 and feeds["cidrs"][i][0] <= v <= feeds["cidrs"][i][1]:
-        hits.add(feeds["cidrs"][i][3])
+    while i >= 0 and len(out) < 8 and v - feeds["cidrs"][i][0] < 2 ** 24:  # no listed range is wider than a /8
+        if feeds["cidrs"][i][1] >= v:
+            out.append((feeds["cidrs"][i][2], feeds["cidrs"][i][3]))
+        i -= 1
+    return out
+
+
+def match_ip(ip, feeds):
+    hits = set(feeds["ips"].get(ip, ()))
+    hits.update(n for _, n in cidrs_of(ip, feeds))
     return sorted(hits)
 
 

@@ -110,7 +110,7 @@ class TestIndicators(unittest.TestCase):
         self.assertEqual(opencti.parse_pattern("[ipv4-addr:value = '45.33.32.9']"), ("ips", "45.33.32.9"))
         self.assertEqual(opencti.parse_pattern("[domain-name:value = 'Evil.Example.']"), ("hosts", "evil.example"))
         self.assertEqual(opencti.parse_pattern("[hostname:value = 'c2.bad.example']"), ("hosts", "c2.bad.example"))
-        for p in ("[ipv4-addr:value = '10.1.2.3']", "[ipv4-addr:value = '198.51.100.0/24']", "[url:value = 'http://x.example/a']",
+        for p in ("[ipv4-addr:value = '10.1.2.3']", "[ipv4-addr:value = '198.51.100.0/24']", "[url:value = 'https://github.com/x/a.exe']",
                   "[file:hashes.'SHA-256' = 'ab']", "[domain-name:value = 'a.example'] OR [domain-name:value = 'b.example']", "[domain-name:value = 'localhost']"):
             self.assertIsNone(opencti.parse_pattern(p), p)
 
@@ -154,7 +154,8 @@ class TestIndicators(unittest.TestCase):
             seen.append(since)
             return [{"pattern": "[ipv4-addr:value = '45.33.32.9']", "x_opencti_score": 90, "updated_at": "2026-01-02T00:00:00Z"}]
         st = {}
-        with mock.patch.object(opencti, "fetch_indicators", fake_fetch), mock.patch.object(opencti, "fetch_samples", lambda cli, since=None: []):
+        with mock.patch.object(opencti, "fetch_indicators", fake_fetch), mock.patch.object(opencti, "fetch_samples", lambda cli, since=None: []), \
+                mock.patch.object(opencti, "fetch_feed_ips", lambda cli, ms, since=None: []):
             r = opencti.pull(None, CFG, st)
             self.assertTrue(r["full"])
             self.assertIsNone(opencti.pull(None, CFG, st))  # not due yet

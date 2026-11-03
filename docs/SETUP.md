@@ -279,8 +279,12 @@ Switching the integration off removes the local lists at the next run.
 **More > Configuration > Integrations > Threat-intel feeds** lists the block lists netmon downloads (every 12 h) and
 matches against DNS look-ups, TLS server names, connections and file hashes. Per feed: on/off, URL (blank = the built-in
 default; a changed URL is downloaded on the next run), *Serious* (an outbound hit is malware / C2 and alerts) and
-*Covered by OpenCTI* (skipped while the OpenCTI pull is on, so the same indicator is not matched twice; URLhaus and
-ThreatFox are marked by default because the OpenCTI abuse.ch connectors bring them in). Built-in feeds can be turned off
+*Covered by OpenCTI* (skipped while the OpenCTI pull is on, so the same indicator is not matched twice). Every
+built-in except the SSLBL JA3 list is marked by default: URLhaus and ThreatFox come from the OpenCTI abuse.ch
+connectors, Feodo, ET compromised, CINS and Spamhaus DROP from OpenCTI CSV feeds (`~/talos/upgrade/opencti/csv-feeds.py`,
+Data > Ingestion in OpenCTI). The pull lists the host of each malicious URL (never shared platforms such as GitHub or
+Discord), and scored IP / CIDR observables that feeds bring in without an indicator (IPsum, CINS, ET, Spamhaus,
+DShield...) while a feed has re-sent them in the last 7 days. Built-in feeds can be turned off
 but not deleted. **Add a feed** takes a name, an http(s) URL and what the list holds: domains (hosts file or one per
 line), IPs, CIDR ranges, JA3 (SSLBL CSV) or file hashes. **Test** downloads the URL and counts the entries.
 

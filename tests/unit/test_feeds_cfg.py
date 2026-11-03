@@ -189,5 +189,66 @@ class TestFileArtifacts(unittest.TestCase):
         self.assertEqual(g["octi_hits"][0]["value"], SHA)
 
 
+
+class TestOpenCTIFeedMigration(unittest.TestCase):
+    def setUp(self):
+        _reset()
+        self.tmp = tempfile.mkdtemp()
+        self.p = [mock.patch.object(extras, "INTEL", self.tmp), mock.patch.object(opencti, "INTEL", self.tmp)]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+        shutil.rmtree(self.tmp, True)
+        _reset()
+
+    def test_patterns_urls_and_ranges(self):
+        """URL indicators list their host (never a shared hosting platform); public CIDR ranges become range entries.
+        REQ: FEED-03
+        """
+        P = opencti.parse_pattern
+        self.assertEqual(P("[url:value = 'http://45.33.32.7:8080/i']"), ("ips", "45.33.32.7"))
+        self.assertEqual(P("[url:value = 'http://evil-site.top/a.exe']"), ("hosts", "evil-site.top"))
+        self.assertIsNone(P("[url:value = 'https://raw.githubusercontent.com/x/y.ps1']"))
+        self.assertIsNone(P("[url:value = 'https://abc.r2.dev/p']"))
+        self.assertEqual(P("[ipv4-addr:value = '1.10.16.0/20']"), ("cidrs", "1.10.16.0/20"))
+        self.assertIsNone(P("[ipv4-addr:value = '10.0.0.0/8']"))
+
+    def test_feed_observables_and_cidr_match(self):
+        """Scored feed IP / range observables join the lists below indicators; a range hit names the range.
+        REQ: FEED-03
+        """
+        nodes = [{"observable_value": "45.33.32.9", "x_opencti_score": 50, "refreshed_at": "2026-11-03T00:00:00Z", "createdBy": {"name": "CINS Army"}},
+                 {"observable_value": "1.10.16.0/20", "x_opencti_score": 85, "refreshed_at": "2026-11-03T01:00:00Z", "createdBy": {"name": "Spamhaus"}},
+                 {"observable_value": "45.33.32.10", "x_opencti_score": 90, "refreshed_at": "2026-11-03T02:00:00Z"},
+                 {"observable_value": "45.33.32.11", "x_opencti_score": 10, "refreshed_at": "2026-11-03T02:00:00Z"}]
+        e = {"45.33.32.10": ("ips", 70, "Threat Fox")}
+        e, newest = opencti.merge_feed_ips(e, nodes, 50)
+        self.assertEqual(newest, "2026-11-03T02:00:00Z")
+        self.assertEqual(e["45.33.32.10"], ("ips", 70, "Threat Fox"))
+        self.assertNotIn("45.33.32.11", e)
+        sizes = opencti.write_local(e, 80)
+        self.assertEqual((sizes["opencti_high_cidrs"], sizes["opencti_ips"]), (1, 2))
+        f = extras.load_feeds()
+        self.assertEqual(extras.match_ip("1.10.20.5", f), ["opencti_high_cidrs"])
+        self.assertIn("opencti_high_cidrs", extras.SERIOUS)
+        import intelmatch
+        intelmatch._cache["sig"] = None
+        h = intelmatch.hits({"ips": ["1.10.20.5"]})[0]
+        self.assertEqual((h["matched"], h["score"]), ("1.10.16.0/20", 85))
+        self.assertIn("Spamhaus", h["about"])
+
+    def test_builtins_covered_by_opencti(self):
+        """With the OpenCTI pull on, every built-in except the JA3 list is covered (one source per list).
+        REQ: FEED-03
+        """
+        integrations.save("opencti", {"url": "https://octi.example", "api_key": "x" * 16, "enabled": True}, "admin")
+        fl = {f["name"]: f for f in extras.apply_feed_config()}
+        self.assertEqual(sorted(n for n, f in fl.items() if f["active"]), ["sslbl_ja3"])
+        self.assertNotIn("sslbl_ips", fl)
+
+
 if __name__ == "__main__":
     unittest.main()
