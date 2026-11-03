@@ -27,23 +27,75 @@ def feeds():
         s = _sig()
         if _cache["sig"] != s:
             f = extras.load_feeds()
-            per = {}
+            per = {}  # feed -> {indicator type: count}
             for k in ("hosts", "ips", "hashes", "filenames"):
                 for src in (f.get(k) or {}).values():
                     for n in src:
-                        per[n] = per.get(n, 0) + 1
+                        d = per.setdefault(n, {})
+                        d[k] = d.get(k, 0) + 1
             for c in f["cidrs"]:
-                per[c[3]] = per.get(c[3], 0) + 1
+                d = per.setdefault(c[3], {})
+                d["cidrs"] = d.get("cidrs", 0) + 1
             for n, (_, kind) in extras.ACTIVE.items():
                 if kind == "ja3":
-                    per[n] = len(f["ja3"])
+                    per.setdefault(n, {})["ja3"] = len(f["ja3"])
             _cache.update(sig=s, feeds=f, per=per)
         return _cache["feeds"], _cache["per"]
 
 
+_LISTED = re.compile(r"listed in ([A-Za-z0-9_.\-]+(?:, [A-Za-z0-9_.\-]+)*)")
+_hits_cache = {"key": None, "val": {}}
+
+
+def feed_hits():
+    """feed -> {events, sightings, indicators, last, by_type} from the event store: every event whose artifacts a feed
+    lists ('listed in <feeds>' tags from correlate._ti_mark, or a ti| event's item.feeds). sightings = sum of the
+    events' n (snapshots the event was seen in); indicators = distinct listed values. Cached on the store's change."""
+    try:
+        import eventstore
+        c = eventstore._c()
+        key = c.execute("SELECT COUNT(*), MAX(last_seen), SUM(n) FROM events").fetchone()
+        if _hits_cache["key"] == key:
+            return _hits_cache["val"]
+        acc = {}
+        for eid, typ, n, ls, doc in c.execute("SELECT eid, type, n, last_seen, doc FROM events WHERE doc LIKE '%listed in %' OR eid LIKE 'ti|%'"):
+            try:
+                d = json.loads(doc or "{}")
+            except ValueError:
+                continue
+            fv = {}  # feed -> listed values in this event
+            for a in d.get("arts") or []:
+                m = _LISTED.search(str(a[2]) if len(a) > 2 else "")
+                if m:
+                    for fd in m.group(1).split(", "):
+                        fv.setdefault(fd, set()).add(f"{a[0]}:{str(a[1]).lower()}")
+            it = d.get("item") or {}
+            if eid.startswith("ti|"):
+                v = it.get("ip") or it.get("domain") or it.get("name") or eid.split("|", 2)[-1]
+                for fd in it.get("feeds") or []:
+                    fv.setdefault(fd, set()).add(f"{'dns' if it.get('domain') or it.get('name') else 'ip'}:{str(v).lower()}")
+            for fd, vals in fv.items():
+                r = acc.setdefault(fd, {"events": 0, "sightings": 0, "ind": set(), "last": None, "by_type": {}})
+                r["events"] += 1
+                r["sightings"] += int(n or 1)
+                r["ind"] |= vals
+                r["by_type"][typ] = r["by_type"].get(typ, 0) + 1
+                if ls and (not r["last"] or ls > r["last"]):
+                    r["last"] = ls
+        val = {fd: {"events": r["events"], "sightings": r["sightings"], "indicators": len(r["ind"]), "last": r["last"], "by_type": r["by_type"]}
+               for fd, r in acc.items()}
+        _hits_cache.update(key=key, val=val)
+        return val
+    except Exception as e:  # noqa: BLE001 - the feed table works without hit counts
+        print(f"tintel.feed_hits: {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
+
+
 def feed_status():
-    """Every configured feed (inactive ones say why) and the OpenCTI lists when present."""
+    """Every configured feed (inactive ones say why) and the OpenCTI lists when present, with indicators per type
+    and hit counts from the event store."""
     _, per = feeds()
+    hits = feed_hits()
     rows = []
     try:
         import integrations
@@ -57,7 +109,8 @@ def feed_status():
         if n in extras.LOCAL_FEEDS and not os.path.exists(p):
             continue  # OpenCTI not set up: no rows
         mt = os.path.getmtime(p) if os.path.exists(p) else None
-        rows.append({"feed": n, "kind": kind, "url": re.sub(r"[0-9A-Fa-f]{24,}", "…", url or ""), "entries": 0 if why else per.get(n, 0), "serious": n in extras.SERIOUS,
+        rows.append({"feed": n, "kind": kind, "url": re.sub(r"[0-9A-Fa-f]{24,}", "…", url or ""), "entries": 0 if why else sum((per.get(n) or {}).values()),
+                     "by_type": {} if why else dict(per.get(n) or {}), "hits": hits.get(n) or {}, "serious": n in extras.SERIOUS,
                      "active": not why, "inactive_why": why, "custom": custom,
                      "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mt)) if mt else None,
                      "age_h": round((time.time() - mt) / 3600, 1) if mt else None})

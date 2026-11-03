@@ -141,11 +141,41 @@ V.threatintel = async (el, arg) => {
       ["Inbound listed IPs", "in_ips", 3], ["Outbound IP hits", "out_ips", 0], ["Domain hits", "domains", 4], ["New domains", "new_domains", 2], ["Malicious JA3", "mal_ja3", 5], ["UniFi IPS threats", "unifi_threats", 1]]
       .map(([l, k, c]) => ({ label: l, data: tr.map((r) => r[k]), borderColor: PALETTE[c], backgroundColor: PALETTE[c], tension: 0.3 })) }, options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } }),
     chartCard("Inbound connections from listed IPs, by target port", (() => { const o = {}, port = {}; (ti.ip_hits_in || []).forEach((h) => (h.ports || []).forEach((p) => { const k = `${p} → ${Object.keys(h.targets).map((t) => S.idx.nameOf(t) || t).join(",")}`; o[k] = (o[k] || 0) + h.conns; port[k] = p; })); const e = sortDesc(o).slice(0, 10); return barCfg(e.map((x) => x[0]), e.map((x) => x[1]), { color: PALETTE[3], onClick: (i) => drill("threatintel", { port: port[e[i][0]] }) }); })())));
-  // feeds
-  el.appendChild(card("Feeds", `<div class="small muted" style="margin-bottom:6px">Admins can turn feeds on or off, change their URL or add feeds under <a href="#/config">Configuration › Integrations › Threat-intel feeds</a>.</div>` + table(null, [{ k: "feed", t: "Feed", fmt: (v, f) => `${f.url ? `<span class="mono">${esc(v)}</span>` : esc(v)}${f.custom ? ' <span class="badge">custom</span>' : ""}${f.active === false ? ` <span class="badge sev-low">${esc(f.inactive_why)}</span>` : ""}` }, { k: "kind", t: "Type" },
+  // feeds: status, indicators by type, hits (this window from the snapshot; all time from the event store)
+  const TYPE_LBL = { ips: "IPs", cidrs: "CIDRs", hosts: "domains", ja3: "JA3", hashes: "hashes", filenames: "file names" };
+  const dl = ti.feed_status || {};
+  const winHits = {};
+  [["ip_hits_in", "in"], ["ip_hits_out", "out"], ["domain_hits", "dom"]].forEach(([k, d]) => (ti[k] || []).forEach((h) => (h.feeds || []).forEach((f) => { const w = (winHits[f] ||= { in: 0, out: 0, dom: 0 }); w[d]++; })));
+  (T.malicious_ja3 || []).forEach(() => { const w = (winHits.sslbl_ja3 ||= { in: 0, out: 0, dom: 0, ja3: 0 }); w.ja3 = (w.ja3 || 0) + 1; });
+  const fstat = (f) => {
+    const d = dl[f.feed] || "";
+    if (f.active === false) return ["off", "sev-low", f.inactive_why];
+    if (/fail/i.test(d)) return [f.age_h == null ? "failed" : "download failed", "sev-high", d];
+    if (f.age_h == null) return ["missing", "sev-high", "no feed file on disk"];
+    if (!f.entries) return ["empty", "sev-medium", "the file holds 0 indicators"];
+    if (f.age_h > 26) return ["stale", "sev-medium", `last updated ${f.age_h} h ago`];
+    return ["ok", "sev-ok", d || `updated ${f.age_h} h ago`];
+  };
+  const rows = TI.feeds.map((f) => { const st = fstat(f), w = winHits[f.feed] || {}, h = f.hits || {};
+    return { ...f, status: st[0], _st: st, win: (w.in || 0) + (w.out || 0) + (w.dom || 0) + (w.ja3 || 0), _w: w, ev: h.events || 0, sight: h.sightings || 0, ind_hit: h.indicators || 0, last_hit: h.last || null }; });
+  const nBad = rows.filter((r) => ["failed", "download failed", "missing"].includes(r.status)).length, nStale = rows.filter((r) => ["stale", "empty"].includes(r.status)).length;
+  const nOff = rows.filter((r) => r.status === "off").length, nOk = rows.filter((r) => r.status === "ok").length;
+  const byType = {}; rows.forEach((r) => entries(r.by_type || {}).forEach(([k, v]) => (byType[k] = (byType[k] || 0) + v)));
+  const summary = `<div class="tbltools" style="gap:8px;flex-wrap:wrap;margin-bottom:6px"><span class="badge sev-ok">${nOk} ok</span>${nStale ? `<span class="badge sev-medium">${nStale} stale / empty</span>` : ""}${nBad ? `<span class="badge sev-high">${nBad} failing</span>` : ""}${nOff ? `<span class="badge sev-low">${nOff} off</span>` : ""}
+    <span class="muted small">Indicators: ${entries(byType).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<b>${fn(v)}</b> ${esc(TYPE_LBL[k] || k)}`).join(" · ")}</span></div>`;
+  el.appendChild(card("Feeds", `<div class="small muted" style="margin-bottom:6px">Status comes from the last download (nightly collector) and the feed file's age; <b>Hits (window)</b> are listed IPs/domains/JA3 seen in this snapshot, <b>Events</b>/<b>Sightings</b> count every stored event a feed listed an artifact of (sightings = snapshots those events recurred in). Admins can turn feeds on or off, change their URL or add feeds under <a href="#/config">Configuration › Integrations › Threat-intel feeds</a>.</div>` + summary).appendChild(table(null, [
+    { k: "status", t: "Status", fmt: (v, f) => `<span class="badge ${f._st[1]}" title="${esc(f._st[2] || "")}">${esc(v)}</span>`, sort: (r) => ["failed", "download failed", "missing", "empty", "stale", "ok", "off"].indexOf(r.status) },
+    { k: "feed", t: "Feed", fmt: (v, f) => `${f.url ? `<span class="mono">${esc(v)}</span>` : esc(v)}${f.custom ? ' <span class="badge">custom</span>' : ""}${f.active === false ? ` <span class="badge sev-low">${esc(f.inactive_why)}</span>` : ""}` },
     { k: "serious", t: "Outbound hit means", fmt: (v) => (v ? '<span class="badge sev-high">malware / C2</span>' : '<span class="badge sev-low">scanner / reputation</span>') },
-    { k: "entries", t: "Entries", num: true, bar: true, fmt: fn }, { k: "updated", t: "Updated", fmt: ft }, { k: "age_h", t: "Age (h)", num: true, fmt: (v, f) => (f.active === false ? "–" : v == null ? '<span class="badge sev-high">missing</span>' : v > 26 ? `<b style="color:var(--warn)">${v}</b>` : v) }],
-    TI.feeds, { search: false, sort: "entries" })));
+    { k: "by_type", t: "Indicators by type", fmt: (v, f) => entries(v || {}).length ? entries(v).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<span class="chip">${fn(n)} ${esc(TYPE_LBL[k] || k)}</span>`).join(" ") : `<span class="muted">${esc(f.kind)}</span>`, sort: (r) => r.entries },
+    { k: "entries", t: "Total", num: true, bar: true, fmt: fn },
+    { k: "win", t: "Hits (window)", num: true, fmt: (v, f) => (v ? `<b title="${esc(["in", "out", "dom", "ja3"].filter((k) => f._w[k]).map((k) => `${f._w[k]} ${{ in: "inbound IPs", out: "outbound IPs", dom: "domains", ja3: "JA3" }[k]}`).join(", "))}">${fn(v)}</b>` : '<span class="muted">0</span>') },
+    { k: "ev", t: "Events", num: true, fmt: (v, f) => (v ? `<span title="${esc(entries(f.hits?.by_type || {}).map(([k, n]) => `${n} ${k}`).join(", "))}">${fn(v)}</span>` : '<span class="muted">0</span>') },
+    { k: "ind_hit", t: "Indicators hit", num: true, fmt: (v) => (v ? fn(v) : '<span class="muted">0</span>') },
+    { k: "sight", t: "Sightings", num: true, bar: true, fmt: (v) => (v ? fn(v) : '<span class="muted">0</span>') },
+    { k: "last_hit", t: "Last hit", fmt: (v) => (v ? ft(v) : '<span class="muted">never</span>') },
+    { k: "updated", t: "Updated", fmt: ft }, { k: "age_h", t: "Age (h)", num: true, fmt: (v, f) => (f.active === false ? "–" : v == null ? '<span class="badge sev-high">missing</span>' : v > 26 ? `<b style="color:var(--warn)">${v}</b>` : v) }],
+    rows, { search: false, sort: "entries" })).parentNode);
   el.appendChild(grid("g2",
     card(`Outbound to listed IPs (${(ti.ip_hits_out || []).length})`, (ti.ip_hits_out || []).length ? table(null, [askCol("threat-intel hit", (x) => `outbound to listed IP ${x.ip}`), { k: "ip", t: "Destination", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "bytes", t: "Bytes", num: true, fmt: fb }, { k: "sources", t: "Internal sources", fmt: (v) => clientsHtml(v) }], ti.ip_hits_out, { search: false, evId: (x) => `ti|out|${x.ip}` }) : `<div class="empty" style="color:var(--good)">None — no internal host talked to a listed malware/C2 IP.</div>`),
     card(`Listed domains / server names (${(ti.domain_hits || []).length})`, (ti.domain_hits || []).length ? table(null, [askCol("threat-intel hit", (x) => `listed domain ${x.domain}`), { k: "domain", t: "Domain", fmt: domFmt }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Internal sources", fmt: (v) => clientsHtml(v) }], ti.domain_hits, { search: false, evId: (x) => `ti|dom|${x.domain}` }) : `<div class="empty" style="color:var(--good)">None — no DNS lookup or TLS server name matched a malware/phishing domain feed.</div>`)));

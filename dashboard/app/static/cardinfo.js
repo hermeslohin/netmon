@@ -776,9 +776,9 @@ window.CARD_INFO = {
 "what": "Domains whose lookups look like data being smuggled through DNS: many distinct, long, random-looking subdomains. The count shows suspects out of all domains scored."
 },
 "threatintel|Feeds": {
-"source": "Downloaded by the collector from abuse.ch (URLhaus, ThreatFox, Feodo, SSLBL IPs and JA3), Emerging Threats, CINS and Spamhaus DROP; refreshed when older than 12 hours.",
-"use": "All ages should be under about 26 hours; an orange age or 'missing' means downloads are failing and matches are stale. Click a feed name to open its source list.",
-"what": "The threat-intel feeds netmon uses, how many entries each holds, when it was last downloaded, and whether an outbound hit on it means malware/C2 or just scanner reputation."
+"source": "Feed files downloaded by the collector (refreshed when older than 12 hours) plus the OpenCTI lists; hit counts come from the current snapshot and the stored open/closed events.",
+"use": "Status should read ok: stale, missing or download failed means matches are out of date. Hits (window) are listed values seen now; Events, Indicators hit and Sightings show how often each feed has fired over time, so a feed that never hits or one that hits constantly stands out.",
+"what": "Each feed's status, its indicators broken down by type (IPs, CIDRs, domains, hashes, JA3, file names), whether an outbound hit means malware/C2 or scanner reputation, and how many times it has matched traffic or events."
 },
 "threatintel|Files flagged by Team Cymru MHR": {
 "source": "Zeek files logs from Security Onion, last 24 h (executables, archives, scripts and similar types), with MD5/SHA1 hashes checked against the Team Cymru Malware Hash Registry over DNS (cached).",
