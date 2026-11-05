@@ -120,7 +120,7 @@ Every page is made of boxes (cards).
 
 ![Baseline findings table with Host IP, Last seen and the filter box](img/posture-baseline-findings.png)
 
-![Host findings table with check boxes, Ask, Compare, Related and research-note buttons](img/posture-host-findings.png)
+![Host findings table with check boxes, Ask, Related and research-note buttons](img/posture-host-findings.png)
 *Host findings on Posture: check box, 💬 Ask, Related count and the ✨ verdict button on each row.*
 
 Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Findings tables show a **Last seen** column, and baseline findings also show the **Host IP** of the device they are about.
@@ -168,7 +168,7 @@ Every mute is saved as a rule in the **Alert mute rules** card on the Alerts pag
 |---|---|---|
 | **Investigate / Review / Info** | Research notes | The AI's priority. *Investigate* means look at it now. *Review* means look when you can. *Info* means explained and benign. |
 | **high / medium / low** | Baseline and host findings, IDS | How serious the rule considers it. |
-| **malicious / suspicious / needs-review / benign / expected** | Research notes, comparisons | The AI's verdict after looking into it. |
+| **malicious / suspicious / needs-review / benign / expected** | Research notes | The AI's verdict after looking into it. |
 
 ### Checking things off
 
@@ -219,7 +219,7 @@ An event with a note shows a **✨ verdict** button next to its Related count. C
 
 Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI review** page shows how many events have notes.
 
-![Research note popup with verdict, summary and compare button](img/research-note.png)
+![Research note popup with verdict and summary](img/research-note.png)
 
 AI notes can be wrong. Treat them as a well-informed second opinion, and check the evidence before acting on anything important.
 
@@ -315,7 +315,7 @@ In short: **Posture is the history, Open events is the backlog.** Accepting some
 
 Everything nobody has accepted (checked off) yet, **whatever its age**. The time range in the header does not apply to this page: an unreviewed finding from last week, or last month, stays here until someone accepts it. Events do not expire. Only accepting them (by hand or through an auto-close rule you enabled) removes them; Fix-list items and vulnerabilities also leave once fixed, and alerts once cleared. The nav item shows how many are open.
 
-![Open events: one card per type, with check boxes, Ask, Compare, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
+![Open events: one card per type, with check boxes, Ask, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
 
 - **Same cards and tools as Posture.** One card per type: Baseline findings, Endpoint (host) findings, IDS signatures, Gateway events, Admin sessions, Threat intel hits, Fix list, Alerts. Every row has the check box and 🚫 suppress button, 💬 Ask AI, 🔎 Kibana pivot (opens on the event's own time window, not the loaded snapshot's), the **Related** count and popup, the ✨ AI research verdict, the 🏷 event reviewer classification (*suspicious*, *benign*, *expected*), your 📝 notes and the 👁 times seen. Tables sort and filter like everywhere else.
 - **Repeats are one row (unlike Posture).** A finding's text contains numbers that change every night ("145 conns", "3,983 queries"), so on Posture one condition shows up as a new row in each window. Open events groups:
@@ -513,8 +513,8 @@ Network policy, endpoint policy, the known-benign list and your site values, edi
 
 Admins only. A record of who did what in the dashboard and of every conversation between the dashboard and an AI model.
 
-- **User actions**: sign-ins (failed ones too), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, model comparisons, settings and user changes, report downloads and every refused request. Each entry has the user, role, time, source IP, browser and the result (HTTP status).
-- **AI conversations**: Ask AI chats, the event reviewer, model comparisons and the review job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
+- **User actions**: sign-ins (failed ones too), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, settings and user changes, report downloads and every refused request. Each entry has the user, role, time, source IP, browser and the result (HTTP status).
+- **AI conversations**: Ask AI chats, the event reviewer and the review job's input and results. Each entry has the instructions (system prompt), the exact prompt the dashboard sent, the model's answer, provider and model, tokens and time. Background jobs show as user `netmon (…)`.
 - Passwords, keys and tokens are replaced by `[redacted]` before anything is stored.
 
 Filter by type, time range (a quick range, or **From** / **To** dates and times), user, action, outcome or model, or search the text (this searches prompts and answers too). Click an entry to see all its details. Filters are kept in the address, so you can bookmark a view.
@@ -561,9 +561,6 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 ![Ask about this dialog with suggested questions and the Model menu](img/ask-dialog.png)
 *The 💬 dialog: suggested questions, your own question, and the Model menu (admins).*
 
-![Comparison results from three models side by side](img/compare-results.png)
-*Three models judging the same host finding: verdict, priority, assessment, time and tokens.*
-
 ### AI review
 
 **More → AI review** shows the AI's work and lets admins configure it.
@@ -578,7 +575,7 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 |---|---|
 | **Models** | The model for the **event reviewer** (also used by the review job), **event research** (used only on Send to research) and the **chat (Ask AI)**: a local server model or any model of the providers in **AI providers**. Event research and the chat are off until a model is chosen. Admins change them here, and a choice applies at once (see the cost notes below). Picking a different research model adds a dashed "Cost with <model>" line to the **Time and tokens** chart and a line under its title with the estimated cost per researched event: the recorded research's tokens re-priced at that model's price as entered on its provider (a rough guide, since another model would use a different number of tokens). Three more settings sit under the model menus (admins change them): **Elasticsearch queries · correlation review** (whether the event reviewer may run read-only searches of the Security Onion logs for more context, and the most per event, default 3), **Elasticsearch queries · event research** (the same switch for event research, used on **Send to research**), and **Notes per event** (the most host and account notes the event reviewer is given with each event; more notes mean more context and more input tokens). |
 | **Host note consolidation** | Once a night, at the time set here (admins; your browser's time zone, default 03:00), the **event reviewer's model** reads each host's AI-written notes and merges the ones that repeat or overlap, so a host keeps a few complete notes instead of hundreds of near-duplicates. **Consolidate now** starts a run at once and shows progress. Only unreviewed AI notes are changed: notes written by a person, approved or rejected notes and correlation profiles are never touched. Notes are merged only when they are about the same artifact (the same IP, DNS name, process / file or account, not counting the host itself or a port): notes about different artifacts stay separate, so consolidation never links things the notes did not link, and a merged text that names an IP, domain, path or fingerprint none of its notes had is rejected. Every valid `[reviewer:…]` tag is kept on the merged note (malformed ones such as `[reviewer:ip:25565]` are dropped), and a merge that would drop an IP, domain, port, path, MAC or fingerprint is retried once and otherwise rejected (the notes stay as they were; counted under *Merges rejected*). Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run (`/state/backup-kbnotes/`, the last 7 kept). The table lists the last 10 runs: hosts, notes before and after, rejected merges and failed requests. |
-| **AI providers** (admins) | The AI services netmon calls, each with its own API key. **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint or a self-hosted vLLM; **Anthropic** takes an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer, one per line (**Fetch from provider** lists the models the key can use). After a model id you can add its prices in $ per million tokens, `model input output [cached-input]`; they drive the cost estimates and the $ limits. **Calls per hour** caps each provider's single calls (the event reviewer and comparisons stop with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, they are removed from error messages, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use by the event reviewer, event research or the chat can't be deleted. Its models appear in every model menu and Compare dialog. |
+| **AI providers** (admins) | The AI services netmon calls, each with its own API key. **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint or a self-hosted vLLM; **Anthropic** takes an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer, one per line (**Fetch from provider** lists the models the key can use). After a model id you can add its prices in $ per million tokens, `model input output [cached-input]`; they drive the cost estimates and the $ limits. **Calls per hour** caps each provider's single calls (the event reviewer stops with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, they are removed from error messages, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use by the event reviewer, event research or the chat can't be deleted. Its models appear in every model menu and Compare dialog. |
 | **Review limits** (admins and network defenders) | Limits what is sent to the event reviewer, with no model call for what is held back. **Classify events** (switch): once every correlation of an event has been reviewed, the event reviewer also decides whether the event is *suspicious*, *benign* or *expected* and adds that flair to the event (up to 20 events per round, re-done when its links change). **Time window for the event reviewer** (minutes between correlated events, 0 = no limit; this one setting replaces any separate before/after windows) only correlates events that are within that many minutes before or after each other; links further apart are never sent to the model (events without a time, such as open vulnerabilities, always count). **Max links per event** (0-200, 0 = no cap) keeps the best-scoring links per event. **Event types** is a matrix with a review/skip cell per pair of types (e.g. alert-vuln) and its link count; click a cell to flip it, and click or hover the **i** next to a type for what it is. Types are split by severity, and segmentation (cross-zone traffic) appears as three types by port class: high, medium and low. **Events with the most links** has **exclude** (that event) and **exclude similar** (same kind of event; ports and alert numbers ignored). **Never send** rules stop a class of events by **name** (part of the event text, or a pattern with `*` `?`), by **host** (an IP or text in the event), by **ID** (the event id or a pattern such as `iss|seg|*`), or by a combination (all filled fields must match, so host + ID is a host/ID pair), for the queue (the review job's work list), the event reviewer or both. These are the exceptions: admins and network defenders add and remove them, every change is logged with the user, and links that already have a verdict are kept. **Reviews / min** and **Awaiting review** at the top show the event reviewer's speed and queue. |
 | **Clearing queues** (admins) | **Clear event queue** and **Clear review queue** under the top numbers empty what is waiting, after a warning you must confirm. Cleared events do not come back to the queue even if they recur under the same ID (Send to research still works on them); cleared links are marked "not related" without asking the model. Existing notes and verdicts are kept. **Queue (no note yet)** (admins) and **Awaiting review** (admins and defenders) open a list of what is waiting when clicked. |
 | **Send to research** (everyone who sees the event) | Open the 📝 next to any event: below the notes, **🔬 Send to research** researches the event **right away** if the AI has not researched it yet, without waiting for the queue; the review job never researches events, so this is the only way a new event gets a note. The host starts `research.py` for that event (about 1-3 minutes, roughly $0.10 with a cloud model) and the note appears when it finishes. Until then the popover shows "Research started"; if another research is running the click waits and starts as soon as it ends. It ignores queue clears and Never-send rules. Users can do this only for their own devices' events; it is logged with the user's name and counts toward the daily $ cap. At most 200 requests wait at once. |
@@ -600,7 +597,7 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 
 ![Event research limits](img/aireview-research-limits.png)
 
-![Correlation decisions with compare, confirm, reject and re-review buttons](img/aireview-decisions.png)
+![Correlation decisions with confirm, reject and re-review buttons](img/aireview-decisions.png)
 
 ### Things to know about model choices
 
@@ -608,7 +605,7 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
   - **Review job:** it uses the event reviewer's model, so with a local model it costs nothing; shorter intervals mean more runs.
   - **Event research:** billed only when someone clicks Send to research. The **Event research limits** box caps it.
   - **Event reviewer:** if it uses a cloud model, it decides every new link around the clock.
-  - **Cap:** each provider's **calls per hour** (default 120) applies to comparisons and the event reviewer.
+  - **Cap:** each provider's **calls per hour** (default 120) applies to the event reviewer.
 - **Local models** are free, but slower and weaker at research and tool use. A model the local server hasn't loaded has to load first, which takes time and may unload the model the event reviewer is using.
 
 ---
@@ -636,7 +633,7 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 
 Every account has a role (full table in [ACCESS_CONTROL.md](ACCESS_CONTROL.md)):
 
-- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Auto-close settings, change the event reviewer and research models, run model comparisons and use "Use this", manage AI providers and research-job limits, and choose the model per message in Ask AI.
+- **Admin:** everything. Only admins can manage users, roles and device assignments, change integrations and Auto-close settings, change the event reviewer and research models, manage AI providers and research-job limits, and choose the model per message in Ask AI.
 - **Network defender:** sees every page, can check things off, write notes, confirm or reject AI links and use Ask AI (the configured chat model), but can't change settings. Configuration and Dashboard users are read-only.
 - **User:** sees only the alerts and security events of the devices assigned to them (**My devices** and **Alerts**), and gets push notifications only for those.
 
@@ -680,9 +677,6 @@ No chat model is chosen yet, or the AI provider didn't answer. Try again in a mi
 
 **AI review shows "Last run failed".**
 The latest review job run failed. The error is shown in the box. The next scheduled run usually recovers; otherwise tell the admin.
-
-**Why did a model comparison show an error for one model?**
-That model didn't return a usable answer, or wasn't reachable (for example the local server was loading it). The other models' answers are still valid.
 
 ---
 

@@ -456,7 +456,7 @@ function askClean(o, depth = 0) {  // compact copy of the item for the prompt: d
   const r = {}; for (const [k, v] of Object.entries(o)) if (!k.startsWith("_") && v !== "" && v != null && k !== "investigated") r[k] = askClean(v, depth + 1);
   return r;
 }
-// Button registries (ask / compare / pivot): the same item gets the same id on every render, so an unchanged box is
+// Button registries (ask / pivot): the same item gets the same id on every render, so an unchanged box is
 // recognised as unchanged by the in-place re-render (morphSig) and the registries stop growing with every refresh.
 function regId(map, keys, prefix, rec) {
   let k = null; try { k = JSON.stringify(rec); } catch (_) { /* cyclic: no reuse */ }
@@ -466,17 +466,12 @@ function regId(map, keys, prefix, rec) {
   if (map.size > 20000) { const old = map.keys().next().value; map.delete(old); }
   return id;
 }
-const ASK_K = new Map(), CMP_K = new Map();
+const ASK_K = new Map();
 function askBtn(kind, title, item) {
   const id = regId(ASK, ASK_K, "a", { kind, title: String(title || "").slice(0, 300), item });
   return `<button type="button" class="askh" data-ask="${id}" title="Ask AI about this" aria-label="Ask AI about this">💬</button>`;
 }
-// "compare models" button (compare.js): same registry idea as askBtn
-const CMP = new Map(); let cmpSeq = 0;
-function cmpBtn() { return ""; } // compare-models buttons removed at the user's request
-const askCmpCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) });
 const pivBtn = (kind, x) => (typeof pivotBtn === "function" ? pivotBtn(kind, x) : "");
-const askCmpPivCol = (kind, titleFn, piv) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) + pivBtn(piv, x) });
 const askPivCol = (kind, titleFn, piv) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + pivBtn(piv, x) });
 const askCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(typeof kind === "function" ? kind(x) : kind, titleFn(x), x) });
 // model picker for Ask AI (chat page + "Ask about this" dialog); choice kept per browser in localStorage
@@ -634,7 +629,7 @@ function topTalkersChart(n) {
 }
 
 function alarmsHtml(list) {
-  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} <a href="#/security" class="alarm-go" data-alarm-ev="${esc(alarmEvId(a))}" title="Open the matching event (host finding, IDS, new device, …)">${esc(a.title)}</a> ${askBtn("alarm", a.title, a)}${cmpBtn("triage alarm", a.title, a)}${pivBtn("alarm", a)}<button type="button" class="rel-btn" data-rel="${esc(alarmEvId(a))}" title="Related events">…</button>${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
+  return list.map((a) => `<div class="alarm ${esc(String(a.priority).toLowerCase())} ${acked("alarm", a) ? "acked" : ""}"><div class="t">${ackBox("alarm", a, a.title)} ${badge(a.priority)} <a href="#/security" class="alarm-go" data-alarm-ev="${esc(alarmEvId(a))}" title="Open the matching event (host finding, IDS, new device, …)">${esc(a.title)}</a> ${askBtn("alarm", a.title, a)}${pivBtn("alarm", a)}<button type="button" class="rel-btn" data-rel="${esc(alarmEvId(a))}" title="Related events">…</button>${acked("alarm", a) ? ` <span class="muted small">checked ${esc(ft(ackInfo("alarm", a).at))}</span>` : ""}</div>
     ${a.who ? `<p><span class="k">Who:</span> ${linkifyIps(a.who)}</p>` : ""}${a.evidence ? `<p><span class="k">Evidence:</span> ${linkifyIps(a.evidence)}</p>` : ""}
     ${a.why ? `<p><span class="k">Why:</span> ${linkifyIps(a.why)}</p>` : ""}${a.context ? `<p><span class="k">Context:</span> ${linkifyIps(a.context)}</p>` : ""}
     ${a.next ? `<p><span class="k">Next:</span> ${linkifyIps(a.next)} ${trFlare()}</p>` : ""}
@@ -729,7 +724,7 @@ V.device = (el, ip) => {
   if (devIss.length) el.appendChild(card(`Open issues to fix (${DI.open.length}) · <a href="#/issues">all</a>${DI.toggle}`, issueTable(DI.show, { short: true })));
   if (findings.length) {
     const DF = ackSplit("finding", findings, "dev-find");
-    const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
+    const c = card(`Findings (${DF.open.length})${DF.toggle}`, DF.show.length ? table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], DF.show, { sort: "severity", dir: 1, search: false, rowClass: ackRowCls("finding") }) : "");
     el.appendChild(c);
   }
   const hrs = hourLabels();
@@ -869,7 +864,7 @@ function endpointSections(el, h) {
   for (const x of dfd) cards.push(card("Elastic Defend" + ` <a class="small" href="#/endpoints/defend?host=${encodeURIComponent(h)}">details ›</a>`, `<div>${badge(x.status)} at ${ft(x.at)}</div><div class="chips" style="margin:8px 0">${(x.failed_protections || []).map((p) => `<span class="chip">${esc(p)}</span>`).join("")}</div>` +
     (x.problems || []).map((p) => `<div class="small">${badge(p.status)} <b>${esc(p.action)}</b> — ${esc(p.message)}</div>`).join("")));
   if (hf.length) { const EF = ackSplit("host", hf, "epd-find-" + h);
-    cards.push(card(`Findings (${EF.open.length} open)${EF.toggle}`, EF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], EF.show, { sort: "priority", dir: 1, short: true, rowClass: ackRowCls("host") }) : `<div class="empty">All findings for this host checked off.</div>`)); }
+    cards.push(card(`Findings (${EF.open.length} open)${EF.toggle}`, EF.show.length ? table(null, [ackCol("host", (x) => x.text), askPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, { k: "text", t: "Finding", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], EF.show, { sort: "priority", dir: 1, short: true, rowClass: ackRowCls("host") }) : `<div class="empty">All findings for this host checked off.</div>`)); }
   const sl = H.syslog?.[h];
   if (sl) cards.push(card("Notable syslog", table(null, [{ k: "cat", t: "Category" }, { k: "sev", t: "Sev", fmt: badge }, { k: "count", t: "Count", num: true, fmt: fn }, { k: "last", t: "Last", fmt: ft }, { k: "sample", t: "Sample", cls: "mono small" }], entries(sl).map(([cat, v]) => ({ cat, ...v })), { sort: "count", search: false })));
   const au = H.auth || {};
@@ -1155,12 +1150,12 @@ V.security = (el) => {
   el.innerHTML = `<h1>Posture</h1><div class="small muted" style="margin:-4px 0 10px">The history of the selected time range, not the to-do list. Time based: the findings, IDS signatures, segmentation violations, beacons and threat-intel hits below show only what happened in the time range chosen in the header 🕒 (a nightly report window loads instantly; any other range is collected for exactly that time). The AI triage alarms and research notes always follow the nightly report that ends inside the range. Check-offs and suppress rules are not time based: they stay in force for every range, and anything unchecked and older than the range remains on <a href="#/events">Open events</a>. Each finding is listed as reported, so one condition can appear as several rows; Open events collapses repeats into one.</div>`;
   { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
   const BF = ackSplit("finding", baseFind(an), "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askCmpPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v, x) => devCell(v, x.host_ip, x.name), sort: (x) => `${devNameFor(x.device, x.host_ip, x.name) || "~"} ${x.device || ""}` }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => { const ip = r.host_ip || r.device; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); },
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v, x) => devCell(v, x.host_ip, x.name), sort: (x) => `${devNameFor(x.device, x.host_ip, x.name) || "~"} ${x.device || ""}` }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => { const ip = r.host_ip || r.device; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); },
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askCmpPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, hfHostCol((x) => x.key), hfToCol((x) => x.key, (x) => x.text), { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, hfHostCol((x) => x.key), hfToCol((x) => x.key, (x) => x.text), { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
       urlFilter: { hpri: ["Priority", (x, v) => eqi(x.priority, v)], hstate: ["State", (x, v) => (v === "checked") === !!acked("host", x)] } }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
   }

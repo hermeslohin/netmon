@@ -1,187 +1,56 @@
-"""Unit tests for the network-free parsing helpers of itemcmp.py, corr_llm.py and llm_providers.py."""
+"""Unit tests for the network-free parsing helpers of corr_llm.py and llm_providers.py."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E402
 
 import json  # noqa: E402
 import unittest  # noqa: E402
 
 import corr_llm  # noqa: E402
-import itemcmp  # noqa: E402
 import llm_providers as LP  # noqa: E402
 
 
 class FirstJsonTest(unittest.TestCase):
-    """itemcmp.first_json() and corr_llm._json() take the first complete JSON object of a reply."""
+    """corr_llm._json() and corr_llm._json() take the first complete JSON object of a reply."""
 
     def test_plain_object(self):
         """A bare JSON object is parsed as-is.
         REQ: LLM-01"""
-        self.assertEqual(itemcmp.first_json('{"verdict": "benign"}'), {"verdict": "benign"})
+        self.assertEqual(corr_llm._json('{"verdict": "benign"}'), {"verdict": "benign"})
 
     def test_code_fence_and_prose(self):
         """Prose and code fences around the object are ignored.
         REQ: LLM-01"""
         txt = 'Sure! Here it is:\n```json\n{"verdict": "suspicious", "priority": "Review"}\n```\nHope that helps.'
-        self.assertEqual(itemcmp.first_json(txt)["verdict"], "suspicious")
+        self.assertEqual(corr_llm._json(txt)["verdict"], "suspicious")
 
     def test_second_object_ignored(self):
         """When a reply holds two objects only the first is used.
         REQ: LLM-01"""
-        self.assertEqual(itemcmp.first_json('{"a": 1}\n{"a": 2}'), {"a": 1})
+        self.assertEqual(corr_llm._json('{"a": 1}\n{"a": 2}'), {"a": 1})
         self.assertEqual(corr_llm._json('x {"a": 1} {"b": 2}'), {"a": 1})
 
     def test_braces_inside_strings(self):
         """Braces inside JSON strings do not end the object early.
         REQ: LLM-01"""
-        self.assertEqual(itemcmp.first_json('{"summary": "saw {weird} }} text", "n": 1}'), {"summary": "saw {weird} }} text", "n": 1})
+        self.assertEqual(corr_llm._json('{"summary": "saw {weird} }} text", "n": 1}'), {"summary": "saw {weird} }} text", "n": 1})
 
     def test_nested_object(self):
         """Nested objects are returned whole.
         REQ: LLM-01"""
-        self.assertEqual(itemcmp.first_json('ok {"decisions": [{"id": "a", "related": true}]} end')["decisions"][0]["related"], True)
+        self.assertEqual(corr_llm._json('ok {"decisions": [{"id": "a", "related": true}]} end')["decisions"][0]["related"], True)
 
     def test_no_json_raises(self):
         """A reply without any '{' raises ValueError.
         REQ: LLM-01"""
         with self.assertRaises(ValueError):
-            itemcmp.first_json("I cannot answer that.")
+            corr_llm._json("I cannot answer that.")
 
     def test_truncated_json_raises(self):
         """A truncated object raises a ValueError (JSONDecodeError) instead of returning partial data.
         REQ: LLM-01"""
         with self.assertRaises(ValueError):
-            itemcmp.first_json('{"verdict": "benign", "summary": "cut')
+            corr_llm._json('{"verdict": "benign", "summary": "cut')
         with self.assertRaises(ValueError):
             corr_llm._json("no json here")
-
-
-class NormTest(unittest.TestCase):
-    """itemcmp._norm() coerces a model answer to safe values."""
-
-    def test_valid_answer_kept(self):
-        """A valid verdict (any case/whitespace) and priority are kept; seconds and usage pass through.
-        REQ: LLM-01"""
-        r = itemcmp._norm({"verdict": " Malicious ", "priority": "Investigate", "summary": "s", "reasoning": "r"}, 1.5, {"prompt": 3})
-        self.assertEqual(r, {"verdict": "malicious", "priority": "Investigate", "summary": "s", "reasoning": "r", "seconds": 1.5, "usage": {"prompt": 3}})
-
-    def test_unknown_verdict_and_priority_fall_back(self):
-        """Unknown verdicts become needs-review and unknown priorities become Review.
-        REQ: LLM-01"""
-        r = itemcmp._norm({"verdict": "evil!!", "priority": "URGENT"}, 0, None)
-        self.assertEqual((r["verdict"], r["priority"]), ("needs-review", "Review"))
-
-    def test_priority_is_case_sensitive(self):
-        """A lower-case priority is not in the list and falls back to Review.
-        REQ: LLM-01"""
-        self.assertEqual(itemcmp._norm({"priority": "investigate"}, 0, None)["priority"], "Review")
-
-    def test_missing_and_non_string_fields(self):
-        """Missing or non-string fields never raise and produce strings.
-        REQ: LLM-01"""
-        r = itemcmp._norm({"verdict": None, "summary": 42, "reasoning": ["a"]}, 0, None)
-        self.assertEqual(r["verdict"], "needs-review")
-        self.assertEqual(r["summary"], "42")
-        self.assertEqual(r["reasoning"], "['a']")
-
-    def test_lengths_capped(self):
-        """Summary is capped at 600 and reasoning at 1500 characters.
-        REQ: LLM-01"""
-        r = itemcmp._norm({"summary": "s" * 5000, "reasoning": "r" * 5000}, 0, None)
-        self.assertEqual((len(r["summary"]), len(r["reasoning"])), (600, 1500))
-
-    def test_all_vocabulary_values_accepted(self):
-        """Every documented verdict and priority survives normalisation unchanged.
-        REQ: LLM-01"""
-        for v in itemcmp.VERDICTS:
-            self.assertEqual(itemcmp._norm({"verdict": v}, 0, None)["verdict"], v)
-        for p in itemcmp.PRIORITIES:
-            self.assertEqual(itemcmp._norm({"priority": p}, 0, None)["priority"], p)
-
-
-class TaggedAnswerTest(unittest.TestCase):
-    """itemcmp._ask_raw() parses tagged answers from API-key providers (cloud call replaced by a stub)."""
-
-    def setUp(self):
-        self._tp, self._cc = corr_llm.text_provider, corr_llm.cloud_complete
-        corr_llm.text_provider = lambda p: True
-        self.reply = ""
-        corr_llm.cloud_complete = lambda target, system, user, mx: (self.reply, {"prompt": 10, "completion": 5}, 0.7)
-
-    def tearDown(self):
-        corr_llm.text_provider, corr_llm.cloud_complete = self._tp, self._cc
-
-    def ask(self, reply):
-        self.reply = reply
-        log = {"txt": None, "system": itemcmp.SYSTEM}
-        r = itemcmp._ask_raw({"provider": "api:x", "model": "m"}, "<item/>", 0, log)
-        self.assertEqual(log["txt"], reply)
-        self.assertIn("<verdict>", log["system"])
-        return r
-
-    def test_tags_parsed(self):
-        """The four tags are read even when the text contains quotes.
-        REQ: LLM-01"""
-        r = self.ask('<verdict>benign</verdict>\n<priority>Info</priority>\n<summary>It said "hi".</summary>\n<reasoning>Port 443 only.</reasoning>')
-        self.assertEqual((r["verdict"], r["priority"], r["summary"], r["reasoning"]), ("benign", "Info", 'It said "hi".', "Port 443 only."))
-        self.assertEqual(r["usage"], {"prompt": 10, "completion": 5})
-        self.assertEqual(r["seconds"], 0.7)
-
-    def test_unclosed_last_tag(self):
-        """A reply cut off inside the last tag still yields its text.
-        REQ: LLM-01"""
-        r = self.ask("<verdict>suspicious</verdict><priority>Review</priority><summary>odd</summary><reasoning>was cut")
-        self.assertEqual(r["reasoning"], "was cut")
-
-    def test_json_fallback(self):
-        """Without tags the first JSON object of the reply is used.
-        REQ: LLM-01"""
-        r = self.ask('```json\n{"verdict": "expected", "priority": "Info", "summary": "s", "reasoning": "r"}\n```')
-        self.assertEqual((r["verdict"], r["priority"]), ("expected", "Info"))
-
-    def test_garbage_tag_values_fall_back(self):
-        """Tag values outside the vocabulary fall back to needs-review / Review.
-        REQ: LLM-01"""
-        r = self.ask("<verdict>pwned</verdict><priority>ASAP</priority><summary>x</summary><reasoning>y</reasoning>")
-        self.assertEqual((r["verdict"], r["priority"]), ("needs-review", "Review"))
-
-    def test_no_tags_no_json_raises(self):
-        """A reply with neither tags nor JSON raises ValueError.
-        REQ: LLM-01"""
-        with self.assertRaises(ValueError):
-            self.ask("I am unable to help.")
-
-
-class ItemHelpersTest(unittest.TestCase):
-    """itemcmp.key() and _clean()."""
-
-    def test_key_stable_and_distinct(self):
-        """key() is a 32-hex-char hash, the same for the same item and different across kind/title.
-        REQ: LLM-01"""
-        k = itemcmp.key("triage", "Possible C2")
-        self.assertRegex(k, r"^[0-9a-f]{32}$")
-        self.assertEqual(k, itemcmp.key("triage", "Possible C2"))
-        self.assertNotEqual(k, itemcmp.key("research", "Possible C2"))
-        self.assertNotEqual(itemcmp.key("a", "bc"), itemcmp.key("ab", "c"))  # separator prevents collisions
-
-    def test_clean_drops_private_keys_recursively(self):
-        """_clean() removes keys starting with '_' at every level.
-        REQ: LLM-01"""
-        item = {"a": 1, "_secret": 2, "nested": {"_x": 1, "y": [{"_z": 0, "w": 3}]}}
-        self.assertEqual(itemcmp._clean(item), {"a": 1, "nested": {"y": [{"w": 3}]}})
-
-    def test_clean_caps_lists(self):
-        """_clean() keeps at most 50 list entries and leaves scalars alone.
-        REQ: LLM-01"""
-        self.assertEqual(len(itemcmp._clean(list(range(200)))), 50)
-        self.assertEqual(itemcmp._clean("x"), "x")
-        self.assertEqual(itemcmp._clean({1: "a"}), {1: "a"})
-
-    def test_schema_matches_vocabulary(self):
-        """The JSON schema enums match the verdict/priority lists and require all four fields.
-        REQ: LLM-01"""
-        p = itemcmp.SCHEMA["properties"]
-        self.assertEqual(p["verdict"]["enum"], itemcmp.VERDICTS)
-        self.assertEqual(p["priority"]["enum"], itemcmp.PRIORITIES)
-        self.assertEqual(set(itemcmp.SCHEMA["required"]), {"verdict", "priority", "summary", "reasoning"})
 
 
 class CorrLlmHelpersTest(unittest.TestCase):

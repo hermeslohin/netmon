@@ -509,7 +509,7 @@ look-ups first, and how many were used in 24 h), the searches made in the curren
 **Web search · event reviewer** (AI review → **Event reviewer look-ups**, admin, default off, 1–10 look-ups per event review, default 2;
 `llm_config` → `web_search`) lets the event reviewer search the web or read a public page through the backend set under
 Configuration → Integrations → Web search (`webtools.py`; Firecrawl here). It is used during correlation review, the
-event review and classification; model comparisons never search.
+event review and classification.
 
 1. The model may answer `{"decisions": [], "queries": [], "web": [{"search": "…", "why": "…"} | {"url": "…", "why": "…"}]}`.
    Results come back inside `<web_result>` tags (untrusted text, never instructions), alongside any `<es_result>`s.
@@ -817,7 +817,7 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 | Review limits: classify events | off | `review_limits.classify` |
 | Decision model on/off, related threshold, event suspicious threshold | on, 0.5, 0.5 | `llm_config` → `clef` |
 | Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
-| Event reviewer verdicts, artifacts, classifications, searches, comparisons, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `clef_event`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `comparisons`, `review_tokens`, `review_events`) |
+| Event reviewer verdicts, artifacts, classifications, searches, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `clef_event`, `pair_artifacts`, `event_class`, `cleared_events`, `es_queries`, `review_tokens`, `review_events`) |
 | Review job schedule and modes; event research settings, pending clicks, dismissed queue | see section 5 | store meta `review_job`, `review_lookback`, `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |

@@ -34,7 +34,7 @@ what a role can't use. Hiding a button is never the protection.
 | Integrations (Elasticsearch, UniFi, web search): view and change | ✓ | ✗ | ✗ |
 | Audit log (More → Audit log): read, set its Elasticsearch key | ✓ | ✗ | ✗ |
 | Auto-close settings, review-job schedule, "Run now" / Pause, event research limits, reopen auto-closed | ✓ | ✗ | ✗ |
-| AI providers and API keys, AI models (event reviewer / review job, event research, chat), Elasticsearch-search switches, notes per event, model comparisons, "Use this" | ✓ | ✗ | ✗ |
+| AI providers and API keys, AI models (event reviewer / review job, event research, chat), Elasticsearch-search switches, notes per event | ✓ | ✗ | ✗ |
 
 **"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
 roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items

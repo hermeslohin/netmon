@@ -226,7 +226,7 @@ optional base URL (plain `http://` only for LAN or loopback addresses), an API k
 After a model id you can add prices in $ per million tokens, `model input output [cached-input]`; they are used
 for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models
 without spending tokens. Each provider also has a calls-per-hour cap (for the single calls of the event
-reviewer and comparisons) and an optional number of extra reasoning tokens. Keys are stored in
+reviewer) and an optional number of extra reasoning tokens. Keys are stored in
 the netmon database (`netmon.db`, mode 600), only the last 4 characters are ever shown, and they are scrubbed
 from error messages. Changing a provider's type or base URL requires entering the key again. Model choices are
 stored as `api:<provider id>` or `lmstudio` plus the model name.
@@ -251,7 +251,7 @@ superficially, on a non-reasoning model.
 
 **Event research limits** (also on AI review): $ per research run (default 5), $ per day (default 20), tokens per research run (input + output, works without prices; default 25,000,000), research batches per run (default 10), web searches per event (default 3) and the **Web access** switch (off on a new install: no web search until an admin turns it on). A research run stops when it passes its caps, and Send to research is refused once today's research (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **Review job** card shows the review job's status, schedule and next run, **Run now** / **Pause** and recent runs; the *Time and tokens* chart below it covers review runs, event research and Ask AI, with a cost preview for another research model.
 
-Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local server.
+Only dashboard **Admins** can change providers, models or limits. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local server.
 
 ## 7c. Web search (event research and chat)
 

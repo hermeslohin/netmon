@@ -9,7 +9,7 @@ Two kinds of entries (ECS field names, so they also read well in Kibana / Securi
   event.dataset = netmon.review  one entry per correlation review pass that did work or failed, and per finished
                                  review-job run (reviewlog.py; AI review > Review log card)
   event.dataset = netmon.llm     every conversation between the app and an LLM: Ask AI chat turns, the
-                                 event reviewer, model comparisons, item comparisons, the review job's and event research's
+                                 event reviewer, the review job's and event research's
                                  results coming back in (enrich.py put). Prompt, system prompt, answer, model,
                                  tokens, seconds, outcome.
 Secrets never reach the log: any parameter whose name looks like a password / key / token is replaced by

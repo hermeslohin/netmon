@@ -12,7 +12,6 @@ import correlate
 import corr_llm
 import enrich
 import autoclose
-import itemcmp
 import llm_providers
 import auth
 import tintel
@@ -33,7 +32,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/account/welcome", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/lookupplan", "/api/llm/webcache", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/lookupplan", "/api/llm/webcache", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers")
 
 
 def watch_ids(user, role, reg=None):
@@ -833,8 +832,7 @@ def with_software_vulns(tr):
 
 
 # ---------------------------------------------------------------- audit log (audit.py -> Elasticsearch logs-netmon)
-AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open",
-             "/api/compare/item": "compare.item.history", "/api/aireview/compare": "aireview.compare.history"}
+AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open"}
 AUDIT_TARGET = ("username", "doc", "id", "eid", "key", "pair", "event", "section", "kind", "title", "subject", "route", "provider", "model")
 
 
@@ -1081,7 +1079,7 @@ class H(BaseHTTPRequestHandler):
             self._aud.update(user=user, role=role)
             if role == "user" and u.path not in USER_POST:
                 return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
-            if role != "admin" and (u.path.startswith(ADMIN_POST) or (u.path == "/api/aireview" and body.get("action") == "adopt")):
+            if role != "admin" and (u.path.startswith(ADMIN_POST)):
                 print(f"access denied: {user} ({role}) POST {u.path}", file=sys.stderr)
                 return self._json({"error": "only an admin can change settings, users or models"}, 403)
             if u.path == "/api/logout":
@@ -1427,44 +1425,6 @@ class H(BaseHTTPRequestHandler):
                 except RuntimeError as e:  # provider rejected the key / unreachable (key already scrubbed)
                     return self._json({"error": str(e)[:400]}, 502)
                 return self._json({"error": "unknown action"}, 400)
-            if u.path == "/api/compare/item":  # one finding / alarm / note, several models, side by side
-                kind, title = str(body.get("kind", ""))[:60], str(body.get("title", ""))[:300]
-                item = body.get("item")
-                M = llm_models()
-                tg = [{"provider": str(t.get("provider")), "model": str(t.get("model"))[:120]} for t in (body.get("targets") or [])[:4] if isinstance(t, dict)]
-                tg = [t for t in tg if llm_allowed(t["provider"], t["model"], M)]
-                if not tg or not (kind and title) or len(json.dumps(item, default=str)) > 40000:
-                    return self._json({"error": "pick 1-4 available models"}, 400)
-                print(f"item compare: {user} {len(tg)} models on {kind}: {title[:80]!r}", file=sys.stderr)
-                return self._json(itemcmp.compare(kind, title, item, tg, user))
-            if u.path == "/api/compare/adopt":  # use one model's assessment as an event's research note
-                eid = str(body.get("event", ""))[:1200]
-                if not eid:
-                    return self._json({"error": "event required"}, 400)
-                enrich.adopt_note(eid, body.get("verdict"), body.get("priority"), str(body.get("summary") or ""), str(body.get("reasoning") or ""),
-                                  str(body.get("model") or "model"), user)
-                print(f"item compare: {user} adopted {str(body.get('model'))[:60]} for {eid[:100]!r}", file=sys.stderr)
-                return self._json({"ok": True})
-            if u.path == "/api/aireview/compare":  # one decision, several models, side by side
-                pr = str(body.get("pair", ""))[:1200]
-                M = llm_models()
-                tg = [{"provider": str(t.get("provider")), "model": str(t.get("model"))[:120]} for t in (body.get("targets") or [])[:4] if isinstance(t, dict)]
-                tg = [t for t in tg if llm_allowed(t["provider"], t["model"], M)]
-                if not tg or "\x1f" not in pr:
-                    return self._json({"error": "pick 1-4 available models"}, 400)
-                s_ = snapshots()
-                base = correlation(s_[-1]["id"] if s_ else "") or {}
-                try:
-                    res = corr_llm.compare(pr, base, tg, user)
-                except ValueError as e:
-                    return self._json({"error": str(e)}, 400)
-                print(f"ai compare: {user} {len(tg)} models on {pr[:100]!r}", file=sys.stderr)
-                return self._json(res)
-            if u.path == "/api/aireview" and body.get("action") == "adopt":
-                pr = str(body.get("pair", ""))[:1200]
-                corr_llm.adopt(pr, bool(body.get("related")), body.get("confidence"), str(body.get("reason") or ""), str(body.get("model") or "model"), user)
-                print(f"ai review: {user} adopted {str(body.get('model'))[:60]} on {pr[:100]!r}", file=sys.stderr)
-                return self._json({"ok": True})
             if u.path == "/api/aireview":  # override or re-review one AI verdict
                 act, pr = str(body.get("action", "")), str(body.get("pair", ""))
                 if act not in ("confirm", "reject", "rereview"):
@@ -1778,10 +1738,6 @@ class H(BaseHTTPRequestHandler):
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kbn))
             if path == "/api/llm/models":
                 return self._json({**llm_models(), "admin": admin})
-            if path == "/api/compare/item":
-                return self._json({"history": itemcmp.history(str((q.get("key") or [""])[0])[:64])})
-            if path == "/api/aireview/compare":
-                return self._json({"history": corr_llm.comparisons(str((q.get("pair") or [""])[0])[:1200])})
             if path == "/api/aireview/log":  # Review log card: correlation passes + review-job runs (Elasticsearch netmon.review)
                 import reviewlog
                 try:

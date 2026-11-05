@@ -3,8 +3,8 @@
 (() => {
   const KIND = { action: "User action", llm: "AI conversation" };
   const RANGES = [["1h", "Last hour"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["all", "All time"]];
-  const PURPOSE = { "llm.chat": "Ask AI chat", "llm.correlation-review": "Correlation review (background)", "llm.correlation-compare": "Correlation compare",
-    "llm.item-compare": "Item compare", "llm.research-input": "Event research: work list", "llm.research-result": "Event research: results",
+  const PURPOSE = { "llm.chat": "Ask AI chat", "llm.correlation-review": "Correlation review (background)",
+    "llm.research-input": "Event research: work list", "llm.research-result": "Event research: results",
     "llm.research-hostnotes": "Event research: host notes", "llm.review-input": "Review job: work list", "llm.review-copy": "Review job: copied notes" };
   const outBadge = (o) => `<span class="badge ${o === "failure" ? "sev-high" : "sev-low"}">${esc(o || "—")}</span>`;
   const kindBadge = (k) => `<span class="badge ${k === "llm" ? "sev-medium" : "sev-info"}">${esc(KIND[k] || k)}</span>`;
@@ -72,7 +72,7 @@
   }
 
   V.audit = async (el) => {
-    el.innerHTML = `<h1>Audit log</h1><div class="sub">Who did what in the dashboard, and every conversation between the dashboard and an AI model. <b>User actions</b>: sign-ins (including failed ones), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, settings and user changes, report downloads and every refused request. <b>AI conversations</b>: Ask AI chats, the event reviewer, model comparisons and the AI Research job's input and results, each with its prompt, the model's answer, model, tokens and time. Passwords and keys are never logged. Stored in Elasticsearch <span class="mono">logs-netmon</span> (also searchable in Kibana). Only admins can see this page.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>Audit log</h1><div class="sub">Who did what in the dashboard, and every conversation between the dashboard and an AI model. <b>User actions</b>: sign-ins (including failed ones), sign-outs, page views, check-offs, notes, chat messages, AI verdicts, settings and user changes, report downloads and every refused request. <b>AI conversations</b>: Ask AI chats, the event reviewer and the AI Research job's input and results, each with its prompt, the model's answer, model, tokens and time. Passwords and keys are never logged. Stored in Elasticsearch <span class="mono">logs-netmon</span> (also searchable in Kibana). Only admins can see this page.</div><div class="loading">Loading…</div>`;
     if (!isAdmin()) { el.querySelector(".loading").replaceWith(card("Admins only", `<div class="empty">Only an admin can read the audit log.</div>`)); return; }
     const P = hq(), F = { kind: P.get("kind") || "all", range: P.get("start") || P.get("end") ? "" : P.get("range") || "24h", start: P.get("start") || "", end: P.get("end") || "", user: P.get("user") || "", action: P.get("action") || "",
       outcome: P.get("outcome") || "", model: P.get("model") || "", q: P.get("q") || "", page: +(P.get("page") || 0) };

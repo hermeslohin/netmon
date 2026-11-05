@@ -172,7 +172,7 @@
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
       <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
         <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×${x.repeats > 1 ? ` · <span class="oe-var" title="Same condition, but the numbers in the text differ between reports (counts, ports, bytes). Each firing below is tagged with its variant.">${x.repeats} variants</span>` : ""}</div></div>
-        <div class="oe-tools">${noteBtn(x.eid)}${askBtn(askKind, x.label, itemOf(x))}${cmpBtn(askKind, x.label, itemOf(x), x.eid)}${pivBtn(pivKind, pivItem(x))}
+        <div class="oe-tools">${noteBtn(x.eid)}${askBtn(askKind, x.label, itemOf(x))}${pivBtn(pivKind, pivItem(x))}
           ${x.link ? `<a class="small" href="${esc(x.link)}" title="Open the page this event comes from">open source ↗</a>` : ""}
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
       ${aiBadges ? `<div class="oe-ais">${aiBadges}</div>` : ""}

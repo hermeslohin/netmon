@@ -16,8 +16,7 @@ validates and runs them read-only, the results go back to the model as <es_resul
 
 Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}; "chat" holds the dashboard
 chat's model). provider "lmstudio" talks to LM Studio directly with a JSON schema; "api:<id>" is an admin-added API-key
-provider (llm_providers.py, OpenAI-compatible or Anthropic, answer format asked for in the prompt). compare() asks several
-models about ONE decision for the side-by-side view (not stored as a verdict unless a person adopts one).
+provider (llm_providers.py, OpenAI-compatible or Anthropic, answer format asked for in the prompt).
 
 Env: NETMON_LLM_URL (default http://127.0.0.1:1234/v1), NETMON_LLM_MODEL (default: the model loaded in LM Studio),
      NETMON_LLM_REASONING (default "none" - fast, clean JSON), NETMON_LLM_WORKERS (default 2), NETMON_LLM=off to disable.
@@ -824,8 +823,8 @@ def _schema(c):
         c.execute("ALTER TABLE event_sources ADD COLUMN wid TEXT")
     except sqlite3.OperationalError:
         pass
-    c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
-                 related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
+    c.execute("DROP TABLE IF EXISTS comparisons")  # model comparisons were removed
+    c.execute("DROP TABLE IF EXISTS item_comparisons")
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
     # decision model (clef) answers per pair: p_related always, p_suspicious for pairs it judged related; ms = call time
@@ -2704,55 +2703,6 @@ def start(get_base, latest_sid_fn, every=60):
                 _log_pass(t0, 0, f"{type(e).__name__}: {str(e)[:300]}")
                 time.sleep(180)
     threading.Thread(target=loop, name="corr-llm", daemon=True).start()
-
-
-# ---------------------------------------------------------------- compare one decision across models
-def compare(p, base, targets, user):
-    """Ask each target model about ONE pair (anchor = first event of the pair); results are logged in
-    `comparisons`, never written as verdicts. Returns the stored verdict too."""
-    a, b = p.split("\x1f", 1)
-    E = (base or {}).get("events") or {}
-    if a not in E or b not in E:
-        raise ValueError("this decision's events are not in the current snapshot; compare works on current decisions")
-    r = next((x for x in (base.get("related") or {}).get(a, []) if x["id"] == b), None) or \
-        next((x for x in (base.get("related") or {}).get(b, []) if x["id"] == a), None) or {"score": 0, "why": []}
-
-    def one(t):
-        out = {"provider": t["provider"], "model": t["model"]}
-        try:
-            dec, usage, secs = _ask_full(t, E[a], [(E[b], r)], ai_notes=_ai_notes(a, [b], E), purpose="correlation-compare", actor=user)
-            d = next((x for x in dec if x.get("id") == "c1"), dec[0] if dec else {})
-            out.update(related=bool(d.get("related")), confidence=float(d.get("confidence") or 0), reason=str(d.get("reason") or "")[:300],
-                       seconds=secs, usage=usage)
-        except Exception as e:  # noqa: BLE001 - one model failing must not hide the others
-            out["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-        return out
-    with ThreadPoolExecutor(min(4, len(targets))) as ex:
-        res = list(ex.map(one, targets))
-    now = time.time()
-    with _lock, _db() as c:
-        c.executemany("INSERT INTO comparisons (pair, ts, user, provider, model, related, confidence, reason, seconds, prompt_tokens, completion_tokens, error) "
-                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                      [(p, now, user, x["provider"], x["model"], None if "error" in x else int(x["related"]), x.get("confidence"), x.get("reason"),
-                        x.get("seconds"), (x.get("usage") or {}).get("prompt"), (x.get("usage") or {}).get("completion"), x.get("error")) for x in res])
-    return {"pair": p, "anchor": E[a]["label"], "candidate": E[b]["label"], "evidence": r.get("why") or [],
-            "stored": verdicts([p]).get(p), "results": res}
-
-
-def comparisons(p):
-    with _db() as c:
-        rows = c.execute("SELECT ts, user, provider, model, related, confidence, reason, seconds, prompt_tokens, completion_tokens, error "
-                         "FROM comparisons WHERE pair=? ORDER BY ts DESC LIMIT 40", (p,)).fetchall()
-    return [dict(zip(("ts", "user", "provider", "model", "related", "confidence", "reason", "seconds", "prompt_tokens", "completion_tokens", "error"), r)) for r in rows]
-
-
-def adopt(p, related, confidence, reason, model, user):
-    """A person picks one model's answer from a comparison: stored as that model's verdict (labelled)."""
-    if "\x1f" not in p:
-        raise ValueError("bad pair")
-    with _lock, _db() as c:
-        c.execute("INSERT OR REPLACE INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)",
-                  (p, 1 if related else 0, max(0.0, min(1.0, float(confidence or 0))), str(reason or "")[:300], f"{str(model)[:60]} (chosen by {user})", time.time()))
 
 
 # ---------------------------------------------------------------- status page (#/aireview)

@@ -202,7 +202,7 @@
     if (ch) ch.update();
   }
 
-  // ---- model choice (event reviewer = also the review job's, event research, chat) and per-decision model comparison
+  // ---- model choice (event reviewer = also the review job's, event research, chat)
   let MODELS = null;
   const loadModels = async () => { MODELS = MODELS || await api("/api/llm/models"); for (const g of MODELS.custom || []) PROV[g.provider] = g.name; return MODELS; };
   // the local server; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
@@ -766,8 +766,8 @@
     const c = card("AI providers", `<div class="small muted"><b>Local server</b> is the OpenAI-compatible model server on this host (<span class="mono">NETMON_LLM_URL</span>, no key; its enabled flag and rate limit can be set here;
       the model list comes live from its <span class="mono">/v1/models</span>). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
       OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM, SGLang or llama.cpp server...);
-      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the event reviewer, event research and the chat,
-      and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
+      <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the event reviewer, event research and the chat.
+      Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
       <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
       <div style="margin-top:8px"><button type="button" class="prov-add">Add provider</button> <span class="small muted prov-msg"></span></div>`);
     c.id = "ai-providers";
@@ -821,7 +821,7 @@
             <button type="button" class="pf-add">+ Add model</button>
             <div class="small muted">Pick the local server's models that can be used, from the drop-down of what is installed. Prices are optional, $ per million tokens (empty = free).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
-          <span class="small muted">cap on single calls (event reviewer + comparisons) - limits cost/load if something loops</span></div>
+          <span class="small muted">cap on single calls (event reviewer) - limits cost/load if something loops</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
         <div class="llm-row"><span class="k"></span><button type="button" class="pf-save">Save</button><button type="button" class="pf-cancel">Cancel</button>
           <span class="small muted pf-msg"></span></div></div>`;
@@ -850,7 +850,7 @@
             <button type="button" class="pf-add">+ Add model</button> <button type="button" class="pf-fetch">Fetch available models from provider</button>
             <div class="small muted">Pick each model from the drop-down (use Fetch to fill it, or choose "Custom…" to type an id). Prices are optional, in $ per million tokens; with them the dashboard estimates costs and enforces the event research $ caps (token caps work without).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
-          <span class="small muted">cap on this provider's single calls (event reviewer + comparisons) - limits cost if something loops</span></div>
+          <span class="small muted">cap on this provider's single calls (event reviewer) - limits cost if something loops</span></div>
         <div class="llm-row"><span class="k">Extra reasoning tokens</span><input name="reasoning_tokens" type="number" min="0" max="32000" step="500" style="width:7em">
           <span class="small muted">added to each answer's token limit for models that think first (OpenAI gpt-5 / o-series: ~3000; others 0)</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
@@ -1111,7 +1111,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <div class="llm-row"><span class="k">Web access</span><span><label><input type="checkbox" name="web_research"> on</label></span>
           <span class="small muted" style="flex:1 1 380px">Lets the research model search and read web pages and cite them. Turn it off for cheaper, local-data-only research (no web tools, no links or citations).</span></div>
       </div>
-      <div class="small muted" style="margin-top:8px">The event reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
+      <div class="small muted" style="margin-top:8px">The event reviewer makes single calls and are capped per provider (AI providers > Calls per hour) instead;
         chat answers are capped at 600,000 tokens each. Local server models cost $0.</div>
       <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>`);
     c.id = "ai-cost";
@@ -1183,79 +1183,6 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     };
     autoApply(btn, [inp]);
     return c;
-  }
-
-  // compare dialog: one decision, up to 4 models side by side; a person can adopt one answer
-  let dlg = null;
-  function verdictBadge(rel) { const b = document.createElement("span"); b.className = "badge " + (rel ? "sev-good" : "sev-high"); b.textContent = rel ? "Related" : "Not related"; return b; }
-  function resultTable(rows, pairKey, adoptable) {
-    const t = document.createElement("table"); t.className = "cmp-tbl";
-    t.createTHead().insertRow().append(...["Model", "Verdict", "Conf.", "Reason", "Time", "Tokens", ""].map((h) => Object.assign(document.createElement("th"), { textContent: h })));
-    const tb = t.createTBody();
-    for (const x of rows) {
-      const tr = tb.insertRow();
-      const m = tr.insertCell(); m.append(Object.assign(document.createElement("div"), { textContent: x.model }), Object.assign(document.createElement("div"), { className: "small muted", textContent: PROV[x.provider] || x.provider || "" }));
-      const v = tr.insertCell(); if (x.error) { v.colSpan = 3; v.className = "bad small"; v.textContent = x.error; } else { v.appendChild(verdictBadge(x.related)); tr.insertCell().textContent = x.confidence == null ? "" : Math.round(x.confidence * 100) + "%"; tr.insertCell().textContent = x.reason || ""; }
-      tr.insertCell().textContent = x.seconds == null ? "" : `${(+x.seconds).toFixed(1)} s`;
-      const u = x.usage || { prompt: x.prompt_tokens, completion: x.completion_tokens };
-      tr.insertCell().textContent = u.prompt == null ? "" : `${fn(u.prompt)} in · ${fn(u.completion)} out`;
-      const a = tr.insertCell();
-      if (adoptable && !x.error) {
-        const b = a.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Use this", title: "Store this model's answer as the decision" }));
-        b.onclick = async () => { b.disabled = true; try { await apiPost("/api/aireview", { action: "adopt", pair: pairKey, related: x.related, confidence: x.confidence, reason: x.reason, model: x.model }); b.textContent = "✓ used"; S.corr = null; } catch (e) { b.textContent = e.message; } };
-      }
-    }
-    return t;
-  }
-  async function openCompare(r, D) {
-    dlg?.remove();
-    dlg = document.body.appendChild(document.createElement("dialog")); dlg.className = "cmp-dlg";
-    const h = dlg.appendChild(document.createElement("div")); h.className = "cmp-head";
-    h.append(Object.assign(document.createElement("b"), { textContent: "Compare models on this decision" }));
-    const x = h.appendChild(Object.assign(document.createElement("button"), { type: "button", className: "rel-x", textContent: "✕", ariaLabel: "Close" })); x.onclick = () => dlg.close();
-    const info = dlg.appendChild(document.createElement("div")); info.className = "idgrid small";
-    const kv = (k, v) => info.append(Object.assign(document.createElement("span"), { className: "k", textContent: k }), Object.assign(document.createElement("span"), { textContent: v }));
-    kv("Event", `${TYPE[r.a_type] || r.a_type}: ${r.a_label}`); kv("Linked to", `${TYPE[r.b_type] || r.b_type}: ${r.b_label}`);
-    kv("Current decision", `${r.related ? "Related" : "Not related"} · ${r.confidence == null ? "" : Math.round(r.confidence * 100) + "% · "}${r.model}${r.reason ? " - " + r.reason : ""}`);
-    const pick = dlg.appendChild(document.createElement("div")); pick.className = "cmp-pick";
-    const go = Object.assign(document.createElement("button"), { type: "button", textContent: "Run comparison" });
-    const out = document.createElement("div"); out.className = "cmp-out";
-    const hist = document.createElement("details"); hist.className = "small";
-    dlg.showModal();
-    if (!D.admin) { pick.textContent = "Only an admin can run comparisons."; }
-    else {
-      pick.textContent = "Loading models…";
-      let M; try { M = await loadModels(); } catch (e) { pick.textContent = e.message; return; }
-      pick.textContent = "";
-      pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the event reviewer uses, for this one link." }));
-      const cor = D.config?.correlation || {}, curLocal = cor.model || D.status.model || (M.local || []).find((m) => m.loaded)?.id || "";
-      const def = new Set([optKey(cor.provider, curLocal), optKey(D.research?.provider, D.research?.model)]);
-      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: the server loads it first, slow)"]),
-        ...(M.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))];
-      for (const [prov, id, extra] of all) {
-        const l = pick.appendChild(document.createElement("label")); l.className = "cmp-opt";
-        const cb = l.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", value: optKey(prov, id), checked: def.has(optKey(prov, id)) }));
-        l.append(` ${id}`, Object.assign(document.createElement("span"), { className: "muted small", textContent: ` ${PROV[prov]}${extra}` }));
-        cb.onchange = () => { const n = pick.querySelectorAll("input:checked").length; if (n > 4) cb.checked = false; };
-      }
-      pick.appendChild(go);
-    }
-    dlg.append(out, hist);
-    const loadHist = async () => { try { const H = (await api("/api/aireview/compare?pair=" + encodeURIComponent(r.pair))).history || [];
-      hist.replaceChildren(Object.assign(document.createElement("summary"), { textContent: `Earlier comparisons (${H.length})` }));
-      if (H.length) hist.appendChild(resultTable(H.map((h) => ({ ...h, related: h.related == null ? null : !!h.related, model: `${h.model} · ${new Date(h.ts * 1000).toLocaleString()}` })), r.pair, false)); } catch (_) {} };
-    loadHist();
-    go.onclick = async () => {
-      const targets = [...pick.querySelectorAll("input:checked")].map((c) => { const [provider, ...m] = c.value.split("|"); return { provider, model: m.join("|") }; });
-      if (!targets.length) return;
-      go.disabled = true; out.textContent = `Asking ${targets.length} model(s)…`;
-      try { const R = await apiPost("/api/aireview/compare", { pair: r.pair, targets });
-        out.replaceChildren(resultTable(R.results, r.pair, true));
-        if ((R.evidence || []).length) out.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Script evidence given to every model: " + R.evidence.join("; ") }));
-        loadHist(); }
-      catch (e) { out.textContent = "Error: " + e.message; }
-      go.disabled = false;
-    };
   }
 
   const build = async (el, bg) => {
@@ -1381,8 +1308,6 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
     ], D.verdicts, { sort: "ts", limit: 100, urlFilter: FILTERS }));
     lst.id = "ai-list"; lst.dataset.open = "1"; el.appendChild(lst);
-    lst.addEventListener("click", (e) => { const b = e.target.closest("[data-cmp]"); if (!b) return; e.preventDefault(); e.stopPropagation();
-      const r = D.verdicts.find((x) => x.pair === b.dataset.cmp); if (r) openCompare(r, D); });
     const chips = document.createElement("div"); chips.className = "tbltools small";
     chips.innerHTML = `<span class="muted">Show:</span> ${[["All", {}], ["Confirmed", { verdict: "confirmed" }], ["Rejected", { verdict: "rejected" }], ["Set by a person", { verdict: "manual" }], ["Low confidence (<70%)", { conf: "low" }], ["This snapshot only", { scope: "current" }]]
       .map(([l, p]) => `<a href="${esc(hashWith("aireview", { ...p, at: "ai-list" }))}">${esc(l)}</a>`).join(" · ")}`;
