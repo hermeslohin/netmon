@@ -74,13 +74,14 @@
   <circle cx="1090" cy="215" r="20" fill="#fbbf24"/><text x="1090" y="222" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">4</text>
   <text x="1122" y="223" font-size="22" font-weight="700" fill="#fef3c7">Event reviewer</text>
   <g font-size="16" fill="#cbd5e1">
-    <text x="1075" y="270">• Looks up earlier notes</text>
-    <text x="1088" y="291">on same / similar events</text>
-    <text x="1075" y="318">• Strong match →</text>
-    <text x="1088" y="339" font-weight="700" fill="#fef3c7">copy the verdict</text>
-    <text x="1075" y="366">• No match / unsure →</text>
-    <text x="1088" y="387" font-weight="700" fill="#fef3c7">queue for research</text>
-    <text x="1075" y="425" fill="#fcd34d" font-size="14" font-style="italic">Strict · saves tokens</text>
+    <text x="1075" y="270">• Earlier notes; strong</text>
+    <text x="1088" y="291">match → <tspan font-weight="700" fill="#fef3c7">copy verdict</tspan></text>
+    <text x="1075" y="318">• <tspan font-weight="700" fill="#fef3c7">Looks up first:</tspan></text>
+    <text x="1088" y="339">logs (≤3) + web (≤2)</text>
+    <text x="1075" y="366">• Explains the label,</text>
+    <text x="1088" y="387"><tspan font-weight="700" fill="#fef3c7">cites pages [W1]</tspan></text>
+    <text x="1075" y="414" font-size="14" fill="#94a3b8">re-reviews reuse look-ups 6 h</text>
+    <text x="1075" y="437" fill="#fcd34d" font-size="14" font-style="italic">Local AI · logs + Firecrawl</text>
   </g>
 
   <!-- 5 researcher (optional) -->
@@ -123,8 +124,9 @@
     <text x="892" y="625" fill="#94a3b8" font-size="14">Reason, artifacts (IP, DNS, file)</text>
 
     <rect x="1055" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#fbbf24" stroke-opacity=".6"/>
-    <text x="1172" y="600" font-weight="700" fill="#fef3c7">Verdict note</text>
-    <text x="1172" y="625" fill="#94a3b8" font-size="14">Copied, or flagged "needs research"</text>
+    <text x="1172" y="595" font-weight="700" fill="#fef3c7">Reason + 🌍 sources</text>
+    <text x="1172" y="618" fill="#94a3b8" font-size="14">[W1] links in Open events,</text>
+    <text x="1172" y="637" fill="#94a3b8" font-size="14">Kibana queries on links</text>
 
     <rect x="1335" y="565" width="235" height="90" rx="12" fill="#1e293b" stroke="#a78bfa" stroke-opacity=".6"/>
     <text x="1452" y="600" font-weight="700" fill="#ede9fe">Researched finding</text>
