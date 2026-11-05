@@ -1,10 +1,12 @@
 """Decision-model server (clef) as seen from the host: settings, status and control.
 
-Two backends (setting `backend`):
-  patapsco (default): Cloudflare/clef served by SGLang on the Patapsco AI cluster on this host (ModelDeployment
-            default/clef, stack netmon-clef), reached on loopback through NodePort service netmon-clef-host
-            (http://127.0.0.1:30891, /v1/systemone). Start/stop scale the ModelDeployment's replicas; restart replaces the pod.
-  host:     the older llama.cpp llama-server under systemd user unit netmon-clef (clef.sh) on port `port`.
+Whatever serves it must implement the System One decision API on loopback (POST /v1/systemone, GET /health).
+Two managed backends (setting `backend`; the stored value "patapsco" is kept for compatibility):
+  patapsco (default) = Kubernetes deployment: the model served by SGLang as ModelDeployment default/clef
+            (stack netmon-clef), reached on loopback through a NodePort (http://127.0.0.1:30891, /v1/systemone).
+            Start/stop scale the deployment's replicas; restart replaces the pod (kubectl).
+  host:     llama.cpp llama-server under systemd user unit netmon-clef (clef.sh) on port `port`.
+Any other server: set NETMON_CLEF_URL (dashboard/.env) to its loopback URL; it is then only health-checked.
 
 Used by host_broker.py (POST /clef, for the dashboard's AI review > Decision model server box) and by clef.sh
 (`python3 clef_server.py env` prints the saved settings as shell assignments). Settings live in the netmon database
@@ -25,8 +27,10 @@ import store  # noqa: E402
 UNIT = "netmon-clef"
 DOC = "clef_server"
 HOME = os.path.expanduser("~")
-MODELS = os.path.join(HOME, ".lmstudio", "models")
-BACKENDS = os.path.join(HOME, ".lmstudio", "extensions", "backends")
+# where GGUF model files and llama-server binaries are looked for: CLEF_MODELS_DIR / CLEF_SERVER_DIRS (colon-separated)
+# first, then common locations (~/models, an LM Studio install). llama-server on PATH is always offered.
+MODEL_DIRS = [d for d in os.environ.get("CLEF_MODELS_DIR", "").split(":") if d] + [os.path.join(HOME, "models"), os.path.join(HOME, ".lmstudio", "models")]
+SERVER_DIRS = [d for d in os.environ.get("CLEF_SERVER_DIRS", "").split(":") if d] + [os.path.join(HOME, ".lmstudio", "extensions", "backends")]
 DEFAULTS = {"backend": "patapsco", "gguf": "", "server": "", "port": 8091, "ctx": 32768, "parallel": 4, "batch": 8192}
 BACKENDS_ALLOWED = ("patapsco", "host")
 PAI_NS, PAI_MODEL, PAI_STACK, PAI_PORT = "default", "clef", "netmon-clef", 30891
@@ -36,23 +40,35 @@ LIMITS = {"port": (1024, 65535), "ctx": (2048, 262144), "parallel": (1, 16), "ba
 
 def models():
     """clef GGUFs on disk (mmproj projector files excluded), largest model family first."""
-    out = []
-    for p in sorted(glob.glob(os.path.join(MODELS, "*", "*clef*", "*.gguf"))):
-        if os.path.basename(p).startswith("mmproj"):
+    out, seen = [], set()
+    found = []
+    for d in MODEL_DIRS:
+        for pat in ("*clef*.gguf", os.path.join("*", "*clef*.gguf"), os.path.join("*", "*", "*clef*.gguf")):
+            found += glob.glob(os.path.join(d, pat))
+    for p in sorted(found):
+        if os.path.realpath(p) in seen or os.path.basename(p).startswith("mmproj"):
             continue
+        seen.add(os.path.realpath(p))
         out.append({"path": p, "name": os.path.basename(p), "gb": round(os.path.getsize(p) / 1e9, 2),
                     "flash": "flash" in os.path.basename(p).lower()})
     return out
 
 
 def servers():
-    """llama-server binaries from LM Studio's llama.cpp backends, newest version last."""
+    """llama-server binaries (PATH, CLEF_SERVER_DIRS, an LM Studio install's llama.cpp backends), newest version last."""
     import re
+    import shutil
 
     def ver(p):  # "...-cuda13-2.65.1/llama-server" -> (cuda first, (2, 65, 1))
         m = re.search(r"-(\d+(?:\.\d+)+)/llama-server$", p)
         return ("cuda" in p, tuple(int(x) for x in m.group(1).split(".")) if m else ())
-    return sorted(glob.glob(os.path.join(BACKENDS, "llama.cpp-*", "llama-server")), key=ver)
+    found = set()
+    for d in SERVER_DIRS:
+        found.update(glob.glob(os.path.join(d, "llama-server")) + glob.glob(os.path.join(d, "*", "llama-server")))
+    on_path = shutil.which("llama-server")
+    if on_path:
+        found.add(os.path.realpath(on_path))
+    return sorted((p for p in found if os.access(p, os.X_OK)), key=ver)
 
 
 def settings():
@@ -113,7 +129,7 @@ def _kubectl(*args, timeout=30):
 
 
 def _pai_status(s):
-    out = {"backend": "patapsco", "unit": f"Patapsco AI {PAI_NS}/{PAI_MODEL} (stack {PAI_STACK})", "settings": s,
+    out = {"backend": "patapsco", "unit": f"Kubernetes {PAI_NS}/{PAI_MODEL} (stack {PAI_STACK})", "settings": s,
            "models": [], "servers": [], "url": PAI_URL}
     rc, raw = _kubectl("get", "modeldeployment", PAI_MODEL, "-o", "json")
     if rc:

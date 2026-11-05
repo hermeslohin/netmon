@@ -1076,8 +1076,8 @@ Last run: 3 expected failure (known bug), 651 pass
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
-| unit | `test_clef_stage.ClefServerSettingsTest.test_patapsco_backend` | The Patapsco AI backend (default) is reached on loopback; only known backends are accepted; start/stop/restart | pass |
-| unit | `test_clef_stage.ClefServerSettingsTest.test_sglang_health_and_model_field` | SGLang (Patapsco backend) answers /health with an empty 200 - that counts as healthy - and needs the served | pass |
+| unit | `test_clef_stage.ClefServerSettingsTest.test_kubernetes_backend` | The Kubernetes backend (default) is reached on loopback; only known backends are accepted; start/stop/restart | pass |
+| unit | `test_clef_stage.ClefServerSettingsTest.test_sglang_health_and_model_field` | SGLang (Kubernetes backend) answers /health with an empty 200 - that counts as healthy - and needs the served | pass |
 | unit | `test_clef_stage.ClefServerSettingsTest.test_validate` | Server settings accept only listed model files / runtimes and safe numbers; batch must cover a whole input. | pass |
 | unit | `test_clef_stage.ClefStageTest.test_config_is_loopback_only` | A non-loopback URL in the settings is ignored (event data never leaves the host). | pass |
 | unit | `test_clef_stage.ClefStageTest.test_decision_model_decides_every_link` | Only related questions are asked; the decision model's answer is the verdict for every link, yes and no. | pass |
@@ -1610,7 +1610,7 @@ Last run: 3 expected failure (known bug), 651 pass
 | `unit.test_clef_stage.ClefStageTest.test_rereview_clears_decision` | LLM-03 |
 | `unit.test_clef_stage.ClefStageTest.test_config_is_loopback_only` | LLM-03 |
 | `unit.test_clef_stage.ClefServerSettingsTest.test_validate` | LLM-03 |
-| `unit.test_clef_stage.ClefServerSettingsTest.test_patapsco_backend` | LLM-03 |
+| `unit.test_clef_stage.ClefServerSettingsTest.test_kubernetes_backend` | LLM-03 |
 | `unit.test_clef_stage.ClefServerSettingsTest.test_sglang_health_and_model_field` | LLM-03 |
 | `unit.test_config.TestSiteCfg.test_defaults_without_site_config` | CFG-01 |
 | `unit.test_config.TestSiteCfg.test_overrides_merge_and_private_keys_dropped` | CFG-01, STO-02 |

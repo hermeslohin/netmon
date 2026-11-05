@@ -76,13 +76,13 @@ def _save(providers, local=None):
 
 
 def local_enabled():
-    """Whether an admin has switched the local server off (AI providers > Local (LM Studio))."""
+    """Whether an admin has switched the local server off (AI providers > Local server)."""
     return bool(_load_local_cfg().get("enabled", True))
 
 
 def _local():
     lc = _load_local_cfg()
-    return {"id": LOCAL, "name": "Local (LM Studio)", "type": "openai", "base_url": LMS_URL, "api_key": "lm-studio",
+    return {"id": LOCAL, "name": "Local server", "type": "openai", "base_url": LMS_URL, "api_key": "lm-studio",
             "models": [m["id"] for m in offered_local_models()], "enabled": bool(lc.get("enabled", True)),
             "rate_per_hour": int(lc.get("rate_per_hour") or RATE_MAX), "reasoning_tokens": 0,
             "by": lc.get("by"), "at": lc.get("at")}
@@ -98,7 +98,7 @@ def local_models():
 
 
 def offered_local_models():
-    """local_models() narrowed to the ones an admin picked (AI providers > Local (LM Studio)); none picked = all."""
+    """local_models() narrowed to the ones an admin picked (AI providers > Local server); none picked = all."""
     allm, pick = local_models(), _load_local_cfg().get("models") or []
     return [m for m in allm if m["id"] in pick] if pick else allm
 
@@ -164,7 +164,7 @@ def public():
     """All providers for the admin editor, keys masked. The local LM Studio server is always first, flagged
     "local": True so the admin UI offers it a reduced edit form (enabled + rate limit only, no key/models/url)."""
     loc = _local()
-    local_row = {"id": LOCAL, "provider": LOCAL, "name": loc["name"], "type": "local", "type_label": "Local (LM Studio)",
+    local_row = {"id": LOCAL, "provider": LOCAL, "name": loc["name"], "type": "local", "type_label": "Local (OpenAI-compatible)",
                  "base_url": loc["base_url"], "key_set": True, "key_hint": "not needed", "models": list(loc["models"]),
                  "available": [m["id"] for m in local_models()], "prices": dict(_load_local_cfg().get("prices") or {}), "rate_per_hour": loc["rate_per_hour"], "reasoning_tokens": 0, "enabled": loc["enabled"],
                  "by": loc.get("by"), "at": loc.get("at"), "local": True,

@@ -1229,7 +1229,7 @@ def _target(model=None):
     if c["provider"] != "lmstudio":
         raise RuntimeError(f"event reviewer provider {c['provider']} is no longer available - pick another model on AI review > Models")
     if not llm_providers.local_enabled():
-        raise RuntimeError("Local (LM Studio) is disabled on AI review > AI providers - pick another model on AI review > Models")
+        raise RuntimeError("Local server is disabled on AI review > AI providers - pick another model on AI review > Models")
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
 
 

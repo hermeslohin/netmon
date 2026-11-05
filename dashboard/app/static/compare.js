@@ -3,7 +3,7 @@
 // (or an admin-added API-key provider)
 // for {verdict, priority, summary, reasoning} side by side. For event research notes a person can adopt an answer.
 (() => {
-  const PROV = { lmstudio: "Local (LM Studio)" };
+  const PROV = { lmstudio: "Local server" };
   let M = null, dlg = null;
   const models = async () => { M = M || await api("/api/llm/models"); for (const g of M.custom || []) PROV[g.provider] = g.name; return M; };
   const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids.filter((k) => k != null)); return e; };
@@ -50,7 +50,7 @@
       pick.append(el("div", { className: "small muted", textContent: "Pick up to 4 models. Each sees only this item's data (no tools or web lookups) and gives a verdict, priority and reasoning." }));
       const loaded = (L.local || []).find((m) => m.loaded)?.id;
       const def = new Set([`lmstudio|${loaded}`]);
-      for (const [prov, id, extra] of [...(L.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]), ...(L.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))]) {
+      for (const [prov, id, extra] of [...(L.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: the server loads it first, slow)"]), ...(L.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))]) {
         const cb = el("input", { type: "checkbox", value: `${prov}|${id}`, checked: def.has(`${prov}|${id}`) });
         cb.onchange = () => { if (pick.querySelectorAll("input:checked").length > 4) cb.checked = false; };
         pick.append(el("label", { className: "cmp-opt" }, cb, ` ${id}`, el("span", { className: "muted small", textContent: ` ${PROV[prov]}${extra}` })));

@@ -14,15 +14,15 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 |---|---|---|
 | **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl, systemd (user services) | yes | runs the scheduler, the host broker and the dashboard container |
 | **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The 15-minute watcher uses no LLM. |
-| **LM Studio** (local LLM server) | optional, recommended | the event reviewer; can also serve the review job or chat |
-| **Patapsco AI** (local Kubernetes model platform) | optional | alternative to LM Studio: serves the decision model (clef) and the event reviewer (Gemma) on loopback NodePorts, see [CORRELATION.md](CORRELATION.md) |
+| **Local OpenAI-compatible model server** (any server offering `/v1/chat/completions` with JSON-schema structured output, e.g. llama.cpp, vLLM, SGLang, Ollama) | optional, recommended | the event reviewer (called continuously, so a local model saves API cost); can also serve the review job or chat |
+| **Decision-model server** (System One API, `/v1/systemone`, on loopback: llama.cpp `llama-server` or SGLang) | optional, recommended | decides correlation links and labels events, see [CORRELATION.md](CORRELATION.md). Off = the event reviewer decides links |
 | **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
 | **Elastic Agent via Fleet** on your endpoints (Elastic Defend + osquery integrations) | recommended | endpoint findings, host posture |
 | **UniFi gateway** + UniFi Site Manager API key | optional | gateway IDS, admin audit, flows. Skipped when missing. |
 | UniFi DHCP export CSV | optional | friendly device names. Without it, names come from DHCP/DNS. |
 | Cloudflare Tunnel (or any reverse proxy) | optional | reach the dashboard and receive push notifications away from home |
 
-The host needs no extra Python packages: everything is the standard library. The dashboard image installs its own dependencies.
+The host needs no extra Python packages: everything is the standard library. The dashboard image installs its own dependencies. The exact interface each part must offer (APIs, structured output, tool calling, context sizes, key privileges) is listed in [ARCHITECTURE.md → Requirements by component](ARCHITECTURE.md#requirements-by-component).
 
 ## 1. Clone and run setup
 
@@ -143,14 +143,28 @@ The optional Elasticsearch look-ups of the event reviewer and of event research 
 
 ### Local LLM for correlation review (optional, recommended)
 
-The dashboard links related events and vulnerabilities, then asks a **local LLM** to confirm or reject each link (details in [CORRELATION.md](CORRELATION.md)). Install [LM Studio](https://lmstudio.ai), load a capable instruction model (tested with Gemma 4 31B), and enable its server on port 1234. The container uses host networking and finds the loaded model automatically. Nothing leaves the machine. LM Studio also appears as a model choice for the review job and the chat (step 7b).
+The dashboard links related events and vulnerabilities, then asks models to confirm or reject each link and label
+each event (details in [CORRELATION.md](CORRELATION.md)). Both roles can run on this host, so nothing leaves the
+machine:
+
+- **Event reviewer:** any OpenAI-compatible server that supports `POST /v1/chat/completions` with
+  `response_format` JSON schema (structured output) and lists its models on `GET /v1/models` - for example llama.cpp
+  `llama-server`, vLLM, SGLang or Ollama. Serve a capable instruction model (25-35B class open-weights models work
+  well) with a context of at least 32k tokens and point `NETMON_LLM_URL` at it (default `http://127.0.0.1:1234/v1`).
+  The container uses host networking; without `NETMON_LLM_MODEL` it uses the first model the server lists. The
+  server also appears as the **Local server** model choice for the review job and the chat (step 7b).
+- **Decision model:** a server with the System One API (`/v1/systemone`) on loopback; see
+  [CORRELATION.md → The decision-model server](CORRELATION.md#the-decision-model-server).
 
 ```bash
-lms server start && lms load google/gemma-4-31b-qat     # or load a model in the LM Studio app
-curl -s http://127.0.0.1:1234/v1/models                 # the dashboard uses this endpoint
+curl -s http://127.0.0.1:1234/v1/models      # the event reviewer endpoint answers with its model list
+curl -s http://127.0.0.1:8091/health          # the decision model answers {"status":"ok"} (or an empty 200)
 ```
 
-Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`, `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2). Instead of LM Studio you can serve both models from Patapsco AI on the same host (FP8, one GPU shared by time-slicing); add the event reviewer endpoint as an AI provider and pick **Patapsco AI** as the decision-model backend (details in [CORRELATION.md](CORRELATION.md)). Without an LLM, links show the script's evidence only.
+Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`,
+`NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2), `NETMON_CLEF_URL`. A model server on
+another machine or in Kubernetes can instead be added as an AI provider (OpenAI-compatible type, LAN base URL) on
+AI review → AI providers. Without any LLM, links show the script's evidence only.
 
 ## 7. Scheduled jobs and the host broker
 
@@ -181,7 +195,7 @@ Each run:
 
 1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI review page (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. Builds the work list (`enrich.sh events`): every event without a note, by category (`review_cfg.py` modes: **review**, **queue**, **test**, **skip**). Every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events.
-3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI review → Models, e.g. Gemma on LM Studio; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
+3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI review → Models, e.g. a local open-weights model; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
 4. Everything else waits in the **Queue** on the AI review page for a person.
 
 The review job never researches events and never uses the research model. Run state and tokens are in `<state>/review_job.json`, shown on the AI review page; conversations are saved in `logs/review/` (the newest 60). Manual runs:
@@ -204,10 +218,10 @@ Research is what happens when a person clicks **🔬 Send to research** on an ev
 
 Everything is set by an admin on the dashboard's **AI review** page; nothing on the host needs editing.
 
-**AI providers.** **Local (LM Studio)** is always the first row - no key or URL to set (those come from
-`NETMON_LLM_URL`), just an **enabled** switch and a **calls per hour** cap; disable it or lower its cap here
+**AI providers.** **Local server** (the OpenAI-compatible server at `NETMON_LLM_URL`) is always the first row - no
+key or URL to set (those come from `NETMON_LLM_URL`), just an **enabled** switch and a **calls per hour** cap; disable it or lower its cap here
 instead of editing `.env`. Add as many other providers as you like. Each has a type, **OpenAI / OpenAI-compatible**
-(OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM, ...) or **Anthropic**, an
+(OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM / SGLang / llama.cpp server, ...) or **Anthropic**, an
 optional base URL (plain `http://` only for LAN or loopback addresses), an API key, and its models, one per line.
 After a model id you can add prices in $ per million tokens, `model input output [cached-input]`; they are used
 for cost estimates and the $ caps. **Fetch from provider** fills in the model list, **Test** lists the models
@@ -219,26 +233,26 @@ stored as `api:<provider id>` or `lmstudio` plus the model name.
 
 **Models.** Three choices: the **event reviewer** (also used by the review job), **event research** (used
 only on Send to research) and the **chat (Ask AI)**. Event research and the chat are off until you choose a model;
-if no event reviewer was ever chosen it defaults to Local (LM Studio), so nothing is sent to a cloud provider
+if no event reviewer was ever chosen it defaults to Local server, so nothing is sent to a cloud provider
 until a person picks one. Under the model menus an admin can also switch the event reviewer's and event research's
 read-only Elasticsearch searches on or off (**Elasticsearch queries · correlation review** with a per-event maximum,
 **Elasticsearch queries · event research**) and set **Notes per event**, the most host and
 account notes the event reviewer is given with each event. A provider that is in use can't be deleted (Local
-(LM Studio) can only be disabled, never deleted). On any current correlation decision, the ⇄ button asks up to 4
+server can only be disabled, never deleted). On any current correlation decision, the ⇄ button asks up to 4
 models the same question side by side and can store one model's answer as the decision.
 
 **Event research needs a reasoning-capable model** - it works through several tool calls per event (web search,
 reading pages, checking netmon data) and decides what to do next between them, which a plain chat model does
 noticeably worse at and sometimes gets stuck looping on. Pick a reasoning model (OpenAI's `o`-series / GPT-5
-family, Anthropic's extended-thinking Claude models, or a local reasoning model such as Qwen/DeepSeek-R1 in LM
-Studio) and give it some **extra reasoning tokens** on its provider row - 0 there effectively turns reasoning off
+family, Anthropic's extended-thinking Claude models, or a local reasoning model served by an OpenAI-compatible
+server) and give it some **extra reasoning tokens** on its provider row - 0 there effectively turns reasoning off
 and will hurt research quality even on a model that supports it. The event reviewer and the chat don't need
 this: the event reviewer only ever answers one fixed-format question per call, and the chat still works, just more
 superficially, on a non-reasoning model.
 
 **Event research limits** (also on AI review): $ per research run (default 5), $ per day (default 20), tokens per research run (input + output, works without prices; default 25,000,000), research batches per run (default 10), web searches per event (default 3) and the **Web access** switch (off on a new install: no web search until an admin turns it on). A research run stops when it passes its caps, and Send to research is refused once today's research (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **Review job** card shows the review job's status, schedule and next run, **Run now** / **Pause** and recent runs; the *Time and tokens* chart below it covers review runs, event research and Ask AI, with a cost preview for another research model.
 
-Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local (LM Studio).
+Only dashboard **Admins** can change providers, models or limits, or run comparisons. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local server.
 
 ## 7c. Web search (event research and chat)
 
@@ -319,7 +333,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | Review job never runs | `systemctl --user status netmon-scheduler`, `logs/review.log`, `/usr/bin/python3 scheduler.py status`. The job must not be paused; without an event reviewer model it still runs but copies nothing. Send to research problems: `logs/research-event.log`, `logs/research.log`, the event research $ caps on AI review. Lingering on? (`loginctl show-user $USER -p Linger`) |
 | Time ranges or event reviewer searches fail | `systemctl --user status netmon-broker`; `NETMON_BROKER_URL` / `NETMON_BROKER_KEY` in `dashboard/.env`. |
 | Push notifications never arrive | The site must be reached over a trusted HTTPS name (tunnel), not the self-signed IP. |
-| Related links all say "AI review pending" | LM Studio running with a model loaded? `curl http://127.0.0.1:1234/v1/models`. The popover footer shows the last error. A first full review takes 1–2 h. |
+| Related links all say "AI review pending" | Local model server running with a model loaded? `curl $NETMON_LLM_URL/models` (default `http://127.0.0.1:1234/v1/models`); decision model up? `curl http://127.0.0.1:8091/health`. The popover footer shows the last error. A first full review takes 1–2 h. |
 | LLM returns empty answers | Reasoning models use the whole token budget on hidden thinking. Keep `NETMON_LLM_REASONING=none`. |
 | No admin-access data | The section starts with the first snapshot after the feature was added. Login results need Elastic Agent on the target (Linux auth logs / Windows security log). Without it you still see connection attempts. |
 | Watcher testing | Never run the live `watch.py` by hand to test, because it mutes alerts for 12 h. Use `NETMON_DB=/tmp/copy.db /usr/bin/python3 watch.py`. |

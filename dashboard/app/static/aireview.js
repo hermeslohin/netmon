@@ -206,7 +206,7 @@
   let MODELS = null;
   const loadModels = async () => { MODELS = MODELS || await api("/api/llm/models"); for (const g of MODELS.custom || []) PROV[g.provider] = g.name; return MODELS; };
   // the local server; admin-added API-key providers ("api:<id>") get their names from /api/aireview + /api/llm/models
-  const PROV = { lmstudio: "Local (LM Studio)" };
+  const PROV = { lmstudio: "Local server" };
   const optKey = (p, m) => `${p}|${m}`;
   // Settings apply as soon as they are set: the Save button is hidden and fires when the value is committed
   // (checkbox ticked, or number/text entry finished with Enter or by leaving the field).
@@ -236,7 +236,7 @@
     const rows = [["correlation", "Event reviewer · review job", D.config?.correlation || {}], ["research", "Event research (Send to research only) · needs reasoning", D.research && !D.research.error ? D.research : {}],
       ["chat", "Chat (Ask AI)", D.chat || {}]];
     loadModels().then((M) => {
-      if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start LM Studio. " + note.textContent;
+      if (!(M.custom || []).length && !(M.local || []).length) note.textContent = "No models available yet: add an AI provider below, or start the local model server (NETMON_LLM_URL). " + note.textContent;
       const reasoningTokens = (provider) => (provider === "lmstudio" ? null : ((M.custom || []).find((g) => g.provider === provider) || {}).reasoning_tokens ?? null);
       for (const [sec, label, cur] of rows) {
         const r = body.appendChild(document.createElement("div")); r.className = "llm-row";
@@ -247,7 +247,7 @@
         const showWarn = (provider) => { if (!warn) return; const rt = reasoningTokens(provider);
           warn.textContent = rt === 0 ? " ⚠ this provider has 0 reasoning tokens set (AI providers > edit) - research quality will suffer" : ""; };
         msg.textContent = cur.model ? `now: ${PROV[cur.provider] || cur.provider} · ${cur.model}` : sec === "research" ? (D.research?.error || "not set: Send to research is unavailable until a reasoning-capable model is chosen")
-          : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (model loaded in LM Studio)";
+          : sec === "chat" ? "not set: chat is off until a model is chosen" : "now: auto (first model the local server lists)";
         if (sec === "research") showWarn(cur.provider);
         if (sec === "research" && cur.model) previewResearchCost(cur.provider, cur.model, M, cur);
         // picking a model applies it straight away (no Save button)
@@ -763,9 +763,9 @@
   }
   // ---- AI providers (admin): any OpenAI-compatible or Anthropic API with a key, called by the dashboard itself
   function providersCard() {
-    const c = card("AI providers", `<div class="small muted"><b>Local (LM Studio)</b> is the LM Studio server on this host (no key; its enabled flag and rate limit can be set here;
-      the model list comes live from LM Studio). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
-      OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM...);
+    const c = card("AI providers", `<div class="small muted"><b>Local server</b> is the OpenAI-compatible model server on this host (<span class="mono">NETMON_LLM_URL</span>, no key; its enabled flag and rate limit can be set here;
+      the model list comes live from its <span class="mono">/v1/models</span>). Add any number of other AI services that take an API key. <b>OpenAI / OpenAI-compatible</b> covers
+      OpenAI itself and services with the same API (OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, a self-hosted vLLM, SGLang or llama.cpp server...);
       <b>Anthropic</b> is Anthropic's API with an Anthropic API key. Their models can be picked for the event reviewer, event research and the chat,
       and in every Compare dialog. Keys are stored on the dashboard's state volume (readable only by netmon) and never shown again.</div>
       <div class="prov-list" style="margin-top:8px"></div><div class="prov-form"></div>
@@ -815,11 +815,11 @@
     }
     function localForm(p) {
       formBox.innerHTML = `<div class="llm-grid" style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-        <div class="llm-row"><span class="k">Local (LM Studio)</span><span class="small muted">${esc(p.base_url)} - ${(p.available || []).length} model(s) installed</span></div>
+        <div class="llm-row"><span class="k">Local server</span><span class="small muted">${esc(p.base_url)} - ${(p.available || []).length} model(s) installed</span></div>
         <div class="llm-row" style="align-items:flex-start"><span class="k">Models</span>
           <span style="flex:1 1 520px"><div class="pf-models"></div>
             <button type="button" class="pf-add">+ Add model</button>
-            <div class="small muted">Pick the LM Studio models that can be used, from the drop-down of what is installed. Prices are optional, $ per million tokens (empty = free).</div></span></div>
+            <div class="small muted">Pick the local server's models that can be used, from the drop-down of what is installed. Prices are optional, $ per million tokens (empty = free).</div></span></div>
         <div class="llm-row"><span class="k">Calls per hour</span><input name="rate_per_hour" type="number" min="1" max="3000" style="width:7em">
           <span class="small muted">cap on single calls (event reviewer + comparisons) - limits cost/load if something loops</span></div>
         <div class="llm-row"><span class="k">Enabled</span><label class="small"><input name="enabled" type="checkbox"> its models can be picked and used</label></div>
@@ -833,7 +833,7 @@
         ev.target.disabled = true; fm.textContent = "saving…";
         try {
           const r = await apiPost("/api/llm/providers", { action: "save", id: p.id, rate_per_hour: f("rate_per_hour").value, models: modelsText(), enabled: f("enabled").checked });
-          P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = "saved Local (LM Studio)"; reloadModels();
+          P = r.providers || P; draw(); formBox.innerHTML = ""; msg.textContent = "saved Local server"; reloadModels();
         } catch (e) { fm.textContent = "error: " + e.message; ev.target.disabled = false; }
       };
     }
@@ -914,7 +914,7 @@
         <table class="mini"><tr><th></th>${["suspicious", "benign", "expected"].map((l) => `<th>${l}</th>`).join("")}</tr>
         ${["suspicious", "benign", "expected"].map((r) => `<tr><th>${r}</th>${["suspicious", "benign", "expected"].map((g) => `<td class="num${r === g ? " good" : ""}">${fn((K.compare.matrix || {})[r + "|" + g] || 0)}</td>`).join("")}</tr>`).join("")}</table></div>` : ""}
       <div class="idgrid" style="margin-top:8px">
-        <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (host unit netmon-clef)</span>'}${K.timeouts ? ` · ${fn(K.timeouts)} retried time-outs` : ""}</span>
+        <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (see Decision model server)</span>'}${K.timeouts ? ` · ${fn(K.timeouts)} retried time-outs` : ""}</span>
         <span class="k">Now</span><span>${s.clef_stage === "related" ? `deciding links · ${fn(s.clef_todo || 0)} left` : s.clef_stage === "events" ? `event pass · ${fn(s.classifying || 0)} events left${s.event_secs ? ` · last took ${s.event_secs} s` : ""}` : "idle"} · this pass ${fn(s.clef_related_this_run || 0)} links, ${fn(s.classified_this_run || 0)} events</span>
       </div>
       <div class="llm-row" style="margin-top:8px"><span class="k">Settings</span>
@@ -935,23 +935,33 @@
     }
     return c;
   }
-  // Decision model server (llama-server running clef on the host): status, model/runtime choice, start/stop, stand-up steps
+  // Decision model server (any System One server; Kubernetes or host llama-server managed here): status, model/runtime choice, start/stop, stand-up steps
   function clefServerCard(D) {
-    const c = card("Decision model server", `<div class="small muted">The decision model runs on the host as systemd user unit <span class="mono">netmon-clef</span>
-      (<span class="mono">clef.sh</span>: LM Studio's bundled llama.cpp <span class="mono">llama-server</span>, loopback only). LM Studio itself cannot run clef. Settings are stored in the
-      netmon database; saving restarts the server (≈30 s for the 27B model, links wait meanwhile).</div><div class="cs-body small" style="margin-top:8px">${D.admin ? "loading…" : "Only an admin can see and change the server settings."}</div>
-      <details style="margin-top:10px"><summary><b>Stand-up instructions</b> (new host or rebuilt machine)</summary><div class="small" style="margin-top:6px">
+    const c = card("Decision model server", `<div class="small muted">The decision model is served by any inference server that implements the
+      <b>System One decision API</b> on loopback: <span class="mono">POST /v1/systemone</span> (a state plus typed questions in, one probability per answer out)
+      and <span class="mono">GET /health</span>. netmon can manage two kinds: a <b>Kubernetes deployment</b> (SGLang, controlled with kubectl) or a
+      <b>host service</b> (llama.cpp <span class="mono">llama-server</span>, systemd user unit <span class="mono">netmon-clef</span>). Any other compatible server works too:
+      set <span class="mono">NETMON_CLEF_URL</span> in dashboard/.env. Settings are stored in the netmon database; saving restarts the server (≈30 s for a 27B model, links wait meanwhile).</div>
+      <div class="cs-body small" style="margin-top:8px">${D.admin ? "loading…" : "Only an admin can see and change the server settings."}</div>
+      <details style="margin-top:10px"><summary><b>Requirements</b></summary><div class="small" style="margin-top:6px"><ul>
+        <li><b>Model:</b> a System One decision model - Cloudflare <i>clef</i> (27B, recommended: more accurate links) or <i>clef-flash</i> (9B, ~3× faster).
+          GGUF files for llama.cpp, Hugging Face weights for SGLang. Text only: no projector (mmproj) file.</li>
+        <li><b>Server:</b> must compute token probabilities (logits) and expose <span class="mono">/v1/systemone</span> - llama.cpp <span class="mono">llama-server</span>
+          or SGLang builds with System One support. A plain chat-completions server cannot run it.</li>
+        <li><b>Memory:</b> clef Q4 ≈ 17 GB (clef-flash ≈ 6 GB) plus KV cache, on GPU. <b>Context</b> ≥ 8,192 tokens per parallel slot;
+          <b>batch</b> ≥ 4,096 (8,192 recommended: the whole input is read in one micro-batch).</li>
+        <li><b>Network:</b> loopback only (<span class="mono">http://127.0.0.1:&lt;port&gt;</span>); other URLs are ignored, so event data never leaves the host.</li>
+      </ul></div></details>
+      <details style="margin-top:6px"><summary><b>Stand-up instructions</b> (host service; new host or rebuilt machine)</summary><div class="small" style="margin-top:6px">
       <ol>
-        <li><b>llama.cpp runtime.</b> In LM Studio → Settings → Runtime, install the <i>llama.cpp</i> CUDA runtime (version 2.59 or newer: older ones have no decision-model support).
-          It lands in <span class="mono">~/.lmstudio/extensions/backends/llama.cpp-…-cuda…/llama-server</span>; check with
-          <pre class="mono">ls ~/.lmstudio/extensions/backends/*/llama-server</pre></li>
-        <li><b>Model.</b> Download a clef GGUF into LM Studio's model folder (full clef is recommended: more accurate links; clef-flash is ~3× faster, 5.7 GB):
-          <pre class="mono">mkdir -p ~/.lmstudio/models/bartowski/Cloudflare_clef-GGUF &amp;&amp; cd $_
+        <li><b>Runtime.</b> Install a llama.cpp build whose <span class="mono">llama-server</span> supports System One, with GPU support. netmon finds it on the
+          <span class="mono">PATH</span>, in <span class="mono">CLEF_SERVER_DIRS</span>, or at <span class="mono">CLEF_SERVER</span>; check with
+          <pre class="mono">llama-server --version</pre></li>
+        <li><b>Model.</b> Download a clef GGUF into <span class="mono">~/models</span> (or a folder named in <span class="mono">CLEF_MODELS_DIR</span>):
+          <pre class="mono">mkdir -p ~/models &amp;&amp; cd ~/models
 curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-GGUF/resolve/main/Cloudflare_clef-Q4_K_S.gguf      # 16.6 GB
 # or clef-flash:
-mkdir -p ~/.lmstudio/models/bartowski/Cloudflare_clef-flash-GGUF &amp;&amp; cd $_
-curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-flash-GGUF/resolve/main/Cloudflare_clef-flash-Q4_K_S.gguf  # 5.7 GB</pre>
-          No projector (mmproj) file is needed - netmon sends text only.</li>
+curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-flash-GGUF/resolve/main/Cloudflare_clef-flash-Q4_K_S.gguf  # 5.7 GB</pre></li>
         <li><b>Service.</b> <span class="mono">~/netmon/setup.sh</span> installs the unit; then
           <pre class="mono">systemctl --user daemon-reload
 systemctl --user enable --now netmon-clef
@@ -962,7 +972,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
           The answer is a probability (<span class="mono">"noul": 0.97</span>). Then pick the model here and press <i>Save &amp; restart</i>; the Decision model box above shows <i>up</i>.</li>
         <li><b>Troubleshooting.</b> <span class="mono">journalctl --user -u netmon-clef -f</span>.
           <i>input … is too large … batch size</i> → raise <i>Batch</i> (must cover the longest event pair; 8192 is safe).
-          <i>context does not support logits</i> → the request went to LM Studio (port 1234), not llama-server.
+          <i>context does not support logits</i> → the request reached a server that cannot compute probabilities (a chat server), not the decision-model server.
           Requests time out under load → lower <i>Parallel</i>. Out of memory → use clef-flash or a smaller quant (Q3_K_M).</li>
       </ol></div></details>`);
     c.id = "ai-clef-server";
@@ -971,14 +981,14 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     const gb = (m) => `${esc(m.name)} (${esc(m.gb)} GB${m.flash ? ", flash" : ""})`;
     const render = (S) => {
       const s = S.settings || {}, run = S.running, base = (p) => esc(String(p || "").split("/").slice(-2, -1)[0] || "");
-      const bsel = `<div class="llm-row"><span class="k">Backend</span><select name="backend"><option value="patapsco" ${S.backend === "patapsco" ? "selected" : ""}>Patapsco AI cluster (SGLang, Cloudflare/clef)</option><option value="host" ${S.backend === "host" ? "selected" : ""}>Host llama-server (GGUF, netmon-clef unit)</option></select></div>`;
+      const bsel = `<div class="llm-row"><span class="k">Backend</span><select name="backend"><option value="patapsco" ${S.backend === "patapsco" ? "selected" : ""}>Kubernetes deployment (SGLang, kubectl)</option><option value="host" ${S.backend === "host" ? "selected" : ""}>Host service (llama-server, netmon-clef unit)</option></select></div>`;
       if (S.backend === "patapsco") {
         body.innerHTML = `<div class="idgrid">
           <span class="k">Deployment</span><span><b class="${S.active === "active" ? "good" : "bad"}">${esc(S.active)}</b> · ${esc(S.unit)} · ${fn(S.replicas || 0)} replica(s)</span>
           <span class="k">Serving</span><span>${run ? `<span class="mono">${esc(String(run.model).split("/").slice(-2).join("/"))}</span>${run.slots ? ` · ${fn(run.slots)} slots` : ""}${run.ctx_per_slot ? ` × ${fn(run.ctx_per_slot)} tokens` : ""} · ${esc(run.build || "")}` : `<span class="bad">not answering</span> ${esc(S.probe_error || "")}`}</span>
           <span class="k">URL</span><span class="mono">${esc(S.url)}</span></div>
         <div class="llm-grid" style="margin-top:8px">${bsel}
-          <div class="small muted">Runs on the Patapsco AI platform on this host (kubectl -n default get modeldeployment clef). Stop/Start scale it to 0/1 replicas; Restart replaces the pod.</div>
+          <div class="small muted">A Kubernetes model deployment on this host (<span class="mono">kubectl -n default get modeldeployment clef</span>), reached on a loopback NodePort. Stop/Start scale it to 0/1 replicas; Restart replaces the pod.</div>
           <div class="llm-row"><button type="button" name="save">Save backend</button> <button type="button" name="restart">Restart</button>
             <button type="button" name="${S.enabled === "enabled" ? "stop" : "start"}">${S.enabled === "enabled" ? "Stop" : "Start"}</button>
             <button type="button" name="refresh">Refresh</button> <span class="small muted msg">${s.by ? `saved by ${esc(s.by)} ${esc(ago(s.at))}` : ""}</span></div></div>
@@ -1102,7 +1112,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
           <span class="small muted" style="flex:1 1 380px">Lets the research model search and read web pages and cite them. Turn it off for cheaper, local-data-only research (no web tools, no links or citations).</span></div>
       </div>
       <div class="small muted" style="margin-top:8px">The event reviewer and comparisons make single calls and are capped per provider (AI providers > Calls per hour) instead;
-        chat answers are capped at 600,000 tokens each. Local LM Studio models cost $0.</div>
+        chat answers are capped at 600,000 tokens each. Local server models cost $0.</div>
       <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>`);
     c.id = "ai-cost";
     const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches"];
@@ -1220,7 +1230,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       pick.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Pick up to 4 models. Each gets exactly the prompt the event reviewer uses, for this one link." }));
       const cor = D.config?.correlation || {}, curLocal = cor.model || D.status.model || (M.local || []).find((m) => m.loaded)?.id || "";
       const def = new Set([optKey(cor.provider, curLocal), optKey(D.research?.provider, D.research?.model)]);
-      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: LM Studio loads it first, slow)"]),
+      const all = [...(M.local || []).map((m) => ["lmstudio", m.id, m.loaded ? " (loaded)" : " (not loaded: the server loads it first, slow)"]),
         ...(M.custom || []).flatMap((g) => g.models.map((m) => [g.provider, m.id, ""]))];
       for (const [prov, id, extra] of all) {
         const l = pick.appendChild(document.createElement("label")); l.className = "cmp-opt";
@@ -1340,7 +1350,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
     const info = card("Event reviewer", `<div class="idgrid">
-        <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local (LM Studio)")} · <a href="#/aireview?at=ai-models">change</a></span>
+        <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local server")} · <a href="#/aireview?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
         <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aireview?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aireview?at=ai-lookups">change</a>`}</span>

@@ -492,7 +492,7 @@ async function chatModelPicker() {
   const M = _llmModels; if (!M.admin) return wrap;
   const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask AI");
   sel.add(new Option("Default (set on Ai pipeline > Models)", ""));
-  for (const [label, prov, list] of [...(M.custom || []).map((g) => [g.name, g.provider, g.models]), ["Local (LM Studio)", "lmstudio", M.local || []]]) {
+  for (const [label, prov, list] of [...(M.custom || []).map((g) => [g.name, g.provider, g.models]), ["Local server", "lmstudio", M.local || []]]) {
     if (!list.length) continue;
     const g = document.createElement("optgroup"); g.label = label;
     list.forEach((m) => g.appendChild(new Option(m.id + (m.loaded ? " (loaded)" : prov === "lmstudio" ? " (not loaded)" : ""), `${prov}|${m.id}`)));

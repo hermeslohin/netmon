@@ -175,7 +175,7 @@ def check_snapshot(raw, analysis):
             "NIC link flapping": "Replace/ reseat the cable, check the switch port (speed/duplex, errors, PoE) and NIC firmware.",
             "NIC malformed Tx packets": "Driver/offload problem: update the igb driver/firmware, or disable TSO/GSO on the interface (ethtool -K).",
             "NetworkManager activation failures": "Remove or fix stale NetworkManager connection profiles (nmcli con show) for unplugged NICs.",
-            "OOM killer": "Cap model/container memory (LM Studio context, docker --memory) so GPU/host memory isn't exhausted.",
+            "OOM killer": "Cap model/container memory (model server context size, docker --memory) so GPU/host memory isn't exhausted.",
         }
         for host, cats in (H.get("syslog") or {}).items():
             for cat, v in cats.items():

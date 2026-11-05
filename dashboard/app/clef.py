@@ -1,8 +1,8 @@
 """Decision-model stage of the correlation review (Cloudflare clef-flash, a "System One" decision model).
 
 The model does not write text: it reads a state (JSON) and typed questions and returns a probability per answer,
-served on /v1/systemone by SGLang on the Patapsco AI cluster (default; clef_server.py) or by llama.cpp's llama-server
-(host unit netmon-clef, clef.sh). netmon asks it one yes/no
+served on the System One API (/v1/systemone) by any compatible server on loopback: SGLang as a Kubernetes deployment
+(default; clef_server.py), llama.cpp's llama-server (host unit netmon-clef, clef.sh) or NETMON_CLEF_URL. netmon asks it one yes/no
 ("noul") question per candidate link the correlation script proposed: are the two events related? That answer is the
 verdict (corr_llm.db tables `clef` + `verdicts`). The selected correlation model never decides a link: once every link
 is decided it makes one call per event with all its related events and notes (corr_llm.event_pass) and writes the
@@ -64,7 +64,7 @@ def _cfg_raw():
     return (corr_llm._raw_config().get("clef") or {})
 
 
-PATAPSCO_URL = "http://127.0.0.1:30891"  # Patapsco AI cluster: SGLang clef via NodePort service netmon-clef-host
+PATAPSCO_URL = "http://127.0.0.1:30891"  # Kubernetes backend: SGLang clef via a loopback NodePort service
 PATAPSCO_MODEL = "Cloudflare/clef"  # SGLang's served model name (FP8 online quantization); superagent-ai/security-one-27b also supported (_so_ask)
 
 
@@ -83,7 +83,7 @@ def _loopback(u, fallback=""):
 
 def _server_url():
     """URL of the decision-model server picked on AI review > Decision model server (docs table, clef_server.backend):
-    the Patapsco AI cluster by default, else the host llama-server on its saved port."""
+    the Kubernetes deployment by default, else the host llama-server on its saved port."""
     try:
         import store
         s = store.doc_get("clef_server", {}) or {}

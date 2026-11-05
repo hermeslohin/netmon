@@ -1,5 +1,5 @@
 """Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake
-/v1/systemone server on loopback and a stubbed event reviewer - no LM Studio, no real model."""
+/v1/systemone server on loopback and a stubbed event reviewer - no model server, no real model."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E402
 
 import json  # noqa: E402
@@ -185,8 +185,8 @@ class ClefServerSettingsTest(unittest.TestCase):
         finally:
             CS.models, CS.servers = old_m, old_s
 
-    def test_patapsco_backend(self):
-        """The Patapsco AI backend (default) is reached on loopback; only known backends are accepted; start/stop/restart
+    def test_kubernetes_backend(self):
+        """The Kubernetes backend (default) is reached on loopback; only known backends are accepted; start/stop/restart
         drive the ModelDeployment through kubectl (stubbed here) and never the host unit.
         REQ: LLM-03"""
         import clef_server as CS
@@ -213,7 +213,7 @@ class ClefServerSettingsTest(unittest.TestCase):
             CS.save({"backend": "patapsco"}, "tester")
 
     def test_sglang_health_and_model_field(self):
-        """SGLang (Patapsco backend) answers /health with an empty 200 - that counts as healthy - and needs the served
+        """SGLang (Kubernetes backend) answers /health with an empty 200 - that counts as healthy - and needs the served
         model name in every /v1/systemone body (it rejects requests without it with HTTP 422).
         REQ: LLM-03"""
         seen = []

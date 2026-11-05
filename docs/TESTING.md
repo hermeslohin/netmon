@@ -44,7 +44,7 @@ Every test module imports `tests/_env.py` first, before any netmon module. It po
 | Variable | Test value | Why |
 |---|---|---|
 | `STATE_DIR`, `NETMON_DB` | `<tmp>/state`, `<tmp>/state/netmon.db` | never the live `dashboard/state/netmon.db` |
-| `NETMON_LLM` | `off` | no LM Studio calls and no event reviewer threads |
+| `NETMON_LLM` | `off` | no local model server calls and no event reviewer threads |
 | `NETMON_INTEGRATIONS` | `<tmp>/state/integrations.json` | no Elasticsearch or UniFi credentials, so no network |
 | `NETMON_BACKUP_DIR` | `<tmp>/backup` | `analyze.py` calls `store.backup()`, which writes to the **live** `baseline/backup/` by default |
 | `NETMON_DIR` | the checkout | code only; `data/*.json` paths resolve to docs in the temp DB |

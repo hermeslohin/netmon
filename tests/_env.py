@@ -5,7 +5,7 @@ throw-away directory before anything else is imported:
 
   STATE_DIR / NETMON_DB   -> <tmp>/state, <tmp>/state/netmon.db   (never the live dashboard/state DB)
   NETMON_DIR              -> the repository checkout (code only; data comes from the temp DB)
-  NETMON_LLM=off          -> no local-LLM worker threads, no network calls to LM Studio
+  NETMON_LLM=off          -> no local-LLM worker threads, no network calls to the local model server
   NETMON_INTEGRATIONS     -> <tmp>/state/integrations.json (no Elasticsearch / UniFi credentials)
   NETMON_BACKUP_DIR       -> <tmp>/backup (analyze.py calls store.backup(); never overwrite the live daily backups)
 

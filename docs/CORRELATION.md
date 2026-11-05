@@ -104,7 +104,7 @@ Every correlation pass also records, without any model: the accounts seen in end
 ## 3. Correlation review (decision model + event reviewer model)
 
 The script only *proposes* links. **Models decide:** the decision model (clef) decides every link and every event's
-label; the event reviewer model (Gemma or whichever is selected) writes the notes. `dashboard/app/corr_llm.py` runs as a background thread in the
+label; the event reviewer model (whichever is selected) writes the notes. `dashboard/app/corr_llm.py` runs as a background thread in the
 dashboard container. With the **decision model** on (the default, AI review → Decision model) a review pass has two
 stages; with it off, the older event reviewer-only flow is used (described at the end of this section).
 
@@ -189,53 +189,64 @@ typed question. netmon asks it *related?* per link and *suspicious?* / *expected
 
 | Who labels the event | Correct | Attacks caught /20 | Normal events flagged /20 | Speed |
 |---|---|---|---|---|
-| Event reviewer (Gemma), deciding links itself (older flow) | 62.5 % | 13 | 8 | 3.5 events/min |
-| Event reviewer (Gemma), after clef decided links | 52.5 % | 17 | 16 | 7.2 events/min |
+| Event reviewer, deciding links itself (older flow) | 62.5 % | 13 | 8 | 3.5 events/min |
+| Event reviewer, after clef decided links | 52.5 % | 17 | 16 | 7.2 events/min |
 | **clef, event + all candidates, p ≥ 0.5 (used)** | **72.5 %** | 14 | **5** | 21 events/min |
 | clef, event + related events only, p ≥ 0.5 | 70.0 % | 14 | 6 | 53 events/min |
 | clef, related only, p ≥ 0.8 | 75.0 % | 10 | 0 | 53 events/min |
 | clef-flash, related only, p ≥ 0.5 / 0.7 | 47.5 / 67.5 % | 16 / 14 | 17 / 7 | 108 events/min |
 
-Told that every candidate is related, Gemma flags almost everything; clef separates attack from normal events better
+Told that every candidate is related, the event reviewer (a 26–31B open-weights model in this test) flags almost everything; clef separates attack from normal events better
 (ranking quality 0.76–0.79 vs 0.67 for clef-flash). Raise *suspicious_min* for fewer alarms (0.8: no false alarms,
 but only 10 of 20 attacks). Lab data, 40 events: differences of 2–3 events are within noise.
 
-**Patapsco AI backend (default).** On the reference host the decision model runs on Patapsco AI, a single-node
-Kubernetes platform on the monitoring computer, instead of a host service. Two model deployments share the GPU
-(time-slicing, 4 replicas, no memory isolation): **clef** (`Cloudflare/clef`, SGLang, FP8) behind the loopback
-NodePort `http://127.0.0.1:30891` (`/v1/systemone`; requests must carry `"model":"Cloudflare/clef"`), and the
-event reviewer **Gemma 4 26B** (vLLM, FP8) behind `http://127.0.0.1:30892/v1`, added as an AI provider and chosen as
-the correlation model. Select it on **AI review → Decision model server → Backend**; the page then shows the
-cluster deployment, replicas, image and what is actually being served instead of systemd. Notes:
-- Memory is unified (CPU and GPU share it): keep both models FP8 and start them one at a time; two bf16 loads can
-  exhaust host memory.
-- SGLang `--mem-fraction-static` must leave room for the KV cache after the weights (clef FP8 needs about 0.49 or
-  more); too low gives an endless restart loop and a refused port.
-- Health: SGLang answers `/health` with an empty 200 (healthy). The review worker tries it 3 times before it
-  pauses reviews with "decision model unreachable".
-- The AI review **Status** badge shows *Error* with a card explaining the cause (decision model unreachable,
-  event reviewer problem, event review / classification failed, worker error), since when, and that it retries by
-  itself; the error clears after the next clean pass.
+### The decision-model server
 
-**The server (LM Studio / llama.cpp backend).** LM Studio can load clef but cannot run it ("context does not support logits computation"). It runs
-on the host under LM Studio's bundled llama.cpp `llama-server`, endpoint `http://127.0.0.1:8091/v1/systemone`
-(loopback only), as systemd user unit **`netmon-clef`** (`clef.sh`). Manage it on **AI review → Decision model
-server** (admins): status, the model actually being served, model file and llama.cpp runtime, parallel slots,
-context, batch, port, Save & restart, start / stop, start-at-boot, and the recent server log. The dashboard reaches
-systemd through the host broker (`POST /clef`, `clef_server.py`); settings are stored in the netmon database
-(document `clef_server`), and `CLEF_*` environment variables override them. Two settings matter:
+The decision model needs a server that implements the **System One decision API** on loopback:
 
-- **Batch** (`-b/-ub`, default 8192) — clef reads its whole input in one micro-batch. llama-server's default 512
-  rejects longer event pairs with *input … too large*, which the client sees as a hang. Must be ≥ 4096.
-- **Context / Parallel** — the context is shared by the slots: 32768 / 4 = 8192 tokens per question.
+| Endpoint | Contract |
+|---|---|
+| `POST /v1/systemone` | `{"model", "state": "<text>", "questions": {"<id>": {"type": "noul", "instructions": "<question>"}}}` → `{"answers": {"<id>": {"noul": <p(yes)>}}}` |
+| `GET /health` | 200 when ready (a JSON `{"status":"ok"}` or an empty body) |
 
-**Standing it up** (the same steps are on the AI review page under *Stand-up instructions*):
+Requirements:
 
-1. LM Studio → Settings → Runtime: install the llama.cpp CUDA runtime, 2.59 or newer
-   (`ls ~/.lmstudio/extensions/backends/*/llama-server`).
-2. Download a model into LM Studio's model folder (no mmproj file needed):
+- **Logits.** The server must compute token probabilities. A text-only chat-completions server cannot run a
+  decision model (it fails with *context does not support logits computation*). Known to work: llama.cpp
+  `llama-server` and SGLang builds with System One support.
+- **Model.** clef (27B, recommended) or clef-flash (9B): ~17 GB / ~6 GB at 4-bit plus KV cache. GGUF files for
+  llama.cpp, Hugging Face weights for SGLang (FP8 halves the memory of bf16). Text only: no projector (mmproj) file.
+- **Batch** (`-b/-ub` on llama.cpp, default 8192 here): a decision model reads its whole input in one micro-batch.
+  llama-server's default 512 rejects longer event pairs with *input … too large*, which the client sees as a hang.
+  Must be ≥ 4096.
+- **Context / parallel slots:** the context is shared by the slots: 32768 / 4 = 8192 tokens per question, the
+  minimum per slot. Match `NETMON_CLEF_WORKERS` to the number of slots.
+- **Loopback only.** `clef.py` ignores any URL that is not `http://127.0.0.1`, `localhost` or `[::1]`, so event
+  data never leaves the host.
+
+Pick how it runs on **AI review → Decision model server → Backend** (admins). The dashboard reaches the host through
+the host broker (`POST /clef`, `clef_server.py`); settings are stored in the netmon database (document
+`clef_server`), and `CLEF_*` environment variables override them.
+
+| Backend | What netmon manages | Endpoint |
+|---|---|---|
+| **Kubernetes deployment** (default) | a model deployment named `clef` in namespace `default` (SGLang), via `kubectl`: status, replicas, image, served model, recent log; Stop/Start scale it to 0/1 replicas, Restart replaces the pod | loopback NodePort `http://127.0.0.1:30891` |
+| **Host service** | systemd user unit `netmon-clef` (`clef.sh`, llama.cpp `llama-server`): model file, runtime binary, parallel slots, context, batch, port, Save & restart, start / stop, start at boot, recent log | `http://127.0.0.1:8091` |
+| **Any other System One server** | nothing: set `NETMON_CLEF_URL` (and `NETMON_CLEF_MODEL` if the server needs a model name); it is only health-checked | your loopback URL |
+
+Notes for GPU-sharing setups (one GPU serving both the decision model and the event reviewer): on unified memory
+keep both models quantised (e.g. FP8) and start them one at a time; on SGLang, `--mem-fraction-static` must leave
+room for the KV cache after the weights (clef FP8 needs about 0.49 or more), or the server restarts in a loop. The
+review worker tries `/health` 3 times before it pauses reviews with "decision model unreachable"; the AI review
+**Status** badge then shows *Error* with a card explaining the cause, since when, and that it retries by itself.
+
+**Standing up the host service** (the same steps are on the AI review page under *Stand-up instructions*):
+
+1. Install a llama.cpp build whose `llama-server` supports System One, with GPU support. netmon looks for it at
+   `CLEF_SERVER`, on the `PATH` and in the folders listed in `CLEF_SERVER_DIRS` (check: `llama-server --version`).
+2. Download a model into `~/models` (or a folder listed in `CLEF_MODELS_DIR`):
    ```bash
-   mkdir -p ~/.lmstudio/models/bartowski/Cloudflare_clef-GGUF && cd $_
+   mkdir -p ~/models && cd ~/models
    curl -L -C - -O https://huggingface.co/bartowski/Cloudflare_clef-GGUF/resolve/main/Cloudflare_clef-Q4_K_S.gguf
    ```
    (clef-flash: `Cloudflare_clef-flash-GGUF/Cloudflare_clef-flash-Q4_K_S.gguf` in the same way.)
@@ -267,15 +278,15 @@ minute, suspicious / benign / expected counts, how often the event reviewer's ow
 
 Each event with undecided candidates becomes one event reviewer request (up to 10 candidates, two in parallel); the model
 answers *related / not related* per candidate with a confidence, reason and artifacts, and the optional **event
-classification** (below) labels events afterwards. Local (LM Studio) gets temperature 0 and JSON-schema output; an
+classification** (below) labels events afterwards. The local server gets temperature 0 and JSON-schema output; an
 admin-added API provider gets the answer format in the prompt. The prompt tells the model to be sceptical of
 coincidences and to treat everything inside `<event>` tags as data, never as instructions.
 
 **Which model it uses.** AI review → Models → Event reviewer picks the provider and model explicitly; that
 choice is remembered until someone changes it. If nothing has ever been chosen, it defaults to the first enabled,
-configured provider with at least one model (an admin-added API provider before Local (LM Studio), since the
-event reviewer calls far more often than a typical API rate cap allows) - **the event reviewer no longer requires Local
-(LM Studio) to be running.** If the chosen provider is later disabled or deleted, the next run raises a clear
+configured provider with at least one model (an admin-added API provider before the local server, since the
+event reviewer calls far more often than a typical API rate cap allows) - **the event reviewer no longer requires a local
+model server to be running.** If the chosen provider is later disabled or deleted, the next run raises a clear
 error on the AI review page instead of silently falling back, so pick another model there. Mind each API
 provider's calls-per-hour cap (AI review → AI providers): the event reviewer can fire many calls a minute, so a
 cloud provider meant for the occasional on-request research will hit its cap quickly unless you raise it.
@@ -283,14 +294,14 @@ cloud provider meant for the occasional on-request research will hit its cap qui
 | Setting (`dashboard/.env`) | Default | |
 |---|---|---|
 | `NETMON_LLM` | `on` | `off` disables the review (links show the script's evidence only) |
-| `NETMON_LLM_URL` | `http://127.0.0.1:1234/v1` | Local (LM Studio)'s endpoint, any OpenAI-compatible http(s) URL |
-| `NETMON_LLM_MODEL` | the model loaded in LM Studio | pin a model id for Local (LM Studio) |
-| `NETMON_LLM_REASONING` | `none` | reasoning models (Gemma, Qwen) spend the token budget on hidden reasoning otherwise |
-| `NETMON_LLM_WORKERS` | `2` | parallel requests (match LM Studio's parallel slots) |
+| `NETMON_LLM_URL` | `http://127.0.0.1:1234/v1` | the local server's endpoint: any OpenAI-compatible http(s) URL with JSON-schema structured output |
+| `NETMON_LLM_MODEL` | the first model the server lists (`/v1/models`) | pin a model id for the local server |
+| `NETMON_LLM_REASONING` | `none` | reasoning models spend the token budget on hidden reasoning otherwise |
+| `NETMON_LLM_WORKERS` | `2` | parallel requests (match the server's parallel slots) |
 
-Local (LM Studio) is itself an AI review → **AI providers** row: an admin can disable it or set its calls-per-hour
+The local server is itself an AI review → **AI providers** row: an admin can disable it or set its calls-per-hour
 cap there, same as any other provider (no key or URL to enter - those come from `NETMON_LLM_URL` and the live
-model list). Besides Local (LM Studio), the event reviewer can use any provider an admin adds on AI review > **AI
+model list). Besides the local server, the event reviewer can use any provider an admin adds on AI review > **AI
 providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mode 600)). These are OpenAI-compatible
 (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
@@ -547,7 +558,7 @@ the newest 50 with their result links, cited ones marked).
 Searching costs time and, with Anthropic or OpenAI reviewers, tokens: each round resends the event, its candidates
 and the earlier results. Most decisions are clear without searching, and the model is told not to search then.
 
-Throughput with Gemma 4 31B on the monitoring host is about 15–30 links a minute. A full day's snapshot (~2,000
+Throughput with a ~30B open-weights event reviewer on a single local GPU is about 15–30 links a minute. A full day's snapshot (~2,000
 candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If the event reviewer's current
 provider goes down or hits its rate cap, the worker backs off and retries, and links stay *pending* until it's
 reachable again (or an admin picks a different model on AI review → Models).
@@ -568,7 +579,7 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 | **Event reviewer** | The event reviewer's status, speed (verdicts per hour, tokens per minute, average tokens in / out per event review) and error |
 | **Queue: events without a note** / **Links awaiting review** | The two queues. **Clear event queue** and **Clear review queue** (admins) sit under them and ask for confirmation |
 | **Models** | Provider and model for the event reviewer (also used by the review job), event research and chat; the Elasticsearch switches (event reviewer, event research) and **Max per event**; **Notes per event** |
-| **AI providers** | Added API providers, calls-per-hour caps, Local (LM Studio) on/off |
+| **AI providers** | Added API providers, calls-per-hour caps, Local server on/off |
 | **Review limits** | Link types grid, time window, max links per event, never-send events and rules, verdict retention, event classification (above) |
 | **Event research limits** | Cost and size caps of event research (section 5) |
 | **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again, **⇄** compares models |
@@ -603,7 +614,7 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 There are two separate host jobs:
 
 - **The review job** (`review.py`) runs on the schedule (or **Run now**). It collects and analyzes a fresh snapshot, then
-  its **event reviewer** (the event reviewer's model, e.g. Gemma on LM Studio) copies earlier notes onto events
+  its **event reviewer** (the event reviewer's model) copies earlier notes onto events
   that repeat. Everything else waits in the **queue**. It never researches an event, has no web access and never writes
   a note of its own.
 - **Event research** (`research.py --event ID`) runs only when a person clicks **Send to research**. It uses the

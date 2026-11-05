@@ -66,7 +66,7 @@ window.CARD_INFO = {
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
-"source": "Dashboard AI configuration: local models are listed from LM Studio, cloud models from the AI providers box. Only an admin can change them.",
+"source": "Dashboard AI configuration: local models are listed from the local OpenAI-compatible server (/v1/models), cloud models from the AI providers box. Only an admin can change them.",
 "use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
 "what": "Which AI model each AI job uses: the event reviewer (decides every proposed link between events, and is also used by the review job), event research (only on Send to research) and the Ask AI chat."
 },
@@ -76,8 +76,8 @@ window.CARD_INFO = {
 "what": "AI services reached with an API key, any number of them. Their models can be picked for the event reviewer, event research, the chat and in every Compare dialog."
 },
 "aireview|Event reviewer": {
-"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (local LM Studio or an AI provider). Event research verdicts override it.",
-"use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check LM Studio is running or switch model in the Models card.",
+"source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (the local server or an AI provider). Event research verdicts override it.",
+"use": "The progress bar should reach 100% shortly after a new snapshot. An error, Off state or a stuck queue means Related links are not being filtered; check the model server is running or switch model in the Models card.",
 "what": "Status of the event reviewer that decides whether each proposed link between two events is real: model, provider, endpoint, parallel workers, current activity and how much of this snapshot is reviewed."
 },
 "aireview|Verdicts per hour": {

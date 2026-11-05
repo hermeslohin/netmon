@@ -3,7 +3,7 @@
 Generate docs/architecture.svg (netmon architecture) in the architecture-diagram skill's design system."""
 from html import escape as E
 
-W, H = 1300, 1110
+W, H = 1300, 1370
 C = {  # semantic palette: fill, stroke
     "front": ("rgba(8,51,68,0.4)", "#22d3ee"), "back": ("rgba(6,78,59,0.4)", "#34d399"),
     "db": ("rgba(76,29,149,0.4)", "#a78bfa"), "cloud": ("rgba(120,53,15,0.3)", "#fbbf24"),
@@ -68,8 +68,8 @@ def lab2(cx, y, color, l1, l2):  # two-line label for the narrow gaps between re
 
 # ---------------- regions
 region(20, 70, 380, 740, "HOME NETWORK", "#34d399")
-region(36, 280, 348, 290, "SECURITY ONION", "#fb7185", "4,4")
-region(440, 70, 500, 740, "MONITORING HOST (local AI box)", "#22d3ee")
+region(36, 280, 348, 290, "NSM + SIEM (e.g. Security Onion)", "#fb7185", "4,4")
+region(440, 70, 500, 740, "MONITORING HOST", "#22d3ee")
 region(980, 70, 300, 740, "CLOUD SERVICES", "#fbbf24")
 
 # ---------------- home network
@@ -78,10 +78,10 @@ node("fleet", 50, 206, 320, 52, "back", "Fleet Server", ["agent enrollment + pol
 node("sensor", 56, 312, 308, 70, "sec", "Network sensor", ["Suricata IDS · Zeek · PCAP", "mirrors all LAN traffic"], "NSM")
 node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/dns/tls/files", "endpoint events · osquery results", "detection-rule hits", "read-only API key for netmon", "audit log: logs-netmon (append + read)"], "SIEM")
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
-node("octi", 50, 690, 250, 100, "sec", "OpenCTI", ["threat-intel platform (Talos k8s)", "abuse.ch · OTX · CISA KEV · MITRE", "DShield · IPsum · Feodo · Spamhaus", "indicators · sightings · incidents"], "CTI")
+node("octi", 50, 690, 250, 100, "sec", "OpenCTI", ["threat-intel platform (optional)", "abuse.ch · OTX · CISA KEV · MITRE", "DShield · IPsum · Feodo · Spamhaus", "indicators · sightings · incidents"], "CTI")
 
 # ---------------- monitoring host
-node("llm", 460, 100, 150, 76, "ai", "Patapsco AI (k8s)", ["clef + Gemma models", "LM Studio optional"], "LOCAL LLM")
+node("llm", 460, 100, 150, 76, "ai", "Local models", ["OpenAI-compatible API", "System One API"], "OPTIONAL")
 node("sched", 626, 100, 140, 76, "back", "scheduler.py", ["systemd user unit", "runs every job"], "JOBS")
 node("broker", 782, 100, 138, 76, "bus", "host_broker.py", ["loopback · bearer key", "/range · /esquery"], "BROKER")
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
@@ -93,7 +93,7 @@ node("chatp", 698, 608, 222, 76, "ai", "Ask AI chat", ["chat.py in the dashboard
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
 
 # ---------------- cloud
-node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "event reviewer · research · chat"], "LLM")
+node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "tool calling · event reviewer · research · chat"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
 node("fc", 1000, 356, 260, 76, "cloud", "Web search", ["Firecrawl · DuckDuckGo · Brave · Tavily", "event reviewer · research · chat · cited"], "WEB")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
@@ -177,14 +177,35 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and event reviewer look-ups go through host_broker.py.",
-         "Correlation: the script proposes links, review limits filter them, the decision model (clef) decides links + labels; the event reviewer explains them.",
+         "Correlation: the script proposes links, review limits filter them, the decision model (System One API) decides links + labels; the event reviewer explains them.",
          "Event reviewer look-ups first: a planning call picks Elasticsearch searches (via the broker, max 3) and web look-ups (Firecrawl; ipinfo.io for IPs),",
          "   then it decides with the results and cites pages as [W1] links (Open events, classification pop-up). Re-reviews reuse results for 6 h; web cache 7 days.",
-         "Patapsco AI: single-node Kubernetes on the monitoring host serves the decision model (clef, SGLang) and the event reviewer (Gemma, vLLM) on loopback NodePorts; both FP8, sharing one GPU by time-slicing. LM Studio / llama.cpp remains a selectable backend.",
-         "OpenCTI (Talos k8s cluster on the home LAN): opencti.py pulls scored indicators every 15 min into local intel lists; the watcher matches them and reports sightings back; the event reviewer sees the matches.",
+         "Local models (optional): any OpenAI-compatible server for the event reviewer, any System One server on loopback for the decision model; host service, Kubernetes or another server, all interchangeable with cloud APIs.",
+         "OpenCTI (optional, on the LAN): opencti.py pulls scored indicators every 15 min into local intel lists; the watcher matches them and reports sightings back; the event reviewer sees the matches.",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
     out_leg.append(f'<text x="20" y="{ly + 92 + i * 16}" fill="#64748b" font-size="10">• {E(t)}</text>')
+
+# ---------------- requirements panel: what each part must offer (standard interfaces, no specific products)
+ry = ly + 92 + len(notes) * 16 + 14
+out_leg.append(f'<text x="20" y="{ry}" fill="#e2e8f0" font-size="11" font-weight="700" letter-spacing="1.5">REQUIREMENTS · any product that offers these interfaces fits</text>')
+reqs = [
+    ("ai", "Event reviewer", "local server or API", ["OpenAI Chat Completions or", "  Anthropic Messages API", "local: json_schema structured", "  output · temperature 0 · /v1/models", "tool calling (review job)", "instruct model · ctx >= 32k", "fast: called continuously"]),
+    ("ai", "Research · Ask AI", "API or local", ["same APIs + tool / function", "  calling (OpenAI Responses ok)", "reasoning-capable model", "  for event research", "ctx >= 128k recommended", "$ + token caps per run / day"]),
+    ("ai", "Decision model", "loopback only", ["System One decision API:", "  POST /v1/systemone", "  GET /health", "server must compute logits", "clef 27B ~17 GB · flash ~6 GB", "ctx >= 8k per slot", "batch >= 4096 tokens"]),
+    ("db", "Data sources", "read-only", ["Elasticsearch 8.x REST _search", "key: read on logs-*", "audit key: create_doc + read", "  on logs-netmon", "Suricata EVE + Zeek logs", "Elastic Agent: Defend, osquery", "opt: UniFi API · OpenCTI token"]),
+    ("back", "Monitoring host", "runs netmon", ["Linux · systemd user units", "Python 3.10+ (stdlib only)", "Docker / OCI for the dashboard", "GPU / unified memory only", "  for local models", "HTTPS out to enabled services", "browsers: HTTPS + Web Push"]),
+]
+cw, gap = 244, 10
+for i, (kind, title, tag, lines) in enumerate(reqs):
+    f, st = C[kind]
+    x = 20 + i * (cw + gap)
+    out_leg.append(f'<rect x="{x}" y="{ry + 12}" width="{cw}" height="{30 + 15 * len(lines)}" rx="6" fill="#0f172a"/>'
+                   f'<rect x="{x}" y="{ry + 12}" width="{cw}" height="{30 + 15 * len(lines)}" rx="6" fill="{f}" stroke="{st}" stroke-width="1.2"/>'
+                   f'<text x="{x + 10}" y="{ry + 31}" fill="#f1f5f9" font-size="12" font-weight="700">{E(title)}</text>'
+                   f'<text x="{x + cw - 8}" y="{ry + 25}" text-anchor="end" fill="{st}" font-size="8" letter-spacing="1">{E(tag.upper())}</text>')
+    for j, t in enumerate(lines):
+        out_leg.append(f'<text x="{x + 10}" y="{ry + 50 + j * 15}" fill="#cbd5e1" font-size="10" xml:space="preserve">{E(t)}</text>')
 
 colors = sorted({"fb923c", "34d399", "fb7185", "a78bfa", "e879f9", "fbbf24", "22d3ee", "94a3b8", "64748b"})
 markers = "".join(f'<marker id="ah-{c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#{c}"/></marker>' for c in colors)
@@ -192,7 +213,7 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{
 <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>{markers}</defs>
 <rect width="{W}" height="{H}" fill="#020617"/><rect width="{W}" height="{H}" fill="url(#grid)"/>
 <circle cx="30" cy="34" r="5" fill="#22d3ee"/><text x="44" y="39" fill="#f8fafc" font-size="18" font-weight="700">netmon · home network &amp; endpoint security monitoring</text>
-<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Security Onion · Elastic · UniFi · OpenCTI · AI provider · web search · Patapsco AI / local LLM</text>
+<text x="{W - 20}" y="39" text-anchor="end" fill="#64748b" font-size="10">Elasticsearch · Suricata · Zeek · Elastic Agent · OpenAI / Anthropic-compatible LLMs</text>
 {"".join(arrows)}
 {"".join(out)}
 {"".join(out_leg)}

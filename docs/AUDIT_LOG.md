@@ -198,7 +198,7 @@ index for that name.
 | `message` | One-line summary (shown in the list). |
 | `netmon.target` | What the action was about (`username=…`, `id=…`, `eid=…`, `route=…`). |
 | `netmon.params` | Request parameters, secrets redacted (`flattened` type). |
-| `gen_ai.system` | Provider: `lmstudio`, the id of an AI provider added on AI review (`api:<id>`), `review job` or `event research`. |
+| `gen_ai.system` | Provider: `lmstudio` (the built-in local OpenAI-compatible server; the id is historical), the id of an AI provider added on AI review (`api:<id>`), `review job` or `event research`. |
 | `gen_ai.request.model` | Model name. |
 | `gen_ai.prompt`, `gen_ai.completion` | What netmon sent and what the model answered (full text, searchable). |
 | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Tokens when the provider reports them. |
