@@ -609,7 +609,12 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
 .oe-sum:not(:empty){background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin:0 0 10px}.oe-sumh{margin-bottom:2px}
 
 /* AI pipeline pages: one box per part; the former boxes are titled sections inside it */
-.card.ai-part,.card.ai-part[data-cc]{max-height:none}.card.ai-part>.cc-body{overflow:visible}
+/* each part box is about a phone screen (400 x 844 px) by default; drag its corner to make it bigger */
+.grid.ai-parts{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
+.grid.ai-parts>.card.ai-part{flex:0 1 400px;width:400px;max-width:100%}
+.card.ai-part[data-cc]:not(.cc-sized){max-height:min(844px,calc(100svh - 110px))}
+.ai-part .grid{display:flex;flex-direction:column;gap:0}
+@media (max-width:700px){.grid.ai-parts>.card.ai-part{flex:1 1 100%;width:auto}}
 .ai-part-sub{margin:-2px 0 6px}
 .ai-sub{min-width:0;padding:12px 0 4px;border-top:1px solid var(--border);margin-top:10px}
 .ai-part .cc-body>.ai-sub:first-of-type,.ai-part>.ai-sub:first-of-type{margin-top:4px}

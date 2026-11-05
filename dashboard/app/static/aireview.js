@@ -1290,6 +1290,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       hd.replaceWith(box);
       [...box.querySelectorAll(".card")].forEach(flat);
     });
+    // the four part boxes sit side by side, each about a phone screen in size (style.css .ai-parts); scroll inside
+    const parts = [...el.querySelectorAll(":scope > .ai-part")];
+    if (parts.length) { const row = document.createElement("div"); row.className = "grid ai-parts"; parts[0].before(row); row.append(...parts); }
     // ?at= jump: the page is built after the router's own scroll ran, so scroll here (not on a background refresh)
     const at = new URLSearchParams(location.hash.split("?")[1] || "").get("at");
     if (at && !S._noScroll) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 60);
