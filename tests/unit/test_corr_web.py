@@ -80,6 +80,23 @@ class WebLookup(unittest.TestCase):
         self.assertEqual(q["start"], "2026-11-05T00:00:00+00:00")
         self.assertNotIn("end", q)
 
+    def test_sources_by_id_and_in_reason(self):
+        """REQ: WEB-08"""
+        logw = corr_llm._web_logger("ids|t", [], "m", "unit-test")
+        logw.seen.update({"https://a.example/1": "A", "https://b.example/2": "B"})
+        self.assertEqual(corr_llm._web_id(logw, "https://a.example/1"), "W1")
+        self.assertEqual(corr_llm._web_id(logw, "https://b.example/2"), "W2")
+        self.assertEqual(corr_llm._web_id(logw, "https://a.example/1"), "W1")
+        got = corr_llm._sources({"sources": ["W1", "W9"], "reason": "owned by B [W2]"}, logw)
+        self.assertEqual([s["url"] for s in got], ["https://a.example/1", "https://b.example/2"])
+
+    def test_broken_plan_json_keeps_good_lookups(self):
+        """REQ: WEB-08"""
+        t = '{"queries": [{"source": "zeek", "why": "a"}, {"source": "suricata", "why": "b" true}], "web": [{"search": "x", "why": "y"}]}'
+        d = corr_llm._plan_json(t)
+        self.assertEqual([q["why"] for q in d["queries"]], ["a"])
+        self.assertEqual(d["web"][0]["search"], "x")
+
     def test_web_artifacts(self):
         """REQ: WEB-08"""
         self.assertEqual(corr_llm.web_artifacts([{"url": "https://a/", "title": "A"}])[0]["kind"], "web")

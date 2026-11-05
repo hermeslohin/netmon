@@ -495,8 +495,11 @@ event review and classification; model comparisons never search.
 2. Searches carrying network details are refused before they leave the host: private / link-local IPs, MACs, `.lan`
    / `.local` / `.home`-style names, the site's internal prefixes, host names, WAN address and *sensitive terms*.
    The refusal is reported to the model and logged as a failed look-up.
-3. Each decision may list `"sources"`: only URLs that came back in this review's web results are kept (invented
-   links are dropped). Cited pages are shown as **links**: in the classification pop-up (**Web sources**), as 🌍 web
+3. Each web result gets a short id (`[W1]`, `[W2]` ...). Once web results are in the prompt, the reviewer must list the
+   ids it relied on in each decision's `"sources"` and name them in its reason (`... AWS [W1]`); ids or URLs written in
+   the reason count too. Only URLs that came back in this review's web results are kept (invented links are dropped).
+   A search that is just a public IP (optionally with "owner", "whois", "reputation" ...) reads that IP's
+   `ipinfo.io` page instead (owner, ASN), since search engines return nothing useful for a bare IP. Cited pages are shown as **links**: in the classification pop-up (**Web sources**), as 🌍 web
    artifacts on the related links and in the Open events window (*web sources used*), and appended to the internet /
    DNS notes the reviewer writes (`Sources: …`).
 4. Every look-up is stored in `corr_llm.db` `web_queries` (time, event, model, search or page, why, result URLs,
