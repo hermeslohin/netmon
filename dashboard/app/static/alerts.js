@@ -99,10 +99,17 @@
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(e?.unotes || {}) }; };
   const vChip = (a) => a.verdict === "unreviewed" || !a.verdict ? `<span class="muted small" title="No verdict yet from a person, the event reviewer or the decision model">not reviewed</span>`
     : `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>${a.vsrc === "ai" ? ` <span class="small muted">AI ${Math.round((X().classes?.[a.eid]?.confidence || 0) * 100)}%</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
+  // the event reviewer's paragraph (context + why the verdict + what research found), shown in full under the alert for every role
+  const revOf = (a) => a.review || X().classes?.[a.eid];
+  const revBlock = (a) => { const c = revOf(a), r = String(c?.reason || "");
+    if (!r || /^Decision model:/.test(r)) return "";
+    const body = window.relUi?.reasonHtml ? window.relUi.reasonHtml(r, c.sources) : esc(r);
+    return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · <span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>` : ""}</span> ${body}</div>`; };
+  const alertText = (v, x) => `<span style="${x.read === 0 ? "font-weight:600" : ""}">${linkifyIps(v)}</span>${revBlock(x)}`;
   const researchCell = (a) => { const c = X().classes?.[a.eid], n = X().notes?.[a.eid], ce = X().clef_ev?.[a.eid], src = c?.sources?.length || 0;
     const r = String(c?.reason || "");
     return (n ? `<span class="note-v v-${esc(String(n.verdict || "").replace(/[^a-z-]/g, ""))}" title="Research note: ${esc(n.summary || "")}">📝 ${esc(n.verdict || "researched")}</span> ` : "")
-      + (r ? `<span class="small" title="${esc(r)}">${esc(r.length > 150 ? r.slice(0, 148) + "…" : r)}</span>` : "")
+      + (r && !/^Decision model:/.test(r) ? `<span class="small muted" title="The event reviewer's explanation is shown under the alert">🤖 reviewed</span>` : "")
       + (src ? ` <span class="small" title="the event reviewer cited ${src} web page${src === 1 ? "" : "s"}">🌍${src}</span>` : "")
       + ((X().web?.[a.eid] || []).length ? ` <span class="small" title="${esc((X().web[a.eid]).map((w) => (w.kind === "page" ? "page: " : "search: ") + w.query).join("\n"))}">🔎${X().web[a.eid].length}</span>` : "")
       + (ce && !c ? `<span class="small muted">decision model: p(suspicious) ${Math.round((ce.p_suspicious || 0) * 100)}%</span>` : "")
@@ -205,7 +212,7 @@
         ...(isUserRole() ? [] : [askCol("alert", (x) => x.text)]), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
         ...(rich && rows[0]?.eid ? rcCols().slice(0, 1) : []),
-        { k: "text", t: "Alert", fmt: (v, x) => `<span style="${x.read ? "" : "font-weight:600"}">${linkifyIps(v)}</span>` },
+        { k: "text", t: "Alert", fmt: (v, x) => alertText(v, { ...x, read: x.read ? 1 : 0 }) },
         ...(rich && rows[0]?.eid ? rcCols().slice(1) : [])],
         rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(isUserRole() ? {} : { evId: (x) => `alert|${x.id}`, filter: true }),
           ...(rich && rows[0]?.eid ? { onclick: openAlert } : {}) }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
@@ -219,7 +226,7 @@
       dc.appendChild(D.alerts.length ? table(null, [
         { k: "ts", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : v === "urgent" ? "sev-medium" : "sev-low"}">${esc(v)}</span>` },
-        rcCols()[0], { k: "text", t: "Detection", fmt: (v) => linkifyIps(v) }, ...rcCols().slice(1)],
+        rcCols()[0], { k: "text", t: "Detection", fmt: (v, x) => alertText(v, x) }, ...rcCols().slice(1)],
         D.alerts, { sort: "ts", filter: true, onclick: openAlert }) : (() => { const d = document.createElement("div"); d.className = "empty"; d.textContent = "No detections with this verdict."; return d; })());
       el.appendChild(dc);
       dc.querySelectorAll(".vf-chip").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v || ""; A.jump = true; rerender(); }));

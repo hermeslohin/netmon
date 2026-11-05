@@ -41,7 +41,7 @@ There are two kinds of model. Each role is chosen on **AI pipeline configuration
 
 | Role | Interface it must offer | Model requirements |
 |---|---|---|
-| **Event reviewer** (correlation event pass, link notes, review job) | **OpenAI-compatible Chat Completions** (`POST /v1/chat/completions`, `GET /v1/models`) or the **Anthropic Messages** API (`POST /v1/messages`). The local server (`NETMON_LLM_URL`) must also accept `temperature: 0` and **structured output** (`response_format: {"type": "json_schema", "strict": true}`) and ignore or honour `reasoning_effort`. API providers get the JSON format in the prompt instead. The review job also needs **tool / function calling**. | Instruction-tuned model that returns valid JSON reliably; 25–35B-class open-weights models or any current API model. Context ≥ 32k tokens recommended (on overflow netmon retries with fewer notes). Fast: it is called continuously, `NETMON_LLM_WORKERS` (default 2) at a time. Reasoning off or low. |
+| **Event reviewer** (correlation event pass, event reason, review job) | **OpenAI-compatible Chat Completions** (`POST /v1/chat/completions`, `GET /v1/models`) or the **Anthropic Messages** API (`POST /v1/messages`). The local server (`NETMON_LLM_URL`) must also accept `temperature: 0` and **structured output** (`response_format: {"type": "json_schema", "strict": true}`) and ignore or honour `reasoning_effort`. API providers get the JSON format in the prompt instead. The review job also needs **tool / function calling**. | Instruction-tuned model that returns valid JSON reliably; 25–35B-class open-weights models or any current API model. Context ≥ 32k tokens recommended (on overflow netmon retries with fewer notes). Fast: it is called continuously, `NETMON_LLM_WORKERS` (default 2) at a time. Reasoning off or low. |
 | **Event research** (only on *Send to research*) | Same APIs, with **tool / function calling** (OpenAI Chat Completions `tools`, OpenAI Responses API for OpenAI itself, or Anthropic `tool_use`) | A **reasoning-capable** model with a large context (≥ 128k tokens recommended); several tool calls per event. Capped in $ and tokens per run and per day. |
 | **Ask AI** (chat) | Same as event research | Any tool-calling chat model; a reasoning model answers more thoroughly. |
 | **Decision model** (link + event label probabilities) | The **System One decision API** on loopback: `POST /v1/systemone` (a state plus typed yes/no questions in, one probability per question out) and `GET /health`. The server must compute token probabilities (logits); a text-only chat server cannot serve it. | A System One decision model (Cloudflare *clef* 27B, or *clef-flash* 9B for speed): ~17 GB / ~6 GB at 4-bit plus KV cache; context ≥ 8,192 tokens per parallel slot; batch ≥ 4,096 tokens (whole input in one micro-batch). Servers known to work: llama.cpp `llama-server` and SGLang builds with System One support. |
@@ -138,7 +138,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
 3. **Suppress.** Never-send rules, checked-off items and known-benign patterns (`suppress.py`) hide matching events.
 4. **Correlate.** `correlate.py` proposes links between events (shared hosts, IPs, accounts, time, ATT&CK, same
    problem). The decision model answers one yes/no question per link; the event reviewer model then labels each
-   event suspicious, benign or expected and writes link notes. Verdicts live in `corr_llm.db`.
+   event suspicious, benign or expected and writes one reason paragraph per event plus link artifacts. Verdicts live in `corr_llm.db`.
 5. **Review job.** For events in a "review" category without a note, the event reviewer copies a matching earlier
    note (marked as copied). It never writes new notes. Everything else waits on **AI pipeline monitoring → Queue**.
 6. **Research (on request).** A person clicks **Send to research**; the host broker starts `research.py --event ID`,
@@ -154,7 +154,7 @@ The urgent path is separate and has no AI: watcher → `alerts` table → `webpu
 | Stage | Model | Where chosen | Input | Output |
 |---|---|---|---|---|
 | Correlation link decision | decision model (System One API, probabilities only) | AI pipeline configuration → Decision model settings | the two events + the script's evidence | related / not related per link |
-| Event pass | event reviewer model | AI pipeline configuration → Models | event + decided links + notes + intel hits | suspicious / benign / expected, link notes |
+| Event pass | event reviewer model | AI pipeline configuration → Models | event + decided links + notes + intel hits | suspicious / benign / expected, one reason paragraph per event, link artifacts |
 | Review job | event reviewer model | AI pipeline configuration → Models | queued events + earlier notes | copied note or left queued |
 | Event research | research model | AI pipeline configuration → Models | one event, web, optional Elasticsearch | research note with verdict |
 | Ask AI | chat model | AI pipeline configuration → Models | user question + read-only tools | answer |

@@ -123,6 +123,21 @@
       <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>
       ${webs.length && U.artifactsHtml ? `<details class="oe-det oe-sub"><summary>${webs.length} web ${webs.length === 1 ? "source" : "sources"} used</summary>${U.artifactsHtml(webs, "Pages the event reviewer relied on")}</details>` : ""}`;
   }
+  // the events passed in to the AI determinations (decision model label, event reviewer) made during win (one firing), or the
+  // latest one of each stage (window header)
+  // the events passed in to the AI determinations (decision model label, event reviewer) made during win (one firing), or the
+  // latest one of each stage (window header): one collapsed arrow like "N artifacts", each determination collapsed inside
+  function inputsBlock(d, eids, win) {
+    const U = window.relUi || {}; if (!U.inputsHtml) return "";
+    let D = eids.flatMap((e) => (d.decisions || {})[e] || []).sort((a, b) => (b.at || 0) - (a.at || 0));
+    if (win) D = D.filter((r) => r.at != null && r.at >= win[0] && r.at < win[1]);
+    else D = ["decision", "review"].map((s) => D.find((r) => r.stage === s)).filter(Boolean);
+    const n = new Set(D.flatMap((r) => (r.inputs || []).filter((x) => x.sent).map((x) => x.id))).size;
+    if (win && !D.length && d.inputs_since && win[1] <= d.inputs_since)
+      return `<details class="oe-det oe-sub"><summary>Events passed in to the AI determination: not recorded</summary><div class="small muted" style="padding:4px 14px">netmon has recorded them since ${esc(new Date(d.inputs_since * 1000).toLocaleString())}; this firing is older.</div></details>`;
+    return `<details class="oe-det oe-sub"><summary>${n} event${n === 1 ? "" : "s"} passed in to the AI determination${D.length > 1 ? "s" : ""}</summary>
+      ${U.inputsHtml(D, d.events || {}, { empty: win ? "No AI determination made during this firing." : "No AI determination recorded yet." })}</details>`;
+  }
   function firesHtml(d, x) {
     const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};
     let F = d.fires || [];
@@ -134,7 +149,7 @@
     { const by = {}; for (const f of F) (by[f.eid] = by[f.eid] || []).push(f);
       for (const L of Object.values(by)) { L.sort((a, b) => Date.parse(a.seen) - Date.parse(b.seen));
         L.forEach((f, i) => win.set(f, [i ? Date.parse(f.seen) / 1000 : -Infinity, i < L.length - 1 ? Date.parse(L[i + 1].seen) / 1000 : Infinity])); } }
-    const body = (f) => relBlock(d, [f.eid], false, win.get(f));
+    const body = (f) => relBlock(d, [f.eid], false, win.get(f)) + inputsBlock(d, [f.eid], win.get(f));
     const vHtml = nv > 1 ? `<div class="oe-variants small"><div class="muted">${nv} variants - same condition, different numbers in the text. Click one to show only its firings (click again for all):</div>${vids.map((e) => {
       const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
       return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
@@ -237,7 +252,7 @@
     catch (e) { back.querySelector(".oe-body").innerHTML = `<div class="empty">${esc(e.message || e)}</div>`; return; }
     if (!back.isConnected) return;
     { const all = [...new Set([x.eid, ...Object.keys(d.by_event || {}), ...(d.fires || []).map((f) => f.eid)])];
-      back.querySelector(".oe-sum").innerHTML = `<div class="oe-sumh small muted">All firings${all.length > 1 ? ` and variants (${all.length})` : ""} together</div>${relBlock(d, all, false)}`; }
+      back.querySelector(".oe-sum").innerHTML = `<div class="oe-sumh small muted">All firings${all.length > 1 ? ` and variants (${all.length})` : ""} together</div>${relBlock(d, all, false)}${inputsBlock(d, all)}`; }
     back.querySelector(".oe-body").innerHTML = `${kidsHtml(x)}<h4>When it fired (${(d.fires || []).length || (d.occurrences || []).length}${(d.fires || []).length >= 1000 ? "+" : ""})</h4>${firesHtml(d, x)}`;
     wireKids(back, x);
     back.addEventListener("click", (e) => { const b = e.target.closest(".oe-vchip"); if (!b) return;

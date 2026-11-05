@@ -1,5 +1,6 @@
 #!/bin/bash
-# Every netmon code change goes through here:  ./ship.sh "commit message" [--deploy] [--force] [--skip-tests]
+# Every netmon code change goes through here:  ./ship.sh "commit message" [--deploy] [--force] [--skip-tests] [--skip-scan]
+#   --skip-scan: skip step 1 (security scan) on the owner's request; the secret and sensitive-data gates still run
 #   0. test gate: unit + end-to-end suite (tests/run_tests.py) and requirement traceability (tests/gen_docs.py --check);
 #      any failure ABORTS (--force does not bypass it; --skip-tests does, and says so in the commit message).
 #      The run regenerates docs/TEST_TRACEABILITY.md + the inventory in docs/TESTING.md, which are committed with the change.
@@ -9,9 +10,9 @@
 #   4. git commit + push to the GitHub repo in site.json (github_repo); optional dashboard redeploy
 set -u
 NM=$(cd "$(dirname "$0")" && pwd); cd "$NM"
-MSG=${1:?usage: ship.sh "commit message" [--deploy] [--force] [--skip-tests]}; shift
-DEPLOY=0; FORCE=0; SKIPTESTS=0
-for a in "$@"; do [ "$a" = --deploy ] && DEPLOY=1; [ "$a" = --force ] && FORCE=1; [ "$a" = --skip-tests ] && SKIPTESTS=1; done
+MSG=${1:?usage: ship.sh "commit message" [--deploy] [--force] [--skip-tests] [--skip-scan]}; shift
+DEPLOY=0; FORCE=0; SKIPTESTS=0; SKIPSCAN=0
+for a in "$@"; do [ "$a" = --deploy ] && DEPLOY=1; [ "$a" = --force ] && FORCE=1; [ "$a" = --skip-tests ] && SKIPTESTS=1; [ "$a" = --skip-scan ] && SKIPSCAN=1; done
 SCAN=${NETMON_SCAN_DIR:-$HOME/.cache/netmon/sec}
 
 TESTS="not run (--skip-tests)"
@@ -33,10 +34,14 @@ else
   echo "   $TESTS"
 fi
 
+if [ $SKIPSCAN -eq 1 ]; then
+  echo "== 1. security scan SKIPPED (--skip-scan)"; R='{"skipped": true, "new_high": 0}'
+else
 echo "== 1. security scan"
 "$NM/sec_scan.sh" "$SCAN" > "$NM/baseline/secscan-last.txt" 2>&1
 R=$(/usr/bin/python3 "$NM/secfindings.py" sync "$SCAN" --notify new --context "code change: $MSG") || { echo "secfindings failed"; exit 1; }
 echo "   $R"
+fi
 
 echo "== 2. secret gate on the commit"
 git add -A

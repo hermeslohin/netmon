@@ -1659,6 +1659,10 @@ class H(BaseHTTPRequestHandler):
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]
                 return self._json(eventstore.detail(e_) if e_ else {"occurrences": [], "related": []})
+            if path == "/api/events/inputs":  # the events passed in to an event's AI determinations (Posture / Alerts pop-ups)
+                import eventstore
+                e_ = (q.get("e") or [""])[0][:600]
+                return self._json(eventstore.decision_inputs(e_) if e_ else {"decisions": [], "events": {}})
             if path == "/api/events/related":  # Open events: one row's stored related events (+ artifacts, decision model)
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]
@@ -1890,6 +1894,17 @@ class H(BaseHTTPRequestHandler):
                 if role == "user":  # only their devices' alerts ever leave the server; private read marker
                     upto = auth.read_upto(user)
                     rows = [dict(r, mine=True, read=1 if r["id"] <= upto else 0) for r in store.alerts_recent(2000) if store.alert_for(r, ids)][:lim]
+                    try:  # the event reviewer's paragraph (label, reason, cited pages) on the user's own alerts - nothing else of the AI extras
+                        import eventstore
+                        rows, ex = eventstore.alert_view(rows, related=False, art_limit=0)
+                        CL = (ex or {}).get("classes") or {}
+                        for r in rows:
+                            c = CL.get(r.get("eid"))
+                            if c:
+                                r["review"] = {"label": c.get("label"), "reason": c.get("reason"), "at": c.get("at"),
+                                               "sources": [{k: x.get(k) for k in ("url", "title", "id")} for x in (c.get("sources") or []) if isinstance(x, dict)]}
+                    except Exception as e:  # noqa: BLE001 - the plain feed still works
+                        print(f"alerts (user): review unavailable: {e}", file=sys.stderr)
                     n = sum(1 for r in rows if not r["read"])
                     return self._json({"alerts": rows, "unread": n, "unread_mine": n, "mode": "some"})
                 if (q.get("cleared") or [""])[0] and role != "user":  # alerts a mute rule cleared (Show cleared)

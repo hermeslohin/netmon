@@ -157,7 +157,35 @@
   const clefEvHtml = (c) => !c ? "" : `<span class="note-v v-${esc(String(c.label || "").replace(/[^a-z-]/g, ""))}" title="Decision model (${esc(c.model || "clef")}) event label: p(suspicious) ${pct(c.p_suspicious)}, p(expected) ${pct(c.p_expected)}">clef: ${esc(c.label || "?")}</span> <span class="small muted">p sus ${pct(c.p_suspicious)} · p exp ${pct(c.p_expected)}</span>`;
   const clefLinkHtml = (r) => r.clef ? `<span class="rel-ai ${r.clef.related ? "yes" : "pend"}" title="Decision model (${esc(r.clef.model || "clef")}) p(related) = ${(r.clef.p_related || 0).toFixed(3)}">clef ${pct(r.clef.p_related)} related</span>`
     : `<span class="rel-ai pend" title="Decided before the decision model (clef) ran: ${esc(r.llm_model || "reviewer")} verdict">no clef decision</span>`;
-  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml };  // used by the Open events window (openevents.js)
+  // the events passed in to an event's determinations (decision model: the event + every candidate with its link probability;
+  // event reviewer: the related ones). decs = [{stage, at, model, label, p_suspicious, p_expected, inputs:[{id, p, sent, related}]}]
+  function inputsHtml(decs, EV, opts = {}) {
+    if (!decs || !decs.length) return opts.empty === false ? "" : `<div class="small muted">${esc(opts.empty || "No determination recorded.")}</div>`;
+    const stageName = { decision: "Decision model", review: "Event reviewer" };
+    return decs.map((d) => { const ins = d.inputs || [], sent = ins.filter((x) => x.sent).length;
+      const head = d.stage === "decision"
+        ? `→ <span class="note-v v-${esc(String(d.label || "").replace(/[^a-z-]/g, ""))}">${esc(d.label || "?")}</span> <span class="muted">p sus ${pct(d.p_suspicious)} · p exp ${pct(d.p_expected)}</span>`
+        : d.label ? `<span class="muted">its own label:</span> ${esc(d.label)}` : "";
+      const rows = ins.map((x) => { const e = (EV || {})[x.id] || { label: x.id, type: String(x.id).split("|")[0] }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding", adm: "admin", hf: "host", iss: "vuln" }[e.type]] || [e.type, ""];
+        const lab = String(e.label || x.id);
+        return `<div class="oe-in${x.sent ? "" : " oe-in-off"}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-ai ${x.related ? "yes" : "pend"}" title="Decision model link probability with this event">${pct(x.p)} ${x.related ? "related" : "not related"}</span>
+          ${x.sent ? "" : `<span class="small muted" title="Left out of the request to keep it within the model's state size">not sent</span>`}
+          <span class="rel-l">${esc(lab.length > 140 ? lab.slice(0, 138) + "…" : lab)}</span>${e.t0 || e.t1 ? ` <span class="small muted">🕒 ${esc(evTime(e))}</span>` : ""}${e.link ? ` <a class="small" href="${esc(e.link)}">open ↗</a>` : ""}</div>`; }).join("");
+      return `<details class="oe-det oe-sub oe-inputs"${opts.open ? " open" : ""}><summary><b>${esc(stageName[d.stage] || d.stage)}</b> <span class="muted">${esc(String(d.model || "").replace(/^.*[:/]/, ""))} · ${esc(d.at ? new Date(d.at * 1000).toLocaleString() : "")}</span> ${head}
+          <span class="muted">· the event + ${sent} event${sent === 1 ? "" : "s"} passed in${ins.length > sent ? ` (${ins.length - sent} left out)` : ""}</span>${d.reconstructed ? ` <span class="small muted" title="Made before netmon recorded the inputs: rebuilt from the decision model's link decisions on this event">rebuilt</span>` : ""}</summary>
+        ${rows || `<div class="small muted">No other events: decided from the event and its notes alone.</div>`}</details>`; }).join("");
+  }
+  // fill a placeholder (.rel-inputs[data-inputs=eid]) in a pop-up from /api/events/inputs
+  function loadInputs(root) {
+    const ph = root.querySelector(".rel-inputs[data-inputs]"); if (!ph) return;
+    api("/api/events/inputs?e=" + encodeURIComponent(ph.dataset.inputs)).then((d) => { if (!ph.isConnected) return;
+      const D = d.decisions || [];
+      ph.innerHTML = D.length ? `<div class="small"><b>Events passed in to make the determination</b></div>${inputsHtml(D.slice(0, 2), { ...(S.corr?.events || {}), ...(d.events || {}) }, { open: true })}${D.length > 2 ? `<details class="oe-det oe-sub"><summary class="small">${D.length - 2} earlier determination${D.length - 2 === 1 ? "" : "s"}</summary>${inputsHtml(D.slice(2), { ...(S.corr?.events || {}), ...(d.events || {}) })}</details>` : ""}`
+        : `<div class="small muted">No determination recorded for this event yet.</div>`;
+      if (pop && root === pop) { const r = pop.getBoundingClientRect(); if (r.bottom > innerHeight - 8) pop.style.top = Math.max(8, innerHeight - r.height - 8) + "px"; }
+    }).catch((e) => { ph.innerHTML = `<div class="small muted">${esc(e.message || e)}</div>`; });
+  }
+  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml, inputsHtml };  // used by the Open events window (openevents.js)
   const loadingRel = new Set();
   function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
     const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);
@@ -178,7 +206,7 @@
     const cev = S.corr?.clef_ev?.[id];
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
-      ${cev ? `<div class="small" style="padding:4px 10px">${clefEvHtml(cev)}</div>` : ""}
+      ${cev ? `<div class="small" style="padding:4px 10px">${clefEvHtml(cev)}</div><div class="rel-inputs" data-inputs="${esc(id)}" style="padding:0 10px 4px"><div class="small muted">Loading the events passed in…</div></div>` : ""}
       ${(window.__oeExtra?.related_n?.[id] || 0) > rel.length ? `<div class="small muted" style="padding:4px 10px">showing the ${rel.length} most confident of ${window.__oeExtra.related_n[id]} related events</div>` : ""}
       ${tuneHtml(id) ? `<div style="padding:4px 10px">${tuneHtml(id)}</div>` : ""}
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding" }[e.type]] || [e.type, ""];
@@ -198,6 +226,7 @@
     const below = r.bottom + 6, h = pop.offsetHeight;
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
+    loadInputs(pop);
   }
   const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
   function openNote(btn) {
@@ -236,6 +265,7 @@
         ${S.corr?.clef_ev?.[id] ? `<div style="margin-top:4px">${clefEvHtml(S.corr.clef_ev[id])}</div>` : ""}
         <p>${reasonHtml(c.reason, c.sources)}</p>
         ${sourcesHtml(c.sources)}
+        <div class="rel-inputs" data-inputs="${esc(id)}"><div class="small muted">Loading the events passed in…</div></div>
         <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the event reviewer's. Verify before acting.</div></div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
@@ -244,6 +274,7 @@
     const below = r.bottom + 6, h = pop.offsetHeight;
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
+    loadInputs(pop);
   }
   // ---- event pair label ("Alarm – IDS") and "never send to the AI" rules for watcher alerts (shared with alerts.js / aireview.js)
   const PAIR_NAME = { alert: "Alert", finding: "Finding", f: "Finding", ids: "IDS", admin: "Admin", adm: "Admin", host: "Endpoint", hf: "Endpoint", ti: "Threat intel", vuln: "Vulnerability", iss: "Vulnerability", gw: "Gateway", alarm: "Triage alarm" };

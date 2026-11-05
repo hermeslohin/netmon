@@ -6,7 +6,7 @@ served on the System One API (/v1/systemone) by any compatible server on loopbac
 ("noul") question per candidate link the correlation script proposed: are the two events related? That answer is the
 verdict (corr_llm.db tables `clef` + `verdicts`). The selected correlation model never decides a link: once every link
 is decided it makes one call per event with all its related events and notes (corr_llm.event_pass) and writes the
-suspicious / benign / expected decision and the link notes.
+reason paragraph for the decision model's suspicious / benign / expected label and the link artifacts.
 Settings live in llm_config (key `clef`), edited on AI pipeline configuration > Decision model settings.
 """
 import json
@@ -33,8 +33,9 @@ Q_EVENT_EXPECTED = ("Is EVENT normal, expected activity for this device, user or
                     "what the owner notes describe)?")
 
 
-def event_state(e, related, when, desc, notes=None, rel_notes=None):
-    """JSON state for one event with all of its related events (each: event + the decision model's link probability)."""
+def event_state(e, related, when, desc, notes=None, rel_notes=None, kept=None):
+    """JSON state for one event with all of its related events (each: event + the decision model's link probability).
+    kept (dict, optional) gets n = how many of `related` (in order) went into the state, cut = the state was clipped."""
     rel = []
     for x, p in related[:20]:
         d = _ev(x, when(x), desc(x.get("type")), (rel_notes or {}).get(id(x)))
@@ -48,7 +49,11 @@ def event_state(e, related, when, desc, notes=None, rel_notes=None):
     if len(txt) > STATE_MAX:
         for d in [s["EVENT"], *rel]:
             d.pop("owner_notes", None); d["description"] = d["description"][:250]
+        if kept is not None:
+            kept["cut"] = len(json.dumps(s, ensure_ascii=False, default=str)) > STATE_MAX
         txt = json.dumps(s, ensure_ascii=False, default=str)[:STATE_MAX]
+    if kept is not None:
+        kept["n"] = len(rel)
     return txt
 
 

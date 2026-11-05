@@ -20,6 +20,11 @@ import fixtures, store
 fixtures.seed_snapshot()
 store.alerts_add([fixtures.alert("kid phone contacted a threat-listed IP", key="t|kid", targets=["host:kidphone"]),
                   fixtures.alert("lab server brute force", key="t|lab", targets=["host:labserver"])], source="unifi")
+import corr_llm, time
+with corr_llm._db() as c:  # the event reviewer's paragraph on both alerts
+    for r in store.alerts_recent(10):
+        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (f"alert|{r['id']}", "benign", 0.7,
+                  "REVIEWER PARAGRAPH " + r["key"], "cloudflare_clef + reviewer", "s", time.time()))
 """
 
 
@@ -119,6 +124,19 @@ class UserScope(unittest.TestCase):
         keys = {r["key"] for r in rows}
         self.assertIn("t|kid", keys)
         self.assertNotIn("t|lab", keys)
+
+    def test_user_sees_event_reviewer_paragraph(self):
+        """A User's alert feed carries the event reviewer's paragraph (label, reason, cited pages) for their own alerts only,
+        and none of the other AI extras.
+        REQ: AC-06, LLM-03"""
+        code, body, _ = as_("e2e-user").get("/api/alerts")
+        self.assertEqual(code, 200)
+        rv = {r["key"]: r.get("review") for r in body["alerts"]}
+        self.assertEqual(rv["t|kid"]["reason"], "REVIEWER PARAGRAPH t|kid")
+        self.assertEqual(rv["t|kid"]["label"], "benign")
+        self.assertLessEqual(set(rv["t|kid"]), {"label", "reason", "at", "sources"})
+        self.assertNotIn("REVIEWER PARAGRAPH t|lab", json.dumps(body))
+        self.assertIsNone(body.get("extra"))
 
     def test_admin_sees_all_alerts(self):
         """An admin's feed has both alerts.

@@ -361,7 +361,8 @@ def detail(eid):
     fe = list(dict.fromkeys([f["eid"] for f in fires] or members[:1]))[:60]
     R, partners = corr_llm.related_view({e: {e} for e in fe})
     CE = corr_llm.clef_events_view(fe)
-    ev = _ev_view(partners | set(fe))
+    DI = corr_llm.decision_inputs_view(fe)  # the events passed in to each determination (the firings show the ones in their span)
+    ev = _ev_view(partners | set(fe) | {x["id"] for L in DI.values() for d in L for x in d["inputs"]})
     by = {}
     for e in fe:
         seen = {}
@@ -379,7 +380,15 @@ def detail(eid):
                 x.update({k: v for k, v in r.items() if k not in ("llm_artifacts", "llm_ats")})
         by[e] = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:40]
     return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "by_event": by, "events": ev,
-            "clef_ev": next((CE[m] for m in fe if m in CE), None)}
+            "clef_ev": next((CE[m] for m in fe if m in CE), None), "decisions": DI,
+            "inputs_since": corr_llm.decision_inputs_since()}
+
+
+def decision_inputs(eid):
+    """Posture / Alerts classification pop-up: the events passed in to this event's determinations, with their records."""
+    import corr_llm
+    DI = corr_llm.decision_inputs_view([eid]).get(eid, [])
+    return {"decisions": DI, "events": _ev_view({x["id"] for d in DI for x in d["inputs"]})}
 
 
 def _ev_view(eids):

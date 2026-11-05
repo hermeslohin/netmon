@@ -53,7 +53,7 @@ class ClefStageTest(unittest.TestCase):
     def setUp(self):
         CALLS.clear()
         with corr_llm._db() as c:
-            c.execute("DELETE FROM clef"); c.execute("DELETE FROM verdicts"); c.execute("DELETE FROM event_class"); c.execute("DELETE FROM clef_event")
+            c.execute("DELETE FROM clef"); c.execute("DELETE FROM verdicts"); c.execute("DELETE FROM event_class"); c.execute("DELETE FROM clef_event"); c.execute("DELETE FROM decision_inputs")
 
     def test_decision_model_decides_every_link(self):
         """Only related questions are asked; the decision model's answer is the verdict for every link, yes and no.
@@ -68,7 +68,7 @@ class ClefStageTest(unittest.TestCase):
 
     def test_event_pass_one_call_with_all_related_events(self):
         """After every link is decided the event reviewer gets ONE call per event with all its related events, classifies the
-        event and writes the link notes; it cannot change a link's verdict.
+        event in one paragraph and gives each link only artifacts (no per-link reason); it cannot change a link's verdict.
         REQ: LLM-03"""
         corr_llm.clef_pass(BASE, [("a", r) for r in BASE["related"]["a"]])
         calls = []
@@ -87,11 +87,13 @@ class ClefStageTest(unittest.TestCase):
             corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = old, oldt, oldr
         self.assertEqual(n, 1)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0], ["ssh brute force on nas"])  # only the clef-related event gets a link note
+        self.assertEqual(calls[0][0], ["ssh brute force on nas"])  # only the clef-related event is sent
         self.assertTrue(calls[0][1].startswith(corr_llm.EVENT_SYSTEM))
         self.assertIn("DECISION MODEL LABEL: suspicious", calls[0][1])
         v = corr_llm.verdicts({corr_llm.pair("a", "b")})[corr_llm.pair("a", "b")]
-        self.assertTrue(v["related"]); self.assertTrue(v["reason"].startswith("same ssh target nas"))
+        self.assertTrue(v["related"]); self.assertFalse(v["reason"].startswith("same ssh target nas"))  # no link note written
+        self.assertNotIn("link note pending", v["reason"])
+        self.assertIn("ONE short paragraph", calls[0][1])
         with corr_llm._db() as c:
             self.assertEqual(c.execute("SELECT label FROM event_class WHERE eid='a'").fetchone()[0], "suspicious")
         # the decision model labelled the event (one request over the event and ALL its candidates) and that label is used;
@@ -101,6 +103,31 @@ class ClefStageTest(unittest.TestCase):
         with corr_llm._db() as c:
             self.assertEqual(c.execute("SELECT reviewer_label FROM clef_event WHERE eid='a'").fetchone()[0], "benign")
         self.assertEqual(corr_llm.clef_compare()["matrix"], {"suspicious|benign": 1})
+
+    def test_determination_inputs_recorded(self):
+        """Each determination records the events passed in: the decision model gets the event + every candidate (with
+        link probability), the event reviewer only the related ones; the view returns both, newest first.
+        REQ: LLM-03"""
+        corr_llm.clef_pass(BASE, [("a", r) for r in BASE["related"]["a"]])
+        fake = lambda target, anchor, cands, *a, **kw: ([{"id": "anchor", "label": "benign", "confidence": 0.8, "reason": "r"}], {"prompt": 1, "completion": 1}, 1.0)
+        old = (corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked)
+        corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = fake, (lambda model=None: {"provider": "lmstudio", "model": "reviewer"}), (lambda *a, **k: None)
+        try:
+            corr_llm.event_pass(BASE)
+        finally:
+            corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = old
+        D = corr_llm.decision_inputs_view(["a"])["a"]
+        dec = next(d for d in D if d["stage"] == "decision"); rev = next(d for d in D if d["stage"] == "review")
+        self.assertEqual(dec["label"], "suspicious")
+        self.assertEqual([(x["id"], x["sent"], x["related"]) for x in dec["inputs"]], [("b", True, True), ("c", True, False)])
+        self.assertEqual(dec["inputs"][0]["p"], 0.9)
+        self.assertEqual([(x["id"], x["sent"]) for x in rev["inputs"]], [("b", True)])
+        self.assertEqual(rev["label"], "benign")
+        with corr_llm._db() as c:  # determinations made before recording started are rebuilt from the link decisions
+            c.execute("DELETE FROM decision_inputs")
+        R = corr_llm.decision_inputs_view(["a"])["a"]
+        self.assertTrue(all(d.get("reconstructed") for d in R))
+        self.assertEqual({x["id"] for x in next(d for d in R if d["stage"] == "decision")["inputs"]}, {"b", "c"})
 
     def test_event_without_related_links_still_labelled(self):
         """An event whose every link the decision model rejected still gets its label: the event reviewer is told the empty
