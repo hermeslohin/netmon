@@ -169,6 +169,20 @@
         ${links.length ? `<div class="small" style="margin-top:4px"><b>Links</b><ul style="margin:2px 0 0 1.2em;padding:0">${links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc((l.title || l.url).slice(0, 100))}</a></li>`).join("")}</ul></div>` : ""}
         ${(n.queries || []).length ? `<details class="small" style="margin-top:4px"><summary>${n.queries.length} Elasticsearch ${n.queries.length === 1 ? "query" : "queries"} the research ran</summary><ul style="margin:2px 0 0 1.2em;padding:0">${n.queries.map((q) => `<li><code>${esc(String(q.kql || q.q || q.query || JSON.stringify(q)).slice(0, 400))}</code></li>`).join("")}</ul></details>` : ""}</details>`;
     } else if (X.art_notes) h += `<div class="small muted" style="margin:4px 0">No research note yet. Use 📝 → <b>Send to research</b> to have it researched.</div>`;
+    const web = X.web?.[eid] || [];
+    if (web.length) {
+      const own = web.filter((w) => w.own).length, pages = new Map();
+      for (const w of web) for (const u of w.urls || []) if (safeUrl(u.url) && !pages.has(u.url)) pages.set(u.url, u.title);
+      h += `<details class="oe-det oe-sub" open><summary>🔎 Web research (${web.length} look-up${web.length === 1 ? "" : "s"}${own < web.length ? `, ${web.length - own} while reviewing a related event` : ""}, ${pages.size} page${pages.size === 1 ? "" : "s"})</summary>
+        <div class="small muted">Web searches and page reads the event reviewer ran for this event, newest first, with why it ran each one and what came back.</div>
+        ${web.map((w) => `<div class="kb-note oe-web"><div class="kb-meta"><span class="badge ${w.kind === "page" ? "sev-low" : "sev-info"}">${w.kind === "page" ? "📄 page read" : "🔎 search"}</span>
+          <b class="small">${w.kind === "page" && safeUrl(w.query) ? `<a href="${esc(w.query)}" target="_blank" rel="noopener noreferrer">${esc(w.query.slice(0, 120))}</a>` : esc(w.query)}</b>
+          ${aiFlare({ model: w.model, via: "event reviewer web " + (w.kind || "search"), at: new Date(w.ts * 1000).toISOString() })} <span class="muted small">${esc(when(w.ts * 1000))}${w.times > 1 ? ` · run ${w.times}×` : ""}${w.cached ? " · cached" : ""}${w.own ? "" : " · while reviewing a related event"}</span></div>
+          ${w.why ? `<div class="small"><i>Why:</i> ${esc(w.why)}</div>` : ""}
+          ${w.error ? `<div class="small" style="color:var(--bad)">failed: ${esc(w.error)}</div>`
+            : (w.urls || []).length ? `<ul class="small" style="margin:2px 0 0 1.2em;padding:0">${w.urls.filter((u) => safeUrl(u.url)).map((u) => `<li><a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer" title="${esc(u.url)}">${esc((u.title || u.url).slice(0, 110))}</a> <span class="muted">${esc(new URL(u.url).hostname)}</span></li>`).join("")}</ul>`
+            : `<div class="small muted">${w.kind === "page" ? "page read" : "no results"}</div>`}</div>`).join("")}</details>`;
+    } else if (X.art_notes) h += `<div class="small muted" style="margin:4px 0">🔎 No web research on this event yet.</div>`;
     if (un.length) h += `<details class="oe-det oe-sub" open><summary>${un.length} note${un.length === 1 ? "" : "s"} by people</summary>${un.map((u) => `<div class="kb-note"><div class="kb-meta">${window.kbVBadge ? kbVBadge(u) : ""}${window.kbStBadge ? kbStBadge(u) : ""}<b>${esc(u.author || "")}</b> <span class="muted small">${esc(when(u.ts * 1000))}</span></div><div class="small" style="white-space:pre-wrap">${esc(u.text || "")}</div></div>`).join("")}</details>`;
     if (X.art_notes) h += `<details class="oe-det oe-sub"${an.length ? " open" : ""}><summary>${an.length} note${an.length === 1 ? "" : "s"} on this event's artifacts</summary>${an.length ? an.map((r) => { const t = AT[r.id] || r;
       return `<div class="kb-note"><div class="kb-meta"><span class="mono small">${esc(t.subject || "")}</span> ${subjBtn(t.subject)} ${t.status === "approved" ? `<span class="badge sev-info" title="Accepted: authoritative for the AI">✓ accepted</span>` : t.status === "rejected" ? `<span class="badge sev-high">✕ rejected</span>` : ""}

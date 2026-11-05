@@ -430,6 +430,43 @@ def alert_verdict(ref, X):
     return "unreviewed", ""
 
 
+def web_research(eids, per=12):
+    """Web searches and page reads the AI ran while reviewing these events (corr_llm.db web_queries), newest first:
+    {eid: [{ts, kind, query, why, results, urls, error, model, cached, own}]}. own=False: the event was a candidate
+    while the AI reviewed a related event (anchor)."""
+    eids, out = set(eids), {}
+    if not eids:
+        return out
+    import corr_llm
+    with corr_llm._db() as c:
+        ch = list(eids)
+        rows = []
+        for i in range(0, len(ch), 500):
+            rows += c.execute(f"SELECT ts, anchor, candidates, model, kind, query, why, results, urls, error, cached FROM web_queries "
+                              f"WHERE anchor IN ({','.join('?' * len(ch[i:i + 500]))}) AND COALESCE(purpose,'') != 'manual-test'", ch[i:i + 500]).fetchall()
+        q = [json.dumps(e) for e in ch]
+        for r in c.execute("SELECT ts, anchor, candidates, model, kind, query, why, results, urls, error, cached FROM web_queries "
+                           "WHERE ts > ? AND COALESCE(purpose,'') != 'manual-test' AND candidates != '[]'", (time.time() - 31 * 86400,)):
+            if any(x in (r[2] or "") for x in q):
+                rows.append(r)
+    for ts, anchor, cands, model, kind, query, why, n, urls, err, cached in sorted(set(rows), key=lambda r: -r[0]):
+        try:
+            U = [u for u in json.loads(urls or "[]") if isinstance(u, dict) and str(u.get("url", "")).startswith(("http://", "https://"))][:8]
+        except ValueError:
+            U = []
+        try:
+            C = set(json.loads(cands or "[]"))
+        except ValueError:
+            C = set()
+        for e in ({anchor} | C) & eids:
+            L = out.setdefault(e, [])
+            if len(L) < per:
+                L.append({"ts": ts, "kind": kind, "query": str(query or "")[:300], "why": str(why or "")[:400], "results": n, "error": str(err or "")[:200] or None,
+                          "urls": [{"url": u["url"], "title": str(u.get("title") or "")[:140]} for u in U], "model": model, "cached": bool(cached),
+                          "own": e == anchor, "anchor": "" if e == anchor else anchor})
+    return out
+
+
 def alert_view(alerts, related=True, art_limit=6):
     """Alerts page: each alert's verdict, the research done on it (AI classification + web sources, research note,
     decision model), people's notes and notes on its artifacts. Returns (rows with eid/verdict/vsrc set, extra keyed by eid)."""
@@ -481,6 +518,24 @@ def alert_view(alerts, related=True, art_limit=6):
         except Exception as e:  # noqa: BLE001
             print(f"alert_view artifact notes: {e}", file=sys.stderr)
     X["art_notes"], X["art_note_text"] = an, at
+    try:
+        W = web_research([m for r in rows for m in r["members"]])
+        X["web"] = {}
+        for r in rows:
+            seen_q = {}
+            for m in r["members"]:
+                for w in sorted(W.get(m, []), key=lambda w: -w["ts"]):
+                    k = (w["kind"], w["query"].strip().lower())  # the same look-up re-run by later reviews: one row, counted
+                    if k in seen_q:
+                        seen_q[k]["times"] += 1
+                        seen_q[k]["own"] = seen_q[k]["own"] or w["own"]
+                        continue
+                    seen_q[k] = {**w, "times": 1}
+                    X["web"].setdefault(r["eid"], []).append(seen_q[k])
+            if r["eid"] in X["web"]:
+                X["web"][r["eid"]].sort(key=lambda w: -w["ts"])
+    except Exception as e:  # noqa: BLE001
+        print(f"alert_view web research: {e}", file=sys.stderr)
     for ns in (X.get("unotes") or {}).values():  # the page shows text, author, verdict, status only
         for n in ns:
             n.pop("artifacts", None); n.pop("label", None)

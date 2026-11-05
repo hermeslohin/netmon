@@ -30,7 +30,10 @@
       const r = await api("/api/alerts?limit=200");
       A.list = r.alerts; A.mode = r.mode; A.unread = r.mode === "some" ? r.unread_mine : r.unread; paintCount();
       const top = A.list[0]?.id ?? null;
-      if (location.hash.startsWith("#/alerts") && top !== A.lastTop && A.lastTop !== null) V.alerts($("#main"));
+      // a new alert: refresh the page in place (rerender builds it off-screen and swaps only the boxes that changed, so
+      // nothing blanks or flashes); never while a detail window is open or the tab is hidden
+      if (location.hash.startsWith("#/alerts") && top !== A.lastTop && A.lastTop !== null) A.stale = true;
+      if (A.stale && location.hash.startsWith("#/alerts") && !document.hidden && !document.querySelector(".oe-back, .modal-back")) { A.stale = false; rerender(); }
       A.lastTop = top;
     } catch (_) { /* logged out / offline */ }
   }
@@ -101,9 +104,11 @@
     return (n ? `<span class="note-v v-${esc(String(n.verdict || "").replace(/[^a-z-]/g, ""))}" title="Research note: ${esc(n.summary || "")}">📝 ${esc(n.verdict || "researched")}</span> ` : "")
       + (r ? `<span class="small" title="${esc(r)}">${esc(r.length > 150 ? r.slice(0, 148) + "…" : r)}</span>` : "")
       + (src ? ` <span class="small" title="the event reviewer cited ${src} web page${src === 1 ? "" : "s"}">🌍${src}</span>` : "")
+      + ((X().web?.[a.eid] || []).length ? ` <span class="small" title="${esc((X().web[a.eid]).map((w) => (w.kind === "page" ? "page: " : "search: ") + w.query).join("\n"))}">🔎${X().web[a.eid].length}</span>` : "")
       + (ce && !c ? `<span class="small muted">decision model: p(suspicious) ${Math.round((ce.p_suspicious || 0) * 100)}%</span>` : "")
       || `<span class="muted small">none yet</span>`; };
   const unoteBtn = (a) => { const ns = S.corr?.unotes?.[a.eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
+    S.corr = S.corr || {}; S.corr.events = S.corr.events || {};
     if (!S.corr.events[a.eid]) S.corr.events[a.eid] = { label: a.text, type: TYPE_OF[a.eid.split("|")[0]] || "alert" };
     return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(a.eid)}" title="Add a note or verdict (Expected / Benign / Suspicious), or send to research">${n ? `📝 ${n}${p ? " ⏳" : ""}` : "📝"}</button>`; };
   const artCell = (a) => { const L = X().art_notes?.[a.eid] || [], T = X().art_note_text || {};
@@ -113,7 +118,7 @@
     first_seen: new Date(a.ts * 1000).toISOString(), last_seen: new Date(a.ts * 1000).toISOString(), n: 1, repeats: 1, ips: (a.targets || []).filter((t) => typeof t === "string"), link: "", t0: a.ts, t1: a.ts });
   const rcCols = () => [
     { k: "verdict", t: "Verdict", fmt: (v, a) => vChip(a), sort: (a) => VORD.indexOf(a.verdict) },
-    { k: "_res", t: "Research", fmt: (v, a) => researchCell(a), sort: (a) => (X().notes?.[a.eid] ? 2 : 0) + (X().classes?.[a.eid] ? 1 : 0) },
+    { k: "_res", t: "Research", fmt: (v, a) => researchCell(a), sort: (a) => (X().notes?.[a.eid] ? 100 : 0) + (X().classes?.[a.eid] ? 50 : 0) + (X().web?.[a.eid] || []).length },
     { k: "_un", t: "Notes", fmt: (v, a) => unoteBtn(a), sort: (a) => (S.corr?.unotes?.[a.eid] || []).length },
     { k: "_an", t: "Artifact notes", num: true, fmt: (v, a) => artCell(a), sort: (a) => (X().art_notes?.[a.eid] || []).length }];
   const vLabel = { suspicious: "Suspicious", expected: "Expected", benign: "Benign", unreviewed: "Not reviewed" };
@@ -163,7 +168,7 @@
       if (mt) mc.appendChild(mt); else mc.insertAdjacentHTML("beforeend", `<div class="empty">No mute rules yet. Use <b>mute name…</b> on an alert to create one.</div>`);
       mc.addEventListener("click", async (e) => { const b = e.target.closest(".mute-rm"); if (!b) return;
         if (!confirm("Remove this mute rule? The alerts it cleared come back into the feed and new matching alerts are no longer cleared.")) return;
-        b.disabled = true; try { await apiPost("/api/alerts/mutes", { action: "remove", id: +b.dataset.id }); S.corr = null; poll(); V.alerts(el); } catch (er) { b.disabled = false; alert(er.message); } });
+        b.disabled = true; try { await apiPost("/api/alerts/mutes", { action: "remove", id: +b.dataset.id }); S.corr = null; poll(); rerender(); } catch (er) { b.disabled = false; alert(er.message); } });
       el.appendChild(mc);
     }
     if (A.showCleared && canMute) {
@@ -176,7 +181,7 @@
           { k: "rule", t: "Cleared by rule", fmt: (v) => `<span class="mono small">${esc(v || "")}</span>` }], CL, { sort: "ts", filter: true })
           : `<div class="empty">No cleared alerts in the last 30 days.</div>`);
       el.appendChild(cc);
-      cc.querySelector("#clTog").addEventListener("click", () => { A.showCleared = false; V.alerts(el); });
+      cc.querySelector("#clTog").addEventListener("click", () => { A.showCleared = false; rerender(); });
       return;
     }
     const filt = A.mode === "some" && !A.showAll && !hq().has("ev");  // a drill-down to one alert must find it
@@ -190,7 +195,7 @@
       const C = D.counts, tot = (v) => (C.alarms[v] || 0) + (C.detections[v] || 0);
       const tile = (v) => [`${vLabel[v]}${v === "unreviewed" ? "" : ""}`, `<a href="javascript:void 0" class="vf-kpi" data-v="${v}" title="Show the ${vLabel[v].toLowerCase()} detections">${fn(tot(v))}</a>${C.alarms[v] ? ` <span class="small muted">${C.alarms[v]} alarm${C.alarms[v] === 1 ? "" : "s"}</span>` : ""}`, v === "suspicious" ? "bad" : v === "unreviewed" ? "" : "good"];
       el.insertAdjacentHTML("beforeend", kpis(VORD.map(tile)));
-      el.querySelectorAll(".vf-kpi").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v; A.jump = true; V.alerts(el); }));
+      el.querySelectorAll(".vf-kpi").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v; A.jump = true; rerender(); }));
     }
     const rows = A.list.filter((a) => !filt || a.mine).map((a) => ({ ...a, _t: a.ts }));
     const clTog = canMute && mutes.length ? ` <a href="javascript:void 0" id="clTog" class="ack-toggle small">show cleared (${nCleared})</a>` : "";
@@ -208,7 +213,7 @@
     if (rich && D) {  // detections the watcher / scans raised that were not promoted to alarms, by verdict
       const C = D.counts.detections, chip = (v, l) => `<button type="button" class="vf-chip${(A.vf || "") === v ? " on" : ""}" data-v="${v}">${esc(l)}${v ? ` (${fn(C[v] || 0)})` : ` (${fn(D.total)})`}</button>`;
       const dc = card(`Detections by verdict (${A.vf ? `${fn(D.matching)} ${vLabel[A.vf].toLowerCase()}` : fn(D.total)}${D.alerts.length < D.matching ? `, newest ${D.alerts.length} shown` : ""})`,
-        `<div class="small muted">Everything the 15-minute watcher, scans and account checks raised in the last 30 days. Only detections reviewed as suspicious at medium or high severity become alarms (above); the rest stay here with their verdict. A person's verdict (👤) wins over the event reviewer (AI), which wins over the decision model. Click a row for the research, notes and notes on its artifacts.</div>
+        `<div class="small muted">Everything the 15-minute watcher, scans and account checks raised in the last 30 days. Only detections reviewed as suspicious at medium or high severity become alarms (above); the rest stay here with their verdict. A person's verdict (👤) wins over the event reviewer (AI), which wins over the decision model. 🔎 = web look-ups the AI ran. Click a row for the research, web research, notes and notes on its artifacts.</div>
         <div class="fchips vf-bar" style="margin:6px 0">${chip("", "All")}${VORD.map((v) => chip(v, vLabel[v])).join("")}</div>`);
       dc.id = "al-detections";
       dc.appendChild(D.alerts.length ? table(null, [
@@ -217,11 +222,11 @@
         rcCols()[0], { k: "text", t: "Detection", fmt: (v) => linkifyIps(v) }, ...rcCols().slice(1)],
         D.alerts, { sort: "ts", filter: true, onclick: openAlert }) : (() => { const d = document.createElement("div"); d.className = "empty"; d.textContent = "No detections with this verdict."; return d; })());
       el.appendChild(dc);
-      dc.querySelectorAll(".vf-chip").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v || ""; A.jump = true; V.alerts(el); }));
+      dc.querySelectorAll(".vf-chip").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v || ""; A.jump = true; rerender(); }));
       if (A.jump) { A.jump = false; dc.scrollIntoView({ block: "start" }); }
     }
-    ac.querySelector("#clTog")?.addEventListener("click", () => { A.showCleared = true; V.alerts(el); });
-    ac.querySelector("#fTog")?.addEventListener("click", () => { A.showAll = !A.showAll; V.alerts(el); });
-    ac.querySelector("#markRead")?.addEventListener("click", async () => { await apiPost("/api/alerts/read", {}); A.unread = 0; A.list.forEach((a) => (a.read = 1)); paintCount(); V.alerts(el); });
+    ac.querySelector("#clTog")?.addEventListener("click", () => { A.showCleared = true; rerender(); });
+    ac.querySelector("#fTog")?.addEventListener("click", () => { A.showAll = !A.showAll; rerender(); });
+    ac.querySelector("#markRead")?.addEventListener("click", async () => { await apiPost("/api/alerts/read", {}); A.unread = 0; A.list.forEach((a) => (a.read = 1)); paintCount(); rerender(); });
   };
 })();
