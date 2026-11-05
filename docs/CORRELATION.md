@@ -154,10 +154,20 @@ flowchart LR
     CL2 --> LAB["Event label\nsuspicious / benign / expected\n(final)"]
     LAB --> REV["Event reviewer model\none call per event,\nall related events"]
     NOTES["Owner / artifact / AI notes,\nuser profiles"] --> REV
-    ES["Elasticsearch look-ups\n(optional)"] <--> REV
-    REV --> RS["Reason for the label"]
-    REV --> LN["Link notes + artifacts"]
-    LN --> HN["Host / internet / DNS notes"]
+    MEMO[("lookup_memo\nre-review within 6 h:\nreuse earlier results")] -.-> REV
+    PLAN["Look-ups first\nplanning call:\nsearches only"] --> ES["Elasticsearch look-ups\nvia host broker (max 3)"]
+    PLAN --> WEB["Web look-ups (max 2)\nFirecrawl search / page,\nipinfo.io for IPs"]
+    WC[("web_cache\n7 days")] <--> WEB
+    REV --> PLAN
+    ES -- "es_result" --> REV
+    WEB -- "web_result [W1]..." --> REV
+    REV --> RS["Reason for the label\n+ cited sources [W1] links"]
+    RS --> SRC[("event_sources")]
+    SRC --> OE["Open events modal,\nclassification pop-up 🌍"]
+    REV --> LN["Link notes + artifacts\n(Kibana queries, 🌍 web)"]
+    LN --> HN["Host / internet / DNS notes\n(+ Sources: links)"]
+    ES --> KPI["AI review: look-ups / 24 h,\n% reviews searched, cited, cached"]
+    WEB --> KPI
     LAB --> AL["Alarms (suspicious, medium+)"]
     DB --> UI["Related popover,\nAI review page"]
 ```

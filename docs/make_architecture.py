@@ -3,7 +3,7 @@
 Generate docs/architecture.svg (netmon architecture) in the architecture-diagram skill's design system."""
 from html import escape as E
 
-W, H = 1300, 1080
+W, H = 1300, 1110
 C = {  # semantic palette: fill, stroke
     "front": ("rgba(8,51,68,0.4)", "#22d3ee"), "back": ("rgba(6,78,59,0.4)", "#34d399"),
     "db": ("rgba(76,29,149,0.4)", "#a78bfa"), "cloud": ("rgba(120,53,15,0.3)", "#fbbf24"),
@@ -87,7 +87,7 @@ node("broker", 782, 100, 138, 76, "bus", "host_broker.py", ["loopback · bearer 
 node("watch", 460, 226, 222, 82, "back", "watch.py", ["urgent watcher (no LLM)", "devices · IDS · hosts · admin logins"], "EVERY 15 MIN")
 node("nightly", 698, 226, 222, 82, "back", "Review job (review.py)", ["collect → analyze → event reviewer", "copies earlier notes"], "EVERY N MIN")
 node("db", 460, 348, 222, 76, "db", "netmon data", ["SQLite (WAL) · alerts · baselines", "snapshots · settings · open events"])
-node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed) · chart drill-down", "Web Push urgent notifications · per-user device subscriptions", "audit log: every user action + AI conversation"], "WEB APP")
+node("dash", 460, 464, 460, 104, "front", "netmon dashboard  (Docker · HTTPS)", ["Risk · Fix list · Lateral map + admin access · ATT&CK", "event correlation (LLM-reviewed, cited look-ups) · drill-down", "Web Push urgent notifications · per-user device subscriptions", "audit log: every user action + AI conversation"], "WEB APP")
 node("mcp", 460, 608, 222, 76, "bus", "netmon data tools", ["netmon_mcp.py · read-only", "also a stdio MCP server"], "READ-ONLY")
 node("chatp", 698, 608, 222, 76, "ai", "Ask AI chat", ["chat.py in the dashboard", "tools: web + netmon only"], "ASK AI")
 node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly rebuild + scans: Semgrep · Bandit · ESLint · Trivy · Gitleaks · ZAP", "sensitive-data guard before every push"], "GATE")
@@ -95,7 +95,7 @@ node("ship", 460, 716, 460, 64, "sec", "ship.sh · weekly_rebuild.sh", ["weekly 
 # ---------------- cloud
 node("cloudai", 1000, 100, 260, 76, "ai", "AI provider (your choice)", ["OpenAI-compatible or Anthropic API", "event reviewer · research · chat"], "LLM")
 node("uapi", 1000, 226, 260, 82, "cloud", "UniFi Site Manager API", ["api.ui.com cloud connector", "read-only API key"], "API")
-node("fc", 1000, 356, 260, 76, "cloud", "Web search", ["DuckDuckGo · Firecrawl · Brave · Tavily", "source pages for cited research"], "WEB")
+node("fc", 1000, 356, 260, 76, "cloud", "Web search", ["Firecrawl · DuckDuckGo · Brave · Tavily", "event reviewer · research · chat · cited"], "WEB")
 node("users", 1000, 478, 260, 76, "front", "Family browsers & phones", ["Cloudflare tunnel → HTTPS", "PWA + push notifications"], "USERS")
 node("gh", 1000, 716, 260, 64, "ext", "GitHub", ["public repo · ghcr.io image", "no site data (settings stay in SQLite)"], "CODE")
 
@@ -134,7 +134,7 @@ arrow((720, 308), (682, 352), "#34d399")
 arrows.append('<rect x="660" y="318" width="42" height="13" rx="3" fill="#020617"/><text x="681" y="328" text-anchor="middle" fill="#34d399" font-size="9">baseline</text>')
 arrow(anchor("db", "b"), (571, 464), "#a78bfa", "reads", ldy=4)
 arrow(anchor("dash", "r", 0.4), anchor("users", "l", 0.6), "#22d3ee", both=True)
-lab2(947, 468, "#22d3ee", "HTTPS", "Web Push")
+lab2(958, 540, "#22d3ee", "HTTPS", "Web Push")
 arrow(anchor("ship", "r"), anchor("gh", "l"), "#94a3b8")
 lab2(960, 726, "#94a3b8", "scanned", "push")
 # local LLM <-> dashboard: correlation review, optional (left edge of the monitoring host column)
@@ -152,6 +152,10 @@ arrows.append('<path d="M920,292 L958,292 L958,384 L1000,384" fill="none" stroke
 lab2(958, 330, "#fbbf24", "web", "search")
 arrows.append('<path d="M920,624 L974,624 L974,414 L1000,414" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
 lab2(974, 572, "#fbbf24", "web", "search")
+
+# event reviewer (corr_llm.py in the dashboard) -> web search: look-ups first, IP owner pages, 7-day cache, cited [W1] links
+arrows.append('<path d="M920,486 L966,486 L966,400 L1000,400" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#ah-fbbf24)"/>')
+lab2(966, 462, "#fbbf24", "reviewer", "web")
 
 # audit log: dashboard -> Elasticsearch logs-netmon (own create_doc + read key; spools locally while ES is down)
 arrows.append('<path d="M460,552 L364,536" fill="none" stroke="#a78bfa" stroke-width="1.6" stroke-dasharray="2,2" marker-end="url(#ah-a78bfa)"/>')
@@ -173,7 +177,9 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and event reviewer look-ups go through host_broker.py.",
-         "Correlation: the script proposes links; review limits filter them; the chosen model confirms or rejects each and keeps artifacts (Elasticsearch searches open in Kibana).",
+         "Correlation: the script proposes links, review limits filter them, the decision model (clef) decides links + labels; the event reviewer explains them.",
+         "Event reviewer look-ups first: a planning call picks Elasticsearch searches (via the broker, max 3) and web look-ups (Firecrawl; ipinfo.io for IPs),",
+         "   then it decides with the results and cites pages as [W1] links (Open events, classification pop-up). Re-reviews reuse results for 6 h; web cache 7 days.",
          "Patapsco AI: single-node Kubernetes on the monitoring host serves the decision model (clef, SGLang) and the event reviewer (Gemma, vLLM) on loopback NodePorts; both FP8, sharing one GPU by time-slicing. LM Studio / llama.cpp remains a selectable backend.",
          "OpenCTI (Talos k8s cluster on the home LAN): opencti.py pulls scored indicators every 15 min into local intel lists; the watcher matches them and reports sightings back; the event reviewer sees the matches.",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
