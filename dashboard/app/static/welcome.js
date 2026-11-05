@@ -4,7 +4,7 @@
   const ROLE = {
     admin: { what: "As an <b>Admin</b> you can see everything netmon knows and change its settings, users and AI configuration.",
       nav: [["Overview", "overview", "The latest picture of the network: traffic, devices, findings."], ["Open events", "events", "Everything nobody has checked off yet. Click a row for every occurrence and its related events."],
-        ["Posture", "security", "Findings, IDS alerts, beacons and threat intel for the chosen time range (🕒 in the header)."], ["Ai pipeline", "aireview", "How the review pipeline is doing and what the models decided."],
+        ["Posture", "security", "Findings, IDS alerts, beacons and threat intel for the chosen time range (🕒 in the header)."], ["AI pipeline monitoring", "aireview", "Models up/down, correlation, event and research review: what the pipeline is doing and what the models decided."], ["AI pipeline configuration", "aiconfig", "Models and providers, and the settings of correlation, event and research review."],
         ["Settings", "settings", "Policy and site settings. Dashboard users are managed on their own page."]] },
     defender: { what: "As a <b>Network defender</b> you can see everything and do the analyst work: check events off, write notes, ask the AI. You can't change settings.",
       nav: [["Overview", "overview", "The latest picture of the network."], ["Open events", "events", "Everything nobody has checked off yet. Click a row for every occurrence and its related events."],

@@ -105,7 +105,7 @@ Every correlation pass also records, without any model: the accounts seen in end
 
 The script only *proposes* links. **Models decide:** the decision model (clef) decides every link and every event's
 label; the event reviewer model (whichever is selected) writes the notes. `dashboard/app/corr_llm.py` runs as a background thread in the
-dashboard container. With the **decision model** on (the default, AI review → Decision model) a review pass has two
+dashboard container. With the **decision model** on (the default, AI pipeline configuration → Decision model settings) a review pass has two
 stages; with it off, the older event reviewer-only flow is used (described at the end of this section).
 
 1. **Links — decision model (clef).** For the newest snapshot (and any snapshot someone opened in the last hour, at
@@ -125,7 +125,7 @@ stages; with it off, the older event reviewer-only flow is used (described at th
      event is what clef labelled it; it starts with *Event reviewer disagrees:* when the evidence clearly contradicts the
      label) and, for every related event, a **link note** (the verdict's reason, with clef's probability appended) and
      its **artifacts** (file, process, user, IP, DNS name; each benign / expected / suspicious). It also gives its own
-     label, which is recorded only for the agreement figure on the AI review page — it never decides a link or a label.
+     label, which is recorded only for the agreement figure on the AI pipeline pages — it never decides a link or a label.
 
    Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. An event is
    labelled and reviewed again when its set of link decisions changes; at most 20 events per pass, never-reviewed and
@@ -141,7 +141,7 @@ stages; with it off, the older event reviewer-only flow is used (described at th
 4. `/api/correlate` drops **rejected** links, marks **confirmed** ones with the link note and artifacts, and flags the
    rest as **pending**. Undecided links that the review limits skip are hidden, not shown as pending.
 
-If the decision-model server is unreachable the pass waits and the AI review page shows the error — it never falls
+If the decision-model server is unreachable the pass waits and the AI pipeline pages shows the error — it never falls
 back silently.
 
 ```mermaid
@@ -166,10 +166,10 @@ flowchart LR
     SRC --> OE["Open events modal,\nclassification pop-up 🌍"]
     REV --> LN["Link notes + artifacts\n(Kibana queries, 🌍 web)"]
     LN --> HN["Host / internet / DNS notes\n(+ Sources: links)"]
-    ES --> KPI["AI review: look-ups / 24 h,\n% reviews searched, cited, cached"]
+    ES --> KPI["AI pipeline monitoring: look-ups / 24 h,\n% reviews searched, cited, cached"]
     WEB --> KPI
     LAB --> AL["Alarms (suspicious, medium+)"]
-    DB --> UI["Related popover,\nAI review page"]
+    DB --> UI["Related popover,\nAI pipeline pages"]
 ```
 
 ### Decision model: clef
@@ -224,7 +224,7 @@ Requirements:
 - **Loopback only.** `clef.py` ignores any URL that is not `http://127.0.0.1`, `localhost` or `[::1]`, so event
   data never leaves the host.
 
-Pick how it runs on **AI review → Decision model server → Backend** (admins). The dashboard reaches the host through
+Pick how it runs on **AI pipeline configuration → Decision model server → Backend** (admins). The dashboard reaches the host through
 the host broker (`POST /clef`, `clef_server.py`); settings are stored in the netmon database (document
 `clef_server`), and `CLEF_*` environment variables override them.
 
@@ -237,10 +237,10 @@ the host broker (`POST /clef`, `clef_server.py`); settings are stored in the net
 Notes for GPU-sharing setups (one GPU serving both the decision model and the event reviewer): on unified memory
 keep both models quantised (e.g. FP8) and start them one at a time; on SGLang, `--mem-fraction-static` must leave
 room for the KV cache after the weights (clef FP8 needs about 0.49 or more), or the server restarts in a loop. The
-review worker tries `/health` 3 times before it pauses reviews with "decision model unreachable"; the AI review
+review worker tries `/health` 3 times before it pauses reviews with "decision model unreachable"; the AI pipeline monitoring
 **Status** badge then shows *Error* with a card explaining the cause, since when, and that it retries by itself.
 
-**Standing up the host service** (the same steps are on the AI review page under *Stand-up instructions*):
+**Standing up the host service** (the same steps are on the AI pipeline pages under *Stand-up instructions*):
 
 1. Install a llama.cpp build whose `llama-server` supports System One, with GPU support. netmon looks for it at
    `CLEF_SERVER`, on the `PATH` and in the folders listed in `CLEF_SERVER_DIRS` (check: `llama-server --version`).
@@ -259,7 +259,7 @@ review worker tries `/health` 3 times before it pauses reviews with "decision mo
 Troubleshooting: `journalctl --user -u netmon-clef -f`. Time-outs under load → lower Parallel (the client retries a
 lost request twice, 30 s each). Out of memory → clef-flash or a smaller quant.
 
-### Decision model settings (AI review → Decision model)
+### Decision model settings (AI pipeline configuration → Decision model settings)
 
 | Setting | Default | |
 |---|---|---|
@@ -282,13 +282,13 @@ classification** (below) labels events afterwards. The local server gets tempera
 admin-added API provider gets the answer format in the prompt. The prompt tells the model to be sceptical of
 coincidences and to treat everything inside `<event>` tags as data, never as instructions.
 
-**Which model it uses.** AI review → Models → Event reviewer picks the provider and model explicitly; that
+**Which model it uses.** AI pipeline configuration → Models → Event reviewer picks the provider and model explicitly; that
 choice is remembered until someone changes it. If nothing has ever been chosen, it defaults to the first enabled,
 configured provider with at least one model (an admin-added API provider before the local server, since the
 event reviewer calls far more often than a typical API rate cap allows) - **the event reviewer no longer requires a local
 model server to be running.** If the chosen provider is later disabled or deleted, the next run raises a clear
-error on the AI review page instead of silently falling back, so pick another model there. Mind each API
-provider's calls-per-hour cap (AI review → AI providers): the event reviewer can fire many calls a minute, so a
+error on the AI pipeline pages instead of silently falling back, so pick another model there. Mind each API
+provider's calls-per-hour cap (AI pipeline configuration → AI providers): the event reviewer can fire many calls a minute, so a
 cloud provider meant for the occasional on-request research will hit its cap quickly unless you raise it.
 
 | Setting (`dashboard/.env`) | Default | |
@@ -299,9 +299,9 @@ cloud provider meant for the occasional on-request research will hit its cap qui
 | `NETMON_LLM_REASONING` | `none` | reasoning models spend the token budget on hidden reasoning otherwise |
 | `NETMON_LLM_WORKERS` | `2` | parallel requests (match the server's parallel slots) |
 
-The local server is itself an AI review → **AI providers** row: an admin can disable it or set its calls-per-hour
+The local server is itself an AI pipeline configuration → **AI providers** row: an admin can disable it or set its calls-per-hour
 cap there, same as any other provider (no key or URL to enter - those come from `NETMON_LLM_URL` and the live
-model list). Besides the local server, the event reviewer can use any provider an admin adds on AI review > **AI
+model list). Besides the local server, the event reviewer can use any provider an admin adds on AI pipeline configuration > **AI
 providers** (`llm_providers.py`, stored in the netmon database (`netmon.db`, mode 600)). These are OpenAI-compatible
 (`POST {base}/chat/completions`, Bearer key) or Anthropic (`POST {base}/v1/messages`, `x-api-key`) APIs called
 directly from the dashboard container; the model choice is `api:<id>` plus the model name, and each provider has
@@ -369,7 +369,7 @@ never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evid
 ### Event classification (optional, older flow)
 
 With the decision model on, every event is labelled in stage 2 and this switch is not needed.
-**AI review → Review limits → Classify events** (off by default) makes the event reviewer give every event whose correlation
+**AI pipeline configuration → Review limits → Classify events** (off by default) makes the event reviewer give every event whose correlation
 review is finished one label: **suspicious** (needs a person's eye), **benign** (odd but harmless) or **expected**
 (normal for this device, user or task), with a confidence and reason. An event qualifies when none of its links is
 undecided and at least one is decided; the confirmed related events are the evidence. `benign` / `expected` need a
@@ -379,7 +379,7 @@ that are cleared, excluded or muted are skipped. The label is a 🏷 badge next 
 reason) and the page shows the totals. Turning it on offers to enable the event reviewer's Elasticsearch look-ups too, which
 classification uses. Audit-log purpose: `event-classify`.
 
-### Review limits (More → AI review → Review limits)
+### Review limits (More → AI pipeline configuration → Review limits)
 
 Admins and network defenders choose which candidate links are **never sent** to the event reviewer, to save tokens. Skipped
 links are neither reviewed nor shown (links that already have a verdict are unaffected). The box shows how many
@@ -396,7 +396,7 @@ candidate links each setting affects.
 | **Classify events** | See above. | off |
 
 **Mute alerts.** Watcher alerts are by far the most numerous event type. An admin or network defender sees **mute
-name…** and **mute name + host…** beside an alert on the Alerts page and on the AI review decisions. Both open an
+name…** and **mute name + host…** beside an alert on the Alerts page and on the AI pipeline decisions. Both open an
 editable pattern (the alert text with IPs, MACs and numbers replaced by `*`); **Mute & clear existing** saves a *never
 send* rule for it (scope *both*, so it stays out of the queue too) and deletes the alerts that already fired and match
 the rule. The rule is listed under **Never send** and can be removed there; the deleted alerts do not come back.
@@ -451,7 +451,7 @@ Rules 1 and 2 leave earlier closures alone (counted as `kept_*`); `POST /api/con
 
 **Queue behaviour.** The worker pass repeats about every minute (every 5 seconds while it finds work). It reviews the
 newest snapshot first, then snapshots opened in the last hour. If the provider is down or rate-limited the links stay
-*pending* and the worker backs off (3 minutes after an error). **Clear review queue** (admin, AI review page; or `docker exec netmon-dashboard
+*pending* and the worker backs off (3 minutes after an error). **Clear review queue** (admin, AI pipeline pages; or `docker exec netmon-dashboard
 python /app/enrich.py clear-review`) gives every undecided link of the newest three snapshots the verdict *not related* by
 `dismissed:<user>` ("review queue cleared by an admin") and remembers those events: undecided links between two
 remembered events are never asked again, links to *new* events are. Undo by deleting verdicts whose model starts with
@@ -461,11 +461,11 @@ and the model's verdicts after backing up both databases.
 
 ### Elasticsearch look-ups (optional)
 
-Off by default. When an admin turns on **AI review → Models → Elasticsearch queries · correlation review**, the event reviewer may search the
+Off by default. When an admin turns on **AI pipeline configuration → Models → Elasticsearch queries · correlation review**, the event reviewer may search the
 Security Onion logs for more context before it decides an event's links, for example to check whether the host
 behind an IDS alert also made the failed SSH logins, or whether a domain was resolved before the connection.
 
-| Setting (AI review → Models, admin only) | Default | |
+| Setting (AI pipeline configuration → Models, admin only) | Default | |
 |---|---|---|
 | **Elasticsearch queries · correlation review** (checkbox) | off | lets the event reviewer search the logs |
 | **Elasticsearch queries · event research** (checkbox) | on | separate switch: lets event research (Send to research) search the logs (`es_search` tool) |
@@ -500,13 +500,13 @@ How a review works with searches on:
    same way to the research notes and links of that batch, shown under **Elasticsearch searches (open in Kibana)** in
    the notes popup.
 
-The AI review page shows the setting in the **Event reviewer look-ups** box (Elasticsearch and web searches per event,
+The AI pipeline pages shows the setting in the **Event reviewer look-ups** box (Elasticsearch and web searches per event,
 look-ups first, and how many were used in 24 h), the searches made in the current pass, and a
 **Event reviewer searches** box with the newest 50 (event under review, the search and its *why*, hits, model).
 
 #### Web search (Firecrawl)
 
-**Web search · event reviewer** (AI review → **Event reviewer look-ups**, admin, default off, 1–10 look-ups per event review, default 2;
+**Web search · event reviewer** (AI pipeline configuration → **Event reviewer look-ups**, admin, default off, 1–10 look-ups per event review, default 2;
 `llm_config` → `web_search`) lets the event reviewer search the web or read a public page through the backend set under
 Configuration → Integrations → Web search (`webtools.py`; Firecrawl here). It is used during correlation review, the
 event review and classification.
@@ -532,15 +532,15 @@ event review and classification.
 An event is reviewed again whenever its set of links changes (often hourly). Within 6 h (`NETMON_LOOKUP_MEMO_H`) a
 re-review gets the earlier review's look-up results again (`corr_llm.db` `lookup_memo`, with their `[W]` ids so
 citations still resolve) instead of a new planning step and new searches; the reviewer may still ask for more. Web
-searches and page reads are shared across all events (**netmon web cache**, `web_cache`; Ai pipeline → Event reviewer
+searches and page reads are shared across all events (**netmon web cache**, `web_cache`; AI pipeline configuration → Event reviewer
 look-ups: on/off, 1–30 days kept, default on / 7 days, entries + 24 h hit rate, **Clear cache**), so the same IP's
-ipinfo.io page is fetched once, not for every event naming it; such look-ups are logged with `cached = 1`. The AI review
+ipinfo.io page is fetched once, not for every event naming it; such look-ups are logged with `cached = 1`. The AI pipeline monitoring
 page shows both (re-reviews reusing look-ups; web look-ups answered from cache).
 
 #### Look-ups first
 
 Models tend to decide in the first round and almost never ask for searches. **Look-ups first · event reviewer**
-(AI review → Event reviewer look-ups, admin, default on; `llm_config` → `lookup_plan`) adds a planning call before every review that
+(AI pipeline configuration → Event reviewer look-ups, admin, default on; `llm_config` → `lookup_plan`) adds a planning call before every review that
 may search (Elasticsearch and/or web on): a separate STEP 1 prompt whose answer can only be
 `{"queries": [...], "web": [...]}` (`PSCHEMA` for schema providers). The planned look-ups run, then the usual rounds
 follow with the results (more look-ups allowed up to the per-event limits). Costs one extra model call per review
@@ -549,7 +549,7 @@ times like `2026-11-05 00:00 UTC` -> ISO, unreadable ones dropped for the defaul
 `destination.port`, the ` x357` event count stripped from rule names and web searches). `review_events.es` /
 `.planned` record searches per review; the Event reviewer Elasticsearch box shows the share of reviews that searched.
 
-The AI review page reports how often it searches: a **Web look-ups (24 h)** KPI, a *Web search* line in the Event
+The AI pipeline pages reports how often it searches: a **Web look-ups (24 h)** KPI, a *Web search* line in the Event
 reviewer box (look-ups in 24 h, % of event reviews that searched), and the **Event reviewer web searches** box
 (look-ups 24 h / 7 d, reviews that searched, reviews citing a page, pages cited, failed look-ups, per-day counts and
 the newest 50 with their result links, cited ones marked).
@@ -560,14 +560,17 @@ and the earlier results. Most decisions are clear without searching, and the mod
 Throughput with a ~30B open-weights event reviewer on a single local GPU is about 15–30 links a minute. A full day's snapshot (~2,000
 candidate pairs) takes 1–2 hours the first time; after that, only new pairs are asked. If the event reviewer's current
 provider goes down or hits its rate cap, the worker backs off and retries, and links stay *pending* until it's
-reachable again (or an admin picks a different model on AI review → Models).
+reachable again (or an admin picks a different model on AI pipeline configuration → Models).
 
-### AI review page (More → AI review)
+### AI pipeline pages (More → AI pipeline monitoring / AI pipeline configuration)
 
 Shows the review job (status, schedule, last run, note coverage, token and cost history), the event
 reviewer's status (reviewing / waiting / idle / error / off), the queue for the current snapshot with % reviewed and
 an ETA, verdicts per hour, tokens per minute and the average tokens in / out per event review, and every decision
-with both events (linked), the verdict, confidence and the model's reason. Boxes, top to bottom:
+with both events (linked), the verdict, confidence and the model's reason. Both pages are split into the same four parts:
+**Models** (monitoring: each model's source and up / down status; configuration: models, AI providers, decision model
+server), **Correlation review**, **Event review** and **Research review**. Monitoring shows figures and decisions,
+configuration holds every setting. The boxes:
 
 | Box | What it holds |
 |---|---|
@@ -617,7 +620,7 @@ There are two separate host jobs:
   that repeat. Everything else waits in the **queue**. It never researches an event, has no web access and never writes
   a note of its own.
 - **Event research** (`research.py --event ID`) runs only when a person clicks **Send to research**. It uses the
-  research model chosen on AI review → Models. It is never scheduled.
+  research model chosen on AI pipeline configuration → Models. It is never scheduled.
 
 Both use a small set of **read-only lookup tools** (shared in `aijob.py`) plus a **validated submit tool** they must call
 to write anything.
@@ -706,13 +709,13 @@ read as *queue*.
 
 ### Event research limits
 
-The caps below are the **Event research limits** box on the AI review page (admins; they apply to the next Send to
+The caps below are the **Event research limits** box on the AI pipeline pages (admins; they apply to the next Send to
 research). A research run stops at its next model call once a cap is passed; what it found until then is kept.
 `0` = no limit. Store meta key `research_job` (`research_cfg.py`).
 
 | Setting | Default | What it limits |
 |---|---|---|
-| $ per research | 5.00 | Estimated cost of one research run (needs a price for the model on AI review → AI providers) |
+| $ per research | 5.00 | Estimated cost of one research run (needs a price for the model on AI pipeline configuration → AI providers) |
 | $ per day | 20.00 | Send to research is refused once today's research (UTC) cost this much |
 | Tokens per research | 25,000,000 | Input + output tokens of all calls in a research run; works without prices |
 | Research batches | 10 | Research conversations per run (8 events each), max 40 |
@@ -832,7 +835,7 @@ copy line first and its source on the Notes views, with the usual ✨ model flar
 
 Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
 research notes, device notes, Ask AI answers, and correlation-review reasons (Related popover,
-AI review page). `review.py` records `generated_by: {model, via}` with what it writes. Chat answers record the model that
+AI pipeline pages). `review.py` records `generated_by: {model, via}` with what it writes. Chat answers record the model that
 answered; correlation verdicts store the event reviewer's model id. Fix-list "How to fix" text and risk scores are rule-based (no flare).
 
 ## Clearing segmentation findings

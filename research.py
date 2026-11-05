@@ -6,7 +6,7 @@ Started only by the dashboard's Send to research button (host broker -> research
 Uses the newest snapshot (no collect). The research model, cost caps, web and Elasticsearch access are the settings in
 research_cfg.py (AI review > Research). The AI writes research notes, link verdicts and host notes through enrich.sh
 (dashboard container); sources it cites are kept in data/<stamp>.sources.json.
-Token use and cost per researched event go to <state>/research_job.json (AI review page). Conversations are saved under
+Token use and cost per researched event go to <state>/research_job.json (AI pipeline pages). Conversations are saved under
 logs/research/ (git-ignored; the newest 60 are kept).
 """
 import argparse, fcntl, json, os, sys, time, traceback
@@ -188,7 +188,7 @@ def main():
     cfg = RC.get()
     target = {"provider": cfg["provider"], "model": cfg["model"]}
     if not LP.allowed(target["provider"], target["model"]):
-        print(f"research model not configured or unavailable ({target}); pick one on AI review > Models", file=sys.stderr)
+        print(f"research model not configured or unavailable ({target}); pick one on AI pipeline configuration > Models", file=sys.stderr)
         return 2
     lock = open(os.path.join(RC.STATE, ".research-event.lock"), "w")
     try:

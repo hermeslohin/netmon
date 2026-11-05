@@ -29,7 +29,7 @@ Three kinds of entries, told apart by `event.dataset`:
 | `review.correlation_pass` | One correlation-review pass of the background worker that decided links, labelled or reviewed events, or ended with a problem (idle passes are not logged). `netmon.review`: `status` (ok / partial / waiting / error / crashed), `links_decided`, `events_labelled`, `events_reviewed`, `reviewer_failures`, `decision_failures`, `decision_model`, `reviewer_model`, `error`; `event.start` / `event.end` / `event.duration`. |
 | `review.job_run` | Each finished review-job run (review.py): `status` (completed / failed), `trigger`, `daily_run`, `reviewer_model`, `error`. |
 
-Shown on **AI review → Review log** (counts, last problem per kind, the entries of the last 1 h – 30 days; falls back to
+Shown on **AI pipeline monitoring → Review log** (counts, last problem per kind, the entries of the last 1 h – 30 days; falls back to
 the dashboard's in-memory copy when Elasticsearch is unreachable).
 
 ### User actions: `netmon.audit`
@@ -43,7 +43,7 @@ the dashboard's in-memory copy when Elasticsearch is unreachable).
 | `kb.event`, `kb.host` (`.add`, `.delete`, `.approve`, `.reject`) | 📝 event notes and host notes, and approving User notes. |
 | `aireview.*` | Confirming/rejecting AI correlation verdicts, **Clear review queue** / **Clear event queue** (`aireview.clear-review`, `aireview.clear-queue`). |
 | `aireview.esquery` | Each Elasticsearch look-up the event reviewer ran (user `netmon (event reviewer)`, category `database`): the structured query, hit count and error. Written by the app, not by a person. |
-| `llm.review-limits` | Changes on AI review → Review limits: link-type modes, time window, max links per event, never-send events and rules (including **mute** on an alert, which also deletes the alerts that already fired), verdict retention, event classification on/off. The entry's parameters show the new values. |
+| `llm.review-limits` | Changes on AI pipeline configuration → Review limits: link-type modes, time window, max links per event, never-send events and rules (including **mute** on an alert, which also deletes the alerts that already fired), verdict retention, event classification on/off. The entry's parameters show the new values. |
 | `research.request` | **Send to research** on an event. |
 | `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask AI: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
 | `users.*` | Adding and deleting users, password resets, role changes, device assignment. Console changes (`docker exec ... server.py add-user / set-role / set-password`) are logged as user `console`. |
@@ -81,13 +81,13 @@ The review job (`review.py`, started by `scheduler.py`) and event research (`res
 run on the host, not inside the dashboard, so the audit log sees what goes in and what comes back (provider `review job`
 or `event research`; entries written before the split say `research job`), not the internal tool calls. The full
 conversations, tool calls included, are saved on the host under `logs/review/` and `logs/research/` (the newest 60
-each), and tokens and estimated cost are on the AI review page.
+each), and tokens and estimated cost are on the AI pipeline pages.
 
 ### Switching the AI sources off
 
 On the Audit log page, **Audit log storage** has two checkboxes: *Send event reviewer events* (user `netmon (event reviewer)`: `llm.correlation-review`, `llm.event-classify` and `aireview.esquery`) and *Send researcher events* (user `netmon (event research)`: `llm.research-input`, `-result`, `-hostnotes`). The review job's entries (user `netmon (review job)`) follow *Send event reviewer events*. Each is independent and on by default; when off, those entries are dropped (not queued). Stored in the `integrations` settings section `audit` as `send_reviewer` / `send_researcher`; the status API counts them as `skipped`.
 
-These switches are separate from the Elasticsearch look-up switches on AI review → Models, which decide whether the event reviewer (`llm.esqueries`) or event research (`llm.research`, `es_search`) may *search* Security Onion at all. Event research's own searches are kept for the AI review page and as Kibana links on its notes, but are not individual audit entries; its prompts and results are.
+These switches are separate from the Elasticsearch look-up switches on AI pipeline configuration → Models, which decide whether the event reviewer (`llm.esqueries`) or event research (`llm.research`, `es_search`) may *search* Security Onion at all. Event research's own searches are kept for the AI pipeline pages and as Kibana links on its notes, but are not individual audit entries; its prompts and results are.
 
 ## What is not recorded
 
@@ -195,7 +195,7 @@ index for that name.
 | `message` | One-line summary (shown in the list). |
 | `netmon.target` | What the action was about (`username=…`, `id=…`, `eid=…`, `route=…`). |
 | `netmon.params` | Request parameters, secrets redacted (`flattened` type). |
-| `gen_ai.system` | Provider: `lmstudio` (the built-in local OpenAI-compatible server; the id is historical), the id of an AI provider added on AI review (`api:<id>`), `review job` or `event research`. |
+| `gen_ai.system` | Provider: `lmstudio` (the built-in local OpenAI-compatible server; the id is historical), the id of an AI provider added on AI pipeline (`api:<id>`), `review job` or `event research`. |
 | `gen_ai.request.model` | Model name. |
 | `gen_ai.prompt`, `gen_ai.completion` | What netmon sent and what the model answered (full text, searchable). |
 | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Tokens when the provider reports them. |

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Read-only Elasticsearch look-ups for the event reviewer (host_broker.py POST /esquery).
 
-The event reviewer model may ask for extra context before it decides a link (AI review > Models > "Elasticsearch
+The event reviewer model may ask for extra context before it decides a link (AI pipeline configuration > Models > "Elasticsearch
 queries"). It never sends Elasticsearch DSL: it sends a small structured request, this module validates it and
 builds the query itself, so the model can only run bounded `_search` requests on the Security Onion indices.
 

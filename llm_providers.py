@@ -1,6 +1,6 @@
 """AI providers: any OpenAI-compatible or Anthropic API reached with an API key, plus the local LM Studio server.
 
-Admins add providers on the dashboard's AI review page. Everything that uses an AI model goes through this module:
+Admins add providers on the dashboard's AI pipeline pages. Everything that uses an AI model goes through this module:
 the event reviewer (dashboard container), the dashboard chat, and the review job (review.py) and
 event research (research.py) on the host. Providers are stored in llm_providers.json on the dashboard's state volume (mode 0600,
 atomic writes; the host reads the same file at dashboard/state/):
@@ -385,7 +385,7 @@ def _rate(p):
         q = [t for t in _sent.get(p["id"], []) if now - t < 3600]
         if len(q) >= lim:
             _sent[p["id"]] = q
-            raise RuntimeError(f"{p.get('name')}: rate limit reached ({lim} calls per hour, set on AI review > AI providers)")
+            raise RuntimeError(f"{p.get('name')}: rate limit reached ({lim} calls per hour, set on AI pipeline configuration > AI providers)")
         q.append(now)
         _sent[p["id"]] = q
 

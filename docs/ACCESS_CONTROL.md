@@ -17,7 +17,7 @@ what a role can't use. Hiding a button is never the protection.
 | Push notifications on own browsers/phones | ✓ | ✓ | ✓ (assigned devices only) |
 | Urgent alerts (Alerts page, 🔔) | all | all | assigned devices only |
 | Security events for a device (correlated findings, IDS, gateway, endpoint, vulns) | all pages | all pages | **My devices** page, assigned devices only |
-| Every other page: Overview, Security, Network (including Network → Users, the accounts seen in the logs), Devices, Notes, AI review, Checked | ✓ | ✓ | ✗ |
+| Every other page: Overview, Security, Network (including Network → Users, the accounts seen in the logs), Devices, Notes, AI pipeline, Checked | ✓ | ✓ | ✗ |
 | Configuration and Dashboard users pages | view + change | view only | ✗ |
 | Check off events, write 📝 event notes and host notes, confirm/reject AI correlation verdicts | ✓ | ✓ | ✗ |
 | 📝 notes on events of own devices (pending until approved; sees only own notes) | ✓ | ✓ | ✓ (assigned devices only) |
@@ -28,7 +28,7 @@ what a role can't use. Hiding a button is never the protection.
 | Ask AI (chat) | ✓ (and can pick the model per message) | ✓ (the configured chat model) | ✗ |
 | Choose own alert devices (Alerts → Notification settings) | ✓ | ✓ | ✗ (an admin assigns them) |
 | Mark alerts read | shared 🔔 for everyone | shared 🔔 for everyone | private marker, doesn't change anyone else's 🔔 |
-| AI review > Review limits: skip event-type pairs, set the event reviewer's time window, switch event classification, exclude noisy events, "Never send" rules by name / host / ID, cap links per event | ✓ | ✓ | ✗ |
+| AI pipeline configuration > Review limits: skip event-type pairs, set the event reviewer's time window, switch event classification, exclude noisy events, "Never send" rules by name / host / ID, cap links per event | ✓ | ✓ | ✗ |
 | Mute an alert from the Alerts page (**mute name…** / **mute name + host…**, a "Never send" rule that also clears matching alerts) | ✓ | ✓ | ✗ |
 | Add / delete users, reset passwords, change roles, assign devices | ✓ | ✗ | ✗ |
 | Integrations (Elasticsearch, UniFi, web search): view and change | ✓ | ✗ | ✗ |
@@ -38,7 +38,7 @@ what a role can't use. Hiding a button is never the protection.
 
 **"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
 roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items
-off, writing notes, confirming or rejecting an AI link, limiting which links the event reviewer sees (AI review > Review limits) and using Ask AI, is not a setting. Defenders can do it.
+off, writing notes, confirming or rejecting an AI link, limiting which links the event reviewer sees (AI pipeline configuration > Review limits) and using Ask AI, is not a setting. Defenders can do it.
 
 ## The User role in detail
 

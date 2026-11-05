@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Settings, schedule and status of the review job (review.py): collect -> analyze -> event reviewer -> queue.
 
-Settings live in the netmon store's meta table (key "review_job"), so the dashboard container (AI review page) and the
+Settings live in the netmon store's meta table (key "review_job"), so the dashboard container (AI pipeline pages) and the
 host scheduler read the same values:
   interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily 24 h run)
   enabled               the scheduler skips the job when off
   modes                 per event category what the job does with an event that has no note yet:
-                          "review" - the event reviewer model (AI review > Models) compares it with
+                          "review" - the event reviewer model (AI pipeline configuration > Models) compares it with
                                      earlier notes and copies a matching one; anything it cannot match is queued
                           "queue"  - queued without a model call
                           "test"   - queued and tagged "testing" (shows what a mode would queue; new deployments)
                           "skip"   - ignored
-                        Categories: see MODE_CATS and enrich.py:_events. Queued events wait on AI review > Queue for a
+                        Categories: see MODE_CATS and enrich.py:_events. Queued events wait on AI pipeline monitoring > Queue for a
                         person; nothing here ever researches an event.
   severities            legacy view of modes: the severity categories in "queue" or "review"
 A "run now" request from the dashboard is meta key "review_request"; the scheduler starts the job and clears it.

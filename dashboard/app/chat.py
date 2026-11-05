@@ -1,6 +1,6 @@
 """Dashboard chat ("Ask AI"): per-user conversations with an AI that can read netmon data and the web.
 
-Runs inside the dashboard server. The model is the one an admin picks for chat on the AI review page (llm_config.json
+Runs inside the dashboard server. The model is the one an admin picks for chat on the AI pipeline pages (llm_config.json
 "chat"), or a per-message choice by an admin; it is called through llm_providers. Tools are read-only: the netmon data
 tools from netmon_mcp.py (snapshot, alarms, findings, devices, notes...) plus web search / page reading (webtools.py).
 Conversations live in chat.db on the state volume (mode 0600): chats (owner, title) and messages (the full
@@ -70,7 +70,7 @@ def context_block(ctx):
 
 
 def default_model():
-    """{provider, model} configured for chat on the AI review page, or None."""
+    """{provider, model} configured for chat on the AI pipeline pages, or None."""
     try:
         import corr_llm
         c = corr_llm.config().get("chat") or {}
@@ -97,7 +97,7 @@ def _db():
 
 
 def _record_usage(user, cid, target, budget, secs):
-    """One row per Ask AI turn (tokens, cost, run time) for the AI review page's Time and tokens chart."""
+    """One row per Ask AI turn (tokens, cost, run time) for the AI pipeline pages's Time and tokens chart."""
     try:
         u = budget.summary()
         if not u.get("calls"):
@@ -211,7 +211,7 @@ def _tools(es=True, web=False):
       t["web_fetch"] = (lambda a: webtools.fetch(str(a.get("url") or ""), a.get("max_chars") or 8000), "Read a public web page as text.",
                       {"url": {"type": "string"}, "max_chars": {"type": "integer"}}, ["url"])
     import corr_llm
-    if not es or not corr_llm.config()["chat_es"]["enabled"]:  # admin switch on the AI review page (Models)
+    if not es or not corr_llm.config()["chat_es"]["enabled"]:  # admin switch on the AI pipeline pages (Models)
         return t
     t["elasticsearch_search"] = (_es_search, "Read-only search of the network's Security Onion logs in Elasticsearch. "
                                  "Sources: " + "; ".join(x.strip(" -") for x in corr_llm.ES_SOURCES.splitlines()) + ". "
@@ -275,7 +275,7 @@ def stream(user, cid, text, emit, ctx=None, model=None, rec=None, es=True, web=F
     rec = {} if rec is None else rec
     target = model or default_model()
     if not target:
-        raise RuntimeError("no chat model configured (AI review > Models)")
+        raise RuntimeError("no chat model configured (AI pipeline configuration > Models)")
     msgs, models = _load(cid)
     first = not msgs
     block = context_block(ctx)

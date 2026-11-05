@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""netmon review job: collect -> analyze -> event reviewer -> queue. Runs on the schedule set on the AI review page.
+"""netmon review job: collect -> analyze -> event reviewer -> queue. Runs on the schedule set on the AI pipeline pages.
 
 Started by scheduler.py on the grid set on the dashboard (review_cfg.py), by Run now, or by hand:
     review.py [--trigger manual|schedule] [--skip-collect] [--daily | --no-daily]
 The daily run is the first run at or after 05:00 UTC each day; it covers 24 h of logs so the device baseline stays daily.
-Other runs cover the lookback window set on the AI review page.
+Other runs cover the lookback window set on the AI pipeline pages.
 
-The event reviewer's model is set on AI review > Models (e.g. Gemma on LM Studio). For each event in a
+The event reviewer's model is set on AI pipeline configuration > Models (e.g. Gemma on LM Studio). For each event in a
 "review" category that has no note yet it compares the event with earlier notes (its family, correlated events, similar
-labels) and copies a matching note, marked as copied. Everything it cannot match stays on AI review > Queue for a person.
+labels) and copies a matching note, marked as copied. Everything it cannot match stays on AI pipeline monitoring > Queue for a person.
 The review job never writes new notes of its own.
-Run state and token use go to <state>/review_job.json (AI review page). Conversations are saved under logs/review/
+Run state and token use go to <state>/review_job.json (AI pipeline pages). Conversations are saved under logs/review/
 (git-ignored; the newest 60 are kept).
 """
 import argparse, datetime as dt, fcntl, json, os, sys, time, traceback
@@ -58,12 +58,12 @@ def batches(items):
 
 
 def reviewer_target():
-    """The event reviewer's model (AI review > Models); raises when it is not usable."""
+    """The event reviewer's model (AI pipeline configuration > Models); raises when it is not usable."""
     import corr_llm
     return corr_llm._target()
 
 
-# ------------------------------------------------------------------ run state (AI review page)
+# ------------------------------------------------------------------ run state (AI pipeline pages)
 class Status:
     def __init__(self, target, trigger, daily):
         self.d = RC.status() or {}
@@ -135,7 +135,7 @@ class Review(aijob.Job):
             return
         if not self.reviewer_ok:
             self.counts["queued"] += len(todo)
-            self.errors.append("event reviewer model unavailable (AI review > Models): review events left in the queue")
+            self.errors.append("event reviewer model unavailable (AI pipeline configuration > Models): review events left in the queue")
             return
         self.status.phase("reviewer")
         left = self.review_items(todo)

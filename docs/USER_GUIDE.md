@@ -29,7 +29,7 @@ netmon watches the home network and the computers on it and tells you what chang
 | Every 15 minutes | **Urgent watcher.** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
 | Every few hours (the **review job**; interval set on the Configuration page, 30 min to 24 h, default every 4 h on a grid starting at 05:00 UTC) | **Collection, analysis and the event reviewer.** | A new *snapshot* (the lookback window, 24 hours by default), earlier research notes reused for repeat events, and correlation reviews. Events are researched only when you click **Send to research**. |
 | First run at or after 05:00 UTC (1 AM Eastern in summer) | The same run, always over 24 hours. | A full-day snapshot, the only kind that goes into the device baseline. |
-| All the time | The **event reviewer**, a local AI model. | It decides which events are really related (see [AI review](#ai-review)). |
+| All the time | The **event reviewer**, a local AI model. | It decides which events are really related (see [AI pipeline](#ai-pipeline)). |
 
 The data comes from:
 
@@ -62,7 +62,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
 | **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map, **Users** (accounts seen in the logs and their usual patterns; the dashboard's own logins are under More → Dashboard users). |
 | **Devices ▾** | Hosts (everything on the network), Endpoints (computers running the Elastic Agent) and Notes (what the AI and people have written about devices and events). |
-| **More ▾** | Ask AI, AI review, Checked, Dashboard users, Configuration, Settings (policy and site values, as tables) and Audit log (admins). |
+| **More ▾** | Ask AI, AI pipeline monitoring, AI pipeline configuration, Checked, Dashboard users, Configuration, Settings (policy and site values, as tables) and Audit log (admins). |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
 | **🕒 Time range** | The start and end of the time you are looking at (your local time). The newest nightly report's 24 hours are shown by default. Click it to set a **Start** and **End** date and time, use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**), or pick a **Nightly report window**. See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (and moves to a newer report if you were on the newest). |
 
@@ -152,9 +152,9 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 
 **Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter. Each alert has a **Related** count that links to the network and endpoint events around it.
 
-**Muting noisy alerts (admins and network defenders).** The **Never send to AI** column has two buttons per alert: **mute name…** and **mute name + host…** (only when the alert names a host or IP). Each opens an editable pattern: part of the alert text, with `*` for any text and `?` for one character (a pattern without a wildcard means "contains"). Numbers and addresses in the text are already replaced by `*`. Press **Mute & clear existing** to save: alerts like it are never sent to the AI (a *Never send* rule for both the queue and the event reviewer, listed on AI review → Review limits, where you can remove it) and every alert already raised that matches is removed. The same buttons appear on alert events in the review queue lists on AI review.
+**Muting noisy alerts (admins and network defenders).** The **Never send to AI** column has two buttons per alert: **mute name…** and **mute name + host…** (only when the alert names a host or IP). Each opens an editable pattern: part of the alert text, with `*` for any text and `?` for one character (a pattern without a wildcard means "contains"). Numbers and addresses in the text are already replaced by `*`. Press **Mute & clear existing** to save: alerts like it are never sent to the AI (a *Never send* rule for both the queue and the event reviewer, listed on AI pipeline configuration → Review limits, where you can remove it) and every alert already raised that matches is removed. The same buttons appear on alert events in the review queue lists on AI pipeline monitoring.
 
-Every mute is saved as a rule in the **Alert mute rules** card on the Alerts page (pattern, host, who muted it, when, how many alerts it has cleared). Rules are kept and applied to every future alert: a matching alert is stored already **cleared**, so it sends no push or chat message, does not count as unread and never reaches the AI. Click **show cleared (N)** beside the recent alerts to list the cleared alerts and the rule that cleared each. **Remove rule** deletes the rule and brings its alerts back. Rules created before this feature stay as Never-send rules under AI review > Review limits and are not listed here.
+Every mute is saved as a rule in the **Alert mute rules** card on the Alerts page (pattern, host, who muted it, when, how many alerts it has cleared). Rules are kept and applied to every future alert: a matching alert is stored already **cleared**, so it sends no push or chat message, does not count as unread and never reaches the AI. Click **show cleared (N)** beside the recent alerts to list the cleared alerts and the rule that cleared each. **Remove rule** deletes the rule and brings its alerts back. Rules created before this feature stay as Never-send rules under AI pipeline configuration > Review limits and are not listed here.
 
 ![Urgent alerts page](img/alerts.png)
 
@@ -187,7 +187,7 @@ When you have looked at an alarm or finding and are satisfied, tick its check bo
 
 The network is split into zones (for example main, IoT, servers, guest). The **network policy** (More → Settings) says which zone may talk to which. A *segmentation violation* is a connection the policy doesn't allow.
 
-- **Severity is by port:** *high* = admin/remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker/Kubernetes APIs... the same set as Lateral movement); *medium* = odd ports that are neither admin nor standard; *low* = standard ports (HTTP, HTTPS, DNS, mail, etc.). Lists come from the network policy on More → Settings (`sensitive_ports`, optional `standard_ports`). On **AI review** the three levels are separate categories (Segmentation: high / medium / low), each switched between *review* and *skip* in the event-type matrix of AI review → Review limits.
+- **Severity is by port:** *high* = admin/remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker/Kubernetes APIs... the same set as Lateral movement); *medium* = odd ports that are neither admin nor standard; *low* = standard ports (HTTP, HTTPS, DNS, mail, etc.). Lists come from the network policy on More → Settings (`sensitive_ports`, optional `standard_ports`). On **AI pipeline configuration** the three levels are separate categories (Segmentation: high / medium / low), each switched between *review* and *skip* in the event-type matrix of AI pipeline configuration → Review limits.
 - If the flow is expected (for example your laptop managing a server over SSH), click the green **Clear** box on **Posture → Segmentation violations**, or the Clear box on **Lateral movement**.
 - **What clearing does:** the flow is hidden on Posture and shown as allowed on Lateral movement; it stops counting toward host risk and is left out of correlation; and it is listed under **Cleared segmentation** on Posture. (Segmentation violations are not part of the Fix list.)
 - **To bring a flow back:** uncheck it in Cleared segmentation.
@@ -199,7 +199,7 @@ The network is split into zones (for example main, IoT, servers, guest). The **n
 
 Events that share a host, an IP address, a domain or an account, happen close together, or map to the same ATT&CK technique are proposed as *related* by a script. The event reviewer (an AI model) confirms or rejects each link. For each confirmed link it also lists the **correlated artifacts** (files, processes, users, IP addresses and DNS queries that tie the two events together), with a one-line relation and a decision: *benign*, *expected* or *suspicious*. Each artifact carries a flare showing which AI model wrote it. Click the Related count on an event to read them.
 
-The popup also lists artifacts for each related event before any review has happened. They are read from the event itself: the users, processes, files and DNS names it names, plus its host IP and destination IP, each marked *info* until the event reviewer decides. When the event reviewer or event research searched Elasticsearch for an event, each search is kept as a **🔭 query** artifact with its hit count and the model's flare; click it to open the same search in Kibana Discover (searches with aggregations or complex clauses open an approximation, marked ≈). Each related event also shows when it happened. When **Classify events** is on (AI review → Review limits), an event whose correlations have all been reviewed gets a **🏷 suspicious / benign / expected** flair next to its notes button; click it for the reason. Each artifact has a 📝 button: add your own notes on that file, process, user, IP or DNS name. The event reviewer reads them in later reviews (together with the research notes on the events and the AI-written host notes; it bases its *benign* and *expected* artifact decisions on these notes and names the note it relied on), and they also appear on the Notes page. Links confirmed before this feature get artifacts only when they are reviewed again.
+The popup also lists artifacts for each related event before any review has happened. They are read from the event itself: the users, processes, files and DNS names it names, plus its host IP and destination IP, each marked *info* until the event reviewer decides. When the event reviewer or event research searched Elasticsearch for an event, each search is kept as a **🔭 query** artifact with its hit count and the model's flare; click it to open the same search in Kibana Discover (searches with aggregations or complex clauses open an approximation, marked ≈). Each related event also shows when it happened. When **Classify events** is on (AI pipeline configuration → Review limits), an event whose correlations have all been reviewed gets a **🏷 suspicious / benign / expected** flair next to its notes button; click it for the reason. Each artifact has a 📝 button: add your own notes on that file, process, user, IP or DNS name. The event reviewer reads them in later reviews (together with the research notes on the events and the AI-written host notes; it bases its *benign* and *expected* artifact decisions on these notes and names the note it relied on), and they also appear on the Notes page. Links confirmed before this feature get artifacts only when they are reviewed again.
 
 The **Related** column shows how many links an event has. Click it to see them, each with the reason and the event reviewer's verdict, then click any one to jump to it. Details: [CORRELATION.md](CORRELATION.md).
 
@@ -217,13 +217,13 @@ An event with a note shows a **✨ verdict** button next to its Related count. C
 - what was checked and found (hosts, ports and times);
 - links to the sources the AI actually read.
 
-Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI review** page shows how many events have notes.
+Notes carry over to the same finding in later snapshots, and are refreshed when the evidence changes. *Written for an earlier run* means the numbers may have moved since. The **AI pipeline monitoring** page shows how many events have notes.
 
 ![Research note popup with verdict and summary](img/research-note.png)
 
 AI notes can be wrong. Treat them as a well-informed second opinion, and check the evidence before acting on anything important.
 
-**Notes stay with the item.** A research note is stored on its own and never expires. If a finding has dropped out of the newest snapshots (for example because it was checked off), its ✨ button still appears: the page fetches the saved note by the finding's text. On **More → Checked** every checked item with a note has a ✨ button too (host findings, alarms, issues, gateway events and baseline findings). Only an admin using *Clear notes* on the AI review page removes notes.
+**Notes stay with the item.** A research note is stored on its own and never expires. If a finding has dropped out of the newest snapshots (for example because it was checked off), its ✨ button still appears: the page fetches the saved note by the finding's text. On **More → Checked** every checked item with a note has a ✨ button too (host findings, alarms, issues, gateway events and baseline findings). Only an admin using *Clear notes* on the AI pipeline pages removes notes.
 
 **Times seen (👁).** Next to the Related count each event shows **👁 N×**: the number of snapshots it has appeared in (for an alert, how many times an alert with the same text was raised). Counting started when this feature was added. Hover for the first and last time it was seen.
 
@@ -271,8 +271,8 @@ Pending notes are listed under **Event notes awaiting approval** on **Devices �
 
 **Limits and housekeeping**
 
-- Each host, account or domain holds at most a set number of notes (40 by default; admins change it with **Notes per host / user** on the AI review page). When a subject is full, the AI has to update or delete old notes before adding new ones.
-- Nightly **host note consolidation** (AI review) merges overlapping, unreviewed AI notes. Notes written by people, accepted and rejected notes, and correlation profiles are never changed by it.
+- Each host, account or domain holds at most a set number of notes (40 by default; admins change it with **Notes per host / user** on the AI pipeline pages). When a subject is full, the AI has to update or delete old notes before adding new ones.
+- Nightly **host note consolidation** (AI pipeline configuration) merges overlapping, unreviewed AI notes. Notes written by people, accepted and rejected notes, and correlation profiles are never changed by it.
 - Every add, delete, accept, reject and approve is logged with the user's name in the **Audit log**.
 - The Notes page and Internet notes tables count the accepted (✓) and rejected (✕) notes per device, IP or domain.
 
@@ -468,9 +468,9 @@ The notes knowledge base. (Notes about external IPs and DNS names are on **Netwo
 
 The AI assistant (see [Ask AI](#ask-ai)).
 
-### More → AI review
+### More → AI pipeline monitoring / AI pipeline configuration
 
-What the AI is doing and how well (see [AI review](#ai-review)).
+What the AI is doing and how well, and how it is set up (see [AI pipeline](#ai-pipeline)).
 
 ### More → Checked
 
@@ -539,20 +539,20 @@ Full details (every recorded action, fields, Kibana queries, retention, troubles
 
 netmon uses two kinds of AI:
 
-- **A cloud AI provider** of your choice (any OpenAI-compatible service or Anthropic, added by an admin on **AI review → AI providers**): event research when someone clicks Send to research (web search), and the Ask AI chat. The review job's event reviewer is the event reviewer's model (local by default).
+- **A cloud AI provider** of your choice (any OpenAI-compatible service or Anthropic, added by an admin on **AI pipeline configuration → AI providers**): event research when someone clicks Send to research (web search), and the Ask AI chat. The review job's event reviewer is the event reviewer's model (local by default).
 - **A local model** (served on the monitoring computer by any OpenAI-compatible model server): the event reviewer. It runs all the time and costs nothing per request. It can also be chosen for the review job or the chat.
 
 Anything an AI wrote is labelled ✨ with the model name.
 
 ### Ask AI
 
-A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data and notes, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI review → Models**; until one is chosen, the chat is off.
+A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data and notes, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI pipeline configuration → Models**; until one is chosen, the chat is off.
 
 - **Starting a chat:** open **More → Ask AI** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
 - **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What the AI will be given* shows exactly what is sent.
-- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the chat model set on AI review > Models), any model of the providers added on AI review > AI providers, or any model of the local server. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
+- **Choosing the model (admins):** a **Model** menu in the chat header and in the 💬 dialog lets you pick *Default* (the chat model set on AI pipeline configuration > Models), any model of the providers added on AI pipeline configuration > AI providers, or any model of the local server. The choice applies to the next message, is the same in both places, and is remembered in your browser. Each answer's ✨ label shows which model actually answered.
 
-- **Tools (admins and network defenders):** two check boxes sit on their own row under the chat header, and in the 💬 dialog: **🔎 Elasticsearch** (on by default) lets the AI query the network's Security Onion logs, and **🌐 Web research** (off by default) lets it search and read web pages. The choice is remembered in your browser and is shared by the chat page and the 💬 dialog. Other roles always get Elasticsearch on and web research off. The Elasticsearch switch on AI review still applies: if it is off there, the box has no effect. With web research off the AI is told it cannot search the web.
+- **Tools (admins and network defenders):** two check boxes sit on their own row under the chat header, and in the 💬 dialog: **🔎 Elasticsearch** (on by default) lets the AI query the network's Security Onion logs, and **🌐 Web research** (off by default) lets it search and read web pages. The choice is remembered in your browser and is shared by the chat page and the 💬 dialog. Other roles always get Elasticsearch on and web research off. The Elasticsearch switch on AI pipeline configuration still applies: if it is off there, the box has no effect. With web research off the AI is told it cannot search the web.
 
 Limits: 40 messages per person per hour, 4,000 characters per message. Answers can be wrong. Check important findings on the dashboard pages.
 
@@ -561,11 +561,20 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 ![Ask about this dialog with suggested questions and the Model menu](img/ask-dialog.png)
 *The 💬 dialog: suggested questions, your own question, and the Model menu (admins).*
 
-### AI review
+### AI pipeline
 
-**More → AI review** shows the AI's work and lets admins configure it.
+The AI pipeline has two pages, each split into the same four parts (jump links at the top of each page):
 
-![Models card on AI review](img/aireview-models.png)
+| Part | **More → AI pipeline monitoring** (`#/aireview`) | **More → AI pipeline configuration** (`#/aiconfig`) |
+|---|---|---|
+| **Models** | **Model status**: the model behind each step (decision model, event reviewer, event research, Ask AI chat), its source (server or AI provider and endpoint) and whether it is **up**, **down**, **check** (answers, but the model is missing or not loaded) or **off**. Checked with the server's health or model list, no tokens used, at most once a minute; admins can press **Check now**. | **Models**, **AI providers** (admins), **Decision model server** |
+| **Correlation review** | **Decision model** figures, **Event reviewer**, verdict charts, **Decisions** (override here), **Review log** | **Decision model settings** (on/off, thresholds), **Review limits** |
+| **Event review** | **Review job** (runs, Run now / Pause), **Time and tokens**, events per day, the event reviewer's **Elasticsearch** and **web searches** | **Review job schedule** (Run every, Run now / Pause, **Review lookback window**), **Event reviewer look-ups**, **Event reviewer context notes**, **Host note consolidation** |
+| **Research review** | **Event research**: spent today against the daily cap, events researched, average cost, tokens, events waiting for a person; its Elasticsearch searches | **Event research limits** (caps, web access, Elasticsearch) |
+
+Everyone who can see the pages sees the configuration page; only admins can change it (review limits: admins and network defenders). The boxes:
+
+![Models card on AI pipeline configuration](img/aireview-models.png)
 
 ![Review limits: classify events, time window, event-type matrix, never-send rules](img/aireview-limits.png)
 
@@ -673,9 +682,9 @@ Baselines need 3 days of history before deviation rules switch on. Until then th
 The note was written for the same finding in an earlier snapshot, so the numbers in it may be out of date. It is refreshed when the evidence changes enough.
 
 **Ask AI says it is unavailable or not configured.**
-No chat model is chosen yet, or the AI provider didn't answer. Try again in a minute. If it keeps failing, tell the admin (AI review → AI providers → **Test**).
+No chat model is chosen yet, or the AI provider didn't answer. Try again in a minute. If it keeps failing, tell the admin (AI pipeline configuration → AI providers → **Test**).
 
-**AI review shows "Last run failed".**
+**AI pipeline monitoring shows "Last run failed".**
 The latest review job run failed. The error is shown in the box. The next scheduled run usually recovers; otherwise tell the admin.
 
 ---

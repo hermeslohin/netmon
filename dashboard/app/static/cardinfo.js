@@ -30,7 +30,7 @@ window.CARD_INFO = {
 "use": "Enter your current password and the new one twice. Your other signed-in browsers and phones are signed out, this one stays signed in. A long passphrase is strongest.",
 "what": "Self-service form to change your own dashboard password."
 },
-"aireview|Host note consolidation": {
+"aiconfig|Host note consolidation": {
 "source": "Host notes in the knowledge base (kb.db host_notes) written by the event reviewer and by event research; the merge is done by the event reviewer model (notes_consolidate.py, run by the dashboard at the set time).",
 "use": "Leave it on so hosts do not pile up hundreds of near-duplicate notes. Use Consolidate now after a burst of new notes. Many rejected merges mean the model is dropping identifiers; failed requests usually mean LM Studio was busy or down.",
 "what": "Nightly merge of overlapping AI-written host notes. KPIs: all host notes, the AI notes it may merge, hosts with changed notes waiting for a pass, and the last run's notes before and after. Person-written and reviewed notes are never changed."
@@ -42,7 +42,7 @@ window.CARD_INFO = {
 },
 "aireview|Review job": {
 "source": "The review job (review.py), started by the netmon scheduler on a grid anchored at 05:00 UTC (the first run after 05:00 UTC covers 24 h for the device baseline), or by Run now. Its event reviewer is the event reviewer's model (Models card). Settings are in the netmon store (review_cfg.py), run state in review_job.json, notes and run log from enrich.py.",
-"use": "Status should be Idle or Running with no failure streak. Set Run every to change how often it runs (5 to 1440 minutes; saves automatically). Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest counts.",
+"use": "Status should be Idle or Running with no failure streak. Run every and the lookback window are set on AI pipeline configuration, Event review (Review job schedule). Run now starts a run within 20 seconds; Pause stops scheduled runs. Expand the run summary to read the latest counts.",
 "what": "Status of the scheduled review job: each run collects and analyzes the latest logs, then the event reviewer compares new events with earlier notes and copies a matching note; everything else waits in the queue. Shows health, event reviewer model, schedule, last run, note coverage and recent runs. The review job never researches events: that happens only when someone clicks Send to research."
 },
 "aireview|Time and tokens: review job, event research and Ask AI chat": {
@@ -50,12 +50,12 @@ window.CARD_INFO = {
 "use": "Watch for days that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
 "what": "Stacked bars of the tokens per day used by the review job, event research and Ask AI chat (new input, cache writes, output; grey when the provider gave no cache split) with time and estimated cost as lines (hover a day for the split), plus a list of each researched event with its tokens and cost."
 },
-"aireview|Event research limits": {
+"aiconfig|Event research limits": {
 "source": "Event research settings in the netmon store (research_cfg.py), enforced by research.py before every model call.",
 "use": "Set a $ cap per research a bit above the usual cost and a daily cap as a backstop. The token cap works even when no price is entered.",
 "what": "Cost and size limits of event research, which runs only when someone clicks Send to research: $ per research run, $ per day, tokens per run, batches, web searches per event and web access."
 },
-"aireview|Review lookback window": {
+"aiconfig|Review lookback window": {
 "what": "How many hours of logs each run of the review job collects and reviews. The daily 05:00 UTC run always covers 24 hours.",
 "source": "Saved in the netmon store and read by the collector when the review job starts (collect.py auto).",
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
@@ -65,12 +65,37 @@ window.CARD_INFO = {
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗ or ↻ to ask the model again.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
-"aireview|Models": {
+"aireview|Model status": {
+"source": "GET /api/aireview/models: the decision model server's /health, the local model server's model list and each AI provider's model list (no tokens used), cached for one minute.",
+"use": "Every step in use should be up. Down means its server or API did not answer; check means it answered but the chosen model is missing or not loaded. Off means no model is chosen or it is switched off. Admins can press Check now.",
+"what": "The model behind each step of the AI pipeline (decision model, event reviewer, event research, Ask AI chat), where it is served and whether it answers right now."
+},
+"aireview|Event research": {
+"source": "Event research settings and spend (research_cfg.py) and the research runs recorded by the review job state.",
+"use": "Watch spend against the daily cap and how many events wait for a person. Change the caps and web access on AI pipeline configuration, Research review.",
+"what": "Events researched with Send to research: money spent today, events researched, average cost and tokens per event, and the events still waiting for a person."
+},
+"aiconfig|Review job schedule": {
+"source": "Review job settings in the netmon store (review_cfg.py) and the lookback window (lookback.py).",
+"use": "Set how often the review job runs (5 to 1440 minutes, saves automatically), start a run now or pause it, and set how far back each run looks.",
+"what": "When the review job runs and which time window of logs each run collects and analyzes."
+},
+"aiconfig|Decision model settings": {
+"source": "Decision model settings in the AI configuration (clef.py, key clef).",
+"use": "Switch the decision model on or off and set how sure it must be before a link counts as related or an event as suspicious. Applies from the next pass.",
+"what": "On/off and probability thresholds of the decision model that decides every proposed link and labels each event."
+},
+"aiconfig|Event reviewer context notes": {
+"source": "AI configuration (corr_llm.py context_notes) used by the event reviewer and event research prompts.",
+"use": "Lower the numbers for faster, cheaper reviews; raise them when the reviewer misses earlier context. Applies from the next review.",
+"what": "How many earlier host and internet notes, and how many characters of them, the event reviewer is given for one event."
+},
+"aiconfig|Models": {
 "source": "Dashboard AI configuration: local models are listed from the local OpenAI-compatible server (/v1/models), cloud models from the AI providers box. Only an admin can change them.",
-"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call.",
+"use": "Pick a model; it applies straight away. Whether each one is up is shown on AI pipeline monitoring, Models. Local models are free but slower and weaker at web research; cloud models are billed per call.",
 "what": "Which AI model each AI job uses: the event reviewer (decides every proposed link between events, and is also used by the review job), event research (only on Send to research) and the Ask AI chat."
 },
-"aireview|AI providers": {
+"aiconfig|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
 "use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use; add prices after a model id for cost estimates). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps single calls if something loops.",
 "what": "AI services reached with an API key, any number of them. Their models can be picked for the event reviewer, event research, and the chat."

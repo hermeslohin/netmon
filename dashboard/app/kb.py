@@ -35,7 +35,7 @@ import store  # noqa: E402  /netmon/store.py (SQLite docs table)
 DB = os.path.join(os.environ.get("STATE_DIR", "/state"), "kb.db")
 CATEGORIES = ("role", "baseline", "behavior", "decision", "risk", "config", "watch", "other")
 MAX_TEXT = 2000
-MAX_PER_SUBJECT, PER_SUBJECT_LIMIT = 40, 500  # default / most an admin can set (AI review > Models, Notes per host / user)
+MAX_PER_SUBJECT, PER_SUBJECT_LIMIT = 40, 500  # default / most an admin can set (AI pipeline configuration > Models, Notes per host / user)
 
 
 def max_per_subject():

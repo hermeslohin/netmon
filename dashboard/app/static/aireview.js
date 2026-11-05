@@ -1,5 +1,8 @@
-// AI review (#/aireview): the event reviewer that confirms or rejects correlation links (corr_llm.py), the
-// review job (review.py) and the AI providers / models / cost caps they use.
+// AI pipeline, two pages, each in four parts (Models, Correlation review, Event review, Research review):
+//   #/aireview = AI pipeline monitoring (model up/down, decisions, run state, usage; live refresh)
+//   #/aiconfig = AI pipeline configuration (models + providers, decision model / limits, look-ups / schedule / notes, research caps)
+// Covers the decision model + event reviewer that confirm or reject correlation links (corr_llm.py), the review job
+// (review.py) and event research (research.py), and the AI providers / models / cost caps they use.
 // Worker health, queue + ETA, throughput, and every verdict with the model's reason; people can override a verdict
 // (confirm / reject) or send it back to the model for another look.
 (() => {
@@ -36,14 +39,13 @@
     const sum = J && J.summary ? `<details style="margin-top:10px"><summary>Latest run summary ${aiFlare({ model: J.summary.model || J.model, via: "Review job", at: new Date(J.summary.at * 1000).toISOString() })} <span class="muted small">${esc(ago(J.summary.at))}</span></summary>
         <div class="note-research" style="margin-top:6px">${esc(J.summary.text)}</div></details>` : "";
     const c = card(`Review job (${every(null, J && J.interval_minutes)})`, `
-      <div class="small muted" style="margin-bottom:8px">Each run collects and analyzes the logs, then the event reviewer (its model is set under Models) compares
+      <div class="small muted" style="margin-bottom:8px">Each run collects and analyzes the logs, then the event reviewer (its model is set under AI pipeline configuration > Models) compares
         new events with earlier notes and copies a matching note. Everything else waits in the <b>Queue</b> for a person. Events are researched only when someone clicks <b>Send to research</b>.</div>
       <div class="idgrid">
         <span class="k">Status</span><span><span class="badge ${health[1]}">${health[0]}</span>${J && J.running ? ` · started ${esc(ago(J.running.started))}${J.running.progress ? `, last activity ${esc(ago(J.running.progress))}` : ""}` : ""}</span>
         ${J ? `<span class="k">Job</span><span>${esc(J.name || J.id)} · <span class="mono">${esc(J.model || "no event reviewer model - pick the event reviewer in the Models box")}</span>${J.provider ? ` <span class="muted small">${esc(PROV[J.provider] || J.provider)} · event reviewer</span>` : ""}</span>
         <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
           ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
-        ${D.admin ? `<span class="k">Run every</span><span class="rj-iv" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><input class="rj-m" type="number" min="5" max="1440" step="1" value="${J.interval_minutes || 0}" style="width:5.5em"> <span class="small">minutes</span> <span class="small rj-ivmsg"></span> <span class="small muted">5 to 1440 · saves automatically</span></span>` : ""}
         <span class="k">Last run</span><span>${lastRun ? `${esc(ago(lastRun.finished || lastRun.started))} · ${esc(lastRun.status)}${lastRun.duration_s ? ` in ${esc(dur(lastRun.duration_s))}` : ""}` : "never"}${J.failure_streak ? ` · <span class="bad">${fn(J.failure_streak)} failure(s) in a row</span>` : ""}</span>
         ${J.last_error ? `<span class="k">Last error</span><span class="bad">${esc(J.last_error)}</span>` : ""}` : `<span class="k">Job</span><span>Review job status unavailable.</span>`}
         <span class="k">Event notes</span><span>${fn(N.total || 0)} stored · ${fn(N.last_24h || 0)} in the last 24 h${Object.keys(N.by_verdict || {}).length ? " · " + Object.entries(N.by_verdict).map(([k, v]) => `${esc(k)} ${fn(v)}`).join(" · ") : ""}</span>
@@ -53,30 +55,12 @@
       <div style="margin-top:12px"><div class="small muted">Current snapshot: ${cov}% of events have a note (${fn(N.current_with_note || 0)} of ${fn(N.current_events || 0)})</div>
         <div class="bar" style="height:10px;margin-top:4px"><span style="width:${cov}%"></span></div></div>
       ${sum}
+      ${J ? `<div class="small muted" style="margin-top:8px">Schedule, Run every and the lookback window: <a href="#/aiconfig?at=ai-review-schedule">AI pipeline configuration > Event review</a>.</div>` : ""}
       <div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px">
         <div class="cl-runs"><div class="small"><b>Recent runs</b></div></div>
       </div>`);
     c.id = "ai-review-job";
-    if (J) { const g = c.querySelector(".cl-runs").parentNode; g.parentNode.insertBefore(lookbackCard(D), g); }  // the lookback is a setting of this job's collect + correlate step
-    if (D.admin && J && c.querySelector(".rj-m")) {
-      const mi = c.querySelector(".rj-m"), im = c.querySelector(".rj-ivmsg"), cur = J.interval_minutes || 0; let tm = null;
-      mi.oninput = () => { clearTimeout(tm); const t = parseInt(mi.value, 10) || 0; im.className = "small sev-high";
-        if (t < 5 || t > 1440) { im.textContent = "between 5 and 1440 minutes"; return; }
-        if (t === cur) { im.textContent = ""; return; }
-        im.className = "small"; im.textContent = "saving…";
-        tm = setTimeout(async () => { try { await apiPost("/api/config/review-schedule", { hours: 0, minutes: t }); im.textContent = "saved ✓"; setTimeout(() => rerender(), 600); }
-          catch (e) { im.className = "small sev-high"; im.textContent = String(e.message || e); } }, 800); };
-    }
-    if (D.admin && J) {
-      const m = c.querySelector(".rj-msg");
-      c.querySelector(".rj-run")?.addEventListener("click", async (ev) => { ev.target.disabled = true; m.textContent = "requesting…";
-        try { await apiPost("/api/llm/review", { action: "run" }); m.textContent = "requested - the scheduler starts it within 20 s"; }
-        catch (e) { m.textContent = "error: " + e.message; ev.target.disabled = false; } });
-      c.querySelector(".rj-toggle")?.addEventListener("click", async (ev) => { ev.target.disabled = true;
-        try { const r = await apiPost("/api/llm/review", { enabled: !J.enabled }); J.enabled = r.review.enabled; ev.target.textContent = J.enabled ? "Pause" : "Resume";
-          m.textContent = J.enabled ? "resumed" : "paused - no scheduled runs until resumed"; }
-        catch (e) { m.textContent = "error: " + e.message; } ev.target.disabled = false; });
-    }
+    if (D.admin && J) wireRunButtons(c, J);
     // RV = review runs, U = event research (Send to research), CU = Ask AI chat turns: all counted in the same day totals
     const RV = ((J && J.usage) || []).map((u) => ({ ...u, review: true })), U = (J && J.research_usage) || [], CU = (J && J.chat_usage) || [], AL = [...RV, ...U, ...CU];
     let uc = null;
@@ -165,6 +149,44 @@
     return uc ? [c, uc] : [c];
   }
 
+  // Run now / Pause buttons (.rj-run / .rj-toggle / .rj-msg) of the review job: on the monitoring status box and the schedule box
+  function wireRunButtons(c, J) {
+    const m = c.querySelector(".rj-msg");
+    c.querySelector(".rj-run")?.addEventListener("click", async (ev) => { ev.target.disabled = true; m.textContent = "requesting…";
+      try { await apiPost("/api/llm/review", { action: "run" }); m.textContent = "requested - the scheduler starts it within 20 s"; }
+      catch (e) { m.textContent = "error: " + e.message; ev.target.disabled = false; } });
+    c.querySelector(".rj-toggle")?.addEventListener("click", async (ev) => { ev.target.disabled = true;
+      try { const r = await apiPost("/api/llm/review", { enabled: !J.enabled }); J.enabled = r.review.enabled; ev.target.textContent = J.enabled ? "Pause" : "Resume";
+        m.textContent = J.enabled ? "resumed" : "paused - no scheduled runs until resumed"; }
+      catch (e) { m.textContent = "error: " + e.message; } ev.target.disabled = false; });
+  }
+  // Configuration > Event review: the review job's schedule (Run every), Run now / Pause and its lookback window
+  function reviewScheduleCard(D) {
+    const C = D.review_status || {}, J = (C.jobs || [])[0];
+    const c = card("Review job schedule", C.error ? `<div class="bad">Status unavailable: ${esc(C.error)}</div>` : !J ? `<div class="small muted">Review job status unavailable.</div>` : `
+      <div class="small muted" style="margin-bottom:8px">When the review job runs. Each run collects and analyzes the logs of the lookback window; the event reviewer then copies matching earlier notes.
+        Its runs and results are on <a href="#/aireview?at=ai-review-job">AI pipeline monitoring > Event review</a>.</div>
+      <div class="idgrid">
+        <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
+          ${D.admin ? ` · <button type="button" class="rj-run"${J.running || J.requested ? " disabled" : ""}>Run now</button> <button type="button" class="rj-toggle">${J.enabled ? "Pause" : "Resume"}</button> <span class="small muted rj-msg"></span>` : ""}</span>
+        <span class="k">Run every</span><span class="rj-iv" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"><input class="rj-m" type="number" min="5" max="1440" step="1" value="${J.interval_minutes || 0}" style="width:5.5em"${D.admin ? "" : " disabled"}> <span class="small">minutes</span> <span class="small rj-ivmsg"></span> <span class="small muted">${D.admin ? "5 to 1440 · saves automatically" : "only an admin can change this"}</span></span>
+      </div>`);
+    c.id = "ai-review-schedule";
+    if (!J) return c;
+    c.appendChild(lookbackCard(D));  // the lookback is a setting of this job's collect + correlate step
+    if (D.admin) {
+      wireRunButtons(c, J);
+      const mi = c.querySelector(".rj-m"), im = c.querySelector(".rj-ivmsg"), cur = J.interval_minutes || 0; let tm = null;
+      mi.oninput = () => { clearTimeout(tm); const t = parseInt(mi.value, 10) || 0; im.className = "small sev-high";
+        if (t < 5 || t > 1440) { im.textContent = "between 5 and 1440 minutes"; return; }
+        if (t === cur) { im.textContent = ""; return; }
+        im.className = "small"; im.textContent = "saving…";
+        tm = setTimeout(async () => { try { await apiPost("/api/config/review-schedule", { hours: 0, minutes: t }); im.textContent = "saved ✓"; setTimeout(() => rerender(), 600); }
+          catch (e) { im.className = "small sev-high"; im.textContent = String(e.message || e); } }, 800); };
+    }
+    return c;
+  }
+
   // ---- event research cost preview: re-price the recorded research runs' tokens with the model picked in the Models box
   let USAGE = null;  // {U, canvas, pv, preview} set by reviewJobCard when the usage chart exists
   // $ for one run's tokens at a price {in, out, cache_read, cache_write} per 1 M. A missing cache price falls back to the
@@ -231,7 +253,7 @@
     const body = c.appendChild(document.createElement("div"));
     body.className = "llm-grid";
     const note = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    note.textContent = D.admin ? "Event reviewer: decides every proposed link, continuously, and is also used by the review job (copies matching earlier notes onto new events). Cloud models are billed per call; local models are free but need LM Studio. Event research: used only when a person clicks Send to research - never on a schedule. It needs a reasoning-capable model (several tool calls per event); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model in LM Studio. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box."
+    note.textContent = D.admin ? "Event reviewer: decides every proposed link, continuously, and is also used by the review job (copies matching earlier notes onto new events). Cloud models are billed per call; local models are free but need the local model server. Event research: used only when a person clicks Send to research - never on a schedule. It needs a reasoning-capable model (several tool calls per event); give it some extra reasoning tokens on its AI providers row, or pick a local reasoning model on the local model server. Chat: the Ask AI assistant, works on any model. Add cloud models in the AI providers box. Whether each model is up: AI pipeline monitoring > Models."
       : "Only an admin can change models.";
     const rows = [["correlation", "Event reviewer · review job", D.config?.correlation || {}], ["research", "Event research (Send to research only) · needs reasoning", D.research && !D.research.error ? D.research : {}],
       ["chat", "Chat (Ask AI)", D.chat || {}]];
@@ -263,13 +285,9 @@
           sel.disabled = !D.admin;
         };
       }
-      body.appendChild(Object.assign(document.createElement("div"), { className: "small muted",
-        innerHTML: 'How many Elasticsearch and web look-ups the event reviewer may make: <a href="#/aireview?at=ai-lookups">Event reviewer look-ups</a>.' }));
-      body.appendChild(esResearchRow(D));
       body.appendChild(chatEsRow(D));
-      body.appendChild(notesLimitRow(D));
-      body.appendChild(notesCharsRow(D));
-      body.appendChild(notesPerSubjectRow(D));
+      body.appendChild(Object.assign(document.createElement("div"), { className: "small muted",
+        innerHTML: 'How many Elasticsearch and web look-ups the event reviewer may make and how many notes it is given: <a href="#/aiconfig?at=ai-p-event">Event review</a>. Event research searches and caps: <a href="#/aiconfig?at=ai-p-research">Research review</a>.' }));
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
@@ -446,6 +464,57 @@
     r.title = "When on, the Ask AI chat may run read-only Elasticsearch searches of the Security Onion logs (elasticsearch_search tool) through the host broker. Every search is written to the audit log. Independent of the event reviewer and research settings.";
     return r;
   }
+  // Configuration > Event review: how many notes / characters the event reviewer is given
+  function notesContextCard(D) {
+    const c = card("Event reviewer context notes", `<div class="small muted">Earlier notes on the hosts and internet addresses of an event are added to each event review (and to event research). Fewer = faster and fewer tokens; more = more context.</div>`);
+    c.id = "ai-notes-context";
+    const b = c.appendChild(document.createElement("div")); b.className = "llm-grid"; b.style.marginTop = "8px";
+    b.append(notesLimitRow(D), notesCharsRow(D), notesPerSubjectRow(D));
+    return c;
+  }
+  // Monitoring > Models: each model role, where it is served and whether it answers now (GET /api/aireview/models, no tokens)
+  const STATE = { up: ["up", "sev-good"], warn: ["check", "sev-medium"], down: ["down", "sev-high"], off: ["off", "sev-unknown"] };
+  function modelStatusCard(D) {
+    const c = card("Model status", `<div class="small muted">The model behind each step of the pipeline, where it is served and whether it answers right now. Checked with the
+      server's health or model list (no tokens used), at most once a minute. Change models and providers: <a href="#/aiconfig?at=ai-p-models">AI pipeline configuration > Models</a>.</div>
+      <div class="ms-body" style="margin-top:8px"><div class="loading inline">Checking…</div></div>`);
+    c.id = "ai-model-status"; c.dataset.open = "1";
+    const body = c.querySelector(".ms-body");
+    const show = (M) => {
+      const R = M.roles || [], n = (k) => R.filter((r) => r.state === k).length;
+      body.innerHTML = kpis([["Up", fn(n("up")), n("up") ? "good" : ""], ["Down", fn(n("down")), n("down") ? "bad" : "good"], ["Check", fn(n("warn")), n("warn") ? "warn" : ""], ["Off", fn(n("off"))],
+        ["Checked", esc(ago(M.checked))]]);
+      body.appendChild(table(null, [
+        { k: "label", t: "Step", fmt: (v, r) => `<b>${esc(v)}</b><div class="small muted">${esc({ decision: "Correlation review: decides links, labels events", reviewer: "Correlation + event review: notes, reasons, review job", research: "Research review: Send to research", chat: "Ask AI chat" }[r.role] || "")}</div>` },
+        { k: "state", t: "Status", sort: (r) => ["down", "warn", "up", "off"].indexOf(r.state), fmt: (v) => `<span class="badge ${(STATE[v] || STATE.off)[1]}">${(STATE[v] || STATE.off)[0]}</span>` },
+        { k: "model", t: "Model", cls: "mono small", fmt: (v) => esc(v || "—") },
+        { k: "source", t: "Source", fmt: (v, r) => `${esc(v || "—")}${r.endpoint ? `<div class="mono small muted" style="word-break:break-all">${esc(r.endpoint)}</div>` : ""}` },
+        { k: "ms", t: "Answer", num: true, fmt: (v) => (v == null ? "" : fn(v) + " ms") },
+        { k: "detail", t: "Detail", cls: "small", fmt: (v) => esc(v || "") }], R, { limit: 10 }));
+      if (D.admin) { const b = body.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Check now" })); b.style.marginTop = "8px";
+        b.onclick = async () => { b.disabled = true; b.textContent = "checking…"; try { show(await api("/api/aireview/models?force=1")); } catch (e) { b.textContent = "error: " + e.message; } }; }
+    };
+    api("/api/aireview/models").then(show, (e) => { body.innerHTML = `<div class="bad">Status unavailable: ${esc(e.message || e)}</div>`; });
+    return c;
+  }
+  // Monitoring > Research review: Send to research usage, spend against the caps, waiting events
+  function researchStatusCard(D) {
+    const R = D.research && !D.research.error ? D.research : {}, L = R.limits || {}, J = ((D.review_status || {}).jobs || [])[0] || {};
+    const RE = J.researched || [], U = (J.research_usage || []), wk = Date.now() / 1000 - 7 * 86400;
+    const costs = RE.filter((r) => r.cost_usd != null).map((r) => r.cost_usd), usd = (v) => `$${(+v).toFixed(2)}`;
+    const tok = U.filter((u) => (u.at || u.ts || 0) > wk).reduce((a, u) => a + (u.total || (u.prompt || 0) + (u.completion || 0)), 0);
+    const day = R.spent_today_usd || 0, cap = L.max_day_usd || 0;
+    const c = card("Event research", D.research?.error ? `<div class="bad">Unavailable: ${esc(D.research.error)}</div>` : `
+      <div class="small muted">Event research runs only when someone clicks <b>Send to research</b> on an event; its verdict replaces the event reviewer's.
+        Model ${R.model ? `<span class="mono">${esc(R.model)}</span> (${esc(R.provider_name || R.provider)})` : "<b>not set</b>"} · caps and web access: <a href="#/aiconfig?at=ai-p-research">AI pipeline configuration > Research review</a>.</div>
+      ${kpis([["Spent today", cap ? `${usd(day)} of ${usd(cap)}` : usd(day), cap && day >= cap ? "bad" : ""], ["Events researched", fn(RE.length)],
+        ["Researched (7 d)", fn(RE.filter((r) => (r.at || 0) > wk).length)], ["Avg cost / event", costs.length ? usd(costs.reduce((a, v) => a + v, 0) / costs.length) : "—"],
+        ["Tokens (7 d)", fn(tok)], ["Waiting for a person", fn((D.review_status || {}).queue?.count || 0), (D.review_status || {}).queue?.count ? "warn" : "good"],
+        ["Web access", R.web_research ? "on" : "off"], ["Elasticsearch", R.es_search !== false ? "on" : "off"]])}
+      <div class="small muted" style="margin-top:6px">Each researched event with its tokens and cost is listed in <a href="#/aireview?at=ai-usage">Time and tokens</a>.</div>`);
+    c.id = "ai-research-status";
+    return c;
+  }
   // Nightly host note consolidation (notes_consolidate.py): settings, Consolidate now, last runs
   function notesConsolidateCard(D) {
     const N = D.notes_consolidate || {};
@@ -458,7 +527,7 @@
     kp.innerHTML = kpis([["Host notes", fn(N.notes || 0)], ["AI notes it may merge", fn(N.editable || 0)], ["Hosts to do", fn(N.pending || 0)],
       ["Last run", last ? `${fn(last.notes_before)} → ${fn(last.notes_after)}` : "never"]]);
     const intro = c.appendChild(Object.assign(document.createElement("div"), { className: "small muted" }));
-    intro.textContent = `Once a night the event reviewer model (${N.model || "Ai pipeline > Models, Event reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
+    intro.textContent = `Once a night the event reviewer model (${N.model || "AI pipeline configuration > Models, Event reviewer"}) reads each host's AI-written notes and merges the ones that repeat or overlap. Notes written or approved by a person are never changed. A merge that would drop an IP, domain, port, path or fingerprint is rejected and the notes stay as they were. Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run.`;
     const row = c.appendChild(document.createElement("div")); row.className = "llm-row";
     row.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Nightly run" }));
     const lab = row.appendChild(document.createElement("label")); lab.className = "small";
@@ -895,7 +964,7 @@
   // ---- event research cost caps (research_cfg.py): $ per research run / per day, tokens per run, batches
   // events sent through the review phase per day (review_events: one row per event review, kept 30 days)
   // Decision model (clef-flash) decides every link; the event reviewer model makes one pass per event (suspicious / benign / expected + link notes)
-  function clefCard(D) {
+  function clefCard(D, cfgMode) {
     const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {}, ev = K.events_day || {};
     const pc = (n, t) => (t ? Math.round((100 * n) / t) + "%" : "—");
     const c = card("Decision model", K.error ? `<div class="bad">Unavailable: ${esc(K.error)}</div>` : `
@@ -917,12 +986,14 @@
         <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (see Decision model server)</span>'}${K.timeouts ? ` · ${fn(K.timeouts)} retried time-outs` : ""}</span>
         <span class="k">Now</span><span>${s.clef_stage === "related" ? `deciding links · ${fn(s.clef_todo || 0)} left` : s.clef_stage === "events" ? `event pass · ${fn(s.classifying || 0)} events left${s.event_secs ? ` · last took ${s.event_secs} s` : ""}` : "idle"} · this pass ${fn(s.clef_related_this_run || 0)} links, ${fn(s.classified_this_run || 0)} events</span>
       </div>
+      ${cfgMode ? "" : `<div class="small muted" style="margin-top:8px">On/off and thresholds: <a href="#/aiconfig?at=ai-clef-settings">AI pipeline configuration > Correlation review</a>.</div>`}
       <div class="llm-row" style="margin-top:8px"><span class="k">Settings</span>
         <label class="small"><input type="checkbox" name="en" ${cfg.enabled ? "checked" : ""}> use the decision model</label>
         <label class="small">related if p ≥ <input type="number" name="rm" min="0.05" max="0.95" step="0.05" value="${cfg.related_min ?? 0.5}" style="width:5em"></label>
         <label class="small">event suspicious if p ≥ <input type="number" name="sm" min="0.05" max="0.95" step="0.05" value="${cfg.suspicious_min ?? 0.5}" style="width:5em"></label>
         <button type="button" name="save" disabled>Save</button><span class="small muted msg">${D.admin ? "" : "only an admin can change this"}</span></div>`);
     c.id = "ai-clef";
+    if (!cfgMode) { c.querySelector('.llm-row [name="save"]')?.closest(".llm-row")?.remove(); return c; }
     if (!K.error) {
       const q = (n) => c.querySelector(`[name="${n}"]`), btn = q("save"), msg = c.querySelector(".msg");
       ["en", "rm", "sm"].forEach((n) => { q(n).disabled = !D.admin; q(n).addEventListener("input", () => { btn.disabled = !D.admin; }); });
@@ -936,6 +1007,18 @@
     return c;
   }
   // Decision model server (any System One server; Kubernetes or host llama-server managed here): status, model/runtime choice, start/stop, stand-up steps
+  // Configuration > Correlation review: the decision model's on/off and thresholds (the same card minus the figures)
+  function clefSettingsCard(D) {
+    const c = clefCard(D, true), K = D.clef || {}, cfg = K.config || {};
+    c.querySelector(":scope > h2").firstChild.textContent = "Decision model settings";
+    c.id = "ai-clef-settings";
+    if (K.error) return c;
+    [...c.querySelectorAll(".kpis, table.mini")].forEach((x) => (x.closest("div.small") && x.tagName === "TABLE" ? x.closest("div.small") : x).remove());
+    const intro = c.querySelector(".small.muted");
+    if (intro) intro.innerHTML = `The decision model (<b>${esc(cfg.model || "")}</b>) answers yes/no <i>related?</i> for every link the correlation script proposes, and labels each finished event suspicious / benign / expected.
+      Its thresholds set how sure it must be. Its links per minute and labels: <a href="#/aireview?at=ai-clef">AI pipeline monitoring > Correlation review</a>; its server: Models below.`;
+    return c;
+  }
   function clefServerCard(D) {
     const c = card("Decision model server", `<div class="small muted">The decision model is served by any inference server that implements the
       <b>System One decision API</b> on loopback: <span class="mono">POST /v1/systemone</span> (a state plus typed questions in, one probability per answer out)
@@ -1115,6 +1198,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         chat answers are capped at 600,000 tokens each. Local server models cost $0.</div>
       <div style="margin-top:8px"><button type="button" class="cost-save">Save</button> <span class="small muted cost-msg"></span></div>`);
     c.id = "ai-cost";
+    c.querySelector(".llm-grid").appendChild(esResearchRow(D));
     const K = ["max_run_usd", "max_day_usd", "max_run_tokens", "max_batches", "max_searches"];
     const inp = (k) => c.querySelector(`input[name="${k}"]`), btn = c.querySelector(".cost-save"), msg = c.querySelector(".cost-msg");
     const warn = () => { const r = +inp("max_run_usd").value || 0, over = r ? U.filter((v) => v > r).length : 0;
@@ -1185,8 +1269,40 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     return c;
   }
 
+  const PART = [["ai-p-models", "Models"], ["ai-p-correlation", "Correlation review"], ["ai-p-event", "Event review"], ["ai-p-research", "Research review"]];
+  const PART_SUB = {
+    mon: ["The model behind each step, where it is served and whether it is up.", "Links between events proposed by the correlation script and the decision model's verdict on each; override them here.",
+      "The review job and the event reviewer: runs, events reviewed per day, its Elasticsearch and web look-ups, time and tokens.", "Events researched with Send to research: spend, tokens and its Elasticsearch searches."],
+    cfg: ["Which model each step uses and where it comes from: AI providers (cloud or local) and the decision model server.", "The decision model's thresholds and which links are sent for review.",
+      "When the review job runs, what it looks back on, which look-ups and notes the event reviewer gets, and the nightly note consolidation.", "The research model's cost caps and its web / Elasticsearch access."]};
+  const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
+  // AI pipeline configuration (#/aiconfig)
+  const buildCfg = async (el) => {
+    el.innerHTML = `<h1>AI pipeline configuration</h1><div class="sub">Settings of the AI pipeline, in four parts: Models, Correlation review, Event review and Research review.
+      What the pipeline is doing with them: <a href="#/aireview">AI pipeline monitoring</a>.</div><div class="loading">Loading…</div>`;
+    let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
+    el.querySelector(".loading").remove();
+    Object.assign(PROV, D.provider_names || {});
+    if (!D.admin) el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:6px 0">Read-only: only an admin can change these settings.</div>`);
+    el.insertAdjacentHTML("beforeend", `<div class="tbltools small"><span class="muted">Jump to:</span> ${PART.map(([id, t]) => `<a href="#/aiconfig?at=${id}">${t}</a>`).join(" · ")}</div>`);
+    partHead(el, 0, "cfg");
+    const m = modelsCard(D); m.dataset.open = "1"; el.appendChild(m);
+    if (D.admin) el.appendChild(providersCard());
+    el.appendChild(clefServerCard(D));
+    partHead(el, 1, "cfg");
+    el.appendChild(clefSettingsCard(D));
+    el.appendChild(limitsCard(D));
+    partHead(el, 2, "cfg");
+    el.appendChild(reviewScheduleCard(D));
+    el.appendChild(lookupsCard(D));
+    el.appendChild(notesContextCard(D));
+    el.appendChild(notesConsolidateCard(D));
+    partHead(el, 3, "cfg");
+    el.appendChild(costCard(D));
+  };
+  // AI pipeline monitoring (#/aireview)
   const build = async (el, bg) => {
-    el.innerHTML = `<h1>Ai pipeline</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them.</div><div class="loading">Loading…</div>`;
+    el.innerHTML = `<h1>AI pipeline monitoring</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them. Settings: <a href="#/aiconfig">AI pipeline configuration</a>.</div><div class="loading">Loading…</div>`;
     let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});
@@ -1260,28 +1376,19 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
           Q.items, { sort: "score", limit: 50 }));
       } catch (e) { box.querySelector(".loading")?.remove(); box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
-    el.appendChild(reviewVolumeCard(D));
+    el.insertAdjacentHTML("beforeend", `<div class="tbltools small"><span class="muted">Jump to:</span> ${PART.map(([id, t]) => `<a href="#/aireview?at=${id}">${t}</a>`).join(" · ")}</div>`);
+    partHead(el, 0, "mon");
+    el.appendChild(modelStatusCard(D));
+    partHead(el, 1, "mon");
     el.appendChild(clefCard(D));
-    el.appendChild(clefServerCard(D));
-    el.appendChild(reviewLogCard());
-    el.appendChild(modelsCard(D));
-    el.appendChild(notesConsolidateCard(D));
-    if (D.admin) el.appendChild(providersCard());
-    el.appendChild(costCard(D));
-    el.appendChild(limitsCard(D));
-    el.appendChild(lookupsCard(D));
-    el.appendChild(esCard(D, "reviewer"));
-    el.appendChild(webCard(D));
-    el.appendChild(esCard(D, "research"));
-    el.append(...reviewJobCard(D.review_status || {}, D));
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
     const info = card("Event reviewer", `<div class="idgrid">
-        <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local server")} · <a href="#/aireview?at=ai-models">change</a></span>
+        <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local server")} · <a href="#/aiconfig?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
-        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aireview?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aireview?at=ai-lookups">change</a>`}</span>
-        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event (<a href="#/aireview?at=ai-lookups">change</a>) · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aireview?at=ai-lookups">change</a>`}</span>
+        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
+        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>) · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
         <span class="k">Event research Elasticsearch</span><span><a href="#/aireview?at=ai-es-research">${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h</a> · ${fn(D.es_queries?.research?.total || 0)} total</span>
         <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""}${st.web_queries_this_run ? `, ${fn(st.web_queries_this_run)} web look-ups` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>
@@ -1312,6 +1419,15 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     chips.innerHTML = `<span class="muted">Show:</span> ${[["All", {}], ["Confirmed", { verdict: "confirmed" }], ["Rejected", { verdict: "rejected" }], ["Set by a person", { verdict: "manual" }], ["Low confidence (<70%)", { conf: "low" }], ["This snapshot only", { scope: "current" }]]
       .map(([l, p]) => `<a href="${esc(hashWith("aireview", { ...p, at: "ai-list" }))}">${esc(l)}</a>`).join(" · ")}`;
     lst.insertBefore(chips, lst.children[1]);
+    el.appendChild(reviewLogCard());
+    partHead(el, 2, "mon");
+    el.append(...reviewJobCard(D.review_status || {}, D));
+    el.appendChild(reviewVolumeCard(D));
+    el.appendChild(esCard(D, "reviewer"));
+    el.appendChild(webCard(D));
+    partHead(el, 3, "mon");
+    el.appendChild(researchStatusCard(D));
+    el.appendChild(esCard(D, "research"));
 
     el.addEventListener("click", async (e) => {
       const b = e.target.closest("[data-ai]"); if (!b) return;
@@ -1334,7 +1450,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   };
   // Page entry: build inside a wrapper so a background refresh can swap the whole page in one step.
   V.aireview = async (el) => { const w = document.createElement("div"); el.appendChild(w); await build(w); };
+  V.aiconfig = async (el) => { const w = document.createElement("div"); el.appendChild(w); await buildCfg(w); };
   // Background refresh: an in-place re-render (app.js rerender): only the boxes whose numbers changed are swapped, the rest
   // (charts, open tables, scroll position) stay as they are.
-  const refresh = () => { if (location.hash.startsWith("#/aireview")) return rerender(); };
+  const refresh = () => { if (/^#\/(aireview|aiconfig)/.test(location.hash)) return rerender(); };
 })();

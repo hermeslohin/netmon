@@ -3,7 +3,7 @@
 
   watcher        every 15 minutes            watch.py (urgent alerts -> dashboard + Web Push)
   review job     grid set on the dashboard   review.py (review_cfg: interval, anchored at 05:00 UTC; on/off)
-                 + "Run now" requests from the AI review page
+                 + "Run now" requests from the AI pipeline pages
 Event research (research.py) is never scheduled: the host broker starts it when a person clicks Send to research.
   weekly         Sunday 03:00 UTC            weekly_rebuild.sh (dashboard image rebuild + security scan)
 Jobs never overlap with themselves; a slot missed while the host was down is not made up, except the review job,

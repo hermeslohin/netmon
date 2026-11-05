@@ -8,7 +8,7 @@ Two managed backends (setting `backend`; the stored value "patapsco" is kept for
   host:     llama.cpp llama-server under systemd user unit netmon-clef (clef.sh) on port `port`.
 Any other server: set NETMON_CLEF_URL (dashboard/.env) to its loopback URL; it is then only health-checked.
 
-Used by host_broker.py (POST /clef, for the dashboard's AI review > Decision model server box) and by clef.sh
+Used by host_broker.py (POST /clef, for the dashboard's AI pipeline configuration > Decision model server box) and by clef.sh
 (`python3 clef_server.py env` prints the saved settings as shell assignments). Settings live in the netmon database
 (docs table, document "clef_server") - never in a file. Environment variables CLEF_* still override them.
 """

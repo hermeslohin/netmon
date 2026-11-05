@@ -7,7 +7,7 @@ served on the System One API (/v1/systemone) by any compatible server on loopbac
 verdict (corr_llm.db tables `clef` + `verdicts`). The selected correlation model never decides a link: once every link
 is decided it makes one call per event with all its related events and notes (corr_llm.event_pass) and writes the
 suspicious / benign / expected decision and the link notes.
-Settings live in llm_config (key `clef`), edited on AI review > Decision model.
+Settings live in llm_config (key `clef`), edited on AI pipeline configuration > Decision model settings.
 """
 import json
 import os
@@ -82,7 +82,7 @@ def _loopback(u, fallback=""):
 
 
 def _server_url():
-    """URL of the decision-model server picked on AI review > Decision model server (docs table, clef_server.backend):
+    """URL of the decision-model server picked on AI pipeline configuration > Decision model server (docs table, clef_server.backend):
     the Kubernetes deployment by default, else the host llama-server on its saved port."""
     try:
         import store

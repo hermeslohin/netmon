@@ -208,7 +208,7 @@ def put(doc, events=None):
 
 
 def job():
-    """The review job as one record for the AI review page: settings (review_cfg) + run state (review_job.json), plus the
+    """The review job as one record for the AI pipeline pages: settings (review_cfg) + run state (review_job.json), plus the
     token use of event research (research_job.json) for the usage chart."""
     import review_cfg as VC, research_cfg as RC, corr_llm
     cfg, st, rs = VC.get(), VC.status(), RC.status()
@@ -239,7 +239,7 @@ def _chat_usage():
 
 
 def status(event_ids=()):
-    """Review job status for the AI review page: job state, the note-run log, note coverage of the current
+    """Review job status for the AI pipeline pages: job state, the note-run log, note coverage of the current
     snapshot and the correlation verdicts written with notes."""
     import corr_llm
     try:
@@ -317,10 +317,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
     res = corr_llm.apply(server.correlation(sid))
     if not res or res.get("error"):
         return {"snapshot": sid, "error": "no correlation for snapshot"}
-    modes = VC.get()["modes"]  # admin-chosen review / queue / test / skip per event category (AI review page)
+    modes = VC.get()["modes"]  # admin-chosen review / queue / test / skip per event category (AI pipeline pages)
     E, notes, ak = res["events"], load(res["events"].keys()), _alert_keys()
     groups = {}
-    rules = corr_llm.limits()["rules"]  # suppression rules (AI review > Review limits) that cover the review job
+    rules = corr_llm.limits()["rules"]  # suppression rules (AI pipeline configuration > Review limits) that cover the review job
     forced = _requested(E, notes, ak)  # note keys a person asked to have researched (not researched yet)
     if only:  # event research (research.py --event): just that event's family, whatever its category or rules
         if only not in E:  # still open on the Open events page but older than this snapshot: take it from the event store

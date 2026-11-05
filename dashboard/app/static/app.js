@@ -483,7 +483,7 @@ async function chatModelPicker() {
   try { _llmModels = _llmModels || await api("/api/llm/models"); } catch (_) { return wrap; }
   const M = _llmModels; if (!M.admin) return wrap;
   const sel = document.createElement("select"); sel.className = "chatm-sel"; sel.setAttribute("aria-label", "Model for Ask AI");
-  sel.add(new Option("Default (set on Ai pipeline > Models)", ""));
+  sel.add(new Option("Default (set on AI pipeline configuration > Models)", ""));
   for (const [label, prov, list] of [...(M.custom || []).map((g) => [g.name, g.provider, g.models]), ["Local server", "lmstudio", M.local || []]]) {
     if (!list.length) continue;
     const g = document.createElement("optgroup"); g.label = label;
@@ -1552,7 +1552,7 @@ document.addEventListener("click", (e) => {
   const d = document.createElement("div"); d.className = "modal-back";
   d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <h3>🚫 Suppress IDS signature</h3>
-    <div class="small muted" style="margin-bottom:8px">The signature is hidden everywhere in netmon (Posture, correlation, Ai pipeline). Security Onion and UniFi are not changed. Leave Host empty for <b>all hosts</b>, or enter one IP (<span class="mono">*</span> allowed) to hide it only for that host. Remove the rule under Checked/suppressed.</div>
+    <div class="small muted" style="margin-bottom:8px">The signature is hidden everywhere in netmon (Posture, correlation, AI pipeline). Security Onion and UniFi are not changed. Leave Host empty for <b>all hosts</b>, or enter one IP (<span class="mono">*</span> allowed) to hide it only for that host. Remove the rule under Checked/suppressed.</div>
     <div class="form-grid"><label>Signature</label><input class="is-sig"><label>Host (optional)</label><input class="is-host" placeholder="all hosts"></div>
     <div class="actions"><button type="button" class="is-ok primary">Suppress</button><button type="button" class="is-cancel">Cancel</button><span class="small is-msg"></span></div></div>`;
   document.body.appendChild(d);
@@ -1571,7 +1571,7 @@ document.addEventListener("click", (e) => {
   const d = document.createElement("div"); d.className = "modal-back";
   d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
     <h3>🚫 Suppress segmentation violations</h3>
-    <div class="small muted" style="margin-bottom:8px">Every flow matching ALL fields you fill in is hidden everywhere (Posture, Risk, Lateral movement, Fix list) and is <b>not sent to the correlation, research or Ai pipeline</b>. Use <span class="mono">*</span> in an IP (e.g. <span class="mono">10.1.*</span>); several ports separated by commas; leave a field empty for any. Remove the rule under Checked/suppressed.</div>
+    <div class="small muted" style="margin-bottom:8px">Every flow matching ALL fields you fill in is hidden everywhere (Posture, Risk, Lateral movement, Fix list) and is <b>not sent to the correlation, research or AI pipeline</b>. Use <span class="mono">*</span> in an IP (e.g. <span class="mono">10.1.*</span>); several ports separated by commas; leave a field empty for any. Remove the rule under Checked/suppressed.</div>
     <div class="form-grid"><label>Source IP</label><input class="ss-src"><label>Destination IP</label><input class="ss-dst"><label>Ports</label><input class="ss-ports"></div>
     <div class="actions"><button type="button" class="ss-ok primary">Suppress</button><button type="button" class="ss-cancel">Cancel</button><span class="small ss-msg"></span></div></div>`;
   document.body.appendChild(d);

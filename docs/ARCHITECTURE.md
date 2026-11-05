@@ -37,7 +37,7 @@ fill the role; the names in brackets are examples that are known to work.
 
 ### AI roles
 
-There are two kinds of model. Each role is chosen on **AI review**; none is tied to a vendor or a server.
+There are two kinds of model. Each role is chosen on **AI pipeline configuration**; none is tied to a vendor or a server.
 
 | Role | Interface it must offer | Model requirements |
 |---|---|---|
@@ -69,7 +69,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 | `watch.py` (watcher) | child of the scheduler | every 15 min | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
 | `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `data/unifi_cache` |
 | `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |
-| `review.py` (review job) | child of the scheduler | grid set on AI review (5 min–24 h, anchored 05:00 UTC) or **Run now** | Elasticsearch, UniFi cache, earlier notes | snapshot, `review_job.json`, copied notes |
+| `review.py` (review job) | child of the scheduler | grid set on AI pipeline configuration (5 min–24 h, anchored 05:00 UTC) or **Run now** | Elasticsearch, UniFi cache, earlier notes | snapshot, `review_job.json`, copied notes |
 | `research.py` (event research) | started by the host broker | only **Send to research** | event, web, optional Elasticsearch | event note (`enrich.db`), host notes (`kb.db`), `logs/` |
 | `weekly_rebuild.sh` | child of the scheduler | Sunday 03:00 UTC | — | new dashboard image, security scan results |
 | `host_broker.py` | systemd user unit `netmon-broker`, `127.0.0.1:8650`, bearer key | dashboard requests | Elasticsearch (read-only), collectors | `dashboard/state/ranges/` |
@@ -123,7 +123,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
   `/range`, `/section`, `/research-event`, `/esquery`, `/clef` and `/health`. `/esquery` takes a structured request,
   not DSL; `es_context.py` builds and bounds the query (at most 600 per hour).
 - **Keys:** the Elasticsearch read key stays on the host. The audit log uses its own key that can only create and
-  read documents in `logs-netmon`. AI provider keys are added by an admin on the AI review page (shown masked); a
+  read documents in `logs-netmon`. AI provider keys are added by an admin on the AI pipeline pages (shown masked); a
   Firecrawl cloud key is never sent to a self-hosted Firecrawl.
 - **Systemd units** run with `UMask=0077` and `NoNewPrivileges=yes`.
 
@@ -140,7 +140,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
    problem). The decision model answers one yes/no question per link; the event reviewer model then labels each
    event suspicious, benign or expected and writes link notes. Verdicts live in `corr_llm.db`.
 5. **Review job.** For events in a "review" category without a note, the event reviewer copies a matching earlier
-   note (marked as copied). It never writes new notes. Everything else waits on **AI review → Queue**.
+   note (marked as copied). It never writes new notes. Everything else waits on **AI pipeline monitoring → Queue**.
 6. **Research (on request).** A person clicks **Send to research**; the host broker starts `research.py --event ID`,
    which uses the research model with web search and optional Elasticsearch look-ups, under $ and token caps per
    run and per day (`research_cfg.py`).
@@ -153,11 +153,11 @@ The urgent path is separate and has no AI: watcher → `alerts` table → `webpu
 
 | Stage | Model | Where chosen | Input | Output |
 |---|---|---|---|---|
-| Correlation link decision | decision model (System One API, probabilities only) | AI review → Decision model | the two events + the script's evidence | related / not related per link |
-| Event pass | event reviewer model | AI review → Models | event + decided links + notes + intel hits | suspicious / benign / expected, link notes |
-| Review job | event reviewer model | AI review → Models | queued events + earlier notes | copied note or left queued |
-| Event research | research model | AI review → Models | one event, web, optional Elasticsearch | research note with verdict |
-| Ask AI | chat model | AI review → Models | user question + read-only tools | answer |
+| Correlation link decision | decision model (System One API, probabilities only) | AI pipeline configuration → Decision model settings | the two events + the script's evidence | related / not related per link |
+| Event pass | event reviewer model | AI pipeline configuration → Models | event + decided links + notes + intel hits | suspicious / benign / expected, link notes |
+| Review job | event reviewer model | AI pipeline configuration → Models | queued events + earlier notes | copied note or left queued |
+| Event research | research model | AI pipeline configuration → Models | one event, web, optional Elasticsearch | research note with verdict |
+| Ask AI | chat model | AI pipeline configuration → Models | user question + read-only tools | answer |
 
 All tool-using conversations go through `agent.py` (provider-agnostic tool loop) and `llm_providers.py` (OpenAI-
 compatible Chat Completions or Responses, Anthropic Messages; the local server is an OpenAI-compatible endpoint). `aijob.py` holds the shared tools, budget and conversation logging for the review

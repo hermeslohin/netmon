@@ -1,4 +1,4 @@
-"""Host note consolidation: once a night the event reviewer model (AI review > Models, Event reviewer) reads every host's
+"""Host note consolidation: once a night the event reviewer model (AI pipeline configuration > Models, Event reviewer) reads every host's
 AI-written notes and merges the ones that repeat or overlap, so a host keeps a few complete notes instead of hundreds of
 near-duplicates.
 
@@ -19,7 +19,7 @@ Safety:
   - A host whose notes did not change since its last consolidation is skipped.
 
 Schedule: llm_config.json `notes_consolidate` {enabled, time 'HH:MM', tz (IANA), by, at}; the dashboard starts a run once a
-day within 3 hours after that local time (server.py thread). AI review > Host note consolidation sets it and has a
+day within 3 hours after that local time (server.py thread). AI pipeline configuration > Host note consolidation sets it and has a
 "Consolidate now" button.
 
 CLI (inside the dashboard container): notes_consolidate.py run [--all] [--subject S] [--dry-run]

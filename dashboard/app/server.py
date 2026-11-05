@@ -71,7 +71,7 @@ def my_events(user):
         un = {}
     return {"snapshot": sid, "devices": assigned_devices(user), "events": out, "unotes": un}
 def llm_models():
-    """Models the AI review page may choose: the local LM Studio server ("local") and the admin-added API-key
+    """Models the AI pipeline pages may choose: the local LM Studio server ("local") and the admin-added API-key
     providers ("custom", llm_providers.py). The local group is empty when an admin has disabled it."""
     try:
         cu = llm_providers.model_groups()
@@ -93,7 +93,7 @@ os.environ.setdefault("NETMON_DB", os.path.join(STATE, "netmon.db"))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
-import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI review page)
+import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI pipeline pages)
 import research_cfg  # noqa: E402  /netmon/research_cfg.py: event research model + cost caps (Send to research only)
 import review_cfg  # noqa: E402  /netmon/review_cfg.py: review job schedule, on/off and event modes (store meta table)
 import pushsvc  # noqa: E402  web push for urgent alerts
@@ -1738,6 +1738,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(lateral.build(res["raw"], res["analysis"], pol, rr, kbn))
             if path == "/api/llm/models":
                 return self._json({**llm_models(), "admin": admin})
+            if path == "/api/aireview/models":  # AI pipeline monitoring > Models: each model role, its source and up/down
+                import modelstatus
+                return self._json(modelstatus.status(force=(q.get("force") or [""])[0] == "1" and admin))
             if path == "/api/aireview/log":  # Review log card: correlation passes + review-job runs (Elasticsearch netmon.review)
                 import reviewlog
                 try:

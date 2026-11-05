@@ -86,7 +86,7 @@ Optional extras:
 | Elasticsearch API key | `~/.config/netmon/secrets.env` → `ES_API_KEY=<key>`, or **Configuration → Integrations** | Create a **read-only** key: Kibana → Stack Management → API keys, with `read` + `view_index_metadata` on `logs-*`. |
 | UniFi Site Manager API key | `~/.config/netmon/secrets.env` → `UNIFI_API_KEY=<key>`, or **Configuration → Integrations** | https://unifi.ui.com → API. Optional. |
 | Web search key (optional) | `~/.config/netmon/secrets.env` → `FIRECRAWL_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` | Only if you pick that search backend (step 7c). DuckDuckGo needs no key, nor does a self-hosted Firecrawl (the cloud key is never sent to it). |
-| AI provider API keys | **AI review → AI providers** on the dashboard | Stored in the netmon database (owner-only file `dashboard/state/netmon.db`, mode 600). See step 7b. |
+| AI provider API keys | **AI pipeline configuration → AI providers** on the dashboard | Stored in the netmon database (owner-only file `dashboard/state/netmon.db`, mode 600). See step 7b. |
 | Dashboard login + host broker key | `dashboard/.env` | Created by `setup.sh` (`DASH_PASS`, `NETMON_BROKER_URL`, `NETMON_BROKER_KEY`). |
 
 The secrets file is plain `KEY=value` lines, mode 600, outside the repo (set `NETMON_SECRETS` to use another path). Values saved on the dashboard's Configuration page take precedence over it. None of these are ever committed: `.gitignore` and the push gate block them.
@@ -139,7 +139,7 @@ Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 M
 
 Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`; the results are stored as `ranges/<id>…` documents in the netmon database, not as files), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.
 
-The optional Elasticsearch look-ups of the event reviewer and of event research (AI review → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
+The optional Elasticsearch look-ups of the event reviewer and of event research (AI pipeline configuration → Models; see [CORRELATION.md](CORRELATION.md)) also run through the broker (`POST /esquery`, `es_context.py`) for the same reason, and so does **Send to research** (`POST /research-event`).
 
 ### Local LLM for correlation review (optional, recommended)
 
@@ -164,7 +164,7 @@ curl -s http://127.0.0.1:8091/health          # the decision model answers {"sta
 Optional settings in `dashboard/.env` (then `./deploy.sh`): `NETMON_LLM=off`, `NETMON_LLM_URL`, `NETMON_LLM_MODEL`,
 `NETMON_LLM_REASONING` (default `none`), `NETMON_LLM_WORKERS` (default 2), `NETMON_CLEF_URL`. A model server on
 another machine or in Kubernetes can instead be added as an AI provider (OpenAI-compatible type, LAN base URL) on
-AI review → AI providers. Without any LLM, links show the script's evidence only.
+AI pipeline configuration → AI providers. Without any LLM, links show the script's evidence only.
 
 ## 7. Scheduled jobs and the host broker
 
@@ -181,7 +181,7 @@ systemctl --user status netmon-scheduler   # or: /usr/bin/python3 scheduler.py s
 | Job | When | What |
 |---|---|---|
 | watcher | every 15 minutes | `watch.py`: urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
-| review job | every N minutes, set on **Configuration → Review job runs every** (5 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI review page | `review.py`: collect + analyze, then the event reviewer copies matching earlier notes; everything else waits in the queue. |
+| review job | every N minutes, set on **Configuration → Review job runs every** (5 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI pipeline pages | `review.py`: collect + analyze, then the event reviewer copies matching earlier notes; everything else waits in the queue. |
 | event research | only when a person clicks **Send to research** | `research.py --event ID`, started by the host broker; a click that has to wait (another research running) is started by the scheduler as soon as the running one ends. Never scheduled. |
 | weekly rebuild | Sundays 03:00 UTC | `weekly_rebuild.sh`: dashboard image rebuild with updated libraries + security scan. |
 
@@ -193,12 +193,12 @@ Jobs never overlap with themselves. A slot missed while the host was down is not
 
 Each run:
 
-1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI review page (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
+1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI pipeline pages (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. Builds the work list (`enrich.sh events`): every event without a note, by category (`review_cfg.py` modes: **review**, **queue**, **test**, **skip**). Every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events.
-3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI review → Models, e.g. a local open-weights model; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
-4. Everything else waits in the **Queue** on the AI review page for a person.
+3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI pipeline configuration → Models, e.g. a local open-weights model; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
+4. Everything else waits in the **Queue** on the AI pipeline pages for a person.
 
-The review job never researches events and never uses the research model. Run state and tokens are in `<state>/review_job.json`, shown on the AI review page; conversations are saved in `logs/review/` (the newest 60). Manual runs:
+The review job never researches events and never uses the research model. Run state and tokens are in `<state>/review_job.json`, shown on the AI pipeline pages; conversations are saved in `logs/review/` (the newest 60). Manual runs:
 
 ```bash
 /usr/bin/python3 review.py                 # like a scheduled run
@@ -208,7 +208,7 @@ The review job never researches events and never uses the research model. Run st
 
 ### Event research (`research.py`)
 
-Research is what happens when a person clicks **🔬 Send to research** on an event, and only then. The dashboard asks the host broker, which starts `research.py --event ID`; it uses the newest snapshot, the **research model** (AI review → Models) and the event research limits. The model works through read-only tools (Elasticsearch search, netmon data, notes and, if web access is on, web search / page fetch; `prompts/analyst.md` + `prompts/enrich.md`) and stores its results with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the event reviewer's and replace them; manual verdicts are kept. Tokens and cost per researched event are in `<state>/research_job.json`; conversations in `logs/research/` (the newest 60).
+Research is what happens when a person clicks **🔬 Send to research** on an event, and only then. The dashboard asks the host broker, which starts `research.py --event ID`; it uses the newest snapshot, the **research model** (AI pipeline configuration → Models) and the event research limits. The model works through read-only tools (Elasticsearch search, netmon data, notes and, if web access is on, web search / page fetch; `prompts/analyst.md` + `prompts/enrich.md`) and stores its results with `enrich.sh put` as `{"model", "notes": [{"id", "verdict", "priority", "summary", "research", "links"}], "links": [{"a", "b", "related", "confidence", "reason"}]}` in the dashboard's `state/enrich.db`. Notes show as a "✨ verdict" button next to an event's Related count. Link verdicts go in the same table as the event reviewer's and replace them; manual verdicts are kept. Tokens and cost per researched event are in `<state>/research_job.json`; conversations in `logs/research/` (the newest 60).
 
 ```bash
 /usr/bin/python3 research.py --event 'hf|...'   # research one event by hand (same as Send to research)
@@ -216,7 +216,7 @@ Research is what happens when a person clicks **🔬 Send to research** on an ev
 
 ## 7b. AI providers, models and limits
 
-Everything is set by an admin on the dashboard's **AI review** page; nothing on the host needs editing.
+Everything is set by an admin on the dashboard's **AI pipeline configuration** page; nothing on the host needs editing.
 
 **AI providers.** **Local server** (the OpenAI-compatible server at `NETMON_LLM_URL`) is always the first row - no
 key or URL to set (those come from `NETMON_LLM_URL`), just an **enabled** switch and a **calls per hour** cap; disable it or lower its cap here
@@ -249,7 +249,7 @@ and will hurt research quality even on a model that supports it. The event revie
 this: the event reviewer only ever answers one fixed-format question per call, and the chat still works, just more
 superficially, on a non-reasoning model.
 
-**Event research limits** (also on AI review): $ per research run (default 5), $ per day (default 20), tokens per research run (input + output, works without prices; default 25,000,000), research batches per run (default 10), web searches per event (default 3) and the **Web access** switch (off on a new install: no web search until an admin turns it on). A research run stops when it passes its caps, and Send to research is refused once today's research (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **Review job** card shows the review job's status, schedule and next run, **Run now** / **Pause** and recent runs; the *Time and tokens* chart below it covers review runs, event research and Ask AI, with a cost preview for another research model.
+**Event research limits** (also on AI pipeline configuration): $ per research run (default 5), $ per day (default 20), tokens per research run (input + output, works without prices; default 25,000,000), research batches per run (default 10), web searches per event (default 3) and the **Web access** switch (off on a new install: no web search until an admin turns it on). A research run stops when it passes its caps, and Send to research is refused once today's research (UTC) cost the daily cap. 0 turns a cap off. The $ caps need prices on the provider's model. The **Review job** card shows the review job's status, schedule and next run, **Run now** / **Pause** and recent runs; the *Time and tokens* chart below it covers review runs, event research and Ask AI, with a cost preview for another research model.
 
 Only dashboard **Admins** can change providers, models or limits. Roles are set on the Dashboard users page ([ACCESS_CONTROL.md](ACCESS_CONTROL.md)). The settings live in the store's meta table (`review_cfg.py` for the review job, `research_cfg.py` for event research) and the netmon database (settings document `llm_config`). The event reviewer's model is remembered once chosen; if none has ever been chosen, it is Local server.
 
@@ -308,7 +308,7 @@ IPs, and any artifact a list names says `listed in <feeds>`.
 
 ## 8. Ask AI chat (optional)
 
-The chat runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on **AI review → Models**. It has no terminal, file, memory or settings tools. It can only search and read the web and query netmon through the read-only `netmon_*` tools (from `netmon_mcp.py`, which opens SQLite read-only). Admins can also pick a model per message in the chat header.
+The chat runs inside the dashboard (`dashboard/app/chat.py`) with the chat model chosen on **AI pipeline configuration → Models**. It has no terminal, file, memory or settings tools. It can only search and read the web and query netmon through the read-only `netmon_*` tools (from `netmon_mcp.py`, which opens SQLite read-only). Admins can also pick a model per message in the chat header.
 
 Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on every finding work. Limits are 40 messages per user per hour, 4,000 characters per message and 600,000 tokens per answer. Conversations are kept in `dashboard/state/chat.db` (mode 600).
 
@@ -328,8 +328,8 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | Empty Endpoints page | Fleet agents healthy? `logs-endpoint.events.*` and `logs-osquery_manager.result-*` present? |
 | UniFi section says "skipped" | No `UNIFI_API_KEY` in `~/.config/netmon/secrets.env` and none on Configuration → Integrations. |
 | Locked out of the dashboard | 8 failed logins → 5-minute lockout. `docker restart netmon-dashboard` clears it. To reset a password: `docker exec -it netmon-dashboard python /app/server.py set-password <user>` |
-| Chat says "not configured" or "unavailable" | Choose a chat model on AI review → Models; **Test** the provider on AI review → AI providers. Errors are in `docker logs netmon-dashboard`. |
-| Review job never runs | `systemctl --user status netmon-scheduler`, `logs/review.log`, `/usr/bin/python3 scheduler.py status`. The job must not be paused; without an event reviewer model it still runs but copies nothing. Send to research problems: `logs/research-event.log`, `logs/research.log`, the event research $ caps on AI review. Lingering on? (`loginctl show-user $USER -p Linger`) |
+| Chat says "not configured" or "unavailable" | Choose a chat model on AI pipeline configuration → Models; **Test** the provider on AI pipeline configuration → AI providers. Errors are in `docker logs netmon-dashboard`. |
+| Review job never runs | `systemctl --user status netmon-scheduler`, `logs/review.log`, `/usr/bin/python3 scheduler.py status`. The job must not be paused; without an event reviewer model it still runs but copies nothing. Send to research problems: `logs/research-event.log`, `logs/research.log`, the event research $ caps on AI pipeline. Lingering on? (`loginctl show-user $USER -p Linger`) |
 | Time ranges or event reviewer searches fail | `systemctl --user status netmon-broker`; `NETMON_BROKER_URL` / `NETMON_BROKER_KEY` in `dashboard/.env`. |
 | Push notifications never arrive | The site must be reached over a trusted HTTPS name (tunnel), not the self-signed IP. |
 | Related links all say "AI review pending" | Local model server running with a model loaded? `curl $NETMON_LLM_URL/models` (default `http://127.0.0.1:1234/v1/models`); decision model up? `curl http://127.0.0.1:8091/health`. The popover footer shows the last error. A first full review takes 1–2 h. |

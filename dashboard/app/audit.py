@@ -7,7 +7,7 @@ Two kinds of entries (ECS field names, so they also read well in Kibana / Securi
   event.dataset = netmon.audit   every user action: sign-in / sign-out, every POST (check-offs, notes, chat,
                                  settings, users, AI verdicts...), page views, report downloads, denied requests
   event.dataset = netmon.review  one entry per correlation review pass that did work or failed, and per finished
-                                 review-job run (reviewlog.py; AI review > Review log card)
+                                 review-job run (reviewlog.py; AI pipeline monitoring > Review log card)
   event.dataset = netmon.llm     every conversation between the app and an LLM: Ask AI chat turns, the
                                  event reviewer, the review job's and event research's
                                  results coming back in (enrich.py put). Prompt, system prompt, answer, model,
@@ -363,7 +363,7 @@ def search(p):
 
 
 def review_entries(hours=24, size=200):
-    """netmon.review entries (AI review > Review log card), newest first, with counts per kind / outcome."""
+    """netmon.review entries (AI pipeline monitoring > Review log card), newest first, with counts per kind / outcome."""
     body = {"size": size, "sort": [{"@timestamp": "desc"}], "track_total_hits": True,
             "query": {"bool": {"filter": [{"term": {"event.dataset": "netmon.review"}}, {"range": {"@timestamp": {"gte": f"now-{int(hours)}h"}}}]}},
             "aggs": {"kind": {"terms": {"field": "event.action", "size": 10}, "aggs": {"out": {"terms": {"field": "event.outcome", "size": 5}}}}}}

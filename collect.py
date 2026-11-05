@@ -31,7 +31,7 @@ if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries
     HOURS = round((_e - _s).total_seconds() / 3600, 3)
 else:
     RANGE_START = RANGE_END = None
-    if sys.argv[1:2] == ["auto"]:  # review job: the lookback window set on the dashboard's AI review page (lookback.py)
+    if sys.argv[1:2] == ["auto"]:  # review job: the lookback window set on the dashboard's AI pipeline pages (lookback.py)
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import lookback  # noqa: E402
         HOURS, _why = lookback.for_run()

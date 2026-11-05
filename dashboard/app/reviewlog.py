@@ -1,7 +1,7 @@
 """Review log: one entry per correlation review pass (corr_llm worker) that did work or failed, and one per finished
 review-job run (review.py on the host, read from <state>/review_job.json). Entries go to Elasticsearch through the
 audit writer (event.dataset netmon.review, daily index logs-netmon.YYYY.MM.DD) and to an in-memory ring, which the
-AI review > Review log card falls back to when Elasticsearch is unreachable.
+AI pipeline monitoring > Review log card falls back to when Elasticsearch is unreachable.
 """
 import collections
 import sys

@@ -9,12 +9,12 @@ Runs as a background thread in the dashboard server:
 apply() merges verdicts into /api/correlate: rejected links are dropped, confirmed ones carry the model's reason,
 undecided ones are shown as "awaiting review" until the worker gets to them.
 
-Elasticsearch look-ups (AI review > Models, admin; llm_config.json "es_queries": {enabled, max}): when on, the event reviewer
+Elasticsearch look-ups (AI pipeline configuration > Models, admin; llm_config.json "es_queries": {enabled, max}): when on, the event reviewer
 may answer a review with structured search requests instead of decisions; the host broker (POST /esquery, es_context.py)
 validates and runs them read-only, the results go back to the model as <es_result> data and it asks again, up to
-`max` searches per event review. Every search is kept in corr_llm.db `es_queries` and shown on the AI review page.
+`max` searches per event review. Every search is kept in corr_llm.db `es_queries` and shown on the AI pipeline pages.
 
-Model: chosen on the AI review page (/state/llm_config.json "correlation": {provider, model}; "chat" holds the dashboard
+Model: chosen on the AI pipeline pages (/state/llm_config.json "correlation": {provider, model}; "chat" holds the dashboard
 chat's model). provider "lmstudio" talks to LM Studio directly with a JSON schema; "api:<id>" is an admin-added API-key
 provider (llm_providers.py, OpenAI-compatible or Anthropic, answer format asked for in the prompt).
 
@@ -85,7 +85,7 @@ def _save_config(c):
 
 
 def notes_limit():
-    """Most host / user notes the event reviewer is given for one event (admin setting AI review > Models)."""
+    """Most host / user notes the event reviewer is given for one event (admin setting AI pipeline configuration > Models)."""
     try:
         return max(1, min(int((_raw_config().get("context_notes") or {}).get("max") or NOTES_DEFAULT), NOTES_LIMIT))
     except (TypeError, ValueError):
@@ -93,7 +93,7 @@ def notes_limit():
 
 
 def notes_chars():
-    """Total characters of host / user notes in one review prompt (admin setting AI review > Models, below Notes per event)."""
+    """Total characters of host / user notes in one review prompt (admin setting AI pipeline configuration > Models, below Notes per event)."""
     try:
         return max(CHARS_MIN, min(int((_raw_config().get("context_notes") or {}).get("chars") or NOTE_BUDGET), CHARS_LIMIT))
     except (TypeError, ValueError):
@@ -383,7 +383,7 @@ def limits():
     for x in c.get("skip_pairs") or []:  # settings saved before test mode
         pm.setdefault(str(x), "skip")
     return {"skip_pairs": sorted(k for k, v in pm.items() if v == "skip"), "pair_modes": pm, "pair_default": c["pair_default"],
-            "excluded": [],  # exclusions were removed (AI review page no longer has them)
+            "excluded": [],  # exclusions were removed (AI pipeline pages no longer has them)
             "rules": [],  # "Never send" rules were removed: nothing is held back from the queue / event reviewer by name
             "classify": bool(c.get("classify")),
             "window_minutes": _num(c.get("window_minutes"), 0, WINDOW_MAX_MIN),
@@ -495,7 +495,7 @@ def _all_pairs():
 
 
 def limits_view(base, applied=None):
-    """For the AI review page: the settings, candidate links per type pair and the events with the most links."""
+    """For the AI pipeline pages: the settings, candidate links per type pair and the events with the most links."""
     E = (base or {}).get("events") or {}
     seen, tp, tm, ev = set(), {}, {}, {}
     L0 = limits()
@@ -567,7 +567,7 @@ def _web_cfg(c):
 
 
 def lookup_plan():
-    """Look-ups first (AI review > Models, default on): when Elasticsearch or web look-ups are allowed, every review starts with a
+    """Look-ups first (AI pipeline configuration > Models, default on): when Elasticsearch or web look-ups are allowed, every review starts with a
     call that can only ask for look-ups, so the reviewer actually searches before it decides (one extra model call per review)."""
     return (_raw_config().get("lookup_plan") or {}).get("enabled", True) is not False
 
@@ -1170,7 +1170,7 @@ def _complete(target, system, user, max_tokens, purpose="correlation-review", ac
                   error=f"{type(e).__name__}: {e}")
         raise
     audit.llm(purpose, target["provider"], target["model"], user=actor, system=system, prompt=user, response=out[0], usage=out[1], seconds=out[2])
-    if purpose == "correlation-review":  # remembered for the AI review page's tokens / minute
+    if purpose == "correlation-review":  # remembered for the AI pipeline pages's tokens / minute
         try:
             n = int((out[1] or {}).get("prompt") or 0) + int((out[1] or {}).get("completion") or 0)
             with _lock, _db() as c:
@@ -1202,7 +1202,7 @@ def _complete_raw(target, system, user, max_tokens, t, queries=False, schemas=No
 
 
 _ERR_HELP = {
-    "decision": "The decision model (clef) did not answer its health check, so the review paused instead of guessing. It retries every minute and clears itself once the model answers. If it persists, check AI review > Decision model server, or switch the decision model off.",
+    "decision": "The decision model (clef) did not answer its health check, so the review paused instead of guessing. It retries every minute and clears itself once the model answers. If it persists, check AI pipeline configuration > Decision model server, or switch the decision model off.",
     "reviewer": "The event reviewer model returned an error or could not be reached (restarting, overloaded, or its context was exceeded). The affected events stay queued and are retried on the next pass; this clears after the next clean pass.",
     "event": "Reviewing an event with the event reviewer model failed. The event stays queued and is retried on the next pass; this clears after the next clean pass.",
     "classify": "Classifying events with the event reviewer model failed. It is retried on the next pass; this clears after the next clean pass.",
@@ -1223,12 +1223,12 @@ def _target(model=None):
     c = config()["correlation"]
     if llm_providers.is_custom(c["provider"]):
         if not llm_providers.allowed(c["provider"], c["model"]):
-            raise RuntimeError(f"event reviewer model {c['model']} on {llm_providers.name(c['provider'])} is no longer available - pick another on AI review > Models")
+            raise RuntimeError(f"event reviewer model {c['model']} on {llm_providers.name(c['provider'])} is no longer available - pick another on AI pipeline configuration > Models")
         return {"provider": c["provider"], "model": c["model"]}
     if c["provider"] != "lmstudio":
-        raise RuntimeError(f"event reviewer provider {c['provider']} is no longer available - pick another model on AI review > Models")
+        raise RuntimeError(f"event reviewer provider {c['provider']} is no longer available - pick another model on AI pipeline configuration > Models")
     if not llm_providers.local_enabled():
-        raise RuntimeError("Local server is disabled on AI review > AI providers - pick another model on AI review > Models")
+        raise RuntimeError("Local server is disabled on AI pipeline configuration > AI providers - pick another model on AI pipeline configuration > Models")
     return {"provider": "lmstudio", "model": model or c["model"] or _model()}
 
 
@@ -1435,7 +1435,7 @@ WEB_CACHE_DAYS_LIMIT = 30
 
 
 def web_cache_cfg():
-    """Ai pipeline > Event reviewer look-ups: netmon web cache on/off and how many days an answer is kept (default on, 7 days)."""
+    """AI pipeline > Event reviewer look-ups: netmon web cache on/off and how many days an answer is kept (default on, 7 days)."""
     w = _raw_config().get("web_cache") or {}
     try:
         days = max(1, min(int(w.get("days") or round(WEB_CACHE_TTL / 86400) or 7), WEB_CACHE_DAYS_LIMIT))
@@ -1478,7 +1478,7 @@ def web_cache_stats():
 
 def _web_cache(key, value=None):
     """Shared cache of web look-ups (netmon web cache, corr_llm.db web_cache): key -> (body, urls) within the set number of
-    days; with value, store it. Off (Ai pipeline setting): never read or written."""
+    days; with value, store it. Off (AI pipeline setting): never read or written."""
     cfg = web_cache_cfg()
     if not cfg["enabled"]:
         return None
@@ -1657,7 +1657,7 @@ def html_attr(s):
 
 
 def _web_logger(aid, ids, mname, purpose="event-review"):
-    """Every event reviewer web look-up: corr_llm.db web_queries (AI review page) + audit log. .seen = {url: title} of all results."""
+    """Every event reviewer web look-up: corr_llm.db web_queries (AI pipeline pages) + audit log. .seen = {url: title} of all results."""
     def logw(item, res, err, secs):
         STATUS["web_queries_this_run"] = STATUS.get("web_queries_this_run", 0) + 1
         logw.n += 1
@@ -1835,7 +1835,7 @@ def _ai_notes(aid, ids, E):
 
 
 def _es_logger(aid, ids, mname):
-    def logq(q, res, err):  # every event reviewer look-up: corr_llm.db (AI review page) + audit log
+    def logq(q, res, err):  # every event reviewer look-up: corr_llm.db (AI pipeline pages) + audit log
         if res and not err and isinstance(res.get("query"), dict):  # kept as a Kibana artifact of the links reviewed
             logq.found.append(esk.from_norm(res["query"], res.get("total")))
         STATUS["es_queries_this_run"] = STATUS.get("es_queries_this_run", 0) + 1
@@ -1867,7 +1867,7 @@ def _review(model, aid, base, todo):
     dec = {d.get("id"): d for d in _ask(model, E[aid], cands, own_n, es["max"] if es["enabled"] else 0, logq, ai_notes=ai_n, usage_out=used,
                                         web_max=web["max"] if logw else 0, on_web=logw, memo_key="pair:" + aid)}
     cited = {k: _sources(d, logw) for k, d in dec.items()}
-    try:  # tokens this one event review used (all its model rounds), for the AI review page's average in / out per event
+    try:  # tokens this one event review used (all its model rounds), for the AI pipeline pages's average in / out per event
         with _lock, _db() as c:
             c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                       (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands), int(used.get("notes", n_notes) or 0), n_notes,
@@ -2544,7 +2544,7 @@ def clef_compare(since=0):
 
 
 def clef_overview():
-    """Numbers for the AI review page's decision-model card."""
+    """Numbers for the AI pipeline pages's decision-model card."""
     import clef
     now = time.time()
     with _db() as c:
@@ -2579,7 +2579,7 @@ def run_once(get_base, latest_sid):
     use_clef = clef.config()["enabled"]
     _clear_error()  # every pass re-evaluates; a problem that is gone must not stay on screen
     if use_clef and not any(clef.healthy() or time.sleep(2) for _ in range(3)):  # 3 tries: one slow /health must not stop the review
-        STATUS.update(busy=False, last_run=time.time()); _set_error("decision", f"decision model unreachable at {clef.config()['url']} (AI review > Decision model server) - reviews wait")
+        STATUS.update(busy=False, last_run=time.time()); _set_error("decision", f"decision model unreachable at {clef.config()['url']} (AI pipeline configuration > Decision model server) - reviews wait")
         return 0
     done = 0
     try:  # alarms follow the verdicts already made, before a long review pass starts
@@ -2640,7 +2640,7 @@ def run_once(get_base, latest_sid):
 
 def _safe_review(model, aid, base, todo):
     try:
-        model = _target()  # re-read the admin's choice for every review so a change on AI review > Models applies mid-pass
+        model = _target()  # re-read the admin's choice for every review so a change on AI pipeline configuration > Models applies mid-pass
         STATUS.update(model=model["model"], provider=model["provider"])
         n = _review(model, aid, base, todo)
         return n
