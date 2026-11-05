@@ -522,7 +522,8 @@ event review and classification; model comparisons never search.
 An event is reviewed again whenever its set of links changes (often hourly). Within 6 h (`NETMON_LOOKUP_MEMO_H`) a
 re-review gets the earlier review's look-up results again (`corr_llm.db` `lookup_memo`, with their `[W]` ids so
 citations still resolve) instead of a new planning step and new searches; the reviewer may still ask for more. Web
-searches and page reads are shared across all events for 7 days (`web_cache`, `NETMON_WEB_CACHE_H`), so the same IP's
+searches and page reads are shared across all events (**netmon web cache**, `web_cache`; Ai pipeline → Event reviewer
+look-ups: on/off, 1–30 days kept, default on / 7 days, entries + 24 h hit rate, **Clear cache**), so the same IP's
 ipinfo.io page is fetched once, not for every event naming it; such look-ups are logged with `cached = 1`. The AI review
 page shows both (re-reviews reusing look-ups; web look-ups answered from cache).
 

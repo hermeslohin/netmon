@@ -33,7 +33,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/account/welcome", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/lookupplan", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/lookupplan", "/api/llm/webcache", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -1240,6 +1240,13 @@ class H(BaseHTTPRequestHandler):
                 pass  # logged by the generic POST audit
                 print(f"llm clef: {user} set enabled={res['enabled']} related_min={res['related_min']} suspicious_min={res['suspicious_min']}", file=sys.stderr)
                 return self._json({"ok": True, "clef": res})
+            if u.path == "/api/llm/webcache":  # netmon web cache: on/off, days kept, or clear it
+                try:
+                    res = corr_llm.clear_web_cache(user) if body.get("action") == "clear" else corr_llm.set_web_cache(bool(body.get("enabled")), body.get("days"), user)
+                except (TypeError, ValueError) as e:
+                    return self._json({"error": str(e)[:200]}, 400)
+                print(f"llm webcache: {user} {body.get('action') or 'set'} enabled={res['enabled']} days={res['days']}", file=sys.stderr)
+                return self._json({"ok": True, "web_cache": res})
             if u.path == "/api/llm/lookupplan":  # look-ups first (planning call before deciding)
                 res = corr_llm.set_lookup_plan(bool(body.get("enabled")), user)
                 print(f"llm lookupplan: {user} set enabled={res['enabled']}", file=sys.stderr)

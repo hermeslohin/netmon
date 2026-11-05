@@ -129,6 +129,24 @@ class WebLookup(unittest.TestCase):
             corr_llm._web_lookup(1, {"search": "203.0.113.9", "why": "w"}, logw2)  # another event, same IP: cache
         f2.assert_not_called()
 
+    def test_web_cache_setting_off_and_clear(self):
+        """REQ: WEB-08"""
+        page = {"url": "https://ipinfo.io/198.51.100.20", "title": "T", "text": "x"}
+        logw = corr_llm._web_logger("ids|c", [], "m", "unit-test")
+        with mock.patch.object(corr_llm, "_public_ip", return_value=True), mock.patch("webtools.fetch", return_value=page) as f:
+            corr_llm.set_web_cache(True, 3, "t")
+            corr_llm._web_lookup(1, {"search": "198.51.100.20", "why": "w"}, logw)
+            corr_llm._web_lookup(2, {"search": "198.51.100.20", "why": "w"}, logw)
+            self.assertEqual(f.call_count, 1)  # second from the cache
+            self.assertGreaterEqual(corr_llm.web_cache_stats()["entries"], 1)
+            corr_llm.set_web_cache(False, 3, "t")
+            corr_llm._web_lookup(3, {"search": "198.51.100.20", "why": "w"}, logw)
+            self.assertEqual(f.call_count, 2)  # off: goes to the web again
+            self.assertEqual(corr_llm.clear_web_cache("t")["entries"], 0)
+            corr_llm.set_web_cache(True, 7, "t")
+        with self.assertRaises(ValueError):
+            corr_llm.set_web_cache(True, 99, "t")
+
     def test_web_artifacts(self):
         """REQ: WEB-08"""
         self.assertEqual(corr_llm.web_artifacts([{"url": "https://a/", "title": "A"}])[0]["kind"], "web")

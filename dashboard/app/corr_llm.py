@@ -1432,16 +1432,66 @@ def _memo_save(key, results, on_web):
         print(f"corr_llm: look-up memo not saved: {e}", file=sys.stderr)
 
 
+WEB_CACHE_DAYS_LIMIT = 30
+
+
+def web_cache_cfg():
+    """Ai pipeline > Event reviewer look-ups: netmon web cache on/off and how many days an answer is kept (default on, 7 days)."""
+    w = _raw_config().get("web_cache") or {}
+    try:
+        days = max(1, min(int(w.get("days") or round(WEB_CACHE_TTL / 86400) or 7), WEB_CACHE_DAYS_LIMIT))
+    except (TypeError, ValueError):
+        days = 7
+    return {"enabled": w.get("enabled", True) is not False, "days": days, "limit": WEB_CACHE_DAYS_LIMIT, "by": w.get("by"), "at": w.get("at")}
+
+
+def set_web_cache(enabled, days, user):
+    days = int(days)
+    if not 1 <= days <= WEB_CACHE_DAYS_LIMIT:
+        raise ValueError(f"days must be 1-{WEB_CACHE_DAYS_LIMIT}")
+    c = _raw_config()
+    c["web_cache"] = {"enabled": bool(enabled), "days": days, "by": user, "at": time.time()}
+    _save_config(c)
+    with _lock, _db() as d:  # a shorter window applies to what is already stored
+        d.execute("DELETE FROM web_cache WHERE ts < ?", (time.time() - days * 86400,))
+    return web_cache_stats()
+
+
+def clear_web_cache(user):
+    with _lock, _db() as d:
+        n = d.execute("DELETE FROM web_cache").rowcount
+    print(f"corr_llm: web cache cleared by {user} ({n} entries)", file=sys.stderr)
+    return {**web_cache_stats(), "cleared": n}
+
+
+def web_cache_stats():
+    out = web_cache_cfg()
+    try:
+        with _db() as c:
+            n, s, p, b, old = c.execute("SELECT COUNT(*), SUM(key LIKE 's:%'), SUM(key LIKE 'p:%'), SUM(length(body) + length(urls)), MIN(ts) FROM web_cache").fetchone()
+            hits, tot = c.execute("SELECT SUM(COALESCE(cached,0)), COUNT(*) FROM web_queries WHERE ts > ? AND error IS NULL", (time.time() - 86400,)).fetchone()
+        out.update(entries=n or 0, searches=s or 0, pages=p or 0, bytes=b or 0, oldest=old, hits_day=hits or 0, lookups_day=tot or 0,
+                   hit_pct_day=round(100 * (hits or 0) / tot, 1) if tot else None)
+    except sqlite3.Error:
+        pass
+    return out
+
+
 def _web_cache(key, value=None):
-    """Shared cache of web look-ups: key -> (body, urls) within WEB_CACHE_TTL; with value, store it."""
+    """Shared cache of web look-ups (netmon web cache, corr_llm.db web_cache): key -> (body, urls) within the set number of
+    days; with value, store it. Off (Ai pipeline setting): never read or written."""
+    cfg = web_cache_cfg()
+    if not cfg["enabled"]:
+        return None
+    ttl = cfg["days"] * 86400
     try:
         with _db() as c:
             if value is None:
                 r = c.execute("SELECT ts, body, urls FROM web_cache WHERE key=?", (key,)).fetchone()
-                return (r[1], json.loads(r[2] or "[]")) if r and time.time() - r[0] < WEB_CACHE_TTL else None
+                return (r[1], json.loads(r[2] or "[]")) if r and time.time() - r[0] < ttl else None
             with _lock:
                 c.execute("INSERT OR REPLACE INTO web_cache (key, ts, body, urls) VALUES (?,?,?,?)", (key, time.time(), value[0], json.dumps(value[1])))
-                c.execute("DELETE FROM web_cache WHERE ts < ?", (time.time() - WEB_CACHE_TTL,))
+                c.execute("DELETE FROM web_cache WHERE ts < ?", (time.time() - ttl,))
     except (sqlite3.Error, ValueError):
         return None
 
@@ -2757,6 +2807,7 @@ def overview(events, applied):
                                                  "clef_stage", "clef_todo", "clef_related_this_run")},
             "es_queries": es_overview(events),
             "web_queries": web_overview(events),
+            "web_cache": web_cache_stats(),
             "clef": _clef_ov_safe(),
             "config": config(),
             "url": URL, "workers": WORKERS, "reasoning": REASONING,

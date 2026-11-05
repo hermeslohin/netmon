@@ -284,10 +284,48 @@
               ["Reviews citing a page (24 h)", fn(W.reviews_cited_day || 0)]])}`);
     c.id = "ai-lookups";
     const body = document.createElement("div"); body.style.cssText = "display:flex;flex-direction:column;gap:8px;margin-top:8px";
-    body.append(esQueriesRow(D), webSearchRow(D), lookupPlanRow(D));
+    body.append(esQueriesRow(D), webSearchRow(D), lookupPlanRow(D), webCacheRow(D));
     c.appendChild(body);
     if (!D.admin) c.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Only an admin can change these." }));
     return c;
+  }
+  // netmon web cache: the same web search / page within N days is answered from corr_llm.db instead of Firecrawl (admin)
+  function webCacheRow(D) {
+    const C = D.web_cache || { enabled: true, days: 7, limit: 30 };
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "netmon web cache" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: C.enabled !== false }));
+    lab.append(" reuse web search / page results");
+    const lab2 = r.appendChild(document.createElement("label")); lab2.className = "small";
+    lab2.append("keep for ");
+    const num = lab2.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: C.limit || 30, step: 1, value: C.days || 7 }));
+    num.style.width = "4.5em"; num.setAttribute("aria-label", "Days to keep cached web results"); lab2.append(" days");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const clr = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Clear cache" }));
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const kb = (b) => (b > 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round((b || 0) / 1024)) + " KB");
+    const show = (c) => `${c.enabled !== false ? `on · ${c.days} days` : "off"} · ${fn(c.entries || 0)} cached (${fn(c.searches || 0)} searches, ${fn(c.pages || 0)} pages, ${kb(c.bytes)})` +
+      (c.lookups_day ? ` · ${fn(c.hits_day || 0)} of ${fn(c.lookups_day)} look-ups from cache in 24 h (${c.hit_pct_day ?? 0}%)` : "") + (c.by ? ` · set by ${c.by}` : "");
+    msg.textContent = D.admin ? show(C) : show(C) + " · only an admin can change this";
+    chk.disabled = num.disabled = clr.disabled = !D.admin;
+    autoApply(btn, [chk, num]);
+    btn.onclick = async () => {
+      const d = Math.round(+num.value), lim = C.limit || 30;
+      if (!(d >= 1 && d <= lim)) { msg.textContent = `Enter 1-${lim} days.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/webcache", { enabled: chk.checked, days: d }); Object.assign(C, r2.web_cache || {}); msg.textContent = "saved · " + show(C); }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    clr.onclick = async () => {
+      if (!confirm("Clear the netmon web cache? The next look-ups go to the web search service again.")) return;
+      clr.disabled = true; msg.textContent = "clearing…";
+      try { const r2 = await apiPost("/api/llm/webcache", { action: "clear" }); Object.assign(C, r2.web_cache || {}); msg.textContent = `cleared ${fn(r2.web_cache?.cleared || 0)} · ` + show(C); }
+      catch (e) { msg.textContent = "error: " + e.message; }
+      clr.disabled = !D.admin;
+    };
+    r.title = "netmon keeps the answers to the event reviewer's web searches and page reads (e.g. an IP's ipinfo.io page) in its own database, so the same look-up for another event within this many days does not go to Firecrawl again. Off: every look-up goes to the web search service. The citations still link to the live pages.";
+    return r;
   }
   // Elasticsearch look-ups by the event reviewer: on/off + the most it may run for one event review (admin)
   function esQueriesRow(D) {
