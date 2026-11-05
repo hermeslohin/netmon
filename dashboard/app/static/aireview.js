@@ -541,7 +541,7 @@
       `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The event reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the event reviewer search the logs for more context."}</div>`);
     c.id = R ? "ai-es-research" : "ai-es";
     if (!R && E.reviews_day) c.querySelector(".card-title, h3, h2")?.insertAdjacentHTML("afterend", kpis([["Event reviews that searched (24 h)", `${fn(E.reviews_es_day || 0)} of ${fn(E.reviews_day)} <span class="small muted">(${E.pct_reviews_es_day ?? 0}%)</span>`, E.reviews_es_day ? "good" : ""],
-      ["Searches / review that searched", E.reviews_es_day ? (E.last_day / E.reviews_es_day).toFixed(1) : "—"], ["Reviews with look-ups-first (24 h)", fn(E.planned_day || 0)]]));
+      ["Searches / review that searched", E.reviews_es_day ? (E.last_day / E.reviews_es_day).toFixed(1) : "—"], ["Reviews with look-ups-first (24 h)", fn(E.planned_day || 0)], ["Re-reviews reusing earlier look-ups (24 h)", `<span title="an event reviewed again within 6 h gets its earlier search results instead of searching again">${fn(E.memo_day || 0)}</span>`]]));
     if (E.recent.length) c.appendChild(table(null, [
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
       { k: "anchor_label", t: R ? "Run" : "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(v)}</a>` : esc(v)) },
@@ -558,7 +558,7 @@
       ["Web look-ups (24 h)", fn(W.last_day || 0), W.last_day ? "good" : ""], ["Web look-ups (7 d)", fn(W.last_week || 0)],
       ["Event reviews that searched (24 h)", W.reviews_day ? `${fn(W.reviews_web_day || 0)} of ${fn(W.reviews_day)} <span class="small muted">(${W.pct_reviews_web_day ?? 0}%)</span>` : "—"],
       ["Reviews citing a web page (24 h)", fn(W.reviews_cited_day || 0)], ["Pages cited (current classifications)", fn(W.cited_pages || 0)],
-      ["Failed look-ups (24 h)", fn(W.errors_day || 0), W.errors_day ? "warn" : ""]])}
+      ["Failed look-ups (24 h)", fn(W.errors_day || 0), W.errors_day ? "warn" : ""], ["Answered from cache (24 h)", `<span title="the same search or page within 7 days is answered from the cache instead of Firecrawl">${fn(W.cached_day || 0)}</span>`]])}
       ${W.daily?.length ? `<div class="small muted" style="margin:4px 0">Per day: ${W.daily.map((d) => `${esc(d.day.slice(5))} <b>${fn(d.searches)}</b>${d.errors ? ` (${fn(d.errors)} failed)` : ""}`).join(" · ")}</div>` : ""}
       ${W.recent.length ? "" : `<div class="small muted">${on ? "The event reviewer has not searched the web yet." : "Off. Turn on <b>Web search · event reviewer</b> in the Models box to let the event reviewer look things up on the web."}</div>`}`);
     c.id = "ai-web";

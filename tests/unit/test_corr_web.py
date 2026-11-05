@@ -97,6 +97,38 @@ class WebLookup(unittest.TestCase):
         self.assertEqual([q["why"] for q in d["queries"]], ["a"])
         self.assertEqual(d["web"][0]["search"], "x")
 
+    def test_rereview_reuses_earlier_lookups_and_web_cache(self):
+        """REQ: WEB-08"""
+        calls = {"plan": 0, "broker": 0}
+
+        def fake(target, system, user, max_tokens, purpose="", actor="", queries=False, schemas=None, fmts=None):
+            if "PLANNING STEP" in system:
+                calls["plan"] += 1
+                return json.dumps({"queries": [{"source": "zeek", "why": "w"}], "web": [{"search": "203.0.113.9", "why": "owner"}]}), {}, 0
+            return json.dumps({"decisions": [{"id": "anchor", "label": "benign", "confidence": 0.9, "reason": "AWS [W1]", "sources": ["W1"]}]}), {}, 0
+
+        def brk(*a, **k):
+            calls["broker"] += 1
+            return {"total": 2, "docs": [], "query": {"source": "zeek"}}
+        page = {"url": "https://ipinfo.io/203.0.113.9", "title": "AS16509 Amazon", "text": "Amazon"}
+        anchor = {"type": "ids", "label": "x", "t0": None}
+        with mock.patch.object(corr_llm, "_complete", fake), mock.patch.object(corr_llm, "lookup_plan", return_value=True), \
+                mock.patch.object(corr_llm, "broker", brk), mock.patch.object(corr_llm, "_public_ip", return_value=True), \
+                mock.patch("webtools.fetch", return_value=page) as fetch:
+            out = []
+            for _ in range(2):
+                logw = corr_llm._web_logger("ids|memo", [], "m", "unit-test")
+                dec, usage, _s = corr_llm._ask_full({"provider": "lmstudio", "model": "m"}, anchor, [], {}, es_max=3, on_query=lambda *a: None,
+                                                    web_max=2, on_web=logw, memo_key="ids|memo-test")
+                out.append((usage, corr_llm._sources(dec[0], logw)))
+        self.assertEqual((calls["plan"], calls["broker"], fetch.call_count), (1, 1, 1))  # second review: no new plan, search or fetch
+        self.assertTrue(out[1][0]["memo"])
+        self.assertEqual(out[1][1][0]["url"], "https://ipinfo.io/203.0.113.9")  # [W1] still resolves on the re-review
+        logw2 = corr_llm._web_logger("ids|other", [], "m", "unit-test")
+        with mock.patch("webtools.fetch") as f2, mock.patch.object(corr_llm, "_public_ip", return_value=True):
+            corr_llm._web_lookup(1, {"search": "203.0.113.9", "why": "w"}, logw2)  # another event, same IP: cache
+        f2.assert_not_called()
+
     def test_web_artifacts(self):
         """REQ: WEB-08"""
         self.assertEqual(corr_llm.web_artifacts([{"url": "https://a/", "title": "A"}])[0]["kind"], "web")

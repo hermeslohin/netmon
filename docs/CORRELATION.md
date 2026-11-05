@@ -506,6 +506,15 @@ event review and classification; model comparisons never search.
    seconds, error) and audited as `aireview.websearch`; `review_events.web` / `.cited` count look-ups and cited pages
    per event review; `event_sources` keeps the cited pages per classified event.
 
+#### Re-reviews and the web cache
+
+An event is reviewed again whenever its set of links changes (often hourly). Within 6 h (`NETMON_LOOKUP_MEMO_H`) a
+re-review gets the earlier review's look-up results again (`corr_llm.db` `lookup_memo`, with their `[W]` ids so
+citations still resolve) instead of a new planning step and new searches; the reviewer may still ask for more. Web
+searches and page reads are shared across all events for 7 days (`web_cache`, `NETMON_WEB_CACHE_H`), so the same IP's
+ipinfo.io page is fetched once, not for every event naming it; such look-ups are logged with `cached = 1`. The AI review
+page shows both (re-reviews reusing look-ups; web look-ups answered from cache).
+
 #### Look-ups first
 
 Models tend to decide in the first round and almost never ask for searches. **Look-ups first · event reviewer**

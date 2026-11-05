@@ -68,6 +68,8 @@ NOTE_BUDGET = 6000  # characters of host / user notes in one review prompt (a no
 CHARS_MIN, CHARS_LIMIT = 1000, 100000  # total characters of notes per review prompt: the most / least an admin can set (default NOTE_BUDGET)
 NOTES_DEFAULT, NOTES_LIMIT = 7, 100  # host / user notes fed to the event reviewer per event: default and the most an admin can set
 ES_MAX_DEFAULT, ES_MAX_LIMIT = 3, 20  # Elasticsearch look-ups per event review: default and the most an admin can set
+MEMO_TTL = float(os.environ.get("NETMON_LOOKUP_MEMO_H", "6")) * 3600  # an event re-reviewed within this reuses its earlier look-up results
+WEB_CACHE_TTL = float(os.environ.get("NETMON_WEB_CACHE_H", "168")) * 3600  # the same web search / page within this is answered from the cache
 WEB_MAX_DEFAULT, WEB_MAX_LIMIT = 2, 10  # web searches / page reads (Firecrawl, webtools.py) per event review: default and the most an admin can set
 
 
@@ -807,6 +809,15 @@ def _schema(c):
     # web searches / page reads by the event reviewer (Firecrawl or the backend set under Integrations > Web search)
     c.execute("""CREATE TABLE IF NOT EXISTS web_queries (id INTEGER PRIMARY KEY, ts REAL, anchor TEXT, candidates TEXT, model TEXT, kind TEXT,
                  query TEXT, why TEXT, results INTEGER, urls TEXT, seconds REAL, error TEXT, purpose TEXT)""")
+    # look-up results of an event's last review (re-reviews within MEMO_TTL reuse them instead of searching again)
+    c.execute("CREATE TABLE IF NOT EXISTS lookup_memo (key TEXT PRIMARY KEY, ts REAL, results TEXT, ids TEXT, seen TEXT)")
+    # web search / page results shared by all reviews (the same IP's ipinfo page is not fetched again for every event)
+    c.execute("CREATE TABLE IF NOT EXISTS web_cache (key TEXT PRIMARY KEY, ts REAL, body TEXT, urls TEXT)")
+    for col in ("web_queries ADD COLUMN cached INTEGER",):
+        try:
+            c.execute("ALTER TABLE " + col)
+        except sqlite3.OperationalError:
+            pass
     # web pages the event reviewer cited for an event's classification (links shown in the classification pop-up)
     c.execute("CREATE TABLE IF NOT EXISTS event_sources (eid TEXT, url TEXT, title TEXT, model TEXT, ts REAL, PRIMARY KEY (eid, url))")
     c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
@@ -828,7 +839,7 @@ def _schema(c):
         c.execute("ALTER TABLE review_events ADD COLUMN notes INTEGER")  # notes passed in with the review (owner + AI)
     except sqlite3.OperationalError:
         pass
-    for col in ("web INTEGER", "cited INTEGER", "notes_offered INTEGER", "es INTEGER", "planned INTEGER"):  # web look-ups the review ran / web pages its answer cited
+    for col in ("web INTEGER", "cited INTEGER", "notes_offered INTEGER", "es INTEGER", "planned INTEGER", "memo INTEGER"):  # web look-ups the review ran / web pages its answer cited
         try:
             c.execute("ALTER TABLE review_events ADD COLUMN " + col)
         except sqlite3.OperationalError:
@@ -1252,8 +1263,9 @@ def _json(txt):
     raise ValueError("event reviewer returned unparseable JSON")
 
 
-def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, purpose="correlation-review", actor="netmon (event reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120, web_max=0, on_web=None):
-    """notes: {"anchor" | "c<i>": [owner note text, ...]} from kb.event_notes (optional).
+def _ask_full(target, anchor, cands, notes=None, ai_notes=None, note_cap=None, purpose="correlation-review", actor="netmon (event reviewer)", es_max=0, on_query=None, system=None, schemas=None, fmts=None, base_tokens=120, web_max=0, on_web=None, memo_key=None):
+    """memo_key (the anchor's id): an event re-reviewed within MEMO_TTL gets its earlier look-up results again instead of a
+    new planning step and new searches (it may still ask for more). notes: {"anchor" | "c<i>": [owner note text, ...]} from kb.event_notes (optional).
     es_max > 0: the model may first ask for up to es_max Elasticsearch look-ups in total (run through the broker,
     results appended to the prompt as <es_result> data); once they are used up it must decide. on_query(norm, result
     or None, error) is called for every look-up (logging). web_max > 0: likewise up to web_max web searches / page reads
@@ -1312,7 +1324,9 @@ checked. Usage and seconds are summed over all rounds."""
         secs += float(s or 0)
 
     def extra():
-        return {"notes": sent, "es": n, "web": wn, "planned": planned[0]}
+        if memo_key and results and planned[0] != "memo" and (n or wn):
+            _memo_save(memo_key, results, on_web)
+        return {"notes": sent, "es": n, "web": wn, "planned": planned[0] is True, "memo": planned[0] == "memo"}
 
     def run_es(q):
         nonlocal n
@@ -1328,7 +1342,14 @@ checked. Usage and seconds are summed over all rounds."""
             results.append(f'<es_result n="{n}" query="{json.dumps(q, default=str)[:600]}" error="{err}"></es_result>')
             on_query and on_query(q, None, err)
 
-    if (budget or wbudget) and lookup_plan():  # look-ups first: one call that can only ask for searches, then the usual rounds
+    memo = _memo_load(memo_key) if (budget or wbudget) and memo_key else None
+    if memo:  # searched recently: reuse those results (and their [W] ids, so citations still resolve)
+        results[:] = memo["results"]
+        if on_web is not None:
+            on_web.seen.update(memo["seen"])
+            on_web.__dict__.setdefault("ids", {}).update(memo["ids"])
+        planned[0] = "memo"
+    elif (budget or wbudget) and lookup_plan():  # look-ups first: one call that can only ask for searches, then the usual rounds
         what = (f"\n- up to {budget} Elasticsearch searches (format above)" if budget else "") + (f"\n- up to {wbudget} web look-ups (format above)" if wbudget else "")
         psys = PLAN_HEAD + (ES_SYSTEM.format(left=budget, sources=ES_SOURCES) if budget else "") + (WEB_SYSTEM.format(left=wbudget) if wbudget else "") + PLAN_SYSTEM.format(what=what)
         try:
@@ -1383,6 +1404,42 @@ checked. Usage and seconds are summed over all rounds."""
 
 _PRIV_RE = _re.compile(r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01])|127\.\d{1,3}|169\.254)\.\d{1,3}\.\d{1,3}\b|\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|"
                        r"[\w-]+\.(?:lan|local|home|internal|localdomain|hades|corp|intranet)\b|\bf[cd][0-9a-f]{2}:", _re.I)
+
+
+def _memo_load(key):
+    try:
+        with _db() as c:
+            r = c.execute("SELECT ts, results, ids, seen FROM lookup_memo WHERE key=?", (key,)).fetchone()
+        if r and time.time() - r[0] < MEMO_TTL:
+            return {"results": json.loads(r[1]), "ids": json.loads(r[2] or "{}"), "seen": json.loads(r[3] or "{}")}
+    except (sqlite3.Error, ValueError):
+        pass
+    return None
+
+
+def _memo_save(key, results, on_web):
+    try:
+        with _lock, _db() as c:
+            c.execute("INSERT OR REPLACE INTO lookup_memo (key, ts, results, ids, seen) VALUES (?,?,?,?,?)",
+                      (key, time.time(), json.dumps(results[-12:])[:60000], json.dumps(getattr(on_web, "ids", {}) if on_web else {}),
+                       json.dumps(getattr(on_web, "seen", {}) if on_web else {})[:20000]))
+            c.execute("DELETE FROM lookup_memo WHERE ts < ?", (time.time() - MEMO_TTL,))
+    except sqlite3.Error as e:
+        print(f"corr_llm: look-up memo not saved: {e}", file=sys.stderr)
+
+
+def _web_cache(key, value=None):
+    """Shared cache of web look-ups: key -> (body, urls) within WEB_CACHE_TTL; with value, store it."""
+    try:
+        with _db() as c:
+            if value is None:
+                r = c.execute("SELECT ts, body, urls FROM web_cache WHERE key=?", (key,)).fetchone()
+                return (r[1], json.loads(r[2] or "[]")) if r and time.time() - r[0] < WEB_CACHE_TTL else None
+            with _lock:
+                c.execute("INSERT OR REPLACE INTO web_cache (key, ts, body, urls) VALUES (?,?,?,?)", (key, time.time(), value[0], json.dumps(value[1])))
+                c.execute("DELETE FROM web_cache WHERE ts < ?", (time.time() - WEB_CACHE_TTL,))
+    except (sqlite3.Error, ValueError):
+        return None
 
 
 def _plan_json(txt):
@@ -1483,7 +1540,11 @@ def _web_lookup(n, w, on_web):
         if q:
             if _web_private(q):
                 raise ValueError("refused: the search contained private network details (LAN IPs, MACs or internal names)")
-            rows = webtools.search(q, 5)
+            hit = _web_cache("s:" + q.lower())
+            rows = hit[1] if hit else webtools.search(q, 5)
+            if not hit and rows:
+                _web_cache("s:" + q.lower(), ("", rows))
+            on_web.cached = bool(hit)
             lines = []
             for r in rows:
                 on_web.seen.setdefault(r.get("url") or "", r.get("title") or "")
@@ -1497,7 +1558,11 @@ def _web_lookup(n, w, on_web):
             raise ValueError("url must be a public http(s) URL")
         if _web_private(url):
             raise ValueError("refused: private network address")
-        pg = webtools.fetch(url, 4000)
+        hit = _web_cache("p:" + url)
+        pg = hit[1] if hit else webtools.fetch(url, 4000)
+        if not hit and pg.get("text"):
+            _web_cache("p:" + url, ("", {"url": pg.get("url"), "title": pg.get("title"), "text": str(pg.get("text") or "")[:4000]}))
+        on_web.cached = bool(hit)
         on_web.seen.setdefault(pg.get("url") or url, pg.get("title") or "")
         on_web.seen.setdefault(url, pg.get("title") or "")
         wid = _web_id(on_web, pg.get("url") or url)
@@ -1543,10 +1608,11 @@ def _web_logger(aid, ids, mname, purpose="event-review"):
     def logw(item, res, err, secs):
         STATUS["web_queries_this_run"] = STATUS.get("web_queries_this_run", 0) + 1
         logw.n += 1
+        cached, logw.cached = 1 if getattr(logw, "cached", False) and not err else 0, False
         with _lock, _db() as c:
-            c.execute("INSERT INTO web_queries (ts, anchor, candidates, model, kind, query, why, results, urls, seconds, error, purpose) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO web_queries (ts, anchor, candidates, model, kind, query, why, results, urls, seconds, error, purpose, cached) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (time.time(), aid, json.dumps(ids), mname, "search" if item.get("search") else "page", item.get("search") or item.get("url"),
-                       item.get("why"), (res or {}).get("results"), json.dumps((res or {}).get("urls") or []), secs, err, purpose))
+                       item.get("why"), (res or {}).get("results"), json.dumps((res or {}).get("urls") or []), secs, err, purpose, cached))
         audit.action("netmon (event reviewer)", "aireview.websearch", outcome="failure" if err else "success", category="network",
                      params={**item, "results": (res or {}).get("results"), "error": err}, target=aid, message=f"event reviewer searched the web ({mname})")
     logw.seen, logw.n = {}, 0
@@ -1579,15 +1645,15 @@ def _src_text(srcs):
     return (" Sources: " + " ".join(s["url"] for s in srcs[:3])) if srcs else ""
 
 
-def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None, usage_out=None, system=None, web_max=0, on_web=None):
+def _ask(model, anchor, cands, notes=None, es_max=0, on_query=None, ai_notes=None, usage_out=None, system=None, web_max=0, on_web=None, memo_key=None):
     t = model if isinstance(model, dict) else {"provider": "lmstudio", "model": model}
     try:
-        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query, system=system, web_max=web_max, on_web=on_web)
+        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, es_max=es_max, on_query=on_query, system=system, web_max=web_max, on_web=on_web, memo_key=memo_key)
     except urllib.error.HTTPError as e:  # 400 from LM Studio = prompt + answer did not fit its context window: retry with far fewer notes
         if e.code != 400:
             raise
         print("corr_llm: context exceeded, retrying with fewer notes", file=sys.stderr)
-        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, note_cap=2, es_max=es_max, on_query=on_query, system=system, web_max=web_max, on_web=on_web)
+        dec, usage, _secs = _ask_full(t, anchor, cands, notes, ai_notes=ai_notes, note_cap=2, es_max=es_max, on_query=on_query, system=system, web_max=web_max, on_web=on_web, memo_key=memo_key)
     if usage_out is not None:
         usage_out.update(usage or {})
     return dec
@@ -1745,14 +1811,14 @@ def _review(model, aid, base, todo):
     own_n, ai_n = _owner_notes(aid, ids, E), _ai_notes(aid, ids, E)
     n_notes = sum(len(v) for v in own_n.values()) + sum(len(v) for v in ai_n.values())
     dec = {d.get("id"): d for d in _ask(model, E[aid], cands, own_n, es["max"] if es["enabled"] else 0, logq, ai_notes=ai_n, usage_out=used,
-                                        web_max=web["max"] if logw else 0, on_web=logw)}
+                                        web_max=web["max"] if logw else 0, on_web=logw, memo_key="pair:" + aid)}
     cited = {k: _sources(d, logw) for k, d in dec.items()}
     try:  # tokens this one event review used (all its model rounds), for the AI review page's average in / out per event
         with _lock, _db() as c:
-            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                       (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands), int(used.get("notes", n_notes) or 0), n_notes,
                        int(used.get("es") or 0), 1 if used.get("planned") else 0,
-                       logw.n if logw else 0, len({s["url"] for v in cited.values() for s in v})))
+                       logw.n if logw else 0, len({s["url"] for v in cited.values() for s in v}), 1 if used.get("memo") else 0))
             c.execute("DELETE FROM review_events WHERE ts < ?", (time.time() - 30 * 86400,))
     except Exception as e:  # noqa: BLE001
         print(f"corr_llm: review token log failed: {e}", file=sys.stderr)
@@ -1996,7 +2062,7 @@ def _classify(model, eid, base, confirmed, sig):
     notes, ainotes, esm = _owner_notes(eid, ids, E), _ai_notes(eid, ids, E), es["max"] if es["enabled"] else 0
     web = config()["web_search"]
     logw = _web_logger(eid, ids, mname, "event-classify") if web["enabled"] else None
-    kw.update(web_max=web["max"] if logw else 0, on_web=logw)
+    kw.update(web_max=web["max"] if logw else 0, on_web=logw, memo_key="classify:" + eid)
     try:
         dec = _ask_full(model, E[eid], cands, notes, ai_notes=ainotes, es_max=esm, **kw)[0]
     except urllib.error.HTTPError as e:  # 400 from LM Studio = prompt + answer did not fit its context window: fewer notes, then no searches
@@ -2236,7 +2302,7 @@ def _event_review(model, eid, base, rel_ids, sig):
     notes, ainotes, esm = _owner_notes(eid, rel_ids, E), _ai_notes(eid, rel_ids, E), es["max"] if es["enabled"] else 0
     web = config()["web_search"]
     logw = _web_logger(eid, rel_ids, mname, "event-review") if web["enabled"] else None
-    kw.update(web_max=web["max"] if logw else 0, on_web=logw)
+    kw.update(web_max=web["max"] if logw else 0, on_web=logw, memo_key=eid)
     t0 = time.time()
     usage, failed = {}, None
     try:
@@ -2285,10 +2351,10 @@ def _event_review(model, eid, base, rel_ids, sig):
             store_artifacts(c, k, clean_artifacts(d.get("artifacts")) + (query_artifacts(logq.found) if logq else []) + web_artifacts(d.get("_sources") or []), mname, now)
         if not failed:
             offered = sum(len(v) for v in notes.values()) + sum(len(v) for v in ainotes.values())
-            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                       (now, int(usage.get("prompt") or 0), int(usage.get("completion") or 0), len(cands), int(usage.get("notes", offered) or 0), offered,
                        int(usage.get("es") or 0), 1 if usage.get("planned") else 0,
-                       logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []})))
+                       logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []}), 1 if usage.get("memo") else 0))
     STATUS["event_secs"] = round(time.time() - t0, 1)
     if failed:
         STATUS["error"] = f"event review: {failed}"
@@ -2724,9 +2790,9 @@ def es_overview(events, limit=50):
                                "query": q, "total": tot, "seconds": s, "error": err})
             out[src] = {"total": total or 0, "last_day": day or 0, "recent": recent}
     with _db() as c:
-        rv, rv_es, pl = c.execute("SELECT COUNT(*), SUM(COALESCE(es,0) > 0), SUM(COALESCE(planned,0)) FROM review_events WHERE ts > ? AND prompt + completion > 0 AND es IS NOT NULL",
-                                  (now - 86400,)).fetchone()
-    out["reviewer"].update(reviews_day=rv or 0, reviews_es_day=rv_es or 0, planned_day=pl or 0,
+        rv, rv_es, pl, mm = c.execute("SELECT COUNT(*), SUM(COALESCE(es,0) > 0), SUM(COALESCE(planned,0)), SUM(COALESCE(memo,0)) FROM review_events WHERE ts > ? AND prompt + completion > 0 AND es IS NOT NULL",
+                                      (now - 86400,)).fetchone()
+    out["reviewer"].update(reviews_day=rv or 0, reviews_es_day=rv_es or 0, planned_day=pl or 0, memo_day=mm or 0,
                            pct_reviews_es_day=round(100 * (rv_es or 0) / rv, 1) if rv else None)
     r = dict(out["reviewer"])  # old shape stays for the event reviewer
     r["research"] = out["research"]
@@ -2740,6 +2806,7 @@ def web_overview(events, limit=50):
     with _db() as c:
         total, day, week, err_day = c.execute("SELECT COUNT(*), SUM(ts > ?), SUM(ts > ?), SUM(ts > ? AND error IS NOT NULL) FROM web_queries",
                                               (now - 86400, now - 7 * 86400, now - 86400)).fetchone()
+        cached_day, = c.execute("SELECT SUM(COALESCE(cached,0)) FROM web_queries WHERE ts > ?", (now - 86400,)).fetchone()
         rv, rv_web, rv_cited = c.execute("SELECT COUNT(*), SUM(COALESCE(web,0) > 0), SUM(COALESCE(cited,0) > 0) FROM review_events WHERE ts > ? AND prompt + completion > 0",
                                          (now - 86400,)).fetchone()
         daily = [{"day": d, "searches": n, "errors": int(e or 0)} for d, n, e in c.execute(
@@ -2759,7 +2826,7 @@ def web_overview(events, limit=50):
         recent.append({"ts": ts, "anchor": a, "anchor_label": e.get("label") or a, "anchor_link": e.get("link") or "", "model": m, "kind": kind,
                        "query": q, "why": why, "results": nres, "urls": [{**x, "cited": x.get("url") in cited.get(a, ())} for x in urls[:6]],
                        "seconds": s, "error": err, "purpose": purp})
-    return {"total": total or 0, "last_day": day or 0, "last_week": week or 0, "errors_day": err_day or 0,
+    return {"total": total or 0, "last_day": day or 0, "last_week": week or 0, "errors_day": err_day or 0, "cached_day": cached_day or 0,
             "reviews_day": rv or 0, "reviews_web_day": rv_web or 0, "reviews_cited_day": rv_cited or 0,
             "pct_reviews_web_day": round(100 * (rv_web or 0) / rv, 1) if rv else None, "cited_pages": cited_pages,
             "daily": daily, "recent": recent}
