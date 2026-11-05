@@ -65,6 +65,46 @@ window.CARD_INFO = {
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗ or ↻ to ask the model again.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
+"aireview|Models": {
+"source": "GET /api/aireview/models: health check of the decision model server, model lists of the local server and AI providers (no tokens), cached one minute.",
+"use": "Every step in use should be up. Down: its server or API did not answer. Check: it answered but the model is missing or not loaded. Off: no model chosen or switched off. Admins can press Check now.",
+"what": "Which model each step of the AI pipeline uses, where it is served and whether it answers right now."
+},
+"aireview|Correlation review": {
+"source": "corr_llm.py / clef.py review state and stored verdicts in the netmon store; review log from Elasticsearch (netmon.review).",
+"use": "Check the status and reviews per minute, then the Decisions table: override with ✓ / ✗ or ↻ to ask the model again. Settings are on AI pipeline configuration, Correlation review.",
+"what": "The decision model and event reviewer judging the links the correlation script proposes: figures, verdict charts, every decision and the review log."
+},
+"aireview|Event review": {
+"source": "Review job state (review.py, enrich.py), usage records, and the look-up logs in the netmon store.",
+"use": "Status should be Idle or Running with no failure streak. Run now / Pause are here; schedule, lookback and look-up limits are on AI pipeline configuration, Event review.",
+"what": "The scheduled review job and the event reviewer: runs, time and tokens, events reviewed per day, and its Elasticsearch and web look-ups."
+},
+"aireview|Research review": {
+"source": "Event research settings and spend (research_cfg.py) and the research runs recorded by the review job.",
+"use": "Watch spend against the cap. Caps, web and Elasticsearch access are on AI pipeline configuration, Research review.",
+"what": "Events researched with Send to research: spend against the daily cap, events researched, cost and tokens, events waiting for a person, and its Elasticsearch searches."
+},
+"aiconfig|Models": {
+"source": "AI configuration (llm_config.json, llm_providers.json, clef settings) in the dashboard's state volume.",
+"use": "Pick a model per step; it applies straight away. Add cloud providers with their key and models. Whether each one is up is on AI pipeline monitoring, Models. Only an admin can change these.",
+"what": "Which model each AI step uses and where it comes from: Models, AI providers (cloud or local, with keys) and the decision model server."
+},
+"aiconfig|Correlation review": {
+"source": "AI configuration (clef settings, review_limits).",
+"use": "Raise a threshold to be stricter. Review limits: admins and network defenders can change them. Applies from the next pass.",
+"what": "Settings for judging correlation links: the decision model's on/off and thresholds, and the review limits (what is never sent for review)."
+},
+"aiconfig|Event review": {
+"source": "Review job settings (review_cfg.py, lookback.py) and AI configuration (corr_llm.py) in the netmon store.",
+"use": "Run every saves automatically (5 to 1440 minutes). Lower look-up and note numbers make reviews faster and cheaper.",
+"what": "Settings for the review job and event reviewer: schedule and lookback window, Elasticsearch / web look-ups, context notes and nightly note consolidation."
+},
+"aiconfig|Research review": {
+"source": "Event research settings (research_cfg.py) in the netmon store.",
+"use": "Set the caps before sending events to research with a cloud model; a run stops at any cap.",
+"what": "Cost caps and access of event research (Send to research): per-run and per-day dollars, tokens, batches, searches, web and Elasticsearch access."
+},
 "aireview|Model status": {
 "source": "GET /api/aireview/models: the decision model server's /health, the local model server's model list and each AI provider's model list (no tokens used), cached for one minute.",
 "use": "Every step in use should be up. Down means its server or API did not answer; check means it answered but the chosen model is missing or not loaded. Off means no model is chosen or it is switched off. Admins can press Check now.",
@@ -89,11 +129,6 @@ window.CARD_INFO = {
 "source": "AI configuration (corr_llm.py context_notes) used by the event reviewer and event research prompts.",
 "use": "Lower the numbers for faster, cheaper reviews; raise them when the reviewer misses earlier context. Applies from the next review.",
 "what": "How many earlier host and internet notes, and how many characters of them, the event reviewer is given for one event."
-},
-"aiconfig|Models": {
-"source": "Dashboard AI configuration: local models are listed from the local OpenAI-compatible server (/v1/models), cloud models from the AI providers box. Only an admin can change them.",
-"use": "Pick a model; it applies straight away. Whether each one is up is shown on AI pipeline monitoring, Models. Local models are free but slower and weaker at web research; cloud models are billed per call.",
-"what": "Which AI model each AI job uses: the event reviewer (decides every proposed link between events, and is also used by the review job), event research (only on Send to research) and the Ask AI chat."
 },
 "aiconfig|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",

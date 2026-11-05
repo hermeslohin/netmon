@@ -607,3 +607,12 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
   .oe-tools>*{flex:none}
 }
 .oe-sum:not(:empty){background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin:0 0 10px}.oe-sumh{margin-bottom:2px}
+
+/* AI pipeline pages: one box per part; the former boxes are titled sections inside it */
+.card.ai-part,.card.ai-part[data-cc]{max-height:none}.card.ai-part>.cc-body{overflow:visible}
+.ai-part-sub{margin:-2px 0 6px}
+.ai-sub{min-width:0;padding:12px 0 4px;border-top:1px solid var(--border);margin-top:10px}
+.ai-part .cc-body>.ai-sub:first-of-type,.ai-part>.ai-sub:first-of-type{margin-top:4px}
+.ai-sub>h3{margin:0 0 6px;font-size:1em}
+.ai-sub .ai-sub{border-top:0;margin-top:8px;padding-top:4px}
+.ai-part .grid>.ai-sub{border-top:1px solid var(--border)}

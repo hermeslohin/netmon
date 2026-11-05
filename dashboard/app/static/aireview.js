@@ -1276,6 +1276,24 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     cfg: ["Which model each step uses and where it comes from: AI providers (cloud or local) and the decision model server.", "The decision model's thresholds and which links are sent for review.",
       "When the review job runs, what it looks back on, which look-ups and notes the event reviewer gets, and the nightly note consolidation.", "The research model's cost caps and its web / Elasticsearch access."]};
   const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
+  // Each part is ONE box: everything from a part heading to the next goes into a single card, and the boxes inside it
+  // become plain titled sections (.ai-sub, h3; ids kept so ?at= links and live updates still find them).
+  function consolidate(el) {
+    const flat = (c) => { c.classList.remove("card"); c.classList.add("ai-sub");
+      const h = c.querySelector(":scope > h2"); if (h) { const h3 = document.createElement("h3"); h3.append(...h.childNodes); h.replaceWith(h3); } };
+    [...el.querySelectorAll(":scope > .sec-head")].forEach((hd) => {
+      const box = document.createElement("div"); box.className = "card ai-part"; box.id = hd.id; box.dataset.open = "1";
+      const h2 = document.createElement("h2"); h2.textContent = hd.querySelector("h2").textContent; box.appendChild(h2);
+      const sub = hd.querySelector(".sub"); if (sub) { sub.className = "small muted ai-part-sub"; box.appendChild(sub); }
+      let n = hd.nextSibling;
+      while (n && !(n.nodeType === 1 && n.classList.contains("sec-head"))) { const nx = n.nextSibling; box.appendChild(n); n = nx; }
+      hd.replaceWith(box);
+      [...box.querySelectorAll(".card")].forEach(flat);
+    });
+    // ?at= jump: the page is built after the router's own scroll ran, so scroll here (not on a background refresh)
+    const at = new URLSearchParams(location.hash.split("?")[1] || "").get("at");
+    if (at && !S._noScroll) setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 60);
+  }
   // AI pipeline configuration (#/aiconfig)
   const buildCfg = async (el) => {
     el.innerHTML = `<h1>AI pipeline configuration</h1><div class="sub">Settings of the AI pipeline, in four parts: Models, Correlation review, Event review and Research review.
@@ -1299,6 +1317,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(notesConsolidateCard(D));
     partHead(el, 3, "cfg");
     el.appendChild(costCard(D));
+    consolidate(el);
   };
   // AI pipeline monitoring (#/aireview)
   const build = async (el, bg) => {
@@ -1428,6 +1447,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     partHead(el, 3, "mon");
     el.appendChild(researchStatusCard(D));
     el.appendChild(esCard(D, "research"));
+    consolidate(el);
 
     el.addEventListener("click", async (e) => {
       const b = e.target.closest("[data-ai]"); if (!b) return;

@@ -567,7 +567,7 @@ reachable again (or an admin picks a different model on AI pipeline configuratio
 Shows the review job (status, schedule, last run, note coverage, token and cost history), the event
 reviewer's status (reviewing / waiting / idle / error / off), the queue for the current snapshot with % reviewed and
 an ETA, verdicts per hour, tokens per minute and the average tokens in / out per event review, and every decision
-with both events (linked), the verdict, confidence and the model's reason. Both pages are split into the same four parts:
+with both events (linked), the verdict, confidence and the model's reason. Both pages are four boxes, one per part (the former boxes are sections inside them):
 **Models** (monitoring: each model's source and up / down status; configuration: models, AI providers, decision model
 server), **Correlation review**, **Event review** and **Research review**. Monitoring shows figures and decisions,
 configuration holds every setting. The boxes:

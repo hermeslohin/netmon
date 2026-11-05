@@ -563,7 +563,7 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 
 ### AI pipeline
 
-The AI pipeline has two pages, each split into the same four parts (jump links at the top of each page):
+The AI pipeline has two pages. Each is four boxes, one per part (jump links at the top of each page); what used to be separate boxes are titled sections inside them:
 
 | Part | **More → AI pipeline monitoring** (`#/aireview`) | **More → AI pipeline configuration** (`#/aiconfig`) |
 |---|---|---|
