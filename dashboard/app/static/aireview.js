@@ -96,7 +96,7 @@
       const chart = uc;  // header + .chart as direct children so cards.js marks it cc-chart (no phone height cap)
       if (AL.length) {
         const pv = chart.appendChild(Object.assign(document.createElement("div"), { className: "small cost-preview", style: "margin-top:4px" }));
-        chart.appendChild(Object.assign(document.createElement("div"), { className: "chart phone4x" })).appendChild(document.createElement("canvas"));
+        chart.appendChild(Object.assign(document.createElement("div"), { className: "chart ai-tt" })).appendChild(document.createElement("canvas"));
         const lbl = days.map((d) => new Date(d.at * 1000).toLocaleDateString([], { month: "short", day: "numeric" }));
         const cfg = { type: "bar", data: { labels: lbl, datasets: [
           { label: "New input (M)", data: days.map((d) => M(d.fresh)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
@@ -1271,8 +1271,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
 
   const PART = [["ai-p-models", "Models"], ["ai-p-correlation", "Correlation review"], ["ai-p-event", "Event review"], ["ai-p-research", "Research review"]];
   const PART_SUB = {
-    mon: ["The model behind each step, where it is served and whether it is up.", "Links between events proposed by the correlation script and the decision model's verdict on each; override them here.",
-      "The review job and the event reviewer: runs, events reviewed per day, its Elasticsearch and web look-ups, time and tokens.", "Events researched with Send to research: spend, tokens and its Elasticsearch searches."],
+    mon: ["The model behind each step, where it is served and whether it is up, and the time and tokens they use.", "Links between events proposed by the correlation script and the decision model's verdict on each; override them here.",
+      "The review job and the event reviewer: runs, events reviewed per day, its Elasticsearch and web look-ups.", "Events researched with Send to research: spend, tokens and its Elasticsearch searches."],
     cfg: ["Which model each step uses and where it comes from: AI providers (cloud or local) and the decision model server.", "The decision model's thresholds and which links are sent for review.",
       "When the review job runs, what it looks back on, which look-ups and notes the event reviewer gets, and the nightly note consolidation.", "The research model's cost caps and its web / Elasticsearch access."]};
   const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
@@ -1399,8 +1399,10 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       } catch (e) { box.querySelector(".loading")?.remove(); box.insertAdjacentHTML("beforeend", `<pre>${esc(e)}</pre>`); }
     };
     el.insertAdjacentHTML("beforeend", `<div class="tbltools small"><span class="muted">Jump to:</span> ${PART.map(([id, t]) => `<a href="#/aireview?at=${id}">${t}</a>`).join(" · ")}</div>`);
+    const [rjob, usage] = reviewJobCard(D.review_status || {}, D);
     partHead(el, 0, "mon");
     el.appendChild(modelStatusCard(D));
+    if (usage) el.appendChild(usage);  // Time and tokens lives under Models (user request), 2/3 of the box height
     partHead(el, 1, "mon");
     el.appendChild(clefCard(D));
 
@@ -1443,7 +1445,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     lst.insertBefore(chips, lst.children[1]);
     el.appendChild(reviewLogCard());
     partHead(el, 2, "mon");
-    el.append(...reviewJobCard(D.review_status || {}, D));
+    el.appendChild(rjob);
     el.appendChild(reviewVolumeCard(D));
     el.appendChild(esCard(D, "reviewer"));
     el.appendChild(webCard(D));

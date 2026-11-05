@@ -68,7 +68,7 @@ window.CARD_INFO = {
 "aireview|Models": {
 "source": "GET /api/aireview/models: health check of the decision model server, model lists of the local server and AI providers (no tokens), cached one minute.",
 "use": "Every step in use should be up. Down: its server or API did not answer. Check: it answered but the model is missing or not loaded. Off: no model chosen or switched off. Admins can press Check now.",
-"what": "Which model each step of the AI pipeline uses, where it is served and whether it answers right now."
+"what": "Which model each step of the AI pipeline uses, where it is served and whether it answers right now; below it, the time, tokens and cost of the review job, event research and Ask AI chat per day."
 },
 "aireview|Correlation review": {
 "source": "corr_llm.py / clef.py review state and stored verdicts in the netmon store; review log from Elasticsearch (netmon.review).",
@@ -78,7 +78,7 @@ window.CARD_INFO = {
 "aireview|Event review": {
 "source": "Review job state (review.py, enrich.py), usage records, and the look-up logs in the netmon store.",
 "use": "Status should be Idle or Running with no failure streak. Run now / Pause are here; schedule, lookback and look-up limits are on AI pipeline configuration, Event review.",
-"what": "The scheduled review job and the event reviewer: runs, time and tokens, events reviewed per day, and its Elasticsearch and web look-ups."
+"what": "The scheduled review job and the event reviewer: runs, events reviewed per day, and its Elasticsearch and web look-ups."
 },
 "aireview|Research review": {
 "source": "Event research settings and spend (research_cfg.py) and the research runs recorded by the review job.",
