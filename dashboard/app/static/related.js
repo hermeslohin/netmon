@@ -125,7 +125,14 @@
   }
   function sourcesHtml(srcs) {
     const L = (srcs || []).filter((s) => safeUrl(s.url));
-    return L.length ? `<div class="small" style="margin-top:4px"><b>Web sources</b><ul style="margin:2px 0 0 1.2em;padding:0">${L.map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer" title="${esc(s.url)}">${esc((s.title || s.url).slice(0, 90))}</a> <span class="muted">${esc(new URL(s.url).hostname)}</span></li>`).join("")}</ul></div>` : "";
+    return L.length ? `<div class="small oe-sources" style="margin-top:4px"><b>🌍 Web sources</b><ul style="margin:2px 0 0 1.2em;padding:0">${L.map((s) => `<li>${s.id ? `<b>[${esc(s.id)}]</b> ` : ""}<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer" title="${esc(s.url)}">${esc((s.title || s.url).slice(0, 90))}</a> <span class="muted">${esc(new URL(s.url).hostname)}</span></li>`).join("")}</ul></div>` : "";
+  }
+  // an AI reason with its [W1] markers turned into links to the cited pages
+  function reasonHtml(reason, srcs) {
+    const by = {}, loose = [];
+    for (const x of srcs || []) if (safeUrl(x.url)) (x.id ? (by[x.id] = x) : loose.push(x));
+    for (const id of [...new Set((String(reason || "").match(/\[W\d+\]/g) || []).map((m) => m.slice(1, -1)))]) if (!by[id] && loose.length) by[id] = loose.shift();  // older rows: no stored id, match in order
+    return esc(reason || "").replace(/\[(W\d+)\]/g, (m, id) => by[id] ? `<a href="${esc(by[id].url)}" target="_blank" rel="noopener noreferrer" title="${esc(by[id].title || by[id].url)}">[${id}]</a>` : m);
   }
   function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";
@@ -150,7 +157,7 @@
   const clefEvHtml = (c) => !c ? "" : `<span class="note-v v-${esc(String(c.label || "").replace(/[^a-z-]/g, ""))}" title="Decision model (${esc(c.model || "clef")}) event label: p(suspicious) ${pct(c.p_suspicious)}, p(expected) ${pct(c.p_expected)}">clef: ${esc(c.label || "?")}</span> <span class="small muted">p sus ${pct(c.p_suspicious)} · p exp ${pct(c.p_expected)}</span>`;
   const clefLinkHtml = (r) => r.clef ? `<span class="rel-ai ${r.clef.related ? "yes" : "pend"}" title="Decision model (${esc(r.clef.model || "clef")}) p(related) = ${(r.clef.p_related || 0).toFixed(3)}">clef ${pct(r.clef.p_related)} related</span>`
     : `<span class="rel-ai pend" title="Decided before the decision model (clef) ran: ${esc(r.llm_model || "reviewer")} verdict">no clef decision</span>`;
-  window.relUi = { artifactsHtml, ipArts, queryArtHtml };  // used by the Open events window (openevents.js)
+  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml };  // used by the Open events window (openevents.js)
   const loadingRel = new Set();
   function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
     const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);
@@ -227,7 +234,7 @@
         <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body"><div><span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span></div>
         ${S.corr?.clef_ev?.[id] ? `<div style="margin-top:4px">${clefEvHtml(S.corr.clef_ev[id])}</div>` : ""}
-        <p>${esc(c.reason || "")}</p>
+        <p>${reasonHtml(c.reason, c.sources)}</p>
         ${sourcesHtml(c.sources)}
         <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the event reviewer's. Verify before acting.</div></div>`;
     document.body.appendChild(pop);

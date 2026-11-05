@@ -39,7 +39,7 @@ class WebLookup(unittest.TestCase):
                                              web_max=2, on_web=logw, base_tokens=50)
         self.assertIn("<web_result", rounds[1])
         self.assertEqual(logw.n, 1)
-        self.assertEqual(corr_llm._sources(dec[0], logw), [{"url": "https://a.example/sig", "title": "Sig A"}])
+        self.assertEqual(corr_llm._sources(dec[0], logw), [{"url": "https://a.example/sig", "title": "Sig A", "id": "W1"}])
         ov = corr_llm.web_overview({})
         self.assertGreaterEqual(ov["total"], 1)
         self.assertEqual(ov["recent"][0]["query"], "ET INFO test sig")

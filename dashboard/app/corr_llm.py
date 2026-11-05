@@ -820,6 +820,10 @@ def _schema(c):
             pass
     # web pages the event reviewer cited for an event's classification (links shown in the classification pop-up)
     c.execute("CREATE TABLE IF NOT EXISTS event_sources (eid TEXT, url TEXT, title TEXT, model TEXT, ts REAL, PRIMARY KEY (eid, url))")
+    try:  # the [W1] id the reason uses for this page (the dashboard turns it into a link)
+        c.execute("ALTER TABLE event_sources ADD COLUMN wid TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS comparisons (id INTEGER PRIMARY KEY, pair TEXT, ts REAL, user TEXT, provider TEXT, model TEXT,
                  related INTEGER, confidence REAL, reason TEXT, seconds REAL, prompt_tokens INTEGER, completion_tokens INTEGER, error TEXT)""")
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
@@ -1632,7 +1636,8 @@ def _sources(d, logw):
         u = ids.get(r.upper(), r) if _re.fullmatch(r"[Ww]\d+", r) else r.rstrip(".,;")
         if u in logw.seen and u not in have and u.startswith(("http://", "https://")):
             have.add(u)
-            out.append({"url": u, "title": str(logw.seen.get(u) or "")[:200]})
+            wid = next((k for k, v in ids.items() if v == u), "")
+            out.append({"url": u, "title": str(logw.seen.get(u) or "")[:200], **({"id": wid} if wid else {})})
     return out[:6]
 
 
@@ -1976,8 +1981,8 @@ CLASS_PER_PASS = 20  # events classified per pass: bounds the cost of switching 
 def set_event_sources(c, eid, srcs, model):
     """Replace the web pages cited for an event's classification (a new review without sources clears them)."""
     c.execute("DELETE FROM event_sources WHERE eid=?", (eid,))
-    c.executemany("INSERT OR REPLACE INTO event_sources (eid, url, title, model, ts) VALUES (?,?,?,?,?)",
-                  [(eid, s["url"], s["title"], model, time.time()) for s in srcs])
+    c.executemany("INSERT OR REPLACE INTO event_sources (eid, url, title, model, ts, wid) VALUES (?,?,?,?,?,?)",
+                  [(eid, s["url"], s["title"], model, time.time(), s.get("id")) for s in srcs])
 
 
 def classes(eids):
@@ -1988,9 +1993,9 @@ def classes(eids):
             ch = eids[i:i + 500]
             for e, lab, conf, why, m, ts in c.execute(f"SELECT eid, label, confidence, reason, model, ts FROM event_class WHERE eid IN ({','.join('?' * len(ch))})", ch):
                 out[e] = {"label": lab, "confidence": conf, "reason": why, "model": m, "at": ts}
-            for e, u, t in c.execute(f"SELECT eid, url, title FROM event_sources WHERE eid IN ({','.join('?' * len(ch))}) ORDER BY rowid", ch):
+            for e, u, t, w in c.execute(f"SELECT eid, url, title, wid FROM event_sources WHERE eid IN ({','.join('?' * len(ch))}) ORDER BY rowid", ch):
                 if e in out:
-                    out[e].setdefault("sources", []).append({"url": u, "title": t})
+                    out[e].setdefault("sources", []).append({"url": u, "title": t, "id": w or ""})
     return out
 
 

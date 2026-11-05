@@ -77,6 +77,7 @@
   function chips(x) {
     const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], rn = X.related_n?.[x.eid] || 0;
     return (c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ` : "")
+      + (c?.sources?.length ? `<span class="small" title="the event reviewer cited ${c.sources.length} web page${c.sources.length === 1 ? "" : "s"} (open the event to see them)">🌍${c.sources.length}</span> ` : "")
       + (n && n.verdict ? `<span class="note-v v-${vcls(n.verdict)}" title="Research note verdict">📝 ${esc(n.verdict)}</span> ` : "")
       + (rn ? `<span class="muted small" title="related events">${rn} related</span>` : "");
   }
@@ -162,7 +163,8 @@
     const verdictHtml = (c || n) ? `<div class="oe-verdict">
         ${c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span>
           ${cev ? ` <span class="small muted">decision model p(suspicious) ${Math.round((cev.p_suspicious || 0) * 100)}%</span>` : ""}
-          ${c.reason ? `<div class="small">${esc(c.reason)}</div>` : ""}</div>` : ""}
+          ${c.reason ? `<div class="small">${window.relUi?.reasonHtml ? window.relUi.reasonHtml(c.reason, c.sources) : esc(c.reason)}</div>` : ""}
+          ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}
         ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note</span>
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
     const mb = (role, m, cls) => m ? `<span class="oe-ai ${cls || ""}" title="${esc(role)}: ${esc(m)}"><span class="oe-ai-r">${esc(role)}</span>${esc(String(m).replace(/^.*[:/]/, ""))}</span>` : "";
