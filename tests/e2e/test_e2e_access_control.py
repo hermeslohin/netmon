@@ -134,7 +134,8 @@ class UserScope(unittest.TestCase):
         rv = {r["key"]: r.get("review") for r in body["alerts"]}
         self.assertEqual(rv["t|kid"]["reason"], "REVIEWER PARAGRAPH t|kid")
         self.assertEqual(rv["t|kid"]["label"], "benign")
-        self.assertLessEqual(set(rv["t|kid"]), {"label", "reason", "at", "sources"})
+        self.assertLessEqual(set(rv["t|kid"]), {"label", "reason", "at", "model", "sources"})
+        self.assertEqual(rv["t|kid"]["model"], "cloudflare_clef + reviewer")  # the AI provenance flare names the model
         self.assertNotIn("REVIEWER PARAGRAPH t|lab", json.dumps(body))
         self.assertIsNone(body.get("extra"))
 

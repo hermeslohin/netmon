@@ -974,8 +974,9 @@ event reviewer (7.3) as an `<ai_note>` *research verdict …* on that event's ne
 ## AI provenance flares
 
 Every piece of LLM-written text in the app carries a purple **✨ model** flare (hover for model, source and time):
-research notes, device notes, Ask AI answers, and correlation-review reasons (Related popover,
-AI pipeline pages). `review.py` records `generated_by: {model, via}` with what it writes. Chat answers record the model that
+research notes, device notes, Ask AI answers, correlation-review reasons (Related popover,
+AI pipeline pages), and the event reviewer's paragraph in the Open events detail and under each alert (the flare names the
+event reviewer model, the part after "+" in `event_class.model`). `review.py` records `generated_by: {model, via}` with what it writes. Chat answers record the model that
 answered; correlation verdicts store the event reviewer's model id. Fix-list "How to fix" text and risk scores are rule-based (no flare).
 
 ## Clearing segmentation findings

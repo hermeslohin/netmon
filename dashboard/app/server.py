@@ -1901,7 +1901,7 @@ class H(BaseHTTPRequestHandler):
                         for r in rows:
                             c = CL.get(r.get("eid"))
                             if c:
-                                r["review"] = {"label": c.get("label"), "reason": c.get("reason"), "at": c.get("at"),
+                                r["review"] = {"label": c.get("label"), "reason": c.get("reason"), "at": c.get("at"), "model": c.get("model"),
                                                "sources": [{k: x.get(k) for k in ("url", "title", "id")} for x in (c.get("sources") or []) if isinstance(x, dict)]}
                     except Exception as e:  # noqa: BLE001 - the plain feed still works
                         print(f"alerts (user): review unavailable: {e}", file=sys.stderr)
