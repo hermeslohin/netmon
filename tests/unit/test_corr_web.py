@@ -52,6 +52,34 @@ class WebLookup(unittest.TestCase):
         s.assert_not_called()
         self.assertIn("refused", out)
 
+    def test_lookups_first_runs_planned_searches_before_deciding(self):
+        """REQ: WEB-08"""
+        systems = []
+
+        def fake(target, system, user, max_tokens, purpose="", actor="", queries=False, schemas=None, fmts=None):
+            systems.append((system, user, schemas))
+            if "PLANNING STEP" in system:
+                return json.dumps({"queries": [{"source": "zeek", "match": {"source.ip": "198.51.100.7"}, "why": "w"}], "web": []}), {"prompt": 5}, 0
+            return json.dumps({"decisions": [{"id": "c1", "related": False, "confidence": 0.5, "reason": "r", "artifacts": []}], "queries": []}), {"prompt": 5}, 0
+        logq = mock.Mock()
+        with mock.patch.object(corr_llm, "_complete", fake), mock.patch.object(corr_llm, "lookup_plan", return_value=True), \
+                mock.patch.object(corr_llm, "broker", return_value={"total": 3, "docs": [], "query": {"source": "zeek"}}):
+            dec, usage, _s = corr_llm._ask_full({"provider": "lmstudio", "model": "m"}, {"type": "ids", "label": "x", "t0": None}, [], {},
+                                                es_max=3, on_query=logq)
+        self.assertIn("PLANNING STEP", systems[0][0])
+        self.assertIs(systems[0][2][1], corr_llm.PSCHEMA)
+        self.assertIn("<es_result", systems[1][1])
+        self.assertEqual((usage["es"], usage["planned"]), (1, True))
+        logq.assert_called_once()
+
+    def test_planned_query_slips_are_fixed(self):
+        """REQ: WEB-08"""
+        q = corr_llm._fix_query({"source": "zeek", "match": {"destination_port": 161, "rule.name": "GPL SNMP public access udp x357"},
+                                 "start": "2026-11-05 00:00 UTC", "end": "soon"})
+        self.assertEqual(q["match"], {"destination.port": 161, "rule.name": "GPL SNMP public access udp"})
+        self.assertEqual(q["start"], "2026-11-05T00:00:00+00:00")
+        self.assertNotIn("end", q)
+
     def test_web_artifacts(self):
         """REQ: WEB-08"""
         self.assertEqual(corr_llm.web_artifacts([{"url": "https://a/", "title": "A"}])[0]["kind"], "web")

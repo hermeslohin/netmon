@@ -503,6 +503,18 @@ event review and classification; model comparisons never search.
    seconds, error) and audited as `aireview.websearch`; `review_events.web` / `.cited` count look-ups and cited pages
    per event review; `event_sources` keeps the cited pages per classified event.
 
+#### Look-ups first
+
+Models tend to decide in the first round and almost never ask for searches. **Look-ups first · event reviewer**
+(AI review → Models, admin, default on; `llm_config` → `lookup_plan`) adds a planning call before every review that
+may search (Elasticsearch and/or web on): a separate STEP 1 prompt whose answer can only be
+`{"queries": [...], "web": [...]}` (`PSCHEMA` for schema providers). The planned look-ups run, then the usual rounds
+follow with the results (more look-ups allowed up to the per-event limits). Costs one extra model call per review
+(about the prompt tokens again). Slips in planned searches are tidied before the broker sees them (`_fix_query`:
+times like `2026-11-05 00:00 UTC` -> ISO, unreadable ones dropped for the default window, `destination_port` ->
+`destination.port`, the ` x357` event count stripped from rule names and web searches). `review_events.es` /
+`.planned` record searches per review; the Event reviewer Elasticsearch box shows the share of reviews that searched.
+
 The AI review page reports how often it searches: a **Web look-ups (24 h)** KPI, a *Web search* line in the Event
 reviewer box (look-ups in 24 h, % of event reviews that searched), and the **Event reviewer web searches** box
 (look-ups 24 h / 7 d, reviews that searched, reviews citing a page, pages cited, failed look-ups, per-day counts and

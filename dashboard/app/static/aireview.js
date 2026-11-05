@@ -265,6 +265,7 @@
       }
       body.appendChild(esQueriesRow(D));
       body.appendChild(webSearchRow(D));
+      body.appendChild(lookupPlanRow(D));
       body.appendChild(esResearchRow(D));
       body.appendChild(chatEsRow(D));
       body.appendChild(notesLimitRow(D));
@@ -327,6 +328,27 @@
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     r.title = "When on, the event reviewer may search the web or read a public page (through the backend set under Configuration > Integrations > Web search, e.g. Firecrawl) to learn what a public IP, domain, signature, CVE or program is. Searches that contain LAN addresses, MACs or internal host names are refused. Pages the reviewer relied on are shown as links on the classification, the link artifacts and its internet / DNS notes. Every look-up is listed in the Event reviewer web searches card.";
+    return r;
+  }
+  // look-ups first: a planning call that can only ask for Elasticsearch / web look-ups, before the reviewer decides (admin)
+  function lookupPlanRow(D) {
+    const cfg = D.config?.lookup_plan || { enabled: true };
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Look-ups first · event reviewer" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: cfg.enabled !== false }));
+    lab.append(" plan Elasticsearch / web searches before deciding (one extra model call per review)");
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (on) => (on ? "now: on" : "now: off") + (cfg.by ? ` (${cfg.by})` : "");
+    msg.textContent = D.admin ? show(chk.checked) : show(chk.checked) + " · only an admin can change this";
+    chk.disabled = !D.admin;
+    chk.addEventListener("change", async () => {
+      chk.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/lookupplan", { enabled: chk.checked }); Object.assign(cfg, r2.lookup_plan || {}); msg.textContent = "saved · " + show(cfg.enabled) + " (from the next review)"; }
+      catch (e) { msg.textContent = "error: " + e.message; chk.checked = !chk.checked; }
+      chk.disabled = !D.admin;
+    });
+    r.title = "Models tend to decide straight away and rarely ask for searches. With this on, each review (when Elasticsearch or web search is allowed) first makes a call whose answer can only be a list of look-ups; the searches run, then the reviewer decides with the results. Costs one extra model call per review (roughly the prompt tokens again).";
     return r;
   }
   // Elasticsearch searches by event research (separate from the event reviewer's setting above)
@@ -518,6 +540,8 @@
     const c = card(`${title} (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
       `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The event reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the event reviewer search the logs for more context."}</div>`);
     c.id = R ? "ai-es-research" : "ai-es";
+    if (!R && E.reviews_day) c.querySelector(".card-title, h3, h2")?.insertAdjacentHTML("afterend", kpis([["Event reviews that searched (24 h)", `${fn(E.reviews_es_day || 0)} of ${fn(E.reviews_day)} <span class="small muted">(${E.pct_reviews_es_day ?? 0}%)</span>`, E.reviews_es_day ? "good" : ""],
+      ["Searches / review that searched", E.reviews_es_day ? (E.last_day / E.reviews_es_day).toFixed(1) : "—"], ["Reviews with look-ups-first (24 h)", fn(E.planned_day || 0)]]));
     if (E.recent.length) c.appendChild(table(null, [
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
       { k: "anchor_label", t: R ? "Run" : "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(v)}</a>` : esc(v)) },
@@ -1265,7 +1289,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local (LM Studio)")} · <a href="#/aireview?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
-        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
+        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
         <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aireview?at=ai-models">change</a>`}</span>
         <span class="k">Event research Elasticsearch</span><span><a href="#/aireview?at=ai-es-research">${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h</a> · ${fn(D.es_queries?.research?.total || 0)} total</span>
         <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""}${st.web_queries_this_run ? `, ${fn(st.web_queries_this_run)} web look-ups` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>

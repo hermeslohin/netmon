@@ -149,6 +149,8 @@ def config():
             "chat_es": {"enabled": (c.get("chat_es") or {}).get("enabled", True) is not False, "by": (c.get("chat_es") or {}).get("by"), "at": (c.get("chat_es") or {}).get("at")},
             "es_queries": {"enabled": bool(es.get("enabled")), "max": mx, "limit": ES_MAX_LIMIT, "by": es.get("by"), "at": es.get("at")},
             "web_search": _web_cfg(c),
+            "lookup_plan": {"enabled": (c.get("lookup_plan") or {}).get("enabled", True) is not False, "by": (c.get("lookup_plan") or {}).get("by"),
+                            "at": (c.get("lookup_plan") or {}).get("at")},
             "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "per_subject": kb_per_subject(), "per_subject_default": 40, "per_subject_limit": 500, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
 
 
@@ -563,6 +565,19 @@ def _web_cfg(c):
     return {"enabled": bool(w.get("enabled")), "max": mx, "limit": WEB_MAX_LIMIT, "provider": prov, "by": w.get("by"), "at": w.get("at")}
 
 
+def lookup_plan():
+    """Look-ups first (AI review > Models, default on): when Elasticsearch or web look-ups are allowed, every review starts with a
+    call that can only ask for look-ups, so the reviewer actually searches before it decides (one extra model call per review)."""
+    return (_raw_config().get("lookup_plan") or {}).get("enabled", True) is not False
+
+
+def set_lookup_plan(enabled, user):
+    c = _raw_config()
+    c["lookup_plan"] = {"enabled": bool(enabled), "by": user, "at": time.time()}
+    _save_config(c)
+    return config()["lookup_plan"]
+
+
 def set_web_search(enabled, mx, user):
     """Admin setting: may the event reviewer search the web / read public pages (Configuration > Integrations > Web search,
     e.g. Firecrawl), and how many look-ups per event review (1..WEB_MAX_LIMIT). Default off."""
@@ -682,6 +697,23 @@ QSCHEMA = {"type": "object", "properties": {"decisions": SCHEMA["properties"]["d
     "web": {"type": "array", "items": {"type": "object", "properties": {"search": {"type": "string"}, "url": {"type": "string"}, "why": {"type": "string"}},
                                         "required": ["why"]}}},
     "required": ["decisions", "queries"]}
+# planning step (look-ups first): the answer can only be look-ups, so the model cannot skip straight to decisions
+PSCHEMA = {"type": "object", "properties": {"queries": QSCHEMA["properties"]["queries"], "web": QSCHEMA["properties"]["web"]},
+           "required": ["queries", "web"]}
+PFMT = ('Return ONLY a JSON object of the form {"queries": [{...}], "web": [{...}]} (either list may be empty) - no decisions, '
+        'no prose, no code fences.')
+PLAN_HEAD = """You are a senior SOC analyst for a home network, preparing to review the security events in the user message (an
+ANCHOR event and its CANDIDATE related events, with the network owners' and earlier AI notes). This is STEP 1 of 2.
+In this step you do NOT classify or decide anything - you only choose what to look up first. The look-ups run, and in
+step 2 you decide with their results.
+"""
+PLAN_SYSTEM = """
+
+PLANNING STEP (look-ups first): do NOT decide yet - you will decide in the next step, with the results. Now list the
+look-ups that would make your decisions better informed:{what}
+Good look-ups: what else the anchor's hosts / public IPs did around that time (zeek conn / dns / ssl, suricata), whether a
+connection was answered, how often a rule fired, what a public IP, domain, signature or program is. Return empty lists
+only when the events and notes already settle every decision."""
 
 CLASS_LABELS = ("suspicious", "benign", "expected")
 CLASS_SYSTEM = """You are a senior SOC analyst for a home network. The correlation review of one security event (the ANCHOR) is
@@ -795,7 +827,7 @@ def _schema(c):
         c.execute("ALTER TABLE review_events ADD COLUMN notes INTEGER")  # notes passed in with the review (owner + AI)
     except sqlite3.OperationalError:
         pass
-    for col in ("web INTEGER", "cited INTEGER", "notes_offered INTEGER"):  # web look-ups the review ran / web pages its answer cited
+    for col in ("web INTEGER", "cited INTEGER", "notes_offered INTEGER", "es INTEGER", "planned INTEGER"):  # web look-ups the review ran / web pages its answer cited
         try:
             c.execute("ALTER TABLE review_events ADD COLUMN " + col)
         except sqlite3.OperationalError:
@@ -1140,7 +1172,7 @@ def _complete_raw(target, system, user, max_tokens, t, queries=False, schemas=No
     F, QF = fmts or (FMT, QFMT)
     if text_provider(target["provider"]):  # (the audit entry shows the shared system prompt; this suffix only fixes the answer format)
         fmt = QF if queries else F
-        if queries and "WEB LOOK-UPS" in system:  # the format line names only decisions / queries: say web look-ups are allowed too
+        if queries and "WEB LOOK-UPS" in system and "PLANNING STEP" not in system:  # the format line names only decisions / queries: say web look-ups are allowed too
             fmt += (' To look something up on the web instead, return {"decisions": [], "queries": [], "web": [{"search": "...", "why": "..."}]}.'
                     ' With decisions, add "sources": [URLs from <web_result> you relied on] to each decision that used them.')
         return cloud_complete(target, system + "\n" + fmt, user, max_tokens)
@@ -1268,12 +1300,51 @@ checked. Usage and seconds are summed over all rounds."""
     budget, wbudget = max(0, int(es_max or 0)), max(0, int(web_max or 0)) if on_web else 0
     SYS = system or SYSTEM
     usage, secs, results, n, wn = {"prompt": 0, "completion": 0}, 0.0, [], 0, 0
+    planned = [False]
 
     def add(u, s):
         nonlocal secs
         for k in usage:
             usage[k] += int((u or {}).get(k) or 0)
         secs += float(s or 0)
+
+    def extra():
+        return {"notes": sent, "es": n, "web": wn, "planned": planned[0]}
+
+    def run_es(q):
+        nonlocal n
+        n += 1
+        q = _fix_query(q)
+        try:
+            res = broker("/esquery", {"query": q, "anchor": anchor.get("t0")}, timeout=60)
+            body = json.dumps({k: res.get(k) for k in ("total", "top", "docs") if k in res}, default=str)[:4000]
+            results.append(f'<es_result n="{n}" query="{json.dumps(res.get("query") or q, default=str)[:600]}">{body}</es_result>')
+            on_query and on_query(res.get("query") or q, res, None)
+        except Exception as e:  # noqa: BLE001 - a bad query is reported back to the model, the review goes on
+            err = str(e)[:200]
+            results.append(f'<es_result n="{n}" query="{json.dumps(q, default=str)[:600]}" error="{err}"></es_result>')
+            on_query and on_query(q, None, err)
+
+    if (budget or wbudget) and lookup_plan():  # look-ups first: one call that can only ask for searches, then the usual rounds
+        what = (f"\n- up to {budget} Elasticsearch searches (format above)" if budget else "") + (f"\n- up to {wbudget} web look-ups (format above)" if wbudget else "")
+        psys = PLAN_HEAD + (ES_SYSTEM.format(left=budget, sources=ES_SOURCES) if budget else "") + (WEB_SYSTEM.format(left=wbudget) if wbudget else "") + PLAN_SYSTEM.format(what=what)
+        try:
+            pu = prompt + ('\n\nSTEP 1 of 2 - answer ONLY {"queries": [...], "web": [...]} with the look-ups to run first (empty lists if none '
+                           'would change a decision). No decisions, no labels in this step.')
+            txt, u, s = _complete(target, psys, pu, 150 + 160 * (budget + wbudget), purpose, actor, queries=True,
+                                  schemas=((schemas or (SCHEMA, QSCHEMA))[0], PSCHEMA), fmts=((fmts or (FMT, QFMT))[0], PFMT))
+            add(u, s)
+            d = _json(txt)
+            planned[0] = True
+            for q in [q for q in (d.get("queries") or []) if isinstance(q, dict)][:budget]:
+                run_es(q)
+            for w in [w for w in (d.get("web") or []) if isinstance(w, dict) and (w.get("search") or w.get("url"))][:wbudget]:
+                wn += 1
+                results.append(_web_lookup(wn, w, on_web))
+        except urllib.error.HTTPError:
+            raise  # context exceeded etc.: the callers retry with fewer notes
+        except Exception as e:  # noqa: BLE001 - a bad plan answer is not fatal: review as before
+            print(f"corr_llm: look-up plan skipped: {type(e).__name__}: {str(e)[:120]}", file=sys.stderr)
     user = prompt
     for _ in range(budget + wbudget + 1):  # each search round uses at least one look-up, so this always ends with decisions
         left, wleft = budget - n, wbudget - wn
@@ -1290,20 +1361,11 @@ checked. Usage and seconds are summed over all rounds."""
         qs = [q for q in (d.get("queries") or []) if isinstance(q, dict)] if left > 0 else []
         ws = [w for w in (d.get("web") or []) if isinstance(w, dict) and (w.get("search") or w.get("url"))] if wleft > 0 else []
         if d.get("decisions"):
-            return d["decisions"], {**usage, "notes": sent}, round(secs, 2)
+            return d["decisions"], {**usage, **extra()}, round(secs, 2)
         if not qs and not ws:  # neither: ask once more for plain decisions
             break
         for q in qs[:left]:
-            n += 1
-            try:
-                res = broker("/esquery", {"query": q, "anchor": anchor.get("t0")}, timeout=60)
-                body = json.dumps({k: res.get(k) for k in ("total", "top", "docs") if k in res}, default=str)[:4000]
-                results.append(f'<es_result n="{n}" query="{json.dumps(res.get("query") or q, default=str)[:600]}">{body}</es_result>')
-                on_query and on_query(res.get("query") or q, res, None)
-            except Exception as e:  # noqa: BLE001 - a bad query is reported back to the model, the review goes on
-                err = str(e)[:200]
-                results.append(f'<es_result n="{n}" query="{json.dumps(q, default=str)[:600]}" error="{err}"></es_result>')
-                on_query and on_query(q, None, err)
+            run_es(q)
         for w in ws[:wleft]:
             wn += 1
             results.append(_web_lookup(wn, w, on_web))
@@ -1312,11 +1374,53 @@ checked. Usage and seconds are summed over all rounds."""
             if any(r.startswith("<web_result") for r in results) else "")
     txt, u, s = _complete(target, SYS + note, user, base_tokens + 300 * len(cands), purpose, actor, schemas=schemas, fmts=fmts)
     add(u, s)
-    return _json(txt)["decisions"], {**usage, "notes": sent}, round(secs, 2)
+    return _json(txt)["decisions"], {**usage, **extra()}, round(secs, 2)
 
 
 _PRIV_RE = _re.compile(r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01])|127\.\d{1,3}|169\.254)\.\d{1,3}\.\d{1,3}\b|\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|"
                        r"[\w-]+\.(?:lan|local|home|internal|localdomain|hades|corp|intranet)\b|\bf[cd][0-9a-f]{2}:", _re.I)
+
+
+def _iso_time(v):
+    """Model-written times ("2026-11-05 00:00 UTC", "2026-11-05T00:00Z", epoch) -> ISO 8601 UTC, or None when unreadable."""
+    if isinstance(v, (int, float)):
+        return datetime.fromtimestamp(float(v), timezone.utc).isoformat()
+    t = _re.sub(r"\s*(UTC|GMT|Z)$", "", str(v or "").strip(), flags=_re.I).replace(" ", "T")
+    for f in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, f).replace(tzinfo=timezone.utc).isoformat()
+        except ValueError:
+            pass
+    try:
+        d = datetime.fromisoformat(t)
+        return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return None
+
+
+def _fix_query(q):
+    """Tidy the slips models make in a planned search (no chance to correct them before it decides): odd time formats
+    (unreadable ones are dropped -> the anchor's default window), field names with "_" for ".", and the " x357" count
+    copied from an event label into a rule name. The broker still validates everything."""
+    q = dict(q)
+    for k in ("start", "end"):
+        if k in q:
+            iso = _iso_time(q[k])
+            if iso:
+                q[k] = iso
+            else:
+                q.pop(k)
+    if isinstance(q.get("match"), dict):
+        m = {}
+        for f, v in q["match"].items():
+            f = str(f)
+            if "." not in f and "_" in f:
+                f = f.replace("_", ".", 1)
+            if f == "rule.name":
+                v = [_re.sub(r"\s+x\d+$", "", str(x)) for x in v] if isinstance(v, list) else _re.sub(r"\s+x\d+$", "", str(v))
+            m[f] = v
+        q["match"] = m
+    return q
 
 
 def _web_private(text):
@@ -1343,7 +1447,7 @@ def _web_lookup(n, w, on_web):
     """One web search or page read for the event reviewer -> a <web_result> block (errors are reported back to the model)."""
     import webtools
     t0, why = time.time(), str(w.get("why") or "")[:200]
-    q, url = str(w.get("search") or "").strip()[:300], str(w.get("url") or "").strip()[:500]
+    q, url = _re.sub(r"\s+x\d+\b", "", str(w.get("search") or "")).strip()[:300], str(w.get("url") or "").strip()[:500]  # " x357" = event count, not part of a name
     item = {"search": q} if q else {"url": url}
     item["why"] = why
     try:
@@ -1584,8 +1688,9 @@ def _review(model, aid, base, todo):
     cited = {k: _sources(d, logw) for k, d in dec.items()}
     try:  # tokens this one event review used (all its model rounds), for the AI review page's average in / out per event
         with _lock, _db() as c:
-            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, web, cited) VALUES (?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited) VALUES (?,?,?,?,?,?,?,?,?,?)",
                       (time.time(), int(used.get("prompt") or 0), int(used.get("completion") or 0), len(cands), int(used.get("notes", n_notes) or 0), n_notes,
+                       int(used.get("es") or 0), 1 if used.get("planned") else 0,
                        logw.n if logw else 0, len({s["url"] for v in cited.values() for s in v})))
             c.execute("DELETE FROM review_events WHERE ts < ?", (time.time() - 30 * 86400,))
     except Exception as e:  # noqa: BLE001
@@ -2119,8 +2224,9 @@ def _event_review(model, eid, base, rel_ids, sig):
             store_artifacts(c, k, clean_artifacts(d.get("artifacts")) + (query_artifacts(logq.found) if logq else []) + web_artifacts(d.get("_sources") or []), mname, now)
         if not failed:
             offered = sum(len(v) for v in notes.values()) + sum(len(v) for v in ainotes.values())
-            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, web, cited) VALUES (?,?,?,?,?,?,?,?)",
+            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited) VALUES (?,?,?,?,?,?,?,?,?,?)",
                       (now, int(usage.get("prompt") or 0), int(usage.get("completion") or 0), len(cands), int(usage.get("notes", offered) or 0), offered,
+                       int(usage.get("es") or 0), 1 if usage.get("planned") else 0,
                        logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []})))
     STATUS["event_secs"] = round(time.time() - t0, 1)
     if failed:
@@ -2556,6 +2662,11 @@ def es_overview(events, limit=50):
                 recent.append({"ts": ts, "anchor": a, "anchor_label": e.get("label") or a, "anchor_link": e.get("link") or "", "model": m,
                                "query": q, "total": tot, "seconds": s, "error": err})
             out[src] = {"total": total or 0, "last_day": day or 0, "recent": recent}
+    with _db() as c:
+        rv, rv_es, pl = c.execute("SELECT COUNT(*), SUM(COALESCE(es,0) > 0), SUM(COALESCE(planned,0)) FROM review_events WHERE ts > ? AND prompt + completion > 0 AND es IS NOT NULL",
+                                  (now - 86400,)).fetchone()
+    out["reviewer"].update(reviews_day=rv or 0, reviews_es_day=rv_es or 0, planned_day=pl or 0,
+                           pct_reviews_es_day=round(100 * (rv_es or 0) / rv, 1) if rv else None)
     r = dict(out["reviewer"])  # old shape stays for the event reviewer
     r["research"] = out["research"]
     return r
