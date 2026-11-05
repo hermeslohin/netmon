@@ -368,13 +368,15 @@ def detail(eid):
         for r in R.get(e, []):
             g = gkey(r["id"])
             x = seen.setdefault(g, {**{k: v for k, v in r.items() if k != "llm_artifacts"}, "variants": 0, "llm_artifacts": []})
+            if r.get("llm_at"):
+                x.setdefault("llm_ats", []).append(r["llm_at"])  # review time of each merged link (picks the firing it belongs to)
             have = {(a["kind"], a["value"]) for a in x["llm_artifacts"]}
             for a in r.get("llm_artifacts") or []:
                 if (a["kind"], a["value"]) not in have:
                     have.add((a["kind"], a["value"])); x["llm_artifacts"].append(a)
             x["variants"] += 1
             if (r.get("llm_conf") or 0) > (x.get("llm_conf") or 0):
-                x.update({k: v for k, v in r.items() if k not in ("llm_artifacts",)})
+                x.update({k: v for k, v in r.items() if k not in ("llm_artifacts", "llm_ats")})
         by[e] = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:40]
     return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "by_event": by, "events": ev,
             "clef_ev": next((CE[m] for m in fe if m in CE), None)}

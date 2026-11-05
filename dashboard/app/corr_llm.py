@@ -2092,7 +2092,7 @@ def related_view(groups, cap=40, detail=True):
     out, partners = {}, set()
     for r, lst in rows.items():
         out[r] = [{"id": y, "score": 0, "why": [], "llm": "yes", "llm_reason": why, "llm_conf": conf, "llm_model": m,
-                   "llm_artifacts": AR.get(p, []), "clef": CD.get(p), "stored": True} for y, (p, conf, why, m, ts) in lst]
+                   "llm_artifacts": AR.get(p, []), "clef": CD.get(p), "stored": True, "llm_at": ts} for y, (p, conf, why, m, ts) in lst]
         partners.update(y for y, _ in lst)
     return out, partners
 

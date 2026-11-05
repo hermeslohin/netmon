@@ -93,16 +93,20 @@
   // (with their note buttons) and the Elasticsearch queries the AI used for it. Related lists are keyed by event id, so
   // firings of the same id show the same links.
   // IPs (and ports) among a firing's artifacts: the event's host / destination IPs, the event reviewer's ip artifacts of its related events
-  function fireArts(d, f) {
+  function fireArts(d, f, w) {
     const me = (d.events || {})[f.eid] || {}, rel = (d.by_event || {})[f.eid] || [], ips = [...(me.host_ips || []), ...(me.dst_ips || [])], ports = [];
-    for (const a of rel.flatMap((r) => r.llm_artifacts || [])) { if (a.kind === "ip" && /^\d+\.\d+\.\d+\.\d+$/.test(a.value)) ips.push(a.value); else if (a.kind === "port" && +a.value > 0) ports.push(+a.value); }
+    for (const a of rel.flatMap((r) => r.llm_artifacts || []).filter((a) => !w || (a.at != null && a.at >= w[0] && a.at < w[1]))) { if (a.kind === "ip" && /^\d+\.\d+\.\d+\.\d+$/.test(a.value)) ips.push(a.value); else if (a.kind === "port" && +a.value > 0) ports.push(+a.value); }
     return { ips: [...new Set(ips)], ports };
   }
   // related events, artifacts and Elasticsearch queries for a set of event ids (one firing, or every variant for the window header)
-  function relBlock(d, eids, openRel) {
+  // win = [lo, hi) epoch seconds: only what the reviewer found in that span (one firing); omitted = everything (cumulative)
+  function relBlock(d, eids, openRel, win) {
     const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};
-    const byId = new Map();
-    for (const e of eids) for (const r of BY[e] || []) { const o = byId.get(r.id);
+    const byId = new Map(), inW = (t) => !win || (t != null && t >= win[0] && t < win[1]);
+    for (const e of eids) for (const r0 of BY[e] || []) {
+      const r = win ? { ...r0, llm_artifacts: (r0.llm_artifacts || []).filter((a) => inW(a.at)) } : r0;
+      if (win && !r.llm_artifacts.length && !(r0.llm_ats || []).some(inW)) continue;
+      const o = byId.get(r.id);
       if (!o || (r.llm === "yes" && (o.llm !== "yes" || (r.llm_conf || 0) > (o.llm_conf || 0)))) byId.set(r.id, { ...r, llm_artifacts: [...(o?.llm_artifacts || []), ...(r.llm_artifacts || [])] });
       else o.llm_artifacts = [...(o.llm_artifacts || []), ...(r.llm_artifacts || [])]; }
     const rel = [...byId.values()].sort((a, b) => (b.llm === "yes") - (a.llm === "yes") || (b.llm_conf || 0) - (a.llm_conf || 0));
@@ -113,7 +117,7 @@
       const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
       return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
         ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${r.variants} occurrences</span>` : ""}
-        ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the event reviewer adds them as it links events.</div>`;
+        ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">${win ? "None linked during this firing." : "None yet - the event reviewer adds them as it links events."}</div>`;
     return `<details class="oe-det oe-sub"${openRel ? " open" : ""}><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
       <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
       <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>
@@ -125,12 +129,17 @@
     const note = d.fires_since ? `Recorded since ${when(d.fires_since)}.` : "Recording starts now.";
     const earlier = 0;
     const vids = [...new Set((d.occurrences || []).map((o) => o.eid))].reverse(), nv = vids.length, vi = (e) => vids.indexOf(e) + 1;  // oldest variant = 1
-    const body = (f) => relBlock(d, [f.eid]);
+    // each firing owns what the reviewer found from it until the next firing of the same event id (first one also takes earlier finds)
+    const win = new Map();
+    { const by = {}; for (const f of F) (by[f.eid] = by[f.eid] || []).push(f);
+      for (const L of Object.values(by)) { L.sort((a, b) => Date.parse(a.seen) - Date.parse(b.seen));
+        L.forEach((f, i) => win.set(f, [i ? Date.parse(f.seen) / 1000 : -Infinity, i < L.length - 1 ? Date.parse(L[i + 1].seen) / 1000 : Infinity])); } }
+    const body = (f) => relBlock(d, [f.eid], false, win.get(f));
     const vHtml = nv > 1 ? `<div class="oe-variants small"><div class="muted">${nv} variants - same condition, different numbers in the text. Click one to show only its firings (click again for all):</div>${vids.map((e) => {
       const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
       return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
     return vHtml + (F.length ? F.map((f, i) => `<div class="oe-fire" data-v="${esc(f.eid)}"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
-        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen), ...fireArts(d, f) }) : ""}</div>
+        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen), ...fireArts(d, f, win.get(f)) }) : ""}</div>
         <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No firings: nothing for this event has been seen in Elasticsearch (inventory, vulnerability, gateway and code-scan events are not counted).</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
   }
