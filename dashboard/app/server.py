@@ -1812,6 +1812,13 @@ class H(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"subject": s_, "label": label})
+            if path == "/api/kb/covering":  # notes on wider scopes that also apply: ?dom= -> parent domains, ?ip= -> CIDR ranges holding it
+                dom_, ip_ = (q.get("dom") or [""])[0].strip().lower().strip("."), (q.get("ip") or [""])[0].strip()
+                if dom_:
+                    rows = [{"scope": d, "subject": n["subject"], "note": n} for _nm, d, n, exact in kb.dns_notes_for([dom_], 30, ai=False) if not exact]
+                else:
+                    rows = [{"scope": r_, "subject": n["subject"], "note": n} for r_, n in kb.net_subjects_for(ip_, ai=False)] if ip_ else []
+                return self._json({"covering": rows})
             if path == "/api/kb/dns":  # Network > Internet notes: DNS notes by domain / subdomain
                 return self._json({"domains": kb.dns_notes((q.get("q") or [""])[0])})
             if path == "/api/kb/internet":  # Network > Internet notes: every external IP that has notes

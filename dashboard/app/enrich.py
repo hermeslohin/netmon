@@ -400,8 +400,8 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             inn = {}  # notes on the external IPs the event involves (Network > Internet notes)
             for ip in kb.external_ips(E.get(x["id"]) or {}):
                 if ip not in hn_cache:
-                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}
-                                    for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"], ai=True)]
+                    hn_cache[ip] = [{"id": n["id"], "subject": n["subject"], **({"range": rng} if rng else {}), "category": n["category"], "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}
+                                    for rng, n in kb.ip_notes_for(ip)]  # its own notes + notes on CIDR ranges that hold it
                 if hn_cache[ip]:
                     inn[ip] = hn_cache[ip]
             if inn:

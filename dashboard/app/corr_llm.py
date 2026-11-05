@@ -640,7 +640,7 @@ events) and decision: benign (looks odd, harmless), expected (normal for this de
 (research verdict benign/expected, a host note describing this role, baseline or behaviour, or a user profile showing the account normally
 does this - its usual hosts, sources, methods and hours) that explains it, justifies benign or expected. Host notes and user profiles are
 attached to each event: compare what the event shows with them (right account, right source, usual hours, usual process) and name the note;
-activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Internet notes (\"internet note [ip]\") describe external addresses (who runs them, what they are normally contacted for): count them as notes when judging an ip artifact benign or expected. DNS notes (\\"dns note [domain]\\") describe frequent DNS patterns for a domain or subdomain (a note on a domain covers its subdomains): count them when judging a dns artifact benign or expected. Without such support, or when notes conflict
+activity that breaks the profile is not expected. Name the supporting note in the relation (e.g. "per host note: nightly backup"). Internet notes (\"internet note [ip]\") describe external addresses, and \"internet note [cidr covers ip]\" a whole address range (who runs them, what they are normally contacted for): count them as notes when judging an ip artifact benign or expected. DNS notes (\\"dns note [domain]\\") describe frequent DNS patterns for a domain or subdomain (a note on a domain covers its subdomains): count them when judging a dns artifact benign or expected. Without such support, or when notes conflict
 with the evidence, do not guess benign or expected: choose suspicious when it needs a person's eye. Use [] for candidates that are NOT RELATED.
 When an artifact is an EXTERNAL ip (public address) and the evidence tells you something durable about it (owner/ASN, service such as a CDN or update server, why this network talks to it, or why it is a concern), add a \"note\" (under 40 words, facts only) to that artifact; omit it when you have nothing specific to say. Do the same for a dns artifact: add a "note" (under 40 words, facts only) about a recurring or noteworthy DNS pattern (what the domain or subdomain is, who runs it, which devices query it and how often, why it is normal or a concern).
 Answer with JSON only. Keep each reason under 25 words and specific (name the shared thing and why it matters)."""
@@ -1771,9 +1771,9 @@ def _context_notes(tags, E):
         a += ua
         in_pool = {n["id"] for _sc, _hit, n in pool}
         for ip in kb.external_ips(ev)[:6]:  # what is known about the internet addresses involved (Network > Internet notes); the ones the index already ranked come below
-            for n in kb.host_notes([f"ip:{ip}", f"art:ip:{ip}"], ai=True)[:3]:
+            for rng, n in kb.ip_notes_for(ip)[:4]:  # its own notes, then notes on CIDR ranges that hold it
                 if n["id"] not in in_pool:
-                    (o if _human(n) else a).append(f"internet note [{ip}]: {_TAG.sub('', str(n['text']))[:240]}")
+                    (o if _human(n) else a).append(f"internet note [{rng + ' covers ' + ip if rng else ip}]: {_TAG.sub('', str(n['text']))[:240]}")
         for name, dom, n, exact in kb.dns_notes_for(kb.dns_names(ev), 6):  # DNS notes by domain / subdomain (Network > Internet notes)
             if n["id"] not in in_pool:
                 (o if _human(n) else a).append(f"dns note [{dom}{'' if exact else ' covers ' + name}]: {_TAG.sub('', str(n['text']))[:240]}")

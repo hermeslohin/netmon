@@ -304,15 +304,18 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             return resolve(host=v, reg=reg)
         if k == "dom" and v:
             return resolve(dom=v, reg=reg)
+        if k == "net" and v:
+            return resolve(ip=v, reg=reg)
         if k == "art":  # a correlated artifact the event reviewer listed: art:<file|process|user|ip|dns>:<value>
             ak, _, av = v.partition(":")
             av = av.strip()
             if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av and valid_art(ak, av):
                 av = av.lower() if ak in ("ip", "dns") else av
                 return f"art:{ak}:{av}", f"{ak} {av}"
-        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, host:<name>, dom:<domain> or art:<kind>:<value>)")
+        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, net:<cidr>, host:<name>, dom:<domain> or art:<kind>:<value>)")
     if dom:
         d = str(dom).strip().lower().rstrip(".")
+        d = d[2:] if d.startswith("*.") else d  # *.example.com = example.com: a domain note covers all its subdomains
         if not _DOM.match(d):
             raise ValueError(f"bad domain {dom!r}")
         return "dom:" + d, d
@@ -328,6 +331,11 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             raise ValueError(f"bad MAC {mac!r}")
         d = reg.get(m) or {}
         return "mac:" + m, d.get("name") or m
+    if ip and "/" in str(ip):  # a CIDR range (net:<network>/<prefix>): the note covers every address in it
+        net = cidr(ip)
+        if net.num_addresses == 1:
+            return resolve(ip=str(net.network_address), reg=reg)
+        return "net:" + str(net), str(net)
     if ip:
         i = str(ip).strip()
         if not _IP.match(i):
@@ -341,6 +349,48 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             return "mac:" + best[0], best[1].get("name") or i
         return "ip:" + i, (reg.get(i) or {}).get("name") or i
     raise ValueError("give ip, mac, host or subject")
+
+
+def cidr(v):
+    """A CIDR range (1.2.3.0/24; host bits are cleared) -> ip_network. IPv4 /8../32 or IPv6 /16../128, else ValueError."""
+    import ipaddress
+    try:
+        net = ipaddress.ip_network(str(v).strip(), strict=False)
+    except ValueError:
+        raise ValueError(f"bad CIDR range {v!r} (e.g. 203.0.113.0/24)") from None
+    if net.prefixlen < (8 if net.version == 4 else 16):
+        raise ValueError(f"CIDR range {net} is too wide (at most /8 for IPv4, /16 for IPv6)")
+    return net
+
+
+def net_subjects_for(ip, ai=True):
+    """CIDR-range notes (subject net:<cidr>) whose range holds this IP -> [(cidr, note)], narrowest range first."""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(str(ip).strip())
+    except ValueError:
+        return []
+    with _db() as c:
+        subs = [r[0] for r in c.execute("SELECT DISTINCT subject FROM host_notes WHERE subject LIKE 'net:%'")]
+    hit = []
+    for s in subs:
+        try:
+            n = ipaddress.ip_network(s[4:], strict=False)
+        except ValueError:
+            continue
+        if n.version == a.version and a in n:
+            hit.append((n.prefixlen, s))
+    hit.sort(reverse=True)
+    out = []
+    for _pl, s in hit:
+        out += [(s[4:], n) for n in host_notes([s], ai=ai)]
+    return out
+
+
+def ip_notes_for(ip, ai=True):
+    """Internet notes that apply to this IP: its own (ip:/art:ip:) first, then notes on CIDR ranges that hold it.
+    -> [(range or '', note)]."""
+    return [("", n) for n in host_notes([f"ip:{ip}", f"art:ip:{ip}"], ai=ai)] + net_subjects_for(ip, ai=ai)
 
 
 def subjects_for_ip(ip, reg=None):
@@ -468,14 +518,15 @@ def external_ips(ev):
 
 
 def internet_notes(q=""):
-    """Notes about external IPs (subject ip:<public ip> or art:ip:<public ip>), grouped per IP: [{ip, notes: [...], n, updated}]."""
+    """Notes about external IPs (subject ip:<public ip> or art:ip:<public ip>) and CIDR ranges (net:<cidr>), grouped per
+    IP / range: [{ip, notes: [...], n, updated, range}]."""
     by = {}
     for n in host_notes(q=q):
         s = str(n["subject"])
-        ip = s[3:] if s.startswith("ip:") else s[7:] if s.startswith("art:ip:") else None
-        if ip and is_external(ip):
+        ip = s[3:] if s.startswith("ip:") else s[7:] if s.startswith("art:ip:") else s[4:] if s.startswith("net:") else None
+        if ip and ("/" in ip or is_external(ip)):
             by.setdefault(ip, []).append(n)
-    out = [{"ip": ip, "n": len(ns), "updated": max(float(x.get("updated") or 0) for x in ns), "notes": ns} for ip, ns in by.items()]
+    out = [{"ip": ip, "n": len(ns), "updated": max(float(x.get("updated") or 0) for x in ns), "notes": ns, "range": "/" in ip} for ip, ns in by.items()]
     return sorted(out, key=lambda r: -r["updated"])
 
 

@@ -116,20 +116,29 @@
           { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], subs, { sort: "updated" }))); }).catch(() => {});
       return;
     }
+    if (ip && ip.includes("/")) {  // a CIDR range: its notes cover every address in it
+      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this address range. They cover every address in ${esc(ip)}: the event reviewer and event research read them for each of those addresses.</div>`;
+      el.appendChild(kbCard([`net:${ip}`], `net:${ip}`));
+      return;
+    }
     if (ip) {
       el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this external address. The event reviewer and event research read them when judging whether traffic to it is benign or expected.</div>`;
       el.appendChild(kbCard([`ip:${ip}`, `art:ip:${ip}`], `ip:${ip}`));
+      api("/api/kb/covering?ip=" + encodeURIComponent(ip)).then((d) => { const rs = [...new Set((d.covering || []).map((r) => r.scope))];
+        if (!rs.length) return;
+        el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:10px 0 4px">Notes on address ranges that also apply: ${rs.map((p) => `<a href="#/netnotes/${encodeURIComponent(p)}">${esc(p)}</a>`).join(", ")}</div>`);
+        el.appendChild(kbCard(rs.map((p) => `net:${p}`), `net:${rs[0]}`)); }).catch(() => {});
       return;
     }
     el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address and DNS name that has a note: what it is, who runs it and why this network talks to it. The event reviewer and event research write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
     const d = await api("/api/kb/internet"), rows = d.ips || [];
-    el.insertAdjacentHTML("beforeend", kpis([["IPs with notes", rows.length], ["Notes", rows.reduce((a, r) => a + r.n, 0)], ["By AI", rows.filter((r) => r.notes.some((n) => n.author === "ai")).length], ["With a person's note", rows.filter((r) => r.notes.some((n) => n.author !== "ai")).length]]));
-    el.appendChild(card("Add a note about an external IP", `<form class="kb-form" id="inForm"><input class="kb-ip mono" placeholder="8.8.8.8" aria-label="External IP" size="16"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this address, who runs it, why do we talk to it?"></textarea><button type="submit">Add note</button></form>`));
+    el.insertAdjacentHTML("beforeend", kpis([["IPs with notes", rows.filter((r) => !r.range).length], ["CIDR ranges", rows.filter((r) => r.range).length], ["Notes", rows.reduce((a, r) => a + r.n, 0)], ["By AI", rows.filter((r) => r.notes.some((n) => n.author === "ai")).length], ["With a person's note", rows.filter((r) => r.notes.some((n) => n.author !== "ai")).length]]));
+    el.appendChild(card("Add a note about an external IP or CIDR range (covers every address in it)", `<form class="kb-form" id="inForm"><input class="kb-ip mono" placeholder="8.8.8.8 or 203.0.113.0/24" aria-label="External IP or CIDR range" size="22"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this address, who runs it, why do we talk to it?"></textarea><button type="submit">Add note</button></form>`));
     el.querySelector("#inForm").addEventListener("submit", (e) => { e.preventDefault();
       const f = e.target, i = f.querySelector(".kb-ip").value.trim(), t = f.querySelector(".kb-text").value.trim(); if (!i || !t) return;
-      apiPost("/api/kb/host", { action: "add", subject: "ip:" + i, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
-    el.appendChild(card(`External IPs (${rows.length})`, rows.length ? table(null, [
-      { k: "ip", t: "IP", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent(v)}"><b class="mono">${esc(v)}</b></a>` },
+      apiPost("/api/kb/host", { action: "add", subject: (i.includes("/") ? "net:" : "ip:") + i, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
+    el.appendChild(card(`External IPs and ranges (${rows.length})`, rows.length ? table(null, [
+      { k: "ip", t: "IP / range", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent(v)}"><b class="mono">${esc(v)}</b></a>` },
       { k: "n", t: "Notes", num: true },
       { k: "notes", t: "Latest note", fmt: (v) => `<div class="kb-text-v small">${esc(String(v[0]?.text || "").replace(/^\[\w+:[^\]]*\]\s*/, "").slice(0, 260))}</div>`, sort: (r) => r.n },
       { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "" , sort: (r) => r.notes[0]?.author || "" },
@@ -140,9 +149,9 @@
     const dd = await api("/api/kb/dns").catch(() => ({ domains: [] })), drows = dd.domains || [];
     el.insertAdjacentHTML("beforeend", `<h2 style="margin:18px 0 6px">DNS notes</h2>`);
     el.insertAdjacentHTML("beforeend", kpis([["Domains with notes", drows.length], ["Notes", drows.reduce((a, r) => a + r.n, 0)], ["Subdomains", drows.filter((r) => r.parent).length], ["By AI", drows.filter((r) => r.notes.some((n) => n.author === "ai")).length]]));
-    el.appendChild(card("Add a DNS note", `<form class="kb-form" id="dnsForm"><input class="kb-dom mono" placeholder="example.com or sub.example.com" aria-label="Domain or subdomain" size="30"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this DNS name, who queries it and how often, is it normal? A note on a domain also covers its subdomains; a note on a subdomain covers only that name."></textarea><button type="submit">Add note</button></form><div class="small muted">The event reviewer and the research job read these when judging DNS activity, and add their own as they find recurring patterns (✨).</div>`));
+    el.appendChild(card("Add a DNS note", `<form class="kb-form" id="dnsForm"><input class="kb-dom mono" placeholder="example.com, *.example.com or sub.example.com" aria-label="Domain or subdomain" size="30"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this DNS name, who queries it and how often, is it normal? A note on a domain also covers its subdomains; a note on a subdomain covers only that name."></textarea><button type="submit">Add note</button></form><div class="small muted">The event reviewer and the research job read these when judging DNS activity, and add their own as they find recurring patterns (✨).</div>`));
     el.querySelector("#dnsForm").addEventListener("submit", (e) => { e.preventDefault();
-      const f = e.target, d = f.querySelector(".kb-dom").value.trim().toLowerCase().replace(/\.$/, ""), t = f.querySelector(".kb-text").value.trim(); if (!d || !t) return;
+      const f = e.target, d = f.querySelector(".kb-dom").value.trim().toLowerCase().replace(/\.$/, "").replace(/^\*\./, ""), t = f.querySelector(".kb-text").value.trim(); if (!d || !t) return;
       apiPost("/api/kb/host", { action: "add", subject: "dom:" + d, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
     el.appendChild(card(`Domains and subdomains (${drows.length})`, drows.length ? table(null, [
       { k: "domain", t: "Domain", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent("dom:" + v)}"><b class="mono">${esc(v)}</b></a>` },
@@ -226,23 +235,48 @@
   const extInfo = (btn) => (btn.dataset.extart ? { v: btn.dataset.extart.replace(/^[^:]*:/, ""), subj: "art:" + btn.dataset.extart, what: btn.dataset.extart.split(":")[0] + " artifact" }
     : btn.dataset.extip ? { v: btn.dataset.extip, subj: "ip:" + btn.dataset.extip, what: "external IP" }
     : { v: btn.dataset.extdom, subj: "dom:" + btn.dataset.extdom, what: "domain" });
+  // where a new note goes: this exact name / address, or a wider scope that covers it (a parent domain = all its subdomains,
+  // a CIDR range = every address in it); the event reviewer and event research read wider-scope notes for every name / address under them
+  const v4 = (ip) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
+  const scopes = (v, subj, what) => {
+    if (what.startsWith("dns") || what === "domain") {
+      const p = v.toLowerCase().replace(/^\*\./, "").split("."), parents = p.slice(1, -1).map((_, i) => p.slice(i + 1).join("."));
+      return [{ s: subj, t: `${v} (this name)` }, ...parents.map((d) => ({ s: "dom:" + d, t: `*.${d} (all of ${d} and its subdomains)` }))];
+    }
+    if (v4(v)) { const o = v.split(".");
+      return [{ s: subj, t: `${v} (this address)` }, { s: `net:${o.slice(0, 3).join(".")}.0/24`, t: `${o.slice(0, 3).join(".")}.0/24 (256 addresses)` },
+        { s: `net:${o.slice(0, 2).join(".")}.0.0/16`, t: `${o.slice(0, 2).join(".")}.0.0/16 (65,536 addresses)` }, { s: "custom", t: "Other CIDR range…" }]; }
+    return [{ s: subj, t: v }];
+  };
+  const covLink = (sub) => `#/netnotes/${encodeURIComponent(sub.startsWith("dom:") || sub.startsWith("art:dns:") ? "dom:" + sub.replace(/^(dom|art:dns):/, "") : sub.replace(/^(net|ip|art:ip):/, ""))}`;
   function erender(btn) {
-    const { v, subj, what } = extInfo(btn);
+    const { v, subj, what } = extInfo(btn), isDns = what.startsWith("dns") || what === "domain", isIp = !isDns && v4(v), sc = scopes(v, subj, what);
     epop.innerHTML = `<div class="rel-head"><b>Notes on ${esc(what)}</b> <span class="muted small mono">${esc(v)}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body"><div class="loading inline">Loading notes…</div></div>`;
     epop.querySelector(".rel-x").onclick = eclose;
-    api("/api/kb/host?s=" + encodeURIComponent(subj)).then((d) => {
-      const ns = d.notes || [];
+    const noteHtml = (n, scope) => `<div class="kb-note${n.status === "rejected" ? " kb-st-rejected" : ""}"><div class="kb-meta">${by(n)} ${hnBadge(n)}${hnBtns(n)} <span class="muted small">${esc(when(n.updated))}</span>
+          ${scope ? `<a class="badge" href="${covLink(n.subject)}" title="Written on a wider scope; applies to ${esc(v)} too">${isDns ? "*." : ""}${esc(scope)}</a>` : ""}
+          <button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`;
+    Promise.all([api("/api/kb/host?s=" + encodeURIComponent(subj)),
+      (isDns || isIp) ? api("/api/kb/covering?" + (isDns ? "dom=" : "ip=") + encodeURIComponent(v)).catch(() => ({ covering: [] })) : Promise.resolve({ covering: [] })]).then(([d, cv]) => {
+      const ns = d.notes || [], cov = cv.covering || [];
       epop.querySelector(".note-body").innerHTML = `
-        ${ns.map((n) => `<div class="kb-note${n.status === "rejected" ? " kb-st-rejected" : ""}"><div class="kb-meta">${by(n)} ${hnBadge(n)}${hnBtns(n)} <span class="muted small">${esc(when(n.updated))}</span>
-          <button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`).join("")
-          || `<div class="muted small">No notes on this ${esc(what)} yet.</div>`}
+        ${ns.map((n) => noteHtml(n, "")).join("") || `<div class="muted small">No notes on this ${esc(what)} yet.</div>`}
+        ${cov.length ? `<div class="small muted" style="margin:8px 0 2px">Also applies: notes on ${isDns ? "parent domains" : "address ranges"} that cover ${esc(v)}</div>${cov.map((r) => noteHtml(r.note, r.scope)).join("")}` : ""}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Known CDN / expected contact. / Flag if seen talking to other hosts."></textarea>
+        ${sc.length > 1 ? `<div class="kb-scope-row small" style="margin:4px 0"><label>Applies to <select class="kb-scope" aria-label="Note scope">${sc.map((o) => `<option value="${esc(o.s)}">${esc(o.t)}</option>`).join("")}</select></label>
+          <input class="kb-cidr mono" placeholder="${isIp ? esc(v.split(".").slice(0, 2).join(".")) + ".0.0/12" : ""}" aria-label="CIDR range" size="18" style="display:none"></div>` : ""}
         <div><button type="button" class="kb-save">Add note</button></div>
-        <div class="small muted">${subj.startsWith("art:") ? "The event reviewer reads these notes when it decides whether events are related and which artifacts matter." : `Treated the same as device notes: the AI reads these before judging traffic to/from this ${esc(what)}.`}</div>`;
+        <div class="small muted">${isDns ? "A note on a parent domain (*.example.com) covers every subdomain under it; the event reviewer and event research read it for all of them."
+          : isIp ? "A note on a CIDR range covers every address in it; the event reviewer and event research read it for each of them."
+          : subj.startsWith("art:") ? "The event reviewer reads these notes when it decides whether events are related and which artifacts matter." : `Treated the same as device notes: the AI reads these before judging traffic to/from this ${esc(what)}.`}</div>`;
+      const sel = epop.querySelector(".kb-scope"), ci = epop.querySelector(".kb-cidr");
+      if (sel) sel.onchange = () => { ci.style.display = sel.value === "custom" ? "" : "none"; if (sel.value === "custom") ci.focus(); };
       epop.querySelector(".kb-save").onclick = () => {
         const t = epop.querySelector(".kb-text").value.trim(); if (!t) return;
-        apiPost("/api/kb/host", { action: "add", subject: subj, category: "watch", text: t }).then(() => erender(btn), (er) => alert(er.message));
+        let to = sel ? sel.value : subj;
+        if (to === "custom") { const c = ci.value.trim(); if (!/^[\d.]+\/\d{1,2}$/.test(c)) return alert("Enter a CIDR range such as 203.0.113.0/24"); to = "net:" + c; }
+        apiPost("/api/kb/host", { action: "add", subject: to, category: "watch", text: t }).then(() => erender(btn), (er) => alert(er.message));
       };
       epop.querySelectorAll(".kb-del").forEach((x) => x.onclick = () => {
         if (!confirm("Delete this note?")) return;
