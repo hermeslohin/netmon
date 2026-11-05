@@ -91,6 +91,8 @@ REQUIREMENTS = {
     "WEB-04": ("Web search", "An invalid Firecrawl URL or CA certificate is refused; a saved CA is used only for a self-hosted instance and TLS is always verified.", "SETUP.md (web search)"),
     "WEB-05": ("Web search", "Search and page reads go to the configured Firecrawl instance, with an Authorization header only when a key is set.", "SETUP.md (web search)"),
     "WEB-06": ("Web search", "A page Firecrawl reached through a redirect to a non-public address is refused.", "SETUP.md (web search)"),
+    "WEB-07": ("Web search", "The event reviewer's web searches never carry LAN addresses, MACs or internal names; such a search is refused and reported to the model.", "CORRELATION.md (web search)"),
+    "WEB-08": ("Web search", "Every event reviewer web look-up is recorded for the AI review page, and a decision's cited sources keep only URLs that came back in that review's web results.", "CORRELATION.md (web search)"),
     # ---- dashboard ----
     "DASH-01": ("Dashboard", "The single-page app and its assets are served with a build hash for cache busting.", "USER_GUIDE.md §3"),
     "DASH-02": ("Dashboard", "The JSON API serves snapshots and their derived views (overview, issues, risk, ATT&CK, lateral) from stored data.", "USER_GUIDE.md §6"),

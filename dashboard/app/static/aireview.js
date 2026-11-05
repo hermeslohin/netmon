@@ -264,6 +264,7 @@
         };
       }
       body.appendChild(esQueriesRow(D));
+      body.appendChild(webSearchRow(D));
       body.appendChild(esResearchRow(D));
       body.appendChild(chatEsRow(D));
       body.appendChild(notesLimitRow(D));
@@ -298,6 +299,34 @@
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     r.title = "When on, the event reviewer may ask for read-only searches of the Security Onion logs (Zeek, Suricata, detections, endpoint, auth) before it decides an event's links. Each search is one bounded query built and run by the host broker; the model never writes Elasticsearch DSL. The limit counts all searches for one event review (one anchor event and its up to 10 candidates).";
+    return r;
+  }
+  // web searches by the event reviewer (Configuration > Integrations > Web search, e.g. Firecrawl): on/off + max per event review (admin)
+  function webSearchRow(D) {
+    const cfg = D.config?.web_search || { enabled: false, max: 2, limit: 10 };
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Web search · event reviewer" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: !!cfg.enabled }));
+    lab.append(` event reviewer may search the web${cfg.provider ? ` (${cfg.provider})` : ""} and cite the pages it used`);
+    const lab2 = r.appendChild(document.createElement("label")); lab2.className = "small";
+    lab2.append("max per event ");
+    const num = lab2.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 1, max: cfg.limit || 10, step: 1, value: cfg.max || 2 }));
+    num.style.width = "4.5em"; num.setAttribute("aria-label", "Maximum web look-ups per event");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (c) => (c.enabled ? `now: on · up to ${c.max} per event` : "now: off") + (c.by ? ` (${c.by})` : "");
+    msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
+    chk.disabled = num.disabled = !D.admin;
+    autoApply(btn, [chk, num]);
+    btn.onclick = async () => {
+      const mx = Math.round(+num.value), lim = cfg.limit || 10;
+      if (!(mx >= 1 && mx <= lim)) { msg.textContent = `Enter 1-${lim} look-ups per event.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/websearch", { enabled: chk.checked, max: mx }); Object.assign(cfg, r2.web_search || {}); msg.textContent = "saved · " + show(cfg) + " (from the next review)"; }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    r.title = "When on, the event reviewer may search the web or read a public page (through the backend set under Configuration > Integrations > Web search, e.g. Firecrawl) to learn what a public IP, domain, signature, CVE or program is. Searches that contain LAN addresses, MACs or internal host names are refused. Pages the reviewer relied on are shown as links on the classification, the link artifacts and its internet / DNS notes. Every look-up is listed in the Event reviewer web searches card.";
     return r;
   }
   // Elasticsearch searches by event research (separate from the event reviewer's setting above)
@@ -496,6 +525,27 @@
       { k: "total", t: "Hits", num: true, fmt: (v, r) => (r.error ? `<span class="bad small">${esc(r.error)}</span>` : fn(v)) },
       { k: "model", t: "Model", cls: "small mono" },
     ], E.recent, { sort: "ts", limit: 20 }));
+    return c;
+  }
+  // web look-ups by the event reviewer: how often (KPIs), per day, and the newest ones with their result links (cited ones marked)
+  function webCard(D) {
+    const W = D.web_queries || { total: 0, last_day: 0, recent: [], daily: [] }, on = D.config?.web_search?.enabled;
+    const c = card(`Event reviewer web searches (${fn(W.last_day)} in 24 h · ${fn(W.total)} total)`, `${kpis([
+      ["Web look-ups (24 h)", fn(W.last_day || 0), W.last_day ? "good" : ""], ["Web look-ups (7 d)", fn(W.last_week || 0)],
+      ["Event reviews that searched (24 h)", W.reviews_day ? `${fn(W.reviews_web_day || 0)} of ${fn(W.reviews_day)} <span class="small muted">(${W.pct_reviews_web_day ?? 0}%)</span>` : "—"],
+      ["Reviews citing a web page (24 h)", fn(W.reviews_cited_day || 0)], ["Pages cited (current classifications)", fn(W.cited_pages || 0)],
+      ["Failed look-ups (24 h)", fn(W.errors_day || 0), W.errors_day ? "warn" : ""]])}
+      ${W.daily?.length ? `<div class="small muted" style="margin:4px 0">Per day: ${W.daily.map((d) => `${esc(d.day.slice(5))} <b>${fn(d.searches)}</b>${d.errors ? ` (${fn(d.errors)} failed)` : ""}`).join(" · ")}</div>` : ""}
+      ${W.recent.length ? "" : `<div class="small muted">${on ? "The event reviewer has not searched the web yet." : "Off. Turn on <b>Web search · event reviewer</b> in the Models box to let the event reviewer look things up on the web."}</div>`}`);
+    c.id = "ai-web";
+    const link = (u) => `<a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer" title="${esc(u.url)}">${esc((u.title || u.url).slice(0, 70))}</a>${u.cited ? ' <span class="badge sev-good" style="font-size:10px" title="the reviewer cited this page in its classification">cited</span>' : ""}`;
+    if (W.recent.length) c.appendChild(table(null, [
+      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
+      { k: "anchor_label", t: "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(String(v).slice(0, 90))}</a>` : esc(String(v).slice(0, 90))) },
+      { k: "query", t: "Search / page", fmt: (v, r) => `${r.kind === "page" ? "📄" : "🔍"} <span class="mono small">${esc(v)}</span>${r.why ? `<div class="small muted">${esc(r.why)}</div>` : ""}` },
+      { k: "results", t: "Results", fmt: (v, r) => (r.error ? `<span class="bad small">${esc(r.error)}</span>` : `<div class="small">${(r.urls || []).map(link).join("<br>") || fn(v || 0)}</div>`) },
+      { k: "model", t: "Model", cls: "small mono" },
+    ], W.recent, { sort: "ts", limit: 20 }));
     return c;
   }
   // ---- review limits (admin or network defender): link types and events that are never sent to the event reviewer
@@ -1135,7 +1185,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>` + (q.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode: listed, never sent">+${fn(q.testing)} testing</span>` : ""), q.pending ? "warn" : "good"],
       ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
       ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
-      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Avg notes in / event", `<span title="notes (owner + AI: event, host, account, internet) passed to the model per event review, last 24 h. All time: ${T.event_tokens?.all?.notes ?? "—"}">${T.event_tokens?.day?.notes != null ? T.event_tokens.day.notes : "—"}</span>`], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
+      ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Avg notes in / event", `<span title="notes (owner + AI: event, host, account, internet) actually in the prompt per event review (anchor + its candidates), last 24 h, after the per-event limit, de-duplication and the note character budget${T.event_tokens?.day?.notes_offered != null ? `; ${T.event_tokens.day.notes_offered} were offered before trimming` : ""}. All time: ${T.event_tokens?.all?.notes ?? "—"}. Reviews before this change counted the offered notes.">${T.event_tokens?.day?.notes != null ? T.event_tokens.day.notes : "—"}</span>`], ["Web look-ups (24 h)", D.config?.web_search?.enabled || D.web_queries?.last_day ? `<a href="#/aireview?at=ai-web" title="event reviewer web searches / page reads; ${fn(D.web_queries?.reviews_web_day || 0)} of ${fn(D.web_queries?.reviews_day || 0)} event reviews searched the web">${fn(D.web_queries?.last_day || 0)}</a>` : "off"], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     if (st.enabled && st.error) {  // say what the Error badge means, since when, and whether it fixes itself
       const ex = document.createElement("div"); ex.className = "card"; ex.style.cssText = "margin:8px 0;border-left:3px solid var(--bad, #f85149)";
@@ -1206,6 +1256,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(costCard(D));
     el.appendChild(limitsCard(D));
     el.appendChild(esCard(D, "reviewer"));
+    el.appendChild(webCard(D));
     el.appendChild(esCard(D, "research"));
     el.append(...reviewJobCard(D.review_status || {}, D));
 
@@ -1215,8 +1266,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
         <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
+        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aireview?at=ai-models">change</a>`}</span>
         <span class="k">Event research Elasticsearch</span><span><a href="#/aireview?at=ai-es-research">${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h</a> · ${fn(D.es_queries?.research?.total || 0)} total</span>
-        <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
+        <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""}${st.web_queries_this_run ? `, ${fn(st.web_queries_this_run)} web look-ups` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>
         ${st.error ? `<span class="k">Last error</span><span class="bad">${esc(st.error)}</span>` : ""}
         ${!st.enabled ? `<span class="k">Disabled</span><span>Set <span class="mono">NETMON_LLM=on</span> in dashboard/.env and redeploy.</span>` : ""}</div>

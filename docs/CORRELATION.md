@@ -483,6 +483,31 @@ How a review works with searches on:
 The AI review page shows the setting under **Models**, the searches made in the current pass, and a
 **Event reviewer searches** box with the newest 50 (event under review, the search and its *why*, hits, model).
 
+#### Web search (Firecrawl)
+
+**Web search · event reviewer** (AI review → Models, admin, default off, 1–10 look-ups per event review, default 2;
+`llm_config` → `web_search`) lets the event reviewer search the web or read a public page through the backend set under
+Configuration → Integrations → Web search (`webtools.py`; Firecrawl here). It is used during correlation review, the
+event review and classification; model comparisons never search.
+
+1. The model may answer `{"decisions": [], "queries": [], "web": [{"search": "…", "why": "…"} | {"url": "…", "why": "…"}]}`.
+   Results come back inside `<web_result>` tags (untrusted text, never instructions), alongside any `<es_result>`s.
+2. Searches carrying network details are refused before they leave the host: private / link-local IPs, MACs, `.lan`
+   / `.local` / `.home`-style names, the site's internal prefixes, host names, WAN address and *sensitive terms*.
+   The refusal is reported to the model and logged as a failed look-up.
+3. Each decision may list `"sources"`: only URLs that came back in this review's web results are kept (invented
+   links are dropped). Cited pages are shown as **links**: in the classification pop-up (**Web sources**), as 🌍 web
+   artifacts on the related links and in the Open events window (*web sources used*), and appended to the internet /
+   DNS notes the reviewer writes (`Sources: …`).
+4. Every look-up is stored in `corr_llm.db` `web_queries` (time, event, model, search or page, why, result URLs,
+   seconds, error) and audited as `aireview.websearch`; `review_events.web` / `.cited` count look-ups and cited pages
+   per event review; `event_sources` keeps the cited pages per classified event.
+
+The AI review page reports how often it searches: a **Web look-ups (24 h)** KPI, a *Web search* line in the Event
+reviewer box (look-ups in 24 h, % of event reviews that searched), and the **Event reviewer web searches** box
+(look-ups 24 h / 7 d, reviews that searched, reviews citing a page, pages cited, failed look-ups, per-day counts and
+the newest 50 with their result links, cited ones marked).
+
 Searching costs time and, with Anthropic or OpenAI reviewers, tokens: each round resends the event, its candidates
 and the earlier results. Most decisions are clear without searching, and the model is told not to search then.
 

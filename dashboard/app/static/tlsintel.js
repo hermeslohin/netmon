@@ -176,7 +176,7 @@ V.threatintel = async (el, arg) => {
     { k: "ind_hit", t: "Indicators hit", num: true, fmt: (v) => (v ? fn(v) : '<span class="muted">0</span>') },
     { k: "sight", t: "Sightings", num: true, bar: true, fmt: (v) => (v ? fn(v) : '<span class="muted">0</span>') },
     { k: "last_hit", t: "Last hit", fmt: (v) => (v ? ft(v) : '<span class="muted">never</span>') },
-    { k: "updated", t: "Updated", fmt: ft }, { k: "age_h", t: "Age (h)", num: true, fmt: (v, f) => (f.active === false ? "–" : v == null ? '<span class="badge sev-high">missing</span>' : v > 26 ? `<b style="color:var(--warn)">${v}</b>` : v) }],
+    { k: "updated", t: "Updated", fmt: ft }, { k: "age_h", t: "Age (h)", num: true, fmt: (v, f) => (f.active === false && !f.via_opencti ? "–" : v == null ? '<span class="badge sev-high">missing</span>' : v > 26 ? `<b style="color:var(--warn)">${v}</b>` : v) }],
     rows, { search: false, sort: "entries" })).parentNode);
   el.appendChild(grid("g2",
     card(`Outbound to listed IPs (${(ti.ip_hits_out || []).length})`, (ti.ip_hits_out || []).length ? table(null, [askCol("threat-intel hit", (x) => `outbound to listed IP ${x.ip}`), { k: "ip", t: "Destination", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "bytes", t: "Bytes", num: true, fmt: fb }, { k: "sources", t: "Internal sources", fmt: (v) => clientsHtml(v) }], ti.ip_hits_out, { search: false, evId: (x) => `ti|out|${x.ip}` }) : `<div class="empty" style="color:var(--good)">None — no internal host talked to a listed malware/C2 IP.</div>`),

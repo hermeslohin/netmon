@@ -33,7 +33,7 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/account/welcome", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers", "/api/aireview/compare", "/api/compare/item", "/api/compare/adopt")
 
 
 def watch_ids(user, role, reg=None):
@@ -1240,6 +1240,13 @@ class H(BaseHTTPRequestHandler):
                 pass  # logged by the generic POST audit
                 print(f"llm clef: {user} set enabled={res['enabled']} related_min={res['related_min']} suspicious_min={res['suspicious_min']}", file=sys.stderr)
                 return self._json({"ok": True, "clef": res})
+            if u.path == "/api/llm/websearch":  # may the event reviewer search the web (Integrations > Web search, e.g. Firecrawl), how often per event
+                try:
+                    res = corr_llm.set_web_search(bool(body.get("enabled")), body.get("max"), user)
+                except (TypeError, ValueError) as e:
+                    return self._json({"error": str(e)[:200]}, 400)
+                print(f"llm websearch: {user} set enabled={res['enabled']} max={res['max']}", file=sys.stderr)
+                return self._json({"ok": True, "web_search": res})
             if u.path == "/api/llm/esqueries":  # may the event reviewer search Elasticsearch, and how often per event
                 try:
                     res = corr_llm.set_es_queries(bool(body.get("enabled")), body.get("max"), user)

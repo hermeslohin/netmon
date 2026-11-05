@@ -106,8 +106,8 @@
       else o.llm_artifacts = [...(o.llm_artifacts || []), ...(r.llm_artifacts || [])]; }
     const rel = [...byId.values()].sort((a, b) => (b.llm === "yes") - (a.llm === "yes") || (b.llm_conf || 0) - (a.llm_conf || 0));
     const own = U.ipArts ? eids.flatMap((e) => U.ipArts(EV[e] || {}, [])) : [];  // artifacts read from the event itself
-    const seenA = new Set(), arts = [], qs = [];
-    for (const a of [...own, ...rel.flatMap((r) => r.llm_artifacts || [])]) { const k = a.kind + ":" + a.value; if (seenA.has(k)) continue; seenA.add(k); (a.kind === "query" ? qs : arts).push(a); }
+    const seenA = new Set(), arts = [], qs = [], webs = [];
+    for (const a of [...own, ...rel.flatMap((r) => r.llm_artifacts || [])]) { const k = a.kind + ":" + a.value; if (seenA.has(k)) continue; seenA.add(k); (a.kind === "query" ? qs : a.kind === "web" ? webs : arts).push(a); }
     const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
       const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
       return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
@@ -115,7 +115,8 @@
         ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">None yet - the event reviewer adds them as it links events.</div>`;
     return `<details class="oe-det oe-sub"${openRel ? " open" : ""}><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
       <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
-      <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>`;
+      <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>
+      ${webs.length && U.artifactsHtml ? `<details class="oe-det oe-sub"><summary>${webs.length} web ${webs.length === 1 ? "source" : "sources"} used</summary>${U.artifactsHtml(webs, "Pages the event reviewer relied on")}</details>` : ""}`;
   }
   function firesHtml(d, x) {
     const U = window.relUi || {}, EV = d.events || {}, BY = d.by_event || {};

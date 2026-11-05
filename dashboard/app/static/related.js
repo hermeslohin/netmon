@@ -117,9 +117,19 @@
     for (const [kind, value, relation] of e.arts || []) add(kind, value, relation);
     return [...out, ...(arts || [])];
   }
+  // a web page the event reviewer cited (kind "web": value = URL, relation = page title)
+  function webArtHtml(a) {
+    const u = safeUrl(a.value);
+    return `<li><span class="art-k" title="web page the event reviewer used">🌍 web</span> ${u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}">${esc((a.relation || u).slice(0, 90))}</a>` : `<code>${esc(a.value)}</code>`}
+      <span class="small muted">${esc(u ? new URL(u).hostname : "")}</span> ${a.model ? aiFlare({ model: a.model, via: "web search", at: a.at ? new Date(a.at * 1000).toISOString() : "" }) : ""}</li>`;
+  }
+  function sourcesHtml(srcs) {
+    const L = (srcs || []).filter((s) => safeUrl(s.url));
+    return L.length ? `<div class="small" style="margin-top:4px"><b>Web sources</b><ul style="margin:2px 0 0 1.2em;padding:0">${L.map((s) => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer" title="${esc(s.url)}">${esc((s.title || s.url).slice(0, 90))}</a> <span class="muted">${esc(new URL(s.url).hostname)}</span></li>`).join("")}</ul></div>` : "";
+  }
   function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";
-    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
+    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : a.kind === "web" ? webArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
       <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${!a.model ? "" : aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
   }
@@ -218,6 +228,7 @@
       <div class="note-body"><div><span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span></div>
         ${S.corr?.clef_ev?.[id] ? `<div style="margin-top:4px">${clefEvHtml(S.corr.clef_ev[id])}</div>` : ""}
         <p>${esc(c.reason || "")}</p>
+        ${sourcesHtml(c.sources)}
         <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the event reviewer's. Verify before acting.</div></div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
