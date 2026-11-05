@@ -152,6 +152,32 @@
     }));
   }
 
+  // research done on the event (research note text, its links and queries), people's notes and verdicts, and notes on the
+  // event's artifacts (IPs, domains, processes, users: X.art_notes, filled by the Alerts page)
+  const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
+  const subjBtn = (s) => { const [k, ...r] = String(s || "").split(":"), v = r.join(":");
+    return k === "ip" ? `<button type="button" class="extnote-btn" data-extip="${esc(v)}" title="Notes on ${esc(v)}">📝</button>`
+      : k === "dom" ? `<button type="button" class="extnote-btn" data-extdom="${esc(v)}" title="Notes on ${esc(v)}">📝</button>`
+      : k === "art" ? `<button type="button" class="extnote-btn" data-extart="${esc(v)}" title="Notes on this artifact">📝</button>` : ""; };
+  function researchHtml(eid, X) {
+    const n = X.notes?.[eid], un = X.unotes?.[eid] || S.corr?.unotes?.[eid] || [], an = X.art_notes?.[eid] || [], AT = X.art_note_text || {};
+    let h = "";
+    if (n && (n.research || (n.links || []).length || (n.queries || []).length)) {
+      const links = (n.links || []).map((l) => (typeof l === "string" ? { url: l } : l)).filter((l) => safeUrl(l.url || ""));
+      h += `<details class="oe-det oe-sub" open><summary>Research ${aiFlare({ model: n.model, via: n.via || "event research", at: n.at ? new Date(n.at * 1000).toISOString() : "" })}</summary>
+        ${n.research ? `<div class="small oe-research" style="white-space:pre-wrap">${linkifyIps(n.research)}</div>` : ""}
+        ${links.length ? `<div class="small" style="margin-top:4px"><b>Links</b><ul style="margin:2px 0 0 1.2em;padding:0">${links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc((l.title || l.url).slice(0, 100))}</a></li>`).join("")}</ul></div>` : ""}
+        ${(n.queries || []).length ? `<details class="small" style="margin-top:4px"><summary>${n.queries.length} Elasticsearch ${n.queries.length === 1 ? "query" : "queries"} the research ran</summary><ul style="margin:2px 0 0 1.2em;padding:0">${n.queries.map((q) => `<li><code>${esc(String(q.kql || q.q || q.query || JSON.stringify(q)).slice(0, 400))}</code></li>`).join("")}</ul></details>` : ""}</details>`;
+    } else if (X.art_notes) h += `<div class="small muted" style="margin:4px 0">No research note yet. Use 📝 → <b>Send to research</b> to have it researched.</div>`;
+    if (un.length) h += `<details class="oe-det oe-sub" open><summary>${un.length} note${un.length === 1 ? "" : "s"} by people</summary>${un.map((u) => `<div class="kb-note"><div class="kb-meta">${window.kbVBadge ? kbVBadge(u) : ""}${window.kbStBadge ? kbStBadge(u) : ""}<b>${esc(u.author || "")}</b> <span class="muted small">${esc(when(u.ts * 1000))}</span></div><div class="small" style="white-space:pre-wrap">${esc(u.text || "")}</div></div>`).join("")}</details>`;
+    if (X.art_notes) h += `<details class="oe-det oe-sub"${an.length ? " open" : ""}><summary>${an.length} note${an.length === 1 ? "" : "s"} on this event's artifacts</summary>${an.length ? an.map((r) => { const t = AT[r.id] || r;
+      return `<div class="kb-note"><div class="kb-meta"><span class="mono small">${esc(t.subject || "")}</span> ${subjBtn(t.subject)} ${t.status === "approved" ? `<span class="badge sev-info" title="Accepted: authoritative for the AI">✓ accepted</span>` : t.status === "rejected" ? `<span class="badge sev-high">✕ rejected</span>` : ""}
+        ${t.author === "ai" || t.model ? aiFlare({ model: t.model, via: t.via || "event reviewer" }) : `<b>${esc(t.author || "")}</b>`} <span class="muted small">${esc(t.category || "")}${t.updated ? " · " + esc(when(t.updated * 1000)) : ""}</span></div>
+        <div class="small" style="white-space:pre-wrap">${linkifyIps(t.text || "")}</div>${(r.matched || []).length ? `<div class="small muted">matched: ${r.matched.map((m) => `<code>${esc(m)}</code>`).join(" ")}</div>` : ""}</div>`; }).join("")
+      : `<div class="small muted">No notes on its IPs, domains, processes or accounts yet. Click 📝 next to an artifact to add one.</div>`}</details>`;
+    return h ? `<div class="oe-extra">${h}</div>` : "";
+  }
+
   async function openDetail(x) {
     document.querySelector(".oe-back")?.remove();
     const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], cev = X.clef_ev?.[x.eid];
@@ -165,8 +191,9 @@
           ${cev ? ` <span class="small muted">decision model p(suspicious) ${Math.round((cev.p_suspicious || 0) * 100)}%</span>` : ""}
           ${c.reason ? `<div class="small">${window.relUi?.reasonHtml ? window.relUi.reasonHtml(c.reason, c.sources) : esc(c.reason)}</div>` : ""}
           ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}
-        ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note</span>
+        ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note${n.priority ? " · priority " + esc(n.priority) : ""}</span>
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
+    const extraHtml = researchHtml(x.eid, X);
     const mb = (role, m, cls) => m ? `<span class="oe-ai ${cls || ""}" title="${esc(role)}: ${esc(m)}"><span class="oe-ai-r">${esc(role)}</span>${esc(String(m).replace(/^.*[:/]/, ""))}</span>` : "";
     const aiBadges = [mb("classified by", c?.model), mb("decision model", cev?.model, "dm"), mb("researched by", n?.model, "rs")].filter(Boolean).join("");
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
@@ -177,6 +204,7 @@
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
       ${aiBadges ? `<div class="oe-ais">${aiBadges}</div>` : ""}
       ${verdictHtml}
+      ${extraHtml}
       <div class="oe-sum"></div>
       <div class="oe-body"><div class="loading">Loading…</div></div></div>`;
     document.body.appendChild(back);
@@ -200,6 +228,7 @@
       document.querySelectorAll(".oe-count").forEach((e) => { e.textContent = n > 999 ? "999+" : n; e.style.display = n ? "" : "none"; }); } catch (_) { /* logged out */ }
   }
   window.oePaintCount = paintCount;
+  window.oeOpenDetail = openDetail;  // the Alerts page opens its rows in the same window
   setInterval(paintCount, 120000); paintCount();
 
   V.events = async (el) => {

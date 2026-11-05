@@ -1892,10 +1892,21 @@ class H(BaseHTTPRequestHandler):
                         m = mn.get(r.get("cleared_rule")) or {}
                         r["mine"], r["rule"] = store.alert_for(r, ids), (m.get("name", "") + (" @ " + m["host"] if m.get("host") else "")) if m else "(rule removed)"
                     return self._json({"alerts": rows, "cleared": True})
+                if (q.get("held") or [""])[0]:  # held detections (not promoted to alarms) with verdicts + verdict counts
+                    import eventstore
+                    v_ = (q.get("v") or [""])[0]
+                    res = eventstore.detections(min(lim, 500), v_ if v_ in (*eventstore.VERDICTS, "unreviewed") else None)
+                    for r in res["alerts"]:
+                        r["mine"] = store.alert_for(r, ids)
+                    return self._json(res)
                 rows = store.alerts_recent(lim)
                 for r in rows:
                     r["mine"] = store.alert_for(r, ids)
-                return self._json({"alerts": rows, "unread": sum(1 for r in rows if not r["read"]),
+                extra = None
+                if (q.get("extra") or [""])[0]:  # Alerts page: verdicts, research, people's notes, notes on artifacts
+                    import eventstore
+                    rows, extra = eventstore.alert_view(rows)
+                return self._json({"alerts": rows, "extra": extra, "unread": sum(1 for r in rows if not r["read"]),
                                    "unread_mine": sum(1 for r in rows if not r["read"] and r["mine"]),
                                    "mode": "all" if ids is None else "some"})
             if path == "/api/push/prefs":

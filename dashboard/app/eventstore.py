@@ -403,3 +403,120 @@ def k_in(acks, ref):
 
 
 
+
+
+VERDICTS = ("suspicious", "expected", "benign")
+
+
+def alert_ref(a):
+    """The event an alert row is about: a review alarm (key ev|<eid>) carries the reviewed event's id, where its AI
+    classification, research and notes are stored; a watcher detection is its own event alert|<id>."""
+    k = str(a.get("key") or "")
+    return k[3:] if k.startswith("ev|") and len(k) > 3 else f"alert|{a['id']}"
+
+
+def alert_verdict(ref, X):
+    """(verdict, source) of one alert: a person's verdict wins, then the event reviewer's classification, then the
+    decision model, else unreviewed."""
+    for n in reversed((X.get("unotes") or {}).get(ref) or []):
+        if n.get("verdict") in VERDICTS and n.get("status", "approved") != "rejected":
+            return n["verdict"], "person"
+    c = (X.get("classes") or {}).get(ref)
+    if c and c.get("label") in VERDICTS:
+        return c["label"], "ai"
+    ce = (X.get("clef_ev") or {}).get(ref)
+    if ce and ce.get("label") in VERDICTS:
+        return ce["label"], "model"
+    return "unreviewed", ""
+
+
+def alert_view(alerts, related=True, art_limit=6):
+    """Alerts page: each alert's verdict, the research done on it (AI classification + web sources, research note,
+    decision model), people's notes and notes on its artifacts. Returns (rows with eid/verdict/vsrc set, extra keyed by eid)."""
+    if not alerts:
+        return alerts, {}
+    for a in alerts:
+        a["eid"] = alert_ref(a)
+    rows, seen = [], set()
+    for a in alerts:
+        if a["eid"] in seen:
+            continue
+        seen.add(a["eid"])
+        ms = list(dict.fromkeys([f"alert|{a['id']}", a["eid"]]))
+        rows.append({"eid": a["eid"], "members": ms, "n": 1, "first_seen": a["ts"], "last_seen": a["ts"]})
+    if related:
+        X = extras(rows)
+    else:  # big detection lists: verdict sources only (related_view over thousands of rows is slow)
+        X = {"notes": {}, "classes": {}, "unotes": {}, "clef_ev": {}}
+        try:
+            import enrich, corr_llm, kb
+            allids = [m for r in rows for m in r["members"]]
+            N, C, U, CE = enrich.load(allids), corr_llm.classes(allids), kb.event_notes(allids), corr_llm.clef_events_view(allids)
+            for r in rows:
+                for m in reversed(r["members"]):
+                    for src, dst in ((N, "notes"), (C, "classes"), (U, "unotes"), (CE, "clef_ev")):
+                        if m in src and r["eid"] not in X[dst]:
+                            X[dst][r["eid"]] = src[m]
+        except Exception as e:  # noqa: BLE001 - the page works without them
+            print(f"alert_view: {e}", file=sys.stderr)
+    # notes people (or the profiler) wrote on the artifacts these alerts carry: IPs, domains, processes, users
+    an, at = {}, {}
+    if art_limit:
+        try:
+            import kb
+            EV = _ev_view([r["eid"] for r in rows])
+            for a in alerts:
+                if a["eid"] in an:
+                    continue
+                ev = EV.get(a["eid"]) or {}
+                keys = kb.event_artifact_keys({"label": f"{a.get('text') or ''} {ev.get('label') or ''}", "ips": [t for t in a.get("targets") or [] if isinstance(t, str)],
+                                               "host_ips": ev.get("host_ips"), "dst_ips": ev.get("dst_ips"), "arts": ev.get("arts")})
+                hits = kb.notes_by_artifacts(keys, limit=art_limit)
+                if hits:  # one copy of each note (art_note_text), alerts reference it by id with the artifacts that matched
+                    an[a["eid"]] = [{"id": n["id"], "matched": hit} for _sc, hit, n in hits]
+                    for _sc, _hit, n in hits:
+                        at.setdefault(str(n["id"]), {"id": n["id"], "subject": n["subject"], "category": n.get("category") or "",
+                                                     "text": str(n.get("text") or "")[:700], "author": n.get("author") or "", "model": n.get("model") or "",
+                                                     "via": n.get("via") or "", "status": n.get("status") or "", "updated": n.get("updated")})
+        except Exception as e:  # noqa: BLE001
+            print(f"alert_view artifact notes: {e}", file=sys.stderr)
+    X["art_notes"], X["art_note_text"] = an, at
+    for ns in (X.get("unotes") or {}).values():  # the page shows text, author, verdict, status only
+        for n in ns:
+            n.pop("artifacts", None); n.pop("label", None)
+    for a in alerts:
+        a["verdict"], a["vsrc"] = alert_verdict(a["eid"], X)
+    return alerts, X
+
+
+def detections(limit=300, verdict=None):
+    """Held detections (watcher / scan findings that were not promoted to alarms) with their verdicts, newest first,
+    plus verdict counts over every alert and detection kept (30 days)."""
+    c = store._dc()
+    rows = [store._arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=0 AND held=1 ORDER BY id DESC")]
+    allrows = rows + store.alerts_recent(2000)
+    for a in allrows:
+        a["eid"] = alert_ref(a)
+    refs = list(dict.fromkeys(a["eid"] for a in allrows))
+    X = {"classes": {}, "unotes": {}, "clef_ev": {}}
+    try:
+        import corr_llm, kb
+        ids = list(dict.fromkeys(refs + [f"alert|{a['id']}" for a in allrows]))
+        C, U, CE = corr_llm.classes(ids), kb.event_notes(ids), corr_llm.clef_events_view(ids)
+        for a in allrows:
+            for m in (a["eid"], f"alert|{a['id']}"):
+                for src, dst in ((C, "classes"), (U, "unotes"), (CE, "clef_ev")):
+                    if m in src and a["eid"] not in X[dst]:
+                        X[dst][a["eid"]] = src[m]
+    except Exception as e:  # noqa: BLE001
+        print(f"detections: {e}", file=sys.stderr)
+    counts = {"alarms": {}, "detections": {}}
+    pick = []
+    for i, a in enumerate(allrows):
+        v, _ = alert_verdict(a["eid"], X)
+        b = counts["detections" if i < len(rows) else "alarms"]
+        b[v] = b.get(v, 0) + 1
+        if i < len(rows) and (not verdict or v == verdict):
+            pick.append(a)
+    shown, X2 = alert_view(pick[:limit], related=False, art_limit=4)
+    return {"alerts": shown, "total": len(rows), "matching": len(pick), "counts": counts, "extra": X2}
