@@ -62,18 +62,18 @@ window.CARD_INFO = {
 },
 "aireview|Decisions": {
 "source": "Proposed links from correlate.py, judged by the corr_llm.py event reviewer or by event research, plus manual overrides; stored in the netmon store.",
-"use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗, ↻ to ask the model again, or ⇄ to compare up to 4 models on one decision and adopt the best answer.",
+"use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗ or ↻ to ask the model again.",
 "what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
 "source": "Dashboard AI configuration: local models are listed from the local OpenAI-compatible server (/v1/models), cloud models from the AI providers box. Only an admin can change them.",
-"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call. Use the ⇄ compare button on a decision below to test models before switching.",
+"use": "Pick a model and press Save. Local models are free but slower and weaker at web research; cloud models are billed per call.",
 "what": "Which AI model each AI job uses: the event reviewer (decides every proposed link between events, and is also used by the review job), event research (only on Send to research) and the Ask AI chat."
 },
 "aireview|AI providers": {
 "source": "Admin-entered providers in the dashboard's state volume (llm_providers.json, readable only by netmon).",
 "use": "Add provider: name, type (OpenAI / OpenAI-compatible, or Anthropic), optional base URL, API key, and the models to offer (Fetch from provider lists what the key can use; add prices after a model id for cost estimates). Test checks the key without using tokens. ✎ edits (leave the key empty to keep it), ✕ deletes. Calls per hour caps single calls if something loops.",
-"what": "AI services reached with an API key, any number of them. Their models can be picked for the event reviewer, event research, the chat and in every Compare dialog."
+"what": "AI services reached with an API key, any number of them. Their models can be picked for the event reviewer, event research, and the chat."
 },
 "aireview|Event reviewer": {
 "source": "corr_llm.py worker inside the dashboard, reviewing links proposed by correlate.py, with the model chosen in the Models card (the local server or an AI provider). Event research verdicts override it.",
@@ -252,7 +252,7 @@ window.CARD_INFO = {
 },
 "device|Findings": {
 "source": "analyze.py baseline over ~30 days of snapshots (needs 3 days), hosts.py/osq.py endpoint checks. Refreshed with each collection run.",
-"use": "Start with high / Investigate items. Use 💬 Ask AI to have one explained, ⇄ compare with earlier snapshots, Related for linked events, and check an item off when handled (the toggle shows checked ones).",
+"use": "Start with high / Investigate items. Use 💬 Ask AI to have one explained, Related for linked events, and check an item off when handled (the toggle shows checked ones).",
 "what": "Anomalies tied to this host. On the network page: baseline findings (deviations from its learned normal, threat intel, beacons). On the endpoint page: host findings from Elastic Agent, osquery and syslog."
 },
 "device|IDS alerts": {
@@ -442,7 +442,7 @@ window.CARD_INFO = {
 },
 "dns|DNS queries by device": {
 "source": "Zeek dns logs from Security Onion, last 24 h, unicast DNS on port 53 only (mDNS and DNS-over-HTTPS are not counted here). One query = one Zeek dns record from that device.",
-"use": "Smart TVs, phones and browsers are normally chatty. Worry about a quiet device (camera, plug, printer) suddenly near the top, which can mean malware or DNS tunnelling. Click a bar to open that host's page and compare with ⇄.",
+"use": "Smart TVs, phones and browsers are normally chatty. Worry about a quiet device (camera, plug, printer) suddenly near the top, which can mean malware or DNS tunnelling. Click a bar to open that host's page.",
 "what": "Bar chart of the 15 internal devices that sent the most DNS queries in the current snapshot."
 },
 "dns|Devices using legacy TLS or bad certs": {
@@ -662,7 +662,7 @@ window.CARD_INFO = {
 },
 "security|Baseline findings": {
 "source": "analyze.py compares the 24-hour snapshot (Zeek and Suricata data from Security Onion) with a ~30-day per-device baseline; baseline comparisons start after 3 days of history.",
-"use": "Sort by severity and start with high. Tick the box when explained; it stays checked on later snapshots. Click a row for the device, or use 💬 Ask AI, ⇄ compare, Kibana and Related to investigate.",
+"use": "Sort by severity and start with high. Tick the box when explained; it stays checked on later snapshots. Click a row for the device, or use 💬 Ask AI, Kibana and Related to investigate.",
 "what": "Things each device did differently from its own normal in the last 24 h: new ports or services, traffic and DNS spikes, new countries or networks, new TLS fingerprints, plus rule hits for threat intel, beacons, segmentation, files and TLS."
 },
 "security|Beacon candidates": {
@@ -707,7 +707,7 @@ window.CARD_INFO = {
 },
 "security|Host findings": {
 "source": "hosts.py reading Elastic Agent data in Security Onion: Elastic Defend alerts and events, osquery, auth and system logs, Fleet status, compared with a per-host baseline. The 15-minute watcher uses the same rules.",
-"use": "Investigate items first. Tick the box once explained; it carries over to later snapshots. Use 💬 Ask AI, ⇄ compare, Kibana, Related and the research-note verdict to judge each one.",
+"use": "Investigate items first. Tick the box once explained; it carries over to later snapshots. Use 💬 Ask AI, Kibana, Related and the research-note verdict to judge each one.",
 "what": "Problems seen on the computers themselves: Defend alerts, unusual logins or repeated failures, account changes, suspicious sudo or processes, new executables, sensitive file changes, agent and Defend policy problems, syslog going silent."
 },
 "security|Host findings checked off": {
@@ -742,7 +742,7 @@ window.CARD_INFO = {
 },
 "security|Research notes": {
 "source": "Written when someone clicks Send to research (or copied by the event reviewer from an earlier note), using web research and read-only queries against the snapshot data.",
-"use": "Use these as context for the alarms. ⇄ compares the note with other models' opinions. Notes can be wrong or outdated; check the sources for anything important.",
+"use": "Use these as context for the alarms. Notes can be wrong or outdated; check the sources for anything important.",
 "what": "Background notes on an event: what the AI looked up about signatures, domains, software or behaviour seen in this snapshot, with sources."
 },
 "security|Segmentation violations": {
@@ -882,7 +882,7 @@ window.CARD_INFO = {
 },
 "traffic|Internet upload by device": {
 "source": "Zeek conn logs from Security Onion, last 24 h: bytes sent by each internal device on connections it opened to non-local addresses.",
-"use": "Cloud backups, photo sync and video calls explain most large uploads. Unexpected upload from a camera, IoT device or idle PC can mean data theft or a misconfigured backup. Click a bar for the host page and compare with ⇄.",
+"use": "Cloud backups, photo sync and video calls explain most large uploads. Unexpected upload from a camera, IoT device or idle PC can mean data theft or a misconfigured backup. Click a bar for the host page.",
 "what": "Bar chart of the 15 devices that uploaded the most data to the internet."
 },
 "traffic|Protocols": {

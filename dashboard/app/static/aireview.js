@@ -1378,7 +1378,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
       { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
       { k: "reason", t: "Reason", cls: "small", fmt: (v, r) => `${esc(v)} ${r.manual ? "" : aiFlare({ model: r.model, via: "correlation review", at: new Date(r.ts * 1000).toISOString() })}` },
-      { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.current ? `<button data-cmp="${esc(r.pair)}" title="Compare models on this decision">⇄</button>` : ""}${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
+      { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
     ], D.verdicts, { sort: "ts", limit: 100, urlFilter: FILTERS }));
     lst.id = "ai-list"; lst.dataset.open = "1"; el.appendChild(lst);
     lst.addEventListener("click", (e) => { const b = e.target.closest("[data-cmp]"); if (!b) return; e.preventDefault(); e.stopPropagation();

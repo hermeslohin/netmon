@@ -215,7 +215,7 @@
         ${n.research ? `<div class="note-research">${esc(n.research)}</div>` : ""}
         ${artifactsHtml((n.queries || []).map((d) => ({ kind: "query", value: d.kql || d.index || "search", relation: d.why, model: n.model, at: n.at, query: d })), "Elasticsearch searches (open in Kibana)")}
         ${links.length ? `<div class="small"><b>Sources</b><ol class="note-links">${links.map((l) => `<li><a href="${esc(safeUrl(l.url))}" target="_blank" rel="noopener noreferrer">${esc(l.title || l.url)}</a></li>`).join("")}</ol></div>` : ""}
-        <div class="small muted">AI research (on request, or copied by the event reviewer). Verify before acting. ${cmpBtn("event research note", me ? me.label : id, { event: me ? me.label : id, event_type: me?.type, severity: me?.sev, note: { verdict: n.verdict, priority: n.priority, summary: n.summary, research: n.research, model: n.model } }, id)} compare models</div>
+        <div class="small muted">AI research (on request, or copied by the event reviewer). Verify before acting.</div>
       </div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(560, innerWidth - 16);

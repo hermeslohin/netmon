@@ -473,10 +473,7 @@ function askBtn(kind, title, item) {
 }
 // "compare models" button (compare.js): same registry idea as askBtn
 const CMP = new Map(); let cmpSeq = 0;
-function cmpBtn(kind, title, item, eid) {
-  const id = regId(CMP, CMP_K, "c", { kind, title: String(title || "").slice(0, 300), item, eid });
-  return `<button type="button" class="cmph" data-icmp="${id}" title="Compare models on this" aria-label="Compare models on this">⇄</button>`;
-}
+function cmpBtn() { return ""; } // compare-models buttons removed at the user's request
 const askCmpCol = (kind, titleFn) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) });
 const pivBtn = (kind, x) => (typeof pivotBtn === "function" ? pivotBtn(kind, x) : "");
 const askCmpPivCol = (kind, titleFn, piv) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + cmpBtn(kind, titleFn(x), x) + pivBtn(piv, x) });

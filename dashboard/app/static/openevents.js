@@ -1,5 +1,5 @@
 // Open events (#/events): every event nobody has checked off yet, whatever its age; the time range does not apply.
-// Same cards, columns and tools as the Posture page: check-off (+ suppress), Ask AI, compare models, Kibana pivot,
+// Same cards, columns and tools as the Posture page: check-off (+ suppress), Ask AI, Kibana pivot,
 // related events, AI research verdicts / classification / your notes (drawn by related.js from window.__oeExtra).
 // Server: eventstore.open_events (sqlite table `events`).
 (() => {

@@ -475,8 +475,7 @@ behind an IDS alert also made the failed SSH logins, or whether a domain was res
 
 The event reviewer's switch and **Max per event** are stored in the netmon database (settings document `llm_config`) (`"es_queries": {"enabled",
 "max"}`, with who changed them and when); the event research switch is part of the event research settings in the netmon
-store (`es_search`). Both take effect from the next review or run. Model comparisons (⇄) never search, so every model gets exactly the
-same prompt.
+store (`es_search`). Both take effect from the next review or run.
 
 How a review works with searches on:
 
@@ -582,7 +581,7 @@ with both events (linked), the verdict, confidence and the model's reason. Boxes
 | **AI providers** | Added API providers, calls-per-hour caps, Local server on/off |
 | **Review limits** | Link types grid, time window, max links per event, never-send events and rules, verdict retention, event classification (above) |
 | **Event research limits** | Cost and size caps of event research (section 5) |
-| **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again, **⇄** compares models |
+| **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again |
 | **Event reviewer searches** / **Event research searches** | The newest Elasticsearch searches of each AI |
 
 ## 4. Working through it on the dashboard

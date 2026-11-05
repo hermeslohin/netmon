@@ -480,7 +480,7 @@ Guidelines:
 | Check an IP, domain or hash | Security → Threat intel → Indicator lookup |
 | Raw logs | 🔎 on any row (needs the Kibana address in site settings) |
 | What else is connected to this | **Related** count |
-| What the AI thinks | ✨ verdict, 💬 Ask AI, ⇄ Compare models (admin) |
+| What the AI thinks | ✨ verdict, 💬 Ask AI |
 | Research one event on the web | 📝 → 🔬 Send to research |
 | Which hosts are riskiest and why | Security → Risk |
 | Who changed what in netmon | More → Audit log (admin) |

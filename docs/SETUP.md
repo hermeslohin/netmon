@@ -238,8 +238,7 @@ until a person picks one. Under the model menus an admin can also switch the eve
 read-only Elasticsearch searches on or off (**Elasticsearch queries · correlation review** with a per-event maximum,
 **Elasticsearch queries · event research**) and set **Notes per event**, the most host and
 account notes the event reviewer is given with each event. A provider that is in use can't be deleted (Local
-server can only be disabled, never deleted). On any current correlation decision, the ⇄ button asks up to 4
-models the same question side by side and can store one model's answer as the decision.
+server can only be disabled, never deleted).
 
 **Event research needs a reasoning-capable model** - it works through several tool calls per event (web search,
 reading pages, checking netmon data) and decides what to do next between them, which a plain chat model does

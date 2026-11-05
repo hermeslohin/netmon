@@ -113,7 +113,6 @@ Every page is made of boxes (cards).
 | ☐ (check box) | **Check off**, meaning "I've looked at this". The item is hidden from its list. See [Checking things off](#checking-things-off). |
 | ☐ **Clear** (green) | On segmentation violations: "this flow is expected". See [Segmentation](#segmentation-violations). |
 | 💬 | **Ask AI** about this item. See [Ask AI](#ask-ai). |
-| ⇄ (purple) | **Compare models**: ask several AI models for their assessment of this item. Admins only. |
 | 🔎 (blue) | **Open in Kibana**: a list of links to the raw events behind this item in Kibana Discover (IDS alerts, Zeek connections/DNS/TLS, endpoint and syslog events), already filtered to the IPs, host, signature or process involved and to the item's time range (or the snapshot window). On gateway events it also links to the UniFi web app (Security detections, Flows; search for the source IP there). Shown on baseline findings, IDS signatures, host findings, beacon candidates and gateway events, and on every row of **Open events**. Searches the AI ran in Elasticsearch show up as clickable Kibana links too (see [Related events](#related-events)). |
 | **Related** (number) | Other events linked to this one. Click it for the list. See [Related events](#related-events). |
 | ✨ *verdict* | The AI's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
@@ -122,7 +121,7 @@ Every page is made of boxes (cards).
 ![Baseline findings table with Host IP, Last seen and the filter box](img/posture-baseline-findings.png)
 
 ![Host findings table with check boxes, Ask, Compare, Related and research-note buttons](img/posture-host-findings.png)
-*Host findings on Posture: check box, 💬 Ask, ⇄ Compare, Related count and the ✨ verdict button on each row.*
+*Host findings on Posture: check box, 💬 Ask, Related count and the ✨ verdict button on each row.*
 
 Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Findings tables show a **Last seen** column, and baseline findings also show the **Host IP** of the device they are about.
 
@@ -318,7 +317,7 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 
 ![Open events: one card per type, with check boxes, Ask, Compare, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
 
-- **Same cards and tools as Posture.** One card per type: Baseline findings, Endpoint (host) findings, IDS signatures, Gateway events, Admin sessions, Threat intel hits, Fix list, Alerts. Every row has the check box and 🚫 suppress button, 💬 Ask AI, ⇄ Compare models, 🔎 Kibana pivot (opens on the event's own time window, not the loaded snapshot's), the **Related** count and popup, the ✨ AI research verdict, the 🏷 event reviewer classification (*suspicious*, *benign*, *expected*), your 📝 notes and the 👁 times seen. Tables sort and filter like everywhere else.
+- **Same cards and tools as Posture.** One card per type: Baseline findings, Endpoint (host) findings, IDS signatures, Gateway events, Admin sessions, Threat intel hits, Fix list, Alerts. Every row has the check box and 🚫 suppress button, 💬 Ask AI, 🔎 Kibana pivot (opens on the event's own time window, not the loaded snapshot's), the **Related** count and popup, the ✨ AI research verdict, the 🏷 event reviewer classification (*suspicious*, *benign*, *expected*), your 📝 notes and the 👁 times seen. Tables sort and filter like everywhere else.
 - **Repeats are one row (unlike Posture).** A finding's text contains numbers that change every night ("145 conns", "3,983 queries"), so on Posture one condition shows up as a new row in each window. Open events groups:
   - rows that differ only in those numbers (IPs, ports and MACs still tell them apart);
   - host findings of one process on one computer that differ only in the remote side (*N variants*);
@@ -562,33 +561,6 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 ![Ask about this dialog with suggested questions and the Model menu](img/ask-dialog.png)
 *The 💬 dialog: suggested questions, your own question, and the Model menu (admins).*
 
-### Comparing models
-
-The purple **⇄** button asks several models for their opinion on one item, side by side. Admins only.
-
-**Where it appears:**
-
-- baseline findings and host findings (on Posture, device pages and endpoint pages);
-- event research notes (the ✨ popup);
-- correlation decisions on the AI review page.
-
-**How to use it:**
-
-1. Click **⇄**.
-2. Tick up to 4 models. The loaded local model is ticked by default.
-3. Click **Run comparison**.
-
-![Compare dialog: picking models](img/compare-pick.png)
-
-Each model answers with a verdict, a priority, a summary and its reasoning. The results also show the time taken and the tokens used. For items, the models see only the item's data and cannot look anything up. For correlation decisions, each model gets exactly the question the event reviewer gets.
-
-**"Use this"** stores one model's answer:
-
-- for a correlation decision, as the decision;
-- for an event research note, as the note, with the original research kept underneath.
-
-**Earlier comparisons** lists every past comparison for that item.
-
 ![Comparison results from three models side by side](img/compare-results.png)
 *Three models judging the same host finding: verdict, priority, assessment, time and tokens.*
 
@@ -620,7 +592,7 @@ Each model answers with a verdict, a priority, a summary and its reasoning. The 
 | **Event reviewer** | The event reviewer's model, its queue and its throughput: reviews and tokens per minute, and the **average tokens in and out per event review** (last 24 hours; hover for the all-time figure). |
 | **Elasticsearch queries** | The searches the event reviewer (and, in a second box, event research) ran, with when, the event or run, the query, hit count and model. Shown once either has searched. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
-| **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), ask for a new review (↻), or **⇄ compare** models on it. Manual decisions always win and are never overwritten. |
+| **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), or ask for a new review (↻). Manual decisions always win and are never overwritten. |
 
 ![Review job card with the time and tokens chart](img/aireview-research.png)
 
