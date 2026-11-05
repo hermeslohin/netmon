@@ -263,9 +263,8 @@
           sel.disabled = !D.admin;
         };
       }
-      body.appendChild(esQueriesRow(D));
-      body.appendChild(webSearchRow(D));
-      body.appendChild(lookupPlanRow(D));
+      body.appendChild(Object.assign(document.createElement("div"), { className: "small muted",
+        innerHTML: 'How many Elasticsearch and web look-ups the event reviewer may make: <a href="#/aireview?at=ai-lookups">Event reviewer look-ups</a>.' }));
       body.appendChild(esResearchRow(D));
       body.appendChild(chatEsRow(D));
       body.appendChild(notesLimitRow(D));
@@ -274,11 +273,27 @@
     }).catch((e) => { note.textContent = "Model list unavailable: " + e.message; });
     return c;
   }
+  // one card for everything that limits the event reviewer's searching: Elasticsearch + web per event, look-ups first, and what it used
+  function lookupsCard(D) {
+    const E = D.es_queries || {}, W = D.web_queries || {}, es = D.config?.es_queries || {}, web = D.config?.web_search || {};
+    const used = (n, r, pct) => (r ? `${fn(n || 0)} in 24 h · ${pct ?? 0}% of reviews` : `${fn(n || 0)} in 24 h`);
+    const c = card("Event reviewer look-ups", `<div class="small muted" style="margin-bottom:6px">The most searches the event reviewer may run for one event review
+      (the event and its related events). Lower = faster and fewer tokens; higher = more context. Saved settings apply from the next review.</div>
+      ${kpis([["Elasticsearch / event", es.enabled ? fn(es.max) : "off"], ["Web / event", web.enabled ? fn(web.max) : "off"],
+              ["Elasticsearch used", used(E.last_day, E.reviews_day, E.pct_reviews_es_day)], ["Web used", used(W.last_day, W.reviews_day, W.pct_reviews_web_day)],
+              ["Reviews citing a page (24 h)", fn(W.reviews_cited_day || 0)]])}`);
+    c.id = "ai-lookups";
+    const body = document.createElement("div"); body.style.cssText = "display:flex;flex-direction:column;gap:8px;margin-top:8px";
+    body.append(esQueriesRow(D), webSearchRow(D), lookupPlanRow(D));
+    c.appendChild(body);
+    if (!D.admin) c.appendChild(Object.assign(document.createElement("div"), { className: "small muted", textContent: "Only an admin can change these." }));
+    return c;
+  }
   // Elasticsearch look-ups by the event reviewer: on/off + the most it may run for one event review (admin)
   function esQueriesRow(D) {
     const cfg = D.config?.es_queries || { enabled: false, max: 3, limit: 20 };
     const r = document.createElement("div"); r.className = "llm-row";
-    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch queries · correlation review" }));
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Elasticsearch searches · event reviewer" }));
     const lab = r.appendChild(document.createElement("label")); lab.className = "small";
     const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: !!cfg.enabled }));
     lab.append(" event reviewer may search the logs for more context");
@@ -538,7 +553,7 @@
         `${q.start ? ` <span class="muted small">${esc(String(q.start).slice(5, 16))}→${esc(String(q.end || "").slice(5, 16))}</span>` : ""}${q.why ? `<div class="small muted">${esc(q.why)}</div>` : ""}`; };
     const title = R ? "Event research Elasticsearch queries" : "Event reviewer Elasticsearch queries";
     const c = card(`${title} (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
-      `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The event reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch queries</b> in the Models box to let the event reviewer search the logs for more context."}</div>`);
+      `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The event reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch searches</b> in the Event reviewer look-ups box to let the event reviewer search the logs for more context."}</div>`);
     c.id = R ? "ai-es-research" : "ai-es";
     if (!R && E.reviews_day) c.querySelector(".card-title, h3, h2")?.insertAdjacentHTML("afterend", kpis([["Event reviews that searched (24 h)", `${fn(E.reviews_es_day || 0)} of ${fn(E.reviews_day)} <span class="small muted">(${E.pct_reviews_es_day ?? 0}%)</span>`, E.reviews_es_day ? "good" : ""],
       ["Searches / review that searched", E.reviews_es_day ? (E.last_day / E.reviews_es_day).toFixed(1) : "—"], ["Reviews with look-ups-first (24 h)", fn(E.planned_day || 0)], ["Re-reviews reusing earlier look-ups (24 h)", `<span title="an event reviewed again within 6 h gets its earlier search results instead of searching again">${fn(E.memo_day || 0)}</span>`]]));
@@ -560,7 +575,7 @@
       ["Reviews citing a web page (24 h)", fn(W.reviews_cited_day || 0)], ["Pages cited (current classifications)", fn(W.cited_pages || 0)],
       ["Failed look-ups (24 h)", fn(W.errors_day || 0), W.errors_day ? "warn" : ""], ["Answered from cache (24 h)", `<span title="the same search or page within 7 days is answered from the cache instead of Firecrawl">${fn(W.cached_day || 0)}</span>`]])}
       ${W.daily?.length ? `<div class="small muted" style="margin:4px 0">Per day: ${W.daily.map((d) => `${esc(d.day.slice(5))} <b>${fn(d.searches)}</b>${d.errors ? ` (${fn(d.errors)} failed)` : ""}`).join(" · ")}</div>` : ""}
-      ${W.recent.length ? "" : `<div class="small muted">${on ? "The event reviewer has not searched the web yet." : "Off. Turn on <b>Web search · event reviewer</b> in the Models box to let the event reviewer look things up on the web."}</div>`}`);
+      ${W.recent.length ? "" : `<div class="small muted">${on ? "The event reviewer has not searched the web yet." : "Off. Turn on <b>Web search · event reviewer</b> in the Event reviewer look-ups box to let the event reviewer look things up on the web."}</div>`}`);
     c.id = "ai-web";
     const link = (u) => `<a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer" title="${esc(u.url)}">${esc((u.title || u.url).slice(0, 70))}</a>${u.cited ? ' <span class="badge sev-good" style="font-size:10px" title="the reviewer cited this page in its classification">cited</span>' : ""}`;
     if (W.recent.length) c.appendChild(table(null, [
@@ -1279,6 +1294,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     if (D.admin) el.appendChild(providersCard());
     el.appendChild(costCard(D));
     el.appendChild(limitsCard(D));
+    el.appendChild(lookupsCard(D));
     el.appendChild(esCard(D, "reviewer"));
     el.appendChild(webCard(D));
     el.appendChild(esCard(D, "research"));
@@ -1289,8 +1305,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local (LM Studio)")} · <a href="#/aireview?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
-        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aireview?at=ai-models">change</a>`}</span>
-        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aireview?at=ai-models">change</a>`}</span>
+        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aireview?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aireview?at=ai-lookups">change</a>`}</span>
+        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event (<a href="#/aireview?at=ai-lookups">change</a>) · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aireview?at=ai-lookups">change</a>`}</span>
         <span class="k">Event research Elasticsearch</span><span><a href="#/aireview?at=ai-es-research">${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h</a> · ${fn(D.es_queries?.research?.total || 0)} total</span>
         <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""}${st.web_queries_this_run ? `, ${fn(st.web_queries_this_run)} web look-ups` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>

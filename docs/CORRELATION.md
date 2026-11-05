@@ -490,12 +490,13 @@ How a review works with searches on:
    same way to the research notes and links of that batch, shown under **Elasticsearch searches (open in Kibana)** in
    the notes popup.
 
-The AI review page shows the setting under **Models**, the searches made in the current pass, and a
+The AI review page shows the setting in the **Event reviewer look-ups** box (Elasticsearch and web searches per event,
+look-ups first, and how many were used in 24 h), the searches made in the current pass, and a
 **Event reviewer searches** box with the newest 50 (event under review, the search and its *why*, hits, model).
 
 #### Web search (Firecrawl)
 
-**Web search · event reviewer** (AI review → Models, admin, default off, 1–10 look-ups per event review, default 2;
+**Web search · event reviewer** (AI review → **Event reviewer look-ups**, admin, default off, 1–10 look-ups per event review, default 2;
 `llm_config` → `web_search`) lets the event reviewer search the web or read a public page through the backend set under
 Configuration → Integrations → Web search (`webtools.py`; Firecrawl here). It is used during correlation review, the
 event review and classification; model comparisons never search.
@@ -528,7 +529,7 @@ page shows both (re-reviews reusing look-ups; web look-ups answered from cache).
 #### Look-ups first
 
 Models tend to decide in the first round and almost never ask for searches. **Look-ups first · event reviewer**
-(AI review → Models, admin, default on; `llm_config` → `lookup_plan`) adds a planning call before every review that
+(AI review → Event reviewer look-ups, admin, default on; `llm_config` → `lookup_plan`) adds a planning call before every review that
 may search (Elasticsearch and/or web on): a separate STEP 1 prompt whose answer can only be
 `{"queries": [...], "web": [...]}` (`PSCHEMA` for schema providers). The planned look-ups run, then the usual rounds
 follow with the results (more look-ups allowed up to the per-event limits). Costs one extra model call per review
