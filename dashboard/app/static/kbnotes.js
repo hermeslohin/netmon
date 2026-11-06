@@ -237,7 +237,7 @@
     : { v: btn.dataset.extdom, subj: "dom:" + btn.dataset.extdom, what: "domain" });
   // where a new note goes: this exact name / address, or a wider scope that covers it (a parent domain = all its subdomains,
   // a CIDR range = every address in it); the event reviewer and event research read wider-scope notes for every name / address under them
-  const v4 = (ip) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
+  const v4 = (ip) => { const p = String(ip).split("."); return p.length === 4 && p.every((x) => /^\d{1,3}$/.test(x)); };
   const scopes = (v, subj, what) => {
     if (what.startsWith("dns") || what === "domain") {
       const p = v.toLowerCase().replace(/^\*\./, "").split("."), parents = p.slice(1, -1).map((_, i) => p.slice(i + 1).join("."));

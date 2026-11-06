@@ -404,7 +404,7 @@ def test_feed(body):
         url = _clean_feed_url(body.get("url"))
         if not url:
             return {"ok": False, "error": "enter a URL"}
-        req = urllib.request.Request(url, headers={"User-Agent": "netmon/1.0 (home SOC)"})
+        req = urllib.request.Request(url, headers={"User-Agent": "netmon/1.0 (home SOC)"})  # noqa: S310 - _clean_feed_url allows http(s) only
         with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 - admin-entered http(s) URL
             data = r.read(64 * 1024 * 1024)
         n = extras.count_feed(data.decode("utf-8", "replace"), kind)

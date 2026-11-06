@@ -201,7 +201,7 @@
     }
     if (rich && D?.counts) {
       const C = D.counts, tot = (v) => (C.alarms[v] || 0) + (C.detections[v] || 0);
-      const tile = (v) => [`${vLabel[v]}${v === "unreviewed" ? "" : ""}`, `<a href="javascript:void 0" class="vf-kpi" data-v="${v}" title="Show the ${vLabel[v].toLowerCase()} detections">${fn(tot(v))}</a>${C.alarms[v] ? ` <span class="small muted">${C.alarms[v]} alarm${C.alarms[v] === 1 ? "" : "s"}</span>` : ""}`, v === "suspicious" ? "bad" : v === "unreviewed" ? "" : "good"];
+      const tile = (v) => [`${vLabel[v]}${v === "unreviewed" ? "" : ""}`, `<a href="javascript:void 0" class="vf-kpi" data-v="${v}" title="Show the ${vLabel[v].toLowerCase()} detections">${fn(tot(v))}</a>${C.alarms[v] ? ` <span class="small muted">${fn(C.alarms[v])} alarm${C.alarms[v] === 1 ? "" : "s"}</span>` : ""}`, v === "suspicious" ? "bad" : v === "unreviewed" ? "" : "good"];
       el.insertAdjacentHTML("beforeend", kpis(VORD.map(tile)));
       el.querySelectorAll(".vf-kpi").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v; A.jump = true; rerender(); }));
     }

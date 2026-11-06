@@ -432,8 +432,9 @@ def ti_local_read(names=None, c=None):
     """{name: [(value, score, meta)]} for the stored lists (all, or just `names`)."""
     c = c or _dc()
     out = {}
-    q = "SELECT list, value, score, meta FROM ti_local" + (f" WHERE list IN ({','.join('?' * len(names))})" if names else "")
-    for r in c.execute(q, tuple(names or ())):
+    rows = (c.execute("SELECT list, value, score, meta FROM ti_local WHERE list IN (SELECT value FROM json_each(?))", (json.dumps(list(names)),))
+            if names else c.execute("SELECT list, value, score, meta FROM ti_local"))
+    for r in rows:
         out.setdefault(r[0], []).append((r[1], r[2], r[3]))
     return out
 
@@ -448,9 +449,9 @@ def ti_local_clear(names=None, c=None):
     c = c or _dc()
     with tx(c):
         if names:
-            ph = ",".join("?" * len(names))
-            c.execute(f"DELETE FROM ti_local WHERE list IN ({ph})", tuple(names))
-            c.execute(f"DELETE FROM ti_lists WHERE list IN ({ph})", tuple(names))
+            js = json.dumps(list(names))
+            c.execute("DELETE FROM ti_local WHERE list IN (SELECT value FROM json_each(?))", (js,))
+            c.execute("DELETE FROM ti_lists WHERE list IN (SELECT value FROM json_each(?))", (js,))
         else:
             c.execute("DELETE FROM ti_local")
             c.execute("DELETE FROM ti_lists")

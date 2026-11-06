@@ -453,8 +453,8 @@ def web_research(eids, per=12):
         ch = list(eids)
         rows = []
         for i in range(0, len(ch), 500):
-            rows += c.execute(f"SELECT ts, anchor, candidates, model, kind, query, why, results, urls, error, cached FROM web_queries "
-                              f"WHERE anchor IN ({','.join('?' * len(ch[i:i + 500]))}) AND COALESCE(purpose,'') != 'manual-test'", ch[i:i + 500]).fetchall()
+            rows += c.execute("SELECT ts, anchor, candidates, model, kind, query, why, results, urls, error, cached FROM web_queries "
+                              "WHERE anchor IN (SELECT value FROM json_each(?)) AND COALESCE(purpose,'') != 'manual-test'", (json.dumps(ch[i:i + 500]),)).fetchall()
         q = [json.dumps(e) for e in ch]
         for r in c.execute("SELECT ts, anchor, candidates, model, kind, query, why, results, urls, error, cached FROM web_queries "
                            "WHERE ts > ? AND COALESCE(purpose,'') != 'manual-test' AND candidates != '[]'", (time.time() - 31 * 86400,)):

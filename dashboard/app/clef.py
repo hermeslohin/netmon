@@ -11,6 +11,7 @@ Settings live in llm_config (key `clef`), edited on AI pipeline configuration > 
 """
 import json
 import os
+import sys
 import time
 import urllib.request
 
@@ -233,8 +234,8 @@ def _ev(e, when, desc, notes=None):
         ti = intelmatch.lines(e)
         if ti:
             d["threat_intel_hits"] = ti[:5]
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as ex:  # noqa: BLE001 - threat-intel hits are optional context
+        print(f"clef: threat-intel lookup skipped: {ex}", file=sys.stderr)
     if notes:
         d["owner_notes"] = [str(n)[:300] for n in notes[:3]]
     return d

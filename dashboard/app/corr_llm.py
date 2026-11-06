@@ -561,8 +561,8 @@ def _web_cfg(c):
     try:
         import integrations
         prov = (integrations.web() or {}).get("provider") or "duckduckgo"
-    except Exception:  # noqa: BLE001 - the setting still shows without the backend name
-        pass
+    except Exception as ex:  # noqa: BLE001 - the setting still shows without the backend name
+        print(f"web search: provider name unavailable: {ex}", file=sys.stderr)
     return {"enabled": bool(w.get("enabled")), "max": mx, "limit": WEB_MAX_LIMIT, "provider": prov, "by": w.get("by"), "at": w.get("at")}
 
 
@@ -2045,9 +2045,9 @@ def classes(eids):
     with _db() as c:
         for i in range(0, len(eids), 500):
             ch = eids[i:i + 500]
-            for e, lab, conf, why, m, ts in c.execute(f"SELECT eid, label, confidence, reason, model, ts FROM event_class WHERE eid IN ({','.join('?' * len(ch))})", ch):
+            for e, lab, conf, why, m, ts in c.execute("SELECT eid, label, confidence, reason, model, ts FROM event_class WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(ch),)):
                 out[e] = {"label": lab, "confidence": conf, "reason": why, "model": m, "at": ts}
-            for e, u, t, w in c.execute(f"SELECT eid, url, title, wid FROM event_sources WHERE eid IN ({','.join('?' * len(ch))}) ORDER BY rowid", ch):
+            for e, u, t, w in c.execute("SELECT eid, url, title, wid FROM event_sources WHERE eid IN (SELECT value FROM json_each(?)) ORDER BY rowid", (json.dumps(ch),)):
                 if e in out:
                     out[e].setdefault("sources", []).append({"url": u, "title": t, "id": w or ""})
     return out
@@ -2883,7 +2883,7 @@ def web_overview(events, limit=50):
         cited_pages = c.execute("SELECT COUNT(*) FROM event_sources").fetchone()[0]
         rows = c.execute("SELECT ts, anchor, model, kind, query, why, results, urls, seconds, error, purpose FROM web_queries ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
         cited = {}
-        for e, u in c.execute(f"SELECT eid, url FROM event_sources WHERE eid IN ({','.join('?' * len({r[1] for r in rows}))})", list({r[1] for r in rows})) if rows else []:
+        for e, u in c.execute("SELECT eid, url FROM event_sources WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(sorted({r[1] for r in rows if r[1] is not None})),)) if rows else []:
             cited.setdefault(e, set()).add(u)
     recent = []
     for ts, a, m, kind, q, why, nres, urls, s, err, purp in rows:

@@ -132,7 +132,7 @@ function hfToRow(key, text, members) {
   return ["hnet-in", "authfail", "login-new"].includes(p[0]) ? `${hostLink(p[1])}<span class="mono">${(String(p[2] || "").match(/:\d+$/) || [""])[0]}</span> <span class="muted small">from</span> ${list}` : list;
 }
 const hfToCol = (keyOf, textOf) => ({ k: "hf_to", t: "To", fmt: (v, x) => hfToRow(keyOf(x), textOf(x), x.members) || "—",
-  sort: (x) => { const d = document.createElement("div"); d.innerHTML = hfToRow(keyOf(x), textOf(x), x.members); return d.textContent || "~"; } });
+  sort: (x) => new DOMParser().parseFromString(hfToRow(keyOf(x), textOf(x), x.members), "text/html").body.textContent || "~" });
 const hfHostCol = (keyOf) => ({ k: "hf_host", t: "Host", fmt: (v, x) => { const h = hfHost(keyOf(x)); return h ? hostLink(h) : "—"; }, sort: (x) => hfHost(keyOf(x)).toLowerCase() || "~" });
 const hostLink = (h) => `<a href="#/endpoint/${encodeURIComponent(h)}">${esc(h)}</a>`;
 const DOM_RE = /\b((?:[a-z0-9-]+\.)+(?:com|net|org|io|ru|cn|xyz|top|info|biz|us|co|me|app|dev|cloud|online|site))\b/gi;
@@ -385,7 +385,7 @@ const findHostIp = (f) => {
 };
 // Device column of a finding: its name (device registry by MAC, the finding's own name, inventory / DHCP / endpoint name
 // by IP); the MAC (or IP) is shown only when no name is known, otherwise it is in the tooltip. Links to the device page.
-const isMac = (s) => /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i.test(String(s || ""));
+const isMac = (s) => { const p = String(s || "").split(":"); return p.length === 6 && p.every((x) => /^[0-9a-f]{2}$/i.test(x)); };
 function devNameFor(key, ip, fname) {
   const k = String(key || "").toLowerCase(), reg = S.reg?.devices_seen || {};
   const ok = (n) => (n && String(n).toLowerCase() !== k && !isMac(n) ? String(n) : "");

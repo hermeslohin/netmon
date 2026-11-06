@@ -147,6 +147,19 @@ class TestIndicators(unittest.TestCase):
         self.assertEqual(extras.local_lists(), {})
         self.assertFalse(any(n.startswith("opencti_") for n in os.listdir(self.tmp)))
 
+    def test_list_names_are_bound_not_spliced(self):
+        """Reading or clearing named lists binds the names as data (json_each), so a hostile name cannot change the SQL.
+        REQ: OCTI-02
+        """
+        store.ti_local_write({"a": ("ips", [("1.2.3.4", 90, "")]), "b": ("hosts", [("x.example", 60, "")])})
+        evil = "a') OR 1=1 --"
+        self.assertEqual(store.ti_local_read([evil]), {})
+        self.assertEqual(store.ti_local_read(["a"]), {"a": [("1.2.3.4", 90, "")]})
+        store.ti_local_clear([evil])
+        self.assertEqual(set(store.ti_local_status()), {"a", "b"})
+        store.ti_local_clear(["a"])
+        self.assertEqual(set(store.ti_local_status()), {"b"})
+
     def test_lists_live_in_sqlite(self):
         """The OpenCTI lists are rows in the store (table ti_local), never files; a pull drops pre-SQLite files.
         REQ: OCTI-02

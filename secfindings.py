@@ -94,7 +94,7 @@ def parse(d=SCAN):
         add(f"hadolint|{x['code']}", "hadolint", "low", f"{x['code']}: {x['message']}", "dashboard/Dockerfile")
     for p in glob.glob(f"{d}/gl_*.json"):
         for x in L(p, []) or []:
-            kname = re.split(r"[:=\s]", (x.get("Match") or "").strip(), 1)[0][:60]  # key name, stable when lines move
+            kname = re.split(r"[:=\s]", (x.get("Match") or "").strip(), maxsplit=1)[0][:60]  # key name, stable when lines move
             add(f"gitleaks|{x['File'].replace('/scan/', '')}|{x['RuleID']}|{kname or _h(x.get('Match'))}", "gitleaks", "high",
                 f"Possible secret ({x['RuleID']}) in {x['File'].replace('/scan/', '')}", f"{x['File'].replace('/scan/', '')}:{x['StartLine']}",
                 "Move the secret out of the file (env/600-permission store) and rotate it.")
