@@ -28,8 +28,8 @@ def _classify(eid, label, model="test-model"):
 
 def _clear_ai():
     with corr_llm._db() as c:
-        for t in ("web_queries", "event_class", "event_sources", "clef_event"):
-            c.execute(f"DELETE FROM {t}")
+        for q in ("DELETE FROM web_queries", "DELETE FROM event_class", "DELETE FROM event_sources", "DELETE FROM clef_event"):
+            c.execute(q)
 
 
 class AlertRefVerdictTest(unittest.TestCase):

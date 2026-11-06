@@ -78,10 +78,12 @@ def setUpModule():
     for path, body in (("/api/config/integrations/elasticsearch", {"url": ES_URL, "api_key": fake_key("es00")}),
                        ("/api/config/integrations/audit", {"api_key": fake_key("au00")})):
         code, b, _ = a.post(path, body)
-        assert code == 200, (path, code, b)
+        if code != 200:
+            raise AssertionError((path, code, b))
     for name, role in ((DEFENDER, "defender"), (USER, "user")):
         code, body, _ = a.post("/api/users", {"action": "add", "username": name, "password": PW, "role": role})
-        assert code == 200, (name, code, body)
+        if code != 200:
+            raise AssertionError((name, code, body))
 
 
 def tearDownModule():
@@ -109,7 +111,8 @@ def provider():
         key = fake_key("pv01")
         code, body, _ = admin().post("/api/llm/providers", {"action": "save", "type": "openai", "name": "E2E settings provider",
                                                             "api_key": key, "models": ["e2e-model-a", "e2e-model-b"]})
-        assert code == 200, body
+        if code != 200:
+            raise AssertionError(body)
         PROVIDER.update(id=body["provider"]["id"], provider=body["provider"]["provider"], model="e2e-model-a", key=key)
     return PROVIDER
 
@@ -144,7 +147,8 @@ def is_post(r, path, user=harness.ADMIN_USER, outcome="success"):
 
 def aireview(c=None):
     code, body, _ = (c or admin()).get("/api/aireview")
-    assert code == 200, body
+    if code != 200:
+        raise AssertionError(body)
     return body
 
 
