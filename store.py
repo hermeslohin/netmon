@@ -801,7 +801,9 @@ def alerts_recent(limit=100, c=None, cleared=False, suppressed=False):
     c = c or _dc()
     if suppressed and not cleared:
         return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE (cleared=0 OR cleared_rule<0) AND source!='review' ORDER BY id DESC LIMIT ?", (limit,))]
-    return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=? AND held=0 ORDER BY id DESC LIMIT ?", (1 if cleared else 0, limit))]
+    if cleared:  # cleared by a mute rule only: suppressed alerts (cleared_rule < 0) belong to their suppress rule, not this view
+        return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=1 AND held=0 AND cleared_rule>=0 ORDER BY id DESC LIMIT ?", (limit,))]
+    return [_arow(r) for r in c.execute("SELECT * FROM alerts WHERE cleared=0 AND held=0 ORDER BY id DESC LIMIT ?", (limit,))]
 
 
 def alerts_promote(ids, c=None):

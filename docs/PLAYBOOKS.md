@@ -231,7 +231,8 @@ Lateral movement is an attacker (or a compromised credential) moving from one in
 
 **Where**
 
-- **Network → Lateral movement**: the host-to-host graph, zone-to-zone, and the **Admin access** list.
+- **Network → Lateral movement**: the host-to-host graph and the **Admin access** list.
+- **Network → Traffic map**: the zone-to-zone matrix.
 - **Posture → Segmentation violations**: flows the zone policy does not allow.
 - **Devices → Endpoints**: logins, sudo, and processes on each host.
 - **Network → Users**: the account behind it.
@@ -244,11 +245,11 @@ Lateral movement is an attacker (or a compromised credential) moving from one in
 2. **Failed then successful.** Three or more failed logins followed by a success on the same account is a guessed or stuffed credential and is marked high. Ten or more failures, or three invalid user names, is high on its own.
 3. **Fan-out.** One source reaching *many* internal hosts on an admin port in a short time is a sweep. Use the graph: a star pattern around a single node is an attacker pivot or a scanner. A line of hosts (A→B, then B→C) is a pivot chain.
 4. **Pivot chains.** If host B received an admin login from A at 02:10 and B then started admin sessions to C at 02:25, treat A, B and C as possibly one intrusion. Widen the time range and check B's processes between those times.
-5. **Check the zone crossing.** Zone-to-zone matrix: hover a cell for the top ports. IoT → servers, guest → main, DMZ → LAN are the crossings that matter. A DMZ host initiating into the LAN is the classic outcome of a compromised internet-facing server.
+5. **Check the zone crossing.** Traffic map → Zone-to-zone matrix: hover a cell for the top ports. IoT → servers, guest → main, DMZ → LAN are the crossings that matter. A DMZ host initiating into the LAN is the classic outcome of a compromised internet-facing server.
 6. **Check the endpoint at the destination.** Endpoints → host → logins (accepted from which source IP, which account, which method), sudo use, new users or groups, new listening ports, new scheduled tasks or services. A PsExec-style service creation or a remote-exec tool on the target is strong evidence.
 7. **Check the account.** Network → Users → the account page: normal hosts, normal sources, active hours. Is this the usual source and hour? Is a privileged account being used somewhere it never was before?
 8. **Use several time periods.** On Lateral movement, **+ Add period** (up to 8) to compare the incident day with several normal days in one view. Connection and login counts add up and each link keeps its worst risk; a link present only in the incident period stands out.
-9. **Related events.** Open Related on the admin session to find linked processes, files and DNS names.
+9. **Related events.** Find the admin session's finding or alert on Open events or Posture and open its **Related** count for linked processes, files and DNS names.
 10. **Decide.** Expected (a documented admin path): click the green **Clear** on the flow and add a 📝 note; for a permanent exception have the admin add an `allow` rule in the network policy (**More → Settings**). Not expected: contain the source, reset the account credentials and look at what the account did on each host.
 
 **Direction caveat.** Check `connection.state` before blaming the source. Flipped-direction records can make a server reply look like it initiated the session.

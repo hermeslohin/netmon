@@ -1333,7 +1333,11 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/alerts/mutes":  # remove a saved mute rule: its cleared alerts return to the feed
                 if body.get("action") != "remove":
                     return self._json({"error": "action must be remove"}, 400)
-                lk, n = store.mute_remove(int(body.get("id") or 0))
+                try:
+                    mid = int(body.get("id") or 0)
+                except (TypeError, ValueError):
+                    return self._json({"error": "id must be a mute rule number"}, 400)
+                lk, n = store.mute_remove(mid)
                 if lk is None:
                     return self._json({"error": "no such mute rule"}, 404)
                 try:
@@ -1758,7 +1762,9 @@ class H(BaseHTTPRequestHandler):
                     try:
                         per = [x.split("~") for x in (q.get("p") or [""])[0].split(",")]
                         raw_p, an_p = lateral_periods([(x[0], x[1]) for x in per])
-                    except (ValueError, IndexError) as ex:
+                    except IndexError:
+                        return self._json({"error": "each period needs a start and end: p=<start>~<end>[,<start>~<end>...]"}, 400)
+                    except ValueError as ex:
                         return self._json({"error": str(ex) or "bad periods"}, 400)
                     s_ = snapshots()  # host risk scores come from the newest nightly snapshot
                     base = snapshot(s_[-1]["id"]) if s_ else None
@@ -1920,7 +1926,10 @@ class H(BaseHTTPRequestHandler):
                 cnt = store.mute_counts()
                 return self._json({"mutes": [{**m, "cleared": cnt.get(m["id"], 0)} for m in store.mute_list()]})
             if path == "/api/alerts":
-                lim = max(1, min(int((q.get("limit") or ["100"])[0]), 2000))
+                try:
+                    lim = max(1, min(int((q.get("limit") or ["100"])[0]), 2000))
+                except ValueError:
+                    return self._json({"error": "limit must be a whole number (1-2000)"}, 400)
                 ids = watch_ids(user, role)
                 if role == "user":  # only their devices' alerts ever leave the server; private read marker
                     upto = auth.read_upto(user)

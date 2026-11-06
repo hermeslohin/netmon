@@ -129,28 +129,30 @@ Tables with many rows (baseline findings, host findings, IDS signatures, Zeek we
 
 ## 4. Notifications and alerts
 
-The 15-minute watcher raises an **urgent alert** for things such as:
+The 15-minute watcher records a **detection** for things such as:
 
 - a device that has never been seen before;
-- a high-severity IDS hit;
+- a severity-1 IDS hit, or an IDS hit in a malware, command-and-control, exploit, privilege-gain or coin-mining category at any severity (signatures on the known-benign list are skipped);
 - a threat-intelligence match (a connection to or from a known-bad address);
 - a new port open to the internet;
 - DNS tunnelling;
 - failed admin logins;
 - a serious problem on a computer, such as an agent going offline or a suspicious process.
 
+Detections are not pushed on their own: they appear under **Detections by verdict**, and only those the review finds suspicious at medium or high severity are promoted to **Recent alerts** (bell, push). The watcher mutes a repeat of the same detection for 12 hours.
+
 ### Getting push notifications
 
 1. Open **Alerts**.
 2. Under **Notifications on this device**, tap **Enable** and allow notifications when the browser asks.
    - **iPhone and iPad:** first add the dashboard to the home screen (**Share → Add to Home Screen**), open netmon from that icon, then tap Enable.
-3. Under **Which devices alert me**, choose **All devices** or pick only the devices you care about (for example your own laptop and phone), then **Save**.
+3. Under **Which devices alert me**, choose **All devices** or pick only the devices you care about (for example your own laptop and phone), then **Save**. Users see **Your devices** instead: a read-only list an admin assigns on the Users page.
 
 Push is set up per browser or phone, so do it on each one you use. The device choice belongs to your account.
 
 ### Reading alerts
 
-**Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter. Each alert has a **Related** count that links to the network and endpoint events around it.
+**Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter: for admins and network defenders it marks every alert read for everyone, for a User only for themselves. Admins and defenders also see **Verdict**, **Research**, **Notes** and **Artifact notes** columns; click a row to open the event with its related events. Users see When, Level and Alert.
 
 **Noisy alerts (admins and network defenders).** Use 🚫 **suppress** on an alert (the same dialog as for findings): alerts like it are hidden from the feed and stop appearing, but still go through correlation, research and review. Suppress rules are listed and removed under More → Checked → Suppressed. Alert *mute* rules from earlier versions are still applied (a matching alert is stored already **cleared**: no push or chat message, not unread, not sent to the AI) and are listed in the **Alert mute rules** card on the Alerts page; **show cleared (N)** lists what they cleared and **Remove rule** deletes a rule and brings its alerts back. New mute rules can no longer be created.
 
@@ -380,7 +382,7 @@ Misconfigurations and security suggestions from all snapshots, such as SSH passw
 
 ### Network → Network map
 
-Every internal host in its zone behind the gateway. Click a host for details.
+Every internal host in its zone behind the gateway, including hosts known from the device registry, DHCP or UniFi but not seen in the time range (greyed; **show hosts not seen in this time range** hides them). Gateway (.1), network (.0) and broadcast (.255) addresses are not drawn. **Colour by** switches between risk, device class and activity; the search box dims non-matching hosts. Click a host for details, or the gateway for its health and every zone interface. With no zones and no hosts yet (fresh install) only the gateway is shown, with a hint to add zones in Settings.
 
 ![Network map](img/network-map.png)
 
@@ -388,8 +390,10 @@ Every internal host in its zone behind the gateway. Click a host for details.
 
 Host-to-host connections inside the network, compared against the zone policy.
 
-- **Admin access:** lists every admin session (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC, Docker, Kubernetes, remote-support tools) with its successful and failed logins.
+- **Graph:** internal hosts and the links between them, coloured by level (high, medium, low, allowed-admin, normal). **Show** picks risky, high + medium, risky + allowed or all links; **gateway interfaces** and **labels** switch those on or off; the **Focus** list (worst host risk first) centres one host. Click a link or host for its details panel (ports, levels with a legend, admin sessions); each port has a **Clear** box to mark that flow as expected. Internet addresses are never drawn: logins from the internet stay in the Admin access table.
+- **Admin access:** lists every admin session (SSH, RDP, PsExec/SMB, WMI, WinRM, VNC, Docker, Kubernetes, remote-support tools) with its successful and failed logins. Check a session off once reviewed; **Checked admin sessions** lists them (uncheck to move one back).
 - **Failed logins** raise host risk and alert the watcher.
+- **Cleared segmentation** lists the flows you cleared; uncheck one to bring it back.
 
 ![Lateral movement map](img/lateral-movement.png)
 
@@ -404,9 +408,10 @@ Host-to-host connections inside the network, compared against the zone policy.
 
 ### Network → Traffic map
 
-- **Traffic:** top talkers, internet upload by device, traffic by country and ASN, protocols.
-- **Zone-to-zone matrix:** hover a cell for the top ports.
-- **UniFi firewall flows and blocks**, and trends across snapshots.
+- **Traffic:** top talkers, internet upload by device (top 15), top countries and ASNs with full **All ASNs** / **All countries** tables, protocols.
+- **Zone-to-zone matrix:** hover a cell for the top ports. **Internal flows** lists the top 100 internal flows by connections.
+- **Gateway (UniFi):** client and flow tiles, gateway health, blocks by policy, clients by network, top blocked clients, region blocks and risky flows. Left out when the snapshot has no UniFi data. Old `#/unifi` links open this section.
+- **Host trends across snapshots:** from the banked 24-hour history, using the snapshots inside the time range when there are at least two, otherwise all of them. Old `#/history` links open this section.
 
 ### Network → Users
 

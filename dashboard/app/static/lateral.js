@@ -287,8 +287,8 @@ function lmAdminSection(el, D) {
   const lst = card(`Admin sessions (${aOpen.length} open${aDone.length ? ` · ${aDone.length} checked` : ""})`, aOpen.length ? table(null, admCols(), aOpen, admOpts())
     : `<div class="empty">${A.length ? "All admin sessions checked off." : "No admin sessions in this time range."}</div>`);
   lst.id = "admin-list"; lst.dataset.open = "1"; el.appendChild(lst);
-  if (aDone.length) { const chk = card(`Checked admin sessions (${aDone.length})`, `<div class="sub small">Sessions you've reviewed and checked off. They stay checked on later snapshots (same source, target and protocol); uncheck one to move it back to the open list.</div>`
-    + table(null, [...admCols().slice(0, 1), { k: "_at", t: "Checked", fmt: (v, a) => ft(ackInfo("admin", a)?.at), sort: (a) => ackInfo("admin", a)?.at || "" }, ...admCols().slice(1)], aDone, { ...admOpts(), rowClass: ackRowCls("admin") }));
+  if (aDone.length) { const chk = card(`Checked admin sessions (${aDone.length})`, `<div class="sub small">Sessions you've reviewed and checked off. They stay checked on later snapshots (same source, target and protocol); uncheck one to move it back to the open list.</div>`);
+    chk.appendChild(table(null, [...admCols().slice(0, 1), { k: "_at", t: "Checked", fmt: (v, a) => ft(ackInfo("admin", a)?.at), sort: (a) => ackInfo("admin", a)?.at || "" }, ...admCols().slice(1)], aDone, { ...admOpts(), rowClass: ackRowCls("admin") }));
     chk.id = "admin-checked"; el.appendChild(chk); }
   const tools = A.flatMap((a) => a.tools.map((t) => ({ ...t, src: a.src, dst: a.dst, protocol: a.protocol })));
   const at = hq().get("at"); if (at === "admin" || at === "admin-list") setTimeout(() => document.getElementById(at)?.scrollIntoView({ block: "start" }), 50);

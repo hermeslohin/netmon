@@ -173,7 +173,7 @@
           { k: "cleared", t: "Cleared", num: true },
           { k: "id", t: "", fmt: (v) => `<button type="button" class="mute-rm" data-id="${esc(v)}">Remove rule</button>` }], mutes, { sort: "at", search: false })
         : null);
-      if (mt) mc.appendChild(mt); else mc.insertAdjacentHTML("beforeend", `<div class="empty">No mute rules yet. Use <b>mute name…</b> on an alert to create one.</div>`);
+      if (mt) mc.appendChild(mt); else mc.insertAdjacentHTML("beforeend", `<div class="empty">No mute rules left. New mute rules can no longer be created: use 🚫 suppress on an alert instead.</div>`);
       mc.addEventListener("click", async (e) => { const b = e.target.closest(".mute-rm"); if (!b) return;
         if (!confirm("Remove this mute rule? The alerts it cleared come back into the feed and new matching alerts are no longer cleared.")) return;
         b.disabled = true; try { await apiPost("/api/alerts/mutes", { action: "remove", id: +b.dataset.id }); S.corr = null; poll(); rerender(); } catch (er) { b.disabled = false; alert(er.message); } });

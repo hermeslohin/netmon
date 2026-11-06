@@ -257,7 +257,7 @@ severities ([CORRELATION.md](CORRELATION.md)).
 
 Each internal host-to-host edge on the Lateral movement page takes the worst level of its ports and admin
 sessions. Port levels come from policy violations (their port-based severity, above), ≥ 5 unanswered attempts at a sensitive
-port (medium), being part of an internal scan (medium), or an answered sensitive port that isn't allowed (low).
+port (medium), an unanswered TCP attempt from an internal scanner to a non-gateway host (medium), or an answered sensitive port that isn't allowed (low).
 A flow whose segmentation finding a person cleared is shown as *allowed-admin*.
 The edge is then scored for sorting and line weight:
 

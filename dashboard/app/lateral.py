@@ -161,7 +161,7 @@ def build(raw, analysis, policy, risk_result, known_benign=None):
     admin = admin_sessions(raw, pol)
     for a in admin:
         s, t = a["src"], a["dst"]
-        if not internal(t):
+        if not (internal(s) and internal(t)):  # the graph is internal-only: logins from the internet stay in the Admin access table
             continue
         e = edges.setdefault((s, t), {"src": s, "dst": t, "src_zone": a["src_zone"], "dst_zone": a["dst_zone"],
                                       "conns": 0, "answered": 0, "bytes": 0.0, "ports": [], "level": "normal"})
