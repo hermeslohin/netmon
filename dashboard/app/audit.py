@@ -66,7 +66,7 @@ def _cut(s, n=MAX_TEXT):
     return s if len(s) <= n else s[:n] + f"\n… [truncated, {len(s)} chars]"
 
 
-ACTORS = {"netmon (event reviewer)": "reviewer", "netmon (background reviewer)": "reviewer", "netmon (review job)": "reviewer", "netmon (event research)": "researcher",
+ACTORS = {"netmon (event reviewer)": "reviewer", "netmon (review log)": "reviewer", "netmon (background reviewer)": "reviewer", "netmon (review job)": "reviewer", "netmon (event research)": "researcher",
           "netmon (research job)": "researcher"}  # last one: entries spooled before the review / research split
 
 

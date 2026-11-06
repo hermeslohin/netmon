@@ -47,7 +47,7 @@
       ${St.rejected ? `<div style="margin-top:6px"><span class="badge sev-high">${fn(St.rejected)} rejected</span> <span class="muted">${esc(St.last_reject || "")}</span></div>` : ""}
       <div class="muted" style="margin-top:6px">API key: ${St.key_set ? `set <span class="mono">${esc(I?.key_hint || "")}</span>` : "<b>not set</b>"} — it only needs <span class="mono">create_doc</span> and <span class="mono">read</span> on this index, so the dashboard can add and read audit entries but never change or delete them.</div></div>
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
-        <label><input type="checkbox" id="au-rev"${I?.send_reviewer !== false ? " checked" : ""}> Send event reviewer events</label>
+        <label><input type="checkbox" id="au-rev"${I?.send_reviewer !== false ? " checked" : ""}> Send event reviewer events (incl. review log)</label>
         <label><input type="checkbox" id="au-res"${I?.send_researcher !== false ? " checked" : ""}> Send researcher events</label>
         <span class="muted small">Each switch stops (or resumes) that AI's entries going to Elasticsearch. Takes effect at once; nothing is queued while off.</span> <span id="au-sw" class="small"></span></div>
       <details style="margin-top:8px"><summary>Change the audit key or index</summary>

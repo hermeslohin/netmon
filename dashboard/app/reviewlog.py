@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 RING = collections.deque(maxlen=300)
 _lock = threading.Lock()
-ACTOR = "netmon (review log)"  # not an event reviewer/researcher actor: always sent, independent of those audit switches
+ACTOR = "netmon (review log)"  # counts as the event reviewer (audit.ACTORS): not sent while "Send event reviewer events" is off
 
 
 def _iso(t):
@@ -78,15 +78,26 @@ def job_runs(state):
 def view(hours=24):
     """Card data: entries from Elasticsearch (else the in-memory ring) plus totals per kind."""
     src, rows, total, err = "elasticsearch", [], 0, ""
-    try:
-        import audit
-        rows, total = audit.review_entries(hours)
-    except Exception as e:  # noqa: BLE001
-        err = str(getattr(e, "reason", e))[:200]
+
+    def ring(label):
         cut = time.time() - hours * 3600
         with _lock:
-            rows = [d for d in RING if datetime.fromisoformat(d["@timestamp"].replace("Z", "+00:00")).timestamp() >= cut]
-        src, total = "memory (Elasticsearch unavailable)", len(rows)
+            r = [d for d in RING if datetime.fromisoformat(d["@timestamp"].replace("Z", "+00:00")).timestamp() >= cut]
+        return r, label, len(r)
+    try:
+        import integrations
+        off = not integrations.audit_send("reviewer")
+    except Exception:  # noqa: BLE001
+        off = False
+    if off:  # audit sending switched off: nothing new reaches Elasticsearch, show this process's own entries
+        rows, src, total = ring("memory (audit log sending off)")
+    else:
+        try:
+            import audit
+            rows, total = audit.review_entries(hours)
+        except Exception as e:  # noqa: BLE001
+            err = str(getattr(e, "reason", e))[:200]
+            rows, src, total = ring("memory (Elasticsearch unavailable)")
     out = []
     for d in rows:
         R, ev = (d.get("netmon") or {}).get("review") or {}, d.get("event") or {}

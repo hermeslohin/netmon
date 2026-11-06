@@ -19,6 +19,20 @@ class ReviewLogTest(unittest.TestCase):
     def tearDown(self):
         audit.emit = self._emit
 
+    def test_review_log_follows_reviewer_switch(self):
+        """The review log counts as the event reviewer: dropped while "Send event reviewer events" is off,
+        and the Review log card then shows the in-memory entries.
+        REQ: AUD-04"""
+        import integrations
+        from unittest import mock
+        audit.emit = self._emit
+        with mock.patch.object(integrations, "audit_send", lambda who: who != "reviewer"), mock.patch.object(audit._q, "put_nowait") as put:
+            reviewlog.correlation_pass(time.time() - 1, time.time(), {"decided_this_run": 2, "events_this_run": 2}, 2)
+            put.assert_not_called()
+            v = reviewlog.view(24)
+        self.assertTrue(v["source"].startswith("memory (audit log sending off)"))
+        self.assertEqual(v["total"], 1)
+
     def test_daily_index_name(self):
         """Every entry is written to <base>-YYYY.MM.DD of its own @timestamp (UTC), so retention can drop whole days;
         reads cover the daily indices and the older single index.
