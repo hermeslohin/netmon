@@ -135,7 +135,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
 2. **Analyze.** `analyze.py` compares the snapshot against each device's baseline (`host_baseline`, `history`),
    runs the deterministic issue checks (`issues.py`), risk scoring (`risk.py`), ATT&CK mapping (`mitre.py`) and
    threat-intel matching (`extras.py`, `intelmatch.py`).
-3. **Suppress.** Never-send rules, checked-off items and known-benign patterns (`suppress.py`) hide matching events.
+3. **Suppress.** Suppress rules, checked-off items and known-benign patterns (`suppress.py`) hide matching events.
 4. **Correlate.** `correlate.py` proposes links between events (shared hosts, IPs, accounts, time, ATT&CK, same
    problem). The decision model answers one yes/no question per link; the event reviewer model then labels each
    event suspicious, benign or expected and writes one reason paragraph per event plus link artifacts. Verdicts live in `corr_llm.db`.

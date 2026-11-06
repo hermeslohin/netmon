@@ -43,7 +43,7 @@ the dashboard's in-memory copy when Elasticsearch is unreachable).
 | `kb.event`, `kb.host` (`.add`, `.delete`, `.approve`, `.reject`) | 📝 event notes and host notes, and approving User notes. |
 | `aireview.*` | Confirming/rejecting AI correlation verdicts, **Clear review queue** / **Clear event queue** (`aireview.clear-review`, `aireview.clear-queue`). |
 | `aireview.esquery` | Each Elasticsearch look-up the event reviewer ran (user `netmon (event reviewer)`, category `database`): the structured query, hit count and error. Written by the app, not by a person. |
-| `llm.review-limits` | Changes on AI pipeline configuration → Review limits: link-type modes, time window, max links per event, never-send events and rules (including **mute** on an alert, which also deletes the alerts that already fired), verdict retention, event classification on/off. The entry's parameters show the new values. |
+| `llm.review-limits` | Changes on AI pipeline configuration → Review limits: link-type modes, time window, max links per event, verdict retention, event classification on/off, and suppress rules (IDS signature, segmentation, finding / alert). Removing a legacy alert mute rule is `alerts.mutes`. The entry's parameters show the new values. |
 | `research.request` | **Send to research** on an event. |
 | `chat.new`, `chat.send`, `chat.history`, `chat.delete` | Ask AI: new chat, message, opening an old chat, deleting one (the AI conversation itself is a separate `netmon.llm` entry). |
 | `users.*` | Adding and deleting users, password resets, role changes, device assignment. Console changes (`docker exec ... server.py add-user / set-role / set-password`) are logged as user `console`. |

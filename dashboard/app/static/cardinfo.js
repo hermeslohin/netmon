@@ -172,7 +172,7 @@ window.CARD_INFO = {
 },
 "checked|Cleared segmentation": {
 "source": "Your check-offs, saved in the netmon SQLite store on the dashboard host, matched against the violations analyze.py found using the zone rules in the network policy (Settings → Settings (policy & site)).",
-"use": "Cleared flows are hidden from Posture, Fix list, Risk and correlation. Uncheck one to bring it back. To make an exception permanent for everyone and the nightly analysis, add it to the network policy (Settings → Settings (policy & site)) instead.",
+"use": "Cleared flows are hidden from Posture, Risk and correlation. Uncheck one to bring it back. To make an exception permanent for everyone and the nightly analysis, add it to the network policy (Settings → Settings (policy & site)) instead.",
 "what": "Network segmentation violations (traffic between zones that policy says should not happen) that you marked as expected, with why they were flagged and whether they still occur."
 },
 "devices|All hosts": {
@@ -582,7 +582,7 @@ window.CARD_INFO = {
 },
 "issues|Cleared segmentation": {
 "source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (the network policy (Settings → Settings (policy & site))).",
-"use": "Cleared flows are hidden from Posture, Fix list and Risk and shown as allowed on Lateral movement. Uncheck to bring one back. To make it permanent for everyone, add it to the allow list in the network policy (Settings → Settings (policy & site)).",
+"use": "Cleared flows are hidden from Posture and Risk and shown as allowed on Lateral movement. Uncheck to bring one back. To make it permanent for everyone, add it to the allow list in the network policy (Settings → Settings (policy & site)).",
 "what": "Segmentation-policy flows you marked as expected, with why they were flagged, whether they were seen in this snapshot, and when you cleared them."
 },
 "issues|Fixed": {
@@ -627,7 +627,7 @@ window.CARD_INFO = {
 },
 "lateral|Cleared segmentation": {
 "source": "Your check-offs stored in the dashboard database, compared with this snapshot's segmentation violations from analyze.py (the network policy (Settings → Settings (policy & site))).",
-"use": "These show as allowed on Lateral movement and are hidden from Posture, Fix list and Risk. Uncheck to bring one back; add it to the allow list in the network policy (Settings → Settings (policy & site)) to make it permanent.",
+"use": "These show as allowed on Lateral movement and are hidden from Posture and Risk. Uncheck to bring one back; add it to the allow list in the network policy (Settings → Settings (policy & site)) to make it permanent.",
 "what": "Segmentation-policy flows you marked as expected, with why they were flagged, whether they were seen in this snapshot, and when you cleared them."
 },
 "lateral|Connections shown": {
@@ -729,11 +729,6 @@ window.CARD_INFO = {
 "source": "Zeek conn logs from Security Onion, last 24 h. RITA-style scoring of up to 400 pairs with 36+ connections on timing and size regularity and hour coverage; listed when score is 0.75 or more and active 40% of the window. STUN traffic is excluded.",
 "use": "Most beacons are updates, telemetry or push services. Worry about raw IPs with no name, unusual ports, new domains or threat-listed destinations. Use 💬 Ask AI or Kibana to check.",
 "what": "Connections from an internal device to the same destination and port that repeat on a regular timer, with interval, jitter, hours active and score."
-},
-"security|Cleared segmentation": {
-"source": "Your Clear check-offs, stored in the dashboard's SQLite database, matched against this snapshot's segmentation violations from analyze.py and the network policy (Settings → Settings (policy & site)).",
-"use": "Cleared flows are hidden from Posture, Fix list and Risk and stay cleared. Uncheck one to bring it back. For a permanent rule for everyone, add an allow entry to the network policy (Settings → Settings (policy & site)).",
-"what": "Internal flows you marked as expected from Segmentation violations, with why they were flagged and whether they still occur in this snapshot."
 },
 "security|DNS-tunnel scoring": {
 "source": "Zeek DNS logs from Security Onion, last 24 h: top 60 domains by distinct subdomains (15 or more), scored on subdomain count and length, randomness, uniqueness, odd record types and few sources. Score 5+ with 150+ subdomains is suspect; 3+ is watch.",
@@ -1026,7 +1021,7 @@ window.CARD_INFO = {
 "what": "The devices you get alerts and notifications for (read-only for the User role)."
 },
 "alerts|Alert mute rules": {
-"source": "Mute rules created with 'mute name…' on an alert (admins and defenders).",
+"source": "Alert mute rules saved by earlier versions (new alerts are suppressed with 🚫 instead).",
 "use": "Remove a rule to bring its cleared alerts back into the feed. Use show cleared to see what a rule has cleared.",
 "what": "Rules that clear matching alerts as they arrive: no push, no notification, not sent to the AI."
 },

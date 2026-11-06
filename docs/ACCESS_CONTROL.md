@@ -28,13 +28,13 @@ what a role can't use. Hiding a button is never the protection.
 | Ask AI (chat) | ✓ (and can pick the model per message) | ✓ (the configured chat model) | ✗ |
 | Choose own alert devices (Alerts → Notification settings) | ✓ | ✓ | ✗ (an admin assigns them) |
 | Mark alerts read | shared 🔔 for everyone | shared 🔔 for everyone | private marker, doesn't change anyone else's 🔔 |
-| AI pipeline configuration > Review limits: skip event-type pairs, set the event reviewer's time window, switch event classification, exclude noisy events, "Never send" rules by name / host / ID, cap links per event | ✓ | ✓ | ✗ |
-| Mute an alert from the Alerts page (**mute name…** / **mute name + host…**, a "Never send" rule that also clears matching alerts) | ✓ | ✓ | ✗ |
+| AI pipeline configuration > Review limits: skip event-type pairs, set the event reviewer's time window, switch event classification, cap links per event, discard old verdicts | ✓ | ✓ | ✗ |
+| 🚫 Suppress findings, IDS signatures, segmentation flows and alerts; remove legacy alert mute rules (Alerts page) | ✓ | ✓ | ✗ |
 | Add / delete users, reset passwords, change roles, assign devices | ✓ | ✗ | ✗ |
 | Integrations (Elasticsearch, UniFi, web search): view and change | ✓ | ✗ | ✗ |
 | Audit log (More → Audit log): read, set its Elasticsearch key | ✓ | ✗ | ✗ |
 | Auto-close settings, review-job schedule, "Run now" / Pause, event research limits, reopen auto-closed | ✓ | ✗ | ✗ |
-| AI providers and API keys, AI models (event reviewer / review job, event research, chat), Elasticsearch-search switches, notes per event | ✓ | ✗ | ✗ |
+| AI providers and API keys, AI models (event reviewer / review job, event research, chat), Elasticsearch-search switches (event reviewer, event research and Ask AI), notes per event | ✓ | ✗ | ✗ |
 
 **"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
 roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items

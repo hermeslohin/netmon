@@ -1680,8 +1680,12 @@ class H(BaseHTTPRequestHandler):
                 return self._json(read_acks())
             if path == "/api/events/open":  # every unchecked event, any age (persisted in sqlite `events`)
                 import eventstore
+                try:
+                    lim = max(0, min(int((q.get("limit") or ["2000"])[0]), 5000))  # 0 = counts only; never negative (a slice from the end)
+                except ValueError:
+                    return self._json({"error": "limit must be a whole number (0-5000)"}, 400)
                 return self._json(eventstore.open_events(types=set(q.get("type") or []) or None, sev=(q.get("sev") or [""])[0].lower() or None,
-                                                         q=(q.get("q") or [""])[0] or None, limit=min(int((q.get("limit") or ["2000"])[0]), 5000), merge=True))
+                                                         q=(q.get("q") or [""])[0] or None, limit=lim, merge=True))
             if path == "/api/events/detail":  # Open events modal: all occurrences of one event + its related events
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]

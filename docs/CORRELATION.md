@@ -11,7 +11,7 @@ collapsible and rearrangeable boxes). For installation see [SETUP.md](SETUP.md).
 Every event passes the same stages in order. Each stage removes or resolves some events, so fewer reach the
 next one and AI cost and human attention stay low.
 
-1. **Suppress list.** Never-send rules, checked-off items and known-benign patterns hide matching events. No AI.
+1. **Suppress list.** Suppress rules, checked-off items and known-benign patterns hide matching events. No AI.
 2. **Statistical analysis.** Compares each device to its 30-day baseline and raises events for deviations. No AI.
 3. **Correlation review.** Links related events and the decision model labels them suspicious, benign or expected (section 3).
 4. **Event reviewer.** Copies the verdict from an earlier matching note, or leaves the event queued for research (section 6).
@@ -148,7 +148,7 @@ back silently.
 
 ```mermaid
 flowchart LR
-    EV["Events + script candidates\ncorrelate.py"] --> LIM{"Review limits\ntype pairs, window,\nnever-send, cleared"}
+    EV["Events + script candidates\ncorrelate.py"] --> LIM{"Review limits\ntype pairs, window,\nmax links, cleared"}
     LIM -- "skipped" --> HID["not sent"]
     LIM -- "allowed" --> CLEF["Decision model (clef)\nyes/no per link\n= the verdict"]
     CLEF --> DB[("corr_llm.db\nverdicts, clef")]
@@ -396,15 +396,14 @@ candidate links each setting affects.
 | **Severity of `seg`** | Segmentation issues and findings are their own type. Their severity is set by the port: **high** = admin / remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker and Kubernetes APIs, the policy's `sensitive_ports`), **low** = standard service ports (`standard_ports`, default web, mail, DNS, NTP, LDAP…), **medium** = any other (odd) port. All other types take the event's own severity (critical/severe/investigate = high; moderate/warning/review = medium; anything else low). | – |
 | **Time window for the event reviewer** | One setting, in minutes: only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans; links further apart are skipped. Events without a time (open vulnerabilities) are never "apart". `0` = no limit. The box shows how many candidate links are outside the window now. | 0 (no limit) |
 | **Max links per event** | Undecided links one event may have. Best script score first; a link needs room at both of its events; the rest are skipped. `0` = no cap, at most 200. | 0 |
-| **Never send** (events and rules) | *Excluded events*: one event or its whole **family** (4–5 digit numbers such as ports are masked; watcher alerts use their alert key) from the events with the most links. *Rules*: `name` (event label), `host` (an IP of the event or the host in its label) and/or `id`, with `*` / `?` wildcards (no wildcard = contains); every field a rule has must match; scope *both*, *review* or *research*. Up to 500 exclusions and 200 rules. | none |
 | **Discard old verdicts** | Delete verdicts (and artifacts) whose pair has not been a candidate link for more than N days. Runs hourly after a snapshot has refreshed the "last seen" times; person-made verdicts are kept and the freed space is returned to the disk. `0` = keep forever, at most 3650. | 0 |
 | **Classify events** | See above. | off |
 
-**Mute alerts.** Watcher alerts are by far the most numerous event type. An admin or network defender sees **mute
-name…** and **mute name + host…** beside an alert on the Alerts page and on the AI pipeline decisions. Both open an
-editable pattern (the alert text with IPs, MACs and numbers replaced by `*`); **Mute & clear existing** saves a *never
-send* rule for it (scope *both*, so it stays out of the queue too) and deletes the alerts that already fired and match
-the rule. The rule is listed under **Never send** and can be removed there; the deleted alerts do not come back.
+**Mute rules (legacy).** Excluding events and *Never send* rules were removed: nothing is held back from the queue or
+the event reviewer by name, host or ID, and the Review limits API ignores those fields. Alerts are no longer muted from
+the Alerts page; use 🚫 **suppress** instead (below). Mute rules saved before the change still clear matching alerts as
+they arrive and are listed in the **Alert mute rules** card on the Alerts page, where **Remove rule** brings their
+alerts back.
 
 **Suppress findings.** Suppressing hides a finding like a check-off does, but as a *rule* by signature name, and it is
 listed in its own card on More → Checked. Nothing is bypassed: the event stays in correlation, research and review.
@@ -587,7 +586,7 @@ configuration holds every setting. The boxes:
 | **Queue: events without a note** / **Links awaiting review** | The two queues. **Clear event queue** and **Clear review queue** (admins) sit under them and ask for confirmation |
 | **Models** | Provider and model for the event reviewer (also used by the review job), event research and chat; the Elasticsearch switches (event reviewer, event research) and **Max per event**; **Notes per event** |
 | **AI providers** | Added API providers, calls-per-hour caps, Local server on/off |
-| **Review limits** | Link types grid, time window, max links per event, never-send events and rules, verdict retention, event classification (above) |
+| **Review limits** | Link types grid, time window, max links per event, verdict retention, event classification (above) |
 | **Event research limits** | Cost and size caps of event research (section 5) |
 | **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again |
 | **Event reviewer searches** / **Event research searches** | The newest Elasticsearch searches of each AI |
@@ -955,7 +954,6 @@ event reviewer (7.3) as an `<ai_note>` *research verdict …* on that event's ne
 | Review limits: link-type modes, default mode | review (skip on a brand-new deployment) | `llm_config` → `review_limits.pair_modes`, `pair_default` |
 | Review limits: time window (minutes) | 0 = off, max 525,600 | `review_limits.window_minutes` |
 | Review limits: max links per event | 0 = no cap, max 200 | `review_limits.max_links` |
-| Review limits: never-send events and rules | none (max 500 / 200) | `review_limits.excluded`, `review_limits.rules` |
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |
 | Decision model on/off, related threshold, event suspicious threshold | on, 0.5, 0.5 | `llm_config` → `clef` |

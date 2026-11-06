@@ -287,7 +287,7 @@
     el.appendChild(bar);
     bar.querySelector("#oeT").onchange = (e) => { f.type = e.target.value; V.events(el); };
     bar.querySelector("#oeS").onchange = (e) => { f.sev = e.target.value; V.events(el); };
-    if (!rows.length) { el.appendChild(card("Open events", `<div class="empty">Nothing open — everything is checked off.</div>`)); return; }
+    if (!rows.length) { el.appendChild(card("Open events", `<div class="empty">${r.events.length ? "Nothing open matches the type / severity filter." : "Nothing open — everything is checked off."}</div>`)); return; }
     for (const [t, name, askKind, pivKind] of TYPES) {
       const list = rows.filter((x) => x.type === t);
       if (!list.length) continue;
