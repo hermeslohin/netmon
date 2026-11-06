@@ -262,7 +262,7 @@ class WatcherRulesTest(unittest.TestCase):
         """A domain with 150+ distinct long high-entropy subdomains raises a tunnel detection; too few, short or benign-listed do not.
         REQ: ALR-16"""
         import random
-        rnd = random.Random(7)
+        rnd = random.Random(7)  # noqa: S311 - seeded test data (random-looking DNS labels), not crypto
         subs = ["".join(rnd.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(40)) for _ in range(100)]
         store.jdump({"dns_domains": ["allowed.example"]}, os.path.join(_env.REPO, "known_benign.json"))
         es = FakeES(tunnel=[bk("tunnel.example", 900, u={"value": 400}, al={"value": 40.0}, s=[IP["phone"]]),
