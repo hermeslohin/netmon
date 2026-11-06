@@ -80,6 +80,14 @@ Unit tests run in the same process as the module they test, one module at a time
 | Repo guard | `test_repo_guard.py` | detection of forbidden files, MACs, site IPs and sensitive terms |
 | Scheduler | `test_scheduler.py` | review-job slot grid, `next_run`, watcher and weekly timing (no jobs are started) |
 | Static assets | `test_static_assets.py` | every `<script>`/`<link>` in the HTML exists; JS `fnv()` matches Python |
+| Settings: Integrations (Elasticsearch, UniFi, audit) | `test_settings_integrations.py` | URL / index / key validation, per-index overrides and fallbacks, write-only API keys with host-secret and env fallbacks, audit index rules and send switches, save stamps, stubbed connection tests, and the audit reviewer/researcher switches end to end through audit.emit and the Review log card |
+| Settings (AI pipeline) | `test_settings_ai.py` | Every AI-pipeline setting: event reviewer notes limits, reviewer / chat models, chat Elasticsearch, look-ups first, web and Elasticsearch look-ups, review limits (pair modes, max links, window, retention, classify, view), decision-model on/off and thresholds, AI providers (validation, write-only masked keys, delete, local server) and decision-model server settings: defaults, read-back, range checks, user stamp and effect on the pipeline |
+| Settings: Site & network policy documents | `test_settings_site.py` | settings_docs catalog vs the *.example.json templates and site defaults, cfg_save/cfg_load round trip, cfg_validate per document (zones, roles, spike/upload/beacon thresholds, allow rules, regexes, site, known benign) incl. 3 known validation gaps, the /api/config/cfg path/size/role guards, auto-tune recommend (no writes) and apply (accepted values only), and UniFi discover build/apply with stubbed UniFi (zones per subnet, roles, classes, merge vs overwrite, prefixes) |
+| Settings inventory | `test_settings_inventory.py` | every settings POST endpoint, Integrations section, Settings-page document and setter function found in the code is listed in `tests/settings_inventory.py`, and every listed setting has tests behind its requirements (SET-90) |
+| Event firings | `test_event_fires.py` | `es_sourced`: only Elasticsearch-sourced types fire; IDS fires once per new alert time; overlapping finding windows extend one firing, separate windows add a new one; seen-N count; Open events detail keeps each merged link's review time (`llm_ats`) for per-firing scoping |
+| Alerts view | `test_alerts_view.py` | `alert_ref`, verdict order (person > event reviewer > decision model > unreviewed), `web_research` (own vs candidate, manual-test excluded, http(s) links only, per cap), `alert_view` (look-up repeats merged with a times count, people's notes trimmed, artifact notes stored once), `detections` (verdict counts, filter, limit) |
+| Event reviewer output / Review log | `test_reviewer_output.py` | one-paragraph prompt and schema (no per-link reason), `clef.event_state` kept count, `corr_llm._touch` distinct events, `review.Status.finish` counts reaching `reviewlog.job_runs` |
+| Box info texts | `test_cardinfo_keys.py` | AI pipeline part boxes have `aireview\|`/`aiconfig\|` ⓘ keys with what/source/use; Alerts/Configuration boxes resolve to ⓘ keys (2 known gaps marked expected failure) |
 
 ## 4. End-to-end tests (`tests/e2e/`)
 
@@ -102,6 +110,8 @@ E2E tests run netmon the way production does: as separate processes that talk ov
 | `test_e2e_access_control.py` | **Roles:** the full role matrix, using accounts created through the admin API. A User is limited to the allow-lists; a defender can read everything but can't change settings. **User scope:** only the user's devices' alerts, a reduced site config, locked prefs, a private read marker. **User admin:** validation, least-privilege default, a role change applies on the next request, no self-demotion, deleting a user revokes their session, password reset. **Audit trail:** POSTs, failed logins and 403s are spooled with secrets redacted; the spool file and the DB are 0600. |
 | `test_e2e_pipeline.py` | **`analyze.py`** over five daily snapshots: the baseline seeds and then becomes ready, a day-5 upload spike is flagged and keyed by MAC, steady devices aren't flagged, history is appended, and the backup lands in the sandbox. The dashboard then serves that output. **Server lifecycle:** the first start seeds the admin and later starts ignore the env vars; accounts without a role are migrated to admin; console `set-role` (the last admin is protected); `add-user` reads the password from a pty; the server starts with the LLM off. **CLIs:** `store.py check/stats`, `scheduler.py status`, `repo_guard.py`. |
 | `test_e2e_container.py` | **The deployed container, read-only.** `docker inspect` shows a read-only root filesystem, a non-root user, `cap-drop ALL`, no-new-privileges and a healthy healthcheck. The live `/healthz`, `/login` and the 401 for unauthenticated requests all answer. These tests skip themselves when docker or the container isn't present. |
+
+| `test_e2e_settings.py` | Every admin settings endpoint of the real dashboard over HTTPS: save and read back (integrations, lookback, review schedule/job, research limits, auto-close, settings documents, auto-tune, AI providers/models, event reviewer look-ups, web cache, decision model, notes, consolidation, review limits, notification devices), keys masked, invalid input 400 with nothing changed, defender/user 403, audit entry per POST with keys redacted (loopback fake Elasticsearch) |
 
 **Deliberately not covered by E2E:**
 - the live Elasticsearch and UniFi collectors (`collect.py`, `extras.py`, `unifi.py`, `hosts.py`),
@@ -127,7 +137,8 @@ These need live credentials or have external side effects. Their logic is unit-t
    ```
 3. When you add a feature, add its requirement to `tests/requirements.py` first. `gen_docs.py --check` fails if any requirement has no test, or if any test has no tag or an unknown tag.
 4. Restore anything you monkeypatch, and use `_env.fresh_db()` when you need an empty store. Don't put literal MACs, site IPs or realistic secrets in test files.
-5. Run `tests/run_tests.py`. It refreshes both docs.
+5. When you add a setting (a settings endpoint, an Integrations section, a Settings-page key or a `set_*`/`put`/`save` function), add it to `tests/settings_inventory.py` with the requirements that cover it. `test_settings_inventory.py` fails until you do, and fails while any listed setting has no test.
+6. Run `tests/run_tests.py`. It refreshes both docs, including the generated **Settings coverage** table.
 
 ## 6. Known bugs documented by tests
 
@@ -139,7 +150,17 @@ These tests are marked `@unittest.expectedFailure`. Once a bug is fixed, the run
 | `test_store` (cfg round trip) | `cfg_flatten`/`cfg_build` lose a top-level empty-string key. Minor. |
 | `test_analyze` – `test_value_equal_to_floor_counts` | `analyze.spike()` uses `>`, but `extras.SPIKE_COMMON` documents "at least min". |
 
+Fixed when the settings tests were added (the tests now pass normally):
+- Defenders got 403 on Review limits: the admin prefix `/api/llm/review` also matched `/api/llm/review-limits`. Defenders may set them again (`DEFENDER_POST`).
+- Defenders could switch Ask AI's Elasticsearch search (`/api/llm/chat-es`); it is now admin only, as ACCESS_CONTROL.md says.
+- `cfg_validate` now rejects unknown device classes, bad sensitive/discovery/gateway ports and non-numeric scan thresholds (a text threshold crashed collection).
+- Missing ⓘ texts: Alerts (Detections by verdict, Alerts for my devices, Notifications on this device, Which devices alert me, Your devices, Alert mute rules, Cleared alerts) and Configuration (Auto-close).
+
 Other things noticed while writing the tests (not failures):
+- The audit **Test** button only uses the entered or saved audit key, not `NETMON_AUDIT_ES_KEY`, and an audit form post that includes the key also resets a blank index to `logs-netmon`.
+- The local AI server row shows 3000 calls per hour before its first save and 120 after a save with the field left empty.
+- The 400000-character value cap in `/api/config/cfg` is unreachable: bodies over 64 KB are refused with 413 first.
+- E2E: the audit writer backs off up to 120 s while Elasticsearch is unreachable, so `test_e2e_settings.py` points the audit log at a fake Elasticsearch on loopback instead of reading only the spool.
 - `index.html` hard-codes `style.css?v=…`, which the build-hash stamping doesn't replace.
 - Python's `ipaddress` treats the RFC 5737 ranges as private, so `llm_providers._base_url` accepts `http://` to them.
 
@@ -149,18 +170,58 @@ Other things noticed while writing the tests (not failures):
 
 _Generated by `tests/gen_docs.py`._
 
+### Settings coverage
+
+Every setting in `tests/settings_inventory.py` (kept in step with the code by `tests/unit/test_settings_inventory.py`) and the tests that verify it.
+
+| Setting | Where | Endpoint | Requirements | Unit | E2E |
+|---|---|---|---|---|---|
+| `integrations.elasticsearch` | Configuration > Integrations > Elasticsearch (URL, API key, index names) | `/api/config/integrations/elasticsearch` | SET-01, SET-02, SET-03, SET-04, SET-05, SET-06, SET-07, SET-12, SET-13, SET-60, SET-61, SET-62 | 28 | 10 |
+| `integrations.unifi` | Configuration > Integrations > UniFi (controller URL, API key) | `/api/config/integrations/unifi` | SET-01, SET-05, SET-06, SET-07, SET-08, SET-12, SET-13, SET-60, SET-61, SET-62 | 23 | 10 |
+| `integrations.audit` | More > Audit log > Audit log storage (key, index, send event reviewer / researcher events) | `/api/config/integrations/audit` | SET-05, SET-06, SET-09, SET-10, SET-11, SET-13, SET-14, SET-15, SET-63 | 22 | 1 |
+| `integrations.web` | Configuration > Integrations > Web search (provider, Firecrawl URL, key, CA) | `/api/config/integrations/web` | WEB-01, WEB-02, WEB-03, WEB-04, SET-60, SET-61 | 4 | 9 |
+| `integrations.opencti` | Configuration > Integrations > OpenCTI | `/api/config/integrations/opencti` | OCTI-01, OCTI-03, SET-60, SET-61 | 3 | 9 |
+| `integrations.feeds` | Configuration > Integrations > Threat-intel feeds | `/api/config/integrations/feeds` | FEED-01, FEED-02, SET-60 | 3 | 4 |
+| `cfg.policy` | Settings > Network policy (zones, roles, device classes, ports, thresholds) | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-49, SET-50, SET-67 | 29 | 3 |
+| `cfg.host_policy` | Settings > Host policy | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48, SET-49 | 20 | 0 |
+| `cfg.known_benign` | Settings > Known benign | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48 | 18 | 0 |
+| `cfg.site` | Settings > Site | `/api/config/cfg` | STO-02, CFG-01, SET-40, SET-41, SET-42, SET-43, SET-48 | 35 | 1 |
+| `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67 | 5 | 3 |
+| `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
+| `review.lookback` | AI pipeline configuration > Review job: hours of logs per run | `/api/config/lookback` | CFG-02, SET-64 | 5 | 6 |
+| `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
+| `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 24 | 7 |
+| `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
+| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 11 | 6 |
+| `notes.consolidate` | AI pipeline configuration > Nightly note consolidation | `/api/llm/notes-consolidate` | STO-09, SET-66 | 6 | 8 |
+| `llm.models` | AI pipeline configuration > Models (event reviewer, research, chat model) | `/api/llm/config` | SET-22, SET-23, SET-65 | 6 | 4 |
+| `llm.providers` | AI pipeline configuration > AI providers (added APIs, local server) | `/api/llm/providers` | SET-32, SET-33, SET-34, SET-65 | 8 | 4 |
+| `llm.clef` | AI pipeline configuration > Decision model settings (on/off, thresholds) | `/api/llm/clef` | SET-30, SET-31, SET-66 | 7 | 8 |
+| `llm.clef_server` | AI pipeline configuration > Decision model server | `/api/llm/clef-server` | SET-35 | 3 | 0 |
+| `llm.notes` | AI pipeline configuration > Event reviewer context notes | `/api/llm/notes` | SET-20, SET-21, SET-66 | 5 | 8 |
+| `llm.review_limits` | AI pipeline configuration > Review limits | `/api/llm/review-limits` | STO-05, SET-26, SET-27, SET-28, SET-29, SET-66, SET-69 | 23 | 15 |
+| `llm.esqueries` | AI pipeline configuration > Event reviewer look-ups: Elasticsearch | `/api/llm/esqueries` | SET-25, SET-66 | 3 | 8 |
+| `llm.websearch` | AI pipeline configuration > Event reviewer look-ups: web search | `/api/llm/websearch` | SET-25, SET-66 | 3 | 8 |
+| `llm.lookupplan` | AI pipeline configuration > Event reviewer look-ups first | `/api/llm/lookupplan` | SET-24, SET-66 | 1 | 8 |
+| `llm.webcache` | AI pipeline configuration > netmon web cache (on/off, days kept, clear) | `/api/llm/webcache` | WEB-08, SET-66 | 8 | 8 |
+| `llm.chat_es` | Ask AI: may the chat search Elasticsearch | `/api/llm/chat-es` | SET-23, SET-66, SET-69 | 2 | 15 |
+| `push.prefs` | Account > Notifications (which devices alert me) | `/api/push/prefs` | STO-07, SET-68 | 34 | 5 |
+
 ### Unit tests
 
 | File | Tests | Covers |
 |---|---|---|
+| `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |
 | `tests/unit/test_audit.py` | 37 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03) |
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
 | `tests/unit/test_autoclose.py` | 11 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
+| `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
 | `tests/unit/test_config.py` | 31 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-02, CFG-03, OPS-03, OPS-06, STO-01, STO-02) |
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
 | `tests/unit/test_correlate.py` | 41 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01) |
+| `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 26 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (ISS-01, ISS-02, OPS-05, RISK-03) |
 | `tests/unit/test_lateral.py` | 35 | Unit tests for dashboard/app/lateral.py (admin-session levels, lateral graph edges, multi-period merge). (LAT-01, LAT-02, RISK-04) |
@@ -173,11 +234,16 @@ _Generated by `tests/gen_docs.py`._
 | `tests/unit/test_related_view.py` | 1 | Open events page: related events of rows older than the loaded snapshot come from the stored verdicts (STO-10) |
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |
 | `tests/unit/test_review_noai.py` | 6 | Unit tests for the review / research split: review.py never researches, research.py runs only for a person's click. (OPS-06) |
+| `tests/unit/test_reviewer_output.py` | 8 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-08, FEAT-09) |
 | `tests/unit/test_reviewlog.py` | 4 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AUD-04) |
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
 | `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |
 | `tests/unit/test_scoped_notes.py` | 3 | Unit tests for dashboard/app/kb.py wider-scope internet notes: parent-domain notes cover subdomains, CIDR-range notes cover addresses. (STO-13) |
 | `tests/unit/test_server_cache.py` | 2 | Unit tests for the dashboard's in-memory document cache (server.load_json). (DASH-02, OPS-05) |
+| `tests/unit/test_settings_ai.py` | 44 | Unit tests for every AI-pipeline setting: corr_llm setters (notes, models, look-ups, review limits), the decision-model (SET-20, SET-21, SET-22, SET-23, SET-24, SET-25, SET-26, SET-27, SET-28, SET-29, SET-30, SET-31, SET-32, SET-33, SET-34, SET-35) |
+| `tests/unit/test_settings_integrations.py` | 40 | Unit tests for the Integrations settings (integrations.py) sections elasticsearch, unifi and audit, plus the audit on/off switches end to end. (SET-01, SET-02, SET-03, SET-04, SET-05, SET-06, SET-07, SET-08, SET-09, SET-10, SET-11, SET-12, SET-13, SET-14, SET-15) |
+| `tests/unit/test_settings_inventory.py` | 5 | Settings coverage guard: every setting found in the code is in tests/settings_inventory.py and covered by a test. (SET-90) |
+| `tests/unit/test_settings_site.py` | 37 | Unit tests for the Settings page documents: settings_docs catalog vs templates, store cfg round trip, server.cfg_validate (SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-48, SET-49, SET-50, SET-51, SET-52, SET-53, SET-54, SET-55) |
 | `tests/unit/test_static_assets.py` | 14 | Static checks of dashboard/app/static: referenced assets exist and app.js fnv() matches correlate.fnv (no node needed). (COR-02, DASH-01, DASH-06) |
 | `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |
@@ -192,5 +258,6 @@ _Generated by `tests/gen_docs.py`._
 | `tests/e2e/test_e2e_container.py` | 5 | E2E (deployed): read-only checks of the RUNNING netmon-dashboard container. (AC-01, DASH-04, OPS-02, SEC-01) |
 | `tests/e2e/test_e2e_dashboard.py` | 35 | E2E: the real dashboard server over HTTPS - transport, sign-in, sessions, pages, the JSON API and check-offs. (AC-01, AUTH-01, AUTH-02, AUTH-04, AUTH-05, COR-03, DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, LLM-02, MIT-01, RISK-02, SEC-01, SEC-02, SEC-03, SEC-05, STO-01, STO-03, STO-06) |
 | `tests/e2e/test_e2e_pipeline.py` | 16 | E2E: the batch pipeline and operator tooling, run as real processes against an isolated store. (AC-05, ANA-01, AUTH-01, AUTH-06, AUTH-07, DASH-02, LLM-02, OPS-01, OPS-03, OPS-04, RISK-02, RISK-03, SEC-04, STO-01) |
+| `tests/e2e/test_e2e_settings.py` | 39 | E2E: every admin settings endpoint of the real dashboard server over HTTPS. (SET-60, SET-61, SET-62, SET-63, SET-64, SET-65, SET-66, SET-67, SET-68, SET-69, SET-70) |
 
 <!-- END GENERATED INVENTORY -->

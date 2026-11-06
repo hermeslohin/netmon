@@ -999,5 +999,45 @@ window.CARD_INFO = {
 "source": "Command-line password reset built into the dashboard server (server.py set-password), run inside the dashboard container.",
 "use": "On the dashboard host run the shown docker exec command with the username to set a new password or create the account. Failed sign-ins are also throttled (8 per 5 minutes per client), so waiting 5 minutes may be enough.",
 "what": "Recovery instructions for when nobody can sign in, for example after a forgotten password or too many failed attempts."
+},
+"alerts|Detections by verdict": {
+"source": "The urgent-alert feed (15-minute watcher, scans, account checks; last 30 days) joined with verdicts: a person's verdict, else the event reviewer's label, else the decision model's label.",
+"use": "Click a verdict chip or a KPI tile to filter. A person's verdict (👤) wins over the event reviewer (AI), which wins over the decision model. Click a row for the research, web research and notes behind it.",
+"what": "Every detection that was not promoted to an alarm, with the verdict it got. Only detections reviewed as suspicious at medium or high severity become alarms."
+},
+"alerts|Alerts for my devices": {
+"source": "The urgent-alert feed, filtered to the devices chosen under Notification settings > Which devices alert me.",
+"use": "Use 'show all' to see every alert; Mark all read clears the 🔔 counter.",
+"what": "Urgent alerts for your chosen devices only, newest first."
+},
+"alerts|Notifications on this device": {
+"source": "This browser's Web Push subscription (stored on the dashboard per device) and the browser's notification permission.",
+"use": "Enable to get a phone or desktop notification for every urgent alert, even with the dashboard closed. Send test checks delivery; on iPhone/iPad add the dashboard to the home screen first.",
+"what": "Whether this browser or phone gets push notifications for urgent alerts."
+},
+"alerts|Which devices alert me": {
+"source": "Your account's alert preferences (all devices, or the devices you chose).",
+"use": "Pick All devices, or Only devices I choose and tick them. Applies to every browser where you enabled notifications and to the 🔔 count.",
+"what": "Which devices' alerts reach you."
+},
+"alerts|Your devices": {
+"source": "The devices an admin assigned to your account on the Users page.",
+"use": "Ask an admin to change the list.",
+"what": "The devices you get alerts and notifications for (read-only for the User role)."
+},
+"alerts|Alert mute rules": {
+"source": "Mute rules created with 'mute name…' on an alert (admins and defenders).",
+"use": "Remove a rule to bring its cleared alerts back into the feed. Use show cleared to see what a rule has cleared.",
+"what": "Rules that clear matching alerts as they arrive: no push, no notification, not sent to the AI."
+},
+"alerts|Cleared alerts": {
+"source": "Alerts of the last 30 days that a mute rule cleared.",
+"use": "Check what a rule hides; 'back to recent alerts' returns to the feed.",
+"what": "Alerts cleared by mute rules, with the rule that cleared each one."
+},
+"config|Auto-close": {
+"source": "Auto-close settings (admin) and the latest verdicts of the event reviewer and event research.",
+"use": "Turn an option on to check off events the chosen source found expected or benign; guard rails hold back closures; Reopen restores what was closed. Only admins can change it.",
+"what": "Automatic closing of baseline findings, endpoint findings and fix-list issues that the AI judged expected or benign."
 }
 };

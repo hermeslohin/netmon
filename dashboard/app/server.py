@@ -32,7 +32,9 @@ ROOT = os.environ.get("NETMON_DIR", "/netmon")
 USER_GET = {"/api/tuning", "/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/key", "/api/push/prefs", "/api/my"}
 USER_POST = {"/api/logout", "/api/account/password", "/api/account/welcome", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",
              "/api/alerts/read", "/api/kb/event", "/api/audit/view", "/api/research/request"}  # /api/kb/event: own notes on own devices' events only (checked below)
-ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/lookupplan", "/api/llm/webcache", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers")
+ADMIN_POST = ("/api/users", "/api/config/", "/api/llm/config", "/api/llm/esqueries", "/api/llm/websearch", "/api/llm/lookupplan", "/api/llm/webcache", "/api/llm/clef", "/api/llm/notes", "/api/llm/research", "/api/llm/review", "/api/aireview/clear-", "/api/llm/providers",
+              "/api/llm/chat-es")  # chat-es: an Elasticsearch-search switch (ACCESS_CONTROL.md: admin only)
+DEFENDER_POST = ("/api/llm/review-limits",)  # analyst work (Review limits, suppress rules): defenders too, despite the /api/llm/review prefix
 
 
 def watch_ids(user, role, reg=None):
@@ -476,6 +478,9 @@ def tuning_info():
     return {"settings": out}
 
 
+DEVICE_CLASSES = ("iot", "camera", "media", "game", "personal", "work", "server", "k8s", "infra")  # settings_docs / discover.py
+
+
 def cfg_validate(doc, data):
     """Reject a settings change that would break a job (bad regex, wrong shape). Returns an error text or None."""
     try:
@@ -497,6 +502,28 @@ def cfg_validate(doc, data):
             for z, r in (data.get("zone_roles") or {}).items():
                 if not z.startswith("_") and r not in ("dmz", "protected", "mgmt", "user", "iot"):
                     return f"zone_roles[{z}] must be one of dmz, protected, mgmt, user, iot"
+            dc = data.get("device_classes")
+            if dc is not None:
+                if not isinstance(dc, dict):
+                    return "device_classes must be a table of MAC or IP -> class"
+                for d, c in dc.items():
+                    if not str(d).startswith("_") and c not in DEVICE_CLASSES:
+                        return f"device_classes[{d}] must be one of {', '.join(DEVICE_CLASSES)}"
+            for k in ("sensitive_ports", "discovery_ports", "gateway_ports"):
+                v = data.get(k)
+                if v is not None and (not isinstance(v, list) or any(isinstance(x, bool) or not isinstance(x, int) or not 0 < x < 65536 for x in v)):
+                    return f"{k} must be a list of port numbers (1-65535)"
+            sc = data.get("scan_thresholds")
+            if sc is not None:
+                if not isinstance(sc, dict):
+                    return "scan_thresholds must be a table: hosts, ports"
+                for k, v in sc.items():
+                    if k.startswith("_"):
+                        continue
+                    if k not in ("hosts", "ports"):
+                        return f"scan_thresholds: unknown setting {k} (hosts, ports)"
+                    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 1:
+                        return f"scan_thresholds {k} must be a number of 1 or more"
             us = data.get("upload_spike")
             if us is not None:
                 if not isinstance(us, dict):
@@ -1079,7 +1106,7 @@ class H(BaseHTTPRequestHandler):
             self._aud.update(user=user, role=role)
             if role == "user" and u.path not in USER_POST:
                 return self._json({"error": "your account can only view the alerts for its assigned devices"}, 403)
-            if role != "admin" and (u.path.startswith(ADMIN_POST)):
+            if role != "admin" and u.path.startswith(ADMIN_POST) and not (role == "defender" and u.path in DEFENDER_POST):
                 print(f"access denied: {user} ({role}) POST {u.path}", file=sys.stderr)
                 return self._json({"error": "only an admin can change settings, users or models"}, 403)
             if u.path == "/api/logout":
@@ -1317,7 +1344,7 @@ class H(BaseHTTPRequestHandler):
                 _CORR.clear()
                 print(f"alert mute: {user} removed rule {body.get('id')}; {n} alerts restored", file=sys.stderr)
                 return self._json({"ok": True, "restored": n})
-            if u.path == "/api/llm/review-limits":  # which candidate links the event reviewer never sees (admin)
+            if u.path == "/api/llm/review-limits":  # which candidate links the event reviewer never sees (admin and defender: DEFENDER_POST)
                 try:
                     corr_llm.set_limits(user, body.get("skip_pairs"), body.get("exclude"), body.get("unexclude"), body.get("max_links"), body.get("rule"), body.get("unrule"), body.get("pair_modes"), classify=body.get("classify"), window=body.get("window"), discard_days=body.get("discard_days"))
                 except ValueError as e:
