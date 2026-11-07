@@ -3,6 +3,7 @@
 // through the host broker (k8s.py); netmon never talks to the cluster itself.
 // #/k8s            overview (window select, findings, coverage, signals, API server, events, alerts, pods, images, nodes)
 // #/k8spod/<ns>/<pod>?text=&container=&stream=   pivot into one pod: its logs, security hits, events, alerts, Kibana
+// #/k8spod/<ns>/<name>?owner=<kind>              every pod one Deployment / StatefulSet / DaemonSet / CronJob / Job creates (pod notes live there)
 const K8S = { win: "1440", ns: "", cache: {} };
 const K8S_WINS = [["60", "1 hour"], ["360", "6 hours"], ["1440", "24 hours"], ["4320", "3 days"], ["10080", "7 days"]];
 const K8S_KIND = { cmd: "Suspicious command", miner: "Crypto-miner", webattack: "Web attack", secret: "Secret in log", authfail: "Auth failure",
@@ -26,6 +27,13 @@ async function k8sGet(path, params, maxAge = 60e3) {
 }
 const k8sPodHref = (ns, pod, extra) => "#/k8spod/" + encodeURIComponent(ns) + "/" + encodeURIComponent(pod) + (extra ? "?" + new URLSearchParams(extra) : "");
 const k8sPodLink = (ns, pod) => `<a href="${k8sPodHref(ns, pod)}" title="Open this pod: logs and security events">${esc(pod)}</a>`;
+// pod notes live on the object that creates the pods (Deployment, StatefulSet, DaemonSet, CronJob, Job; "pod" = nothing owns it)
+const K8S_OWNER = { deployment: "Deployment", statefulset: "StatefulSet", daemonset: "DaemonSet", cronjob: "CronJob", job: "Job", replicaset: "ReplicaSet", pod: "Pod" };
+const k8sOwnerHref = (ns, kind, name, cl) => k8sPodHref(ns, name, { owner: kind, ...(cl ? { cluster: cl } : {}) });
+async function k8sNoteCounts() {  // {subject: notes} of every pod-creating object with notes (cached 60 s)
+  if (!K8S._nc || Date.now() - K8S._nc.t > 60e3) { let c = {}; try { c = (await api("/api/kb/pods")).counts || {}; } catch (_) { /* notes unavailable */ } K8S._nc = { t: Date.now(), c }; }
+  return K8S._nc.c;
+}
 const k8sSev = (s) => `<span class="badge ${s === "high" ? "sev-high" : s === "medium" ? "sev-medium" : "sev-low"}">${esc(s)}</span>`;
 const k8sState = (s) => `<span class="badge ${s === "ok" ? "good" : s === "error" ? "sev-medium" : "sev-high"}">${esc(s)}</span>`;
 function k8sKb(kql, minutes, end, label) {  // Kibana Discover deep link (site settings kibana_url); "" when not configured
@@ -192,9 +200,14 @@ V.k8s = async (el) => {
 
   const nsl = (inv.namespaces || []).map((n) => n.ns);
   const pods = (inv.pods || []).filter((p) => !K8S.ns || p.ns === K8S.ns);
+  const nCount = await k8sNoteCounts();  // 📝 = notes on the pod's owner; they apply to every pod it creates
+  const k8sOwnerCell = (r) => { const [kind, ...rest] = String(r.owner || "").split("/"), name = rest.join("/"); if (!name) return "";
+    const n = nCount[`pod:${r.cluster || K8S.cluster || "default"}/${r.ns}/${kind}/${name}`.toLowerCase()] || 0;
+    return `<a href="${k8sOwnerHref(r.ns, kind, name, r.cluster)}" title="All pods this ${esc(K8S_OWNER[kind] || kind)} creates, and its notes">${esc(name)}</a> <span class="muted">${esc(K8S_OWNER[kind] || kind)}</span>`
+      + (n ? ` <span class="badge sev-info" title="${n} note(s) on this ${esc(K8S_OWNER[kind] || kind)}: they apply to all its pods">📝 ${n}</span>` : ""); };
   const sigBy = {}; live.forEach((s) => { const k = s.ns + "/" + s.pod; sigBy[k] = (sigBy[k] || 0) + s.count; });
   const pc = k8sBox("Pods", `<div class="tbltools"><label class="muted">Namespace</label><select id="k8sNs"><option value="">all (${nsl.length})</option>${nsl.map((n) => `<option ${K8S.ns === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>`,
-    table(null, [{ k: "ns", t: "Namespace" }, { k: "pod", t: "Pod", fmt: (v, r) => k8sPodLink(r.ns, v) + k8sClTag(r.cluster) }, { k: "owner", t: "Owner", cls: "small" }, { k: "node", t: "Node" },
+    table(null, [{ k: "ns", t: "Namespace" }, { k: "pod", t: "Pod", fmt: (v, r) => k8sPodLink(r.ns, v) + k8sClTag(r.cluster) }, { k: "owner", t: "Created by", cls: "small", fmt: (v, r) => k8sOwnerCell(r) }, { k: "node", t: "Node" },
       { k: "ip", t: "Pod IP", fmt: (v) => (v ? ipLink(v, false) : "") }, { k: "containers", t: "Containers", cls: "small", fmt: (v) => esc((v || []).join(", ")) },
       { k: "_sig", t: "Sec hits", num: true, sort: (r) => sigBy[r.ns + "/" + r.pod] || 0, fmt: (v, r) => (sigBy[r.ns + "/" + r.pod] ? `<b>${fn(sigBy[r.ns + "/" + r.pod])}</b>` : "") },
       { k: "restarts", t: "Restarts", num: true }, { k: "logs", t: "Log lines", num: true, bar: true, fmt: fn }, { k: "stderr", t: "stderr", num: true, fmt: fn }],
@@ -211,12 +224,13 @@ V.k8s = async (el) => {
 
 V.k8spod = async (el, arg) => {
   const [ns, ...rest] = String(arg || "").split("/"), pod = rest.join("/"), W = k8sWindow(), P = hq();
+  const ownK = (P.get("owner") || "").toLowerCase(), ownL = K8S_OWNER[ownK] || "";  // ?owner=<kind>: every pod that object creates
   const f = { text: P.get("text") || "", container: P.get("container") || "", stream: P.get("stream") || "", before: P.get("before") || "" };
-  el.innerHTML = `<div class="crumbs"><a href="#/k8s">Kubernetes</a> › ${esc(ns)} › ${esc(pod)}</div><h1>${esc(pod)}</h1>
-    <div class="sub">Namespace ${esc(ns)} · logs and security events from Security Onion · window ${W.fixed ? esc(ft(S.range.start)) + " – " + esc(ft(S.range.end))
+  el.innerHTML = `<div class="crumbs"><a href="#/k8s">Kubernetes</a> › ${esc(ns)} › ${esc(pod)}</div><h1>${esc(pod)}${ownL ? ` <span class="badge" title="Kubernetes object that creates pods">${esc(ownL)}</span>` : ""}</h1>
+    <div class="sub">${ownL ? `All pods this ${esc(ownL)} creates · ` : ""}Namespace ${esc(ns)} · logs and security events from Security Onion · window ${W.fixed ? esc(ft(S.range.start)) + " – " + esc(ft(S.range.end))
       : "last " + esc((K8S_WINS.find(([v]) => v === W.minutes) || [, W.minutes + " min"])[1])}</div><div class="loading">Loading from Security Onion…</div>`;
   let D;
-  try { D = await k8sGet("/api/k8s/pod", { ns, pod, minutes: W.minutes, end: W.end, ...f, cluster: P.get("cluster") || K8S.cluster, size: 300 }, 15e3); }
+  try { D = await k8sGet("/api/k8s/pod", { ns, pod, owner: ownK, minutes: W.minutes, end: W.end, ...f, cluster: P.get("cluster") || K8S.cluster, size: 300 }, 15e3); }
   catch (e) { el.querySelector(".loading").outerHTML = `<div class="card"><h2>Pod data unavailable</h2><pre>${esc(e.message || e)}</pre></div>`; return; }
   el.querySelector(".loading").remove();
   const live = (D.signals || []).filter((s) => !s.exempt), m = +W.minutes;
@@ -224,18 +238,27 @@ V.k8spod = async (el, arg) => {
     ["Matching log lines", fn(D.total)], ["Security hits", fn(live.reduce((s, x) => s + x.count, 0)), live.length ? "warn" : "good"],
     ["Warning events", (D.events || []).length, (D.events || []).length ? "warn" : ""], ["SO alerts", (D.alerts || []).reduce((s, a) => s + a.count, 0), (D.alerts || []).length ? "bad" : "good"]]));
   // pivots: Kibana for the raw documents, netmon pages for the pod IP / node
-  const podK = `kubernetes.namespace:${k8sQ(ns)} and kubernetes.pod.name:${k8sQ(pod)}`;
-  const piv = [k8sKb(podK, m, W.end, "All logs of this pod"), k8sKb(podK + " and stream:\"stderr\"", m, W.end, "stderr only"),
+  const podK = `kubernetes.namespace:${k8sQ(ns)} and kubernetes.pod.name:${ownK && ownK !== "pod" && /^[a-z0-9.-]+$/.test(pod) ? pod + "-*" : k8sQ(pod)}`;
+  const piv = [k8sKb(podK, m, W.end, ownL ? `All logs of its pods` : "All logs of this pod"), k8sKb(podK + " and stream:\"stderr\"", m, W.end, "stderr only"),
     D.ip && k8sKb(`source.ip:${k8sQ(D.ip)} or destination.ip:${k8sQ(D.ip)}`, m, W.end, "Network logs of the pod IP (Zeek / Suricata)"),
     k8sKb(`kubernetes.event.involved_object.name:${k8sQ(pod)}`, m, W.end, "Kubernetes events"),
     D.node && `<a href="#/endpoint/${encodeURIComponent(D.node)}">Node ${esc(D.node)} (Endpoints)</a>`, D.ip && `<a href="#/device/${encodeURIComponent(D.ip)}">Pod IP as a network device</a>`].filter(Boolean);
-  // Notes on the workload (pod notes): people and the AI (event research, event reviewer) read and write them; they survive pod restarts
+  // Pod notes: filed on the object that creates the pods (Deployment / StatefulSet / DaemonSet / CronJob / Job), so they apply to
+  // every pod it makes, today's and the ones it creates after restarts, rollouts and rescheduling. People and the AI read and write them.
   if (window.kbCard) {
-    const cl = D.cluster || P.get("cluster") || K8S.cluster || "default", wl = D.workload || pod;
-    const nc = kbCard([`pod:${cl}/${ns}/${wl}`.toLowerCase()], `pod:${cl}/${ns}/${wl}`.toLowerCase());
+    const cl = D.cluster || P.get("cluster") || K8S.cluster || "default", o = D.owner || { kind: "pod", name: D.workload || pod };
+    const kl = K8S_OWNER[o.kind] || o.kind, subj = `pod:${cl}/${ns}/${o.kind}/${o.name}`.toLowerCase();
+    const nc = kbCard([subj, `pod:${cl}/${ns}/${D.workload || pod}`.toLowerCase()], subj);  // + old per-workload subject (read only)
     const t = [...nc.querySelector("h2").childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
-    if (t) t.textContent = t.textContent.replace(/^(\s*)Notes/, "$1Pod notes");
-    nc.querySelector(".kb-text").placeholder = `Add a note about ${ns}/${wl} (what it does, what is normal in its logs, decisions)…`;
+    if (t) t.textContent = t.textContent.replace(/^(\s*)Notes/, `$1Notes on ${kl} ${o.name}`);
+    const op = D.owner_pods || [], here = op.map((x) => x.pod === pod && !ownK ? `<b>${esc(x.pod)}</b> (this pod)` : `<a href="${k8sPodHref(ns, x.pod, cl !== "default" ? { cluster: cl } : null)}">${esc(x.pod)}</a>`);
+    const scope = o.kind === "pod"
+      ? `<div class="k8s-owner-scope">📌 Nothing creates this pod (a static pod): these notes stay with pod <b>${esc(o.name)}</b> only.</div>`
+      : `<div class="k8s-owner-scope">🔗 Pod notes belong to <b>${esc(kl)} ${esc(ns)}/${esc(o.name)}</b>, not to one pod: they apply to <b>all ${op.length || ""} pod${op.length === 1 ? "" : "s"}</b> it runs now${op.length ? ` (${here.slice(0, 12).join(", ")}${op.length > 12 ? `, +${op.length - 12} more` : ""})` : ""} and to every pod it creates later.`
+        + (ownK ? "" : ` <a href="${k8sOwnerHref(ns, o.kind, o.name, cl !== "default" ? cl : "")}">View all its pods</a>`) + `</div>`;
+    nc.querySelector(".kb-list").insertAdjacentHTML("beforebegin", scope);
+    nc.querySelector(".kb-text").placeholder = `Add a note about ${kl} ${ns}/${o.name}: applies to all its pods (what it does, what is normal in its logs, decisions)…`;
+    nc.querySelector('.kb-form button[type="submit"]').textContent = o.kind === "pod" ? "Add note" : `Add note to ${kl}`;
     el.appendChild(nc);
   }
   el.appendChild(card("Pivot", piv.join(" · ") || `<span class="muted">Set kibana_url in Settings → Site for Kibana links.</span>`));

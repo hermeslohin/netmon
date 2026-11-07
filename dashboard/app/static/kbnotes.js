@@ -73,7 +73,9 @@
   /* ---------- Notes page ---------- */
   const subjLink = (s, label) => {
     const [k, ...r] = String(s).split(":"), v = r.join(":");
-    if (k === "pod") { const [cl, ns, wl] = v.split("/"); return `<a href="#/k8spod/${encodeURIComponent(ns)}/${encodeURIComponent(wl)}?cluster=${encodeURIComponent(cl)}">${esc(ns + "/" + wl)}</a> <span class="muted small">pod · ${esc(cl)}</span>`; }
+    if (k === "pod") { const p = v.split("/"), [cl, ns] = p, wl = p[p.length - 1], kind = p.length === 4 ? p[2] : "";  // pod:<cluster>/<ns>/<kind>/<name> (old: pod:<cluster>/<ns>/<workload>)
+      const KL = { deployment: "Deployment", statefulset: "StatefulSet", daemonset: "DaemonSet", cronjob: "CronJob", job: "Job", replicaset: "ReplicaSet", pod: "Pod" }[kind] || "pod";
+      return `<a href="#/k8spod/${encodeURIComponent(ns)}/${encodeURIComponent(wl)}?cluster=${encodeURIComponent(cl)}${kind ? "&owner=" + encodeURIComponent(kind) : ""}">${esc(ns + "/" + wl)}</a> <span class="muted small" title="${kind && kind !== "pod" ? `Notes on this ${KL} apply to every pod it creates` : ""}">${esc(KL)}${kind && kind !== "pod" ? " · all its pods" : ""} · ${esc(cl)}</span>`; }
     if (k === "host") return `<a href="#/endpoint/${encodeURIComponent(v)}">${esc(v)}</a> <span class="muted small">endpoint</span>`;
     const ip = k === "ip" ? v : Object.keys(S.idx?.byIp || {}).find((i) => String(S.idx.byIp[i].mac || "").toLowerCase() === v);
     const name = esc(label && label !== v ? label : (ip && S.idx?.byIp?.[ip]?.name) || v);

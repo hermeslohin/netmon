@@ -252,13 +252,12 @@ def inventory(minutes):
         "aggs": {"top": {"top_hits": {"size": 1, "sort": [{"@timestamp": "desc"}],
                                       "_source": ["kubernetes.node.name", "kubernetes.pod.ip", "kubernetes.pod.start_time", "@timestamp",
                                                   "kubernetes.deployment.name", "kubernetes.statefulset.name", "kubernetes.daemonset.name",
-                                                  "kubernetes.replicaset.name", "kubernetes.job.name"]}}}}}})
+                                                  "kubernetes.replicaset.name", "kubernetes.job.name", "kubernetes.cronjob.name"]}}}}}})
     prow = {}
     for b in B(pods["aggregations"]["p"]):
         s = b["top"]["hits"]["hits"][0]["_source"]
         k = s.get("kubernetes") or {}
-        owner = next((f"{kind}/{(k.get(kind) or {}).get('name')}" for kind in ("deployment", "statefulset", "daemonset", "job", "replicaset")
-                      if (k.get(kind) or {}).get("name")), "")
+        owner = owner_str(k, b["key"]["pod"])  # the object that creates the pod (Deployment rather than its ReplicaSet)
         prow[(b["key"]["ns"], b["key"]["pod"])] = {"ns": b["key"]["ns"], "pod": b["key"]["pod"], "node": (k.get("node") or {}).get("name", ""),
                                                    "ip": (k.get("pod") or {}).get("ip", ""), "owner": owner, "last": s.get("@timestamp"),
                                                    "start": (k.get("pod") or {}).get("start_time"), "containers": [], "images": [],
@@ -341,7 +340,7 @@ def log_signals(minutes, ns=None, pod=None):
                                                      {"pod": {"terms": {"field": "kubernetes.pod.name"}}},
                                                      {"c": {"terms": {"field": "kubernetes.container.name"}}}]},
               "aggs": {"first": {"min": {"field": "@timestamp"}}, "last": {"max": {"field": "@timestamp"}},
-                       "ex": {"top_hits": {"size": 2, "sort": [{"@timestamp": "desc"}], "_source": ["message", "@timestamp", "stream"]}}}}}}
+                       "ex": {"top_hits": {"size": 2, "sort": [{"@timestamp": "desc"}], "_source": ["message", "@timestamp", "stream"] + OWNER_FIELDS}}}}}}
             for k, _, _, ph in SEC_PATTERNS}
     r = q(LOGS, {"size": 0, "query": {"bool": {"filter": f}}, "aggs": aggs})
     rows, pol = [], policy()
@@ -349,7 +348,8 @@ def log_signals(minutes, ns=None, pod=None):
         for b in B(r["aggregations"][k]["p"]):
             rows.append({"kind": k, "exempt": exempt(b["key"]["ns"], k, pol), "label": label, "severity": sev, "ns": b["key"]["ns"], "pod": b["key"]["pod"], "container": b["key"]["c"],
                          "count": b["doc_count"], "first": b["first"].get("value_as_string"), "last": b["last"].get("value_as_string"),
-                         "examples": [str(h["_source"].get("message", ""))[:400] for h in b["ex"]["hits"]["hits"]]})
+                         "examples": [str(h["_source"].get("message", ""))[:400] for h in b["ex"]["hits"]["hits"]],
+                         "owner": owner_str(next((h["_source"].get("kubernetes") for h in b["ex"]["hits"]["hits"]), None) or {}, b["key"]["pod"])})
     rows.sort(key=lambda x: (bool(x["exempt"]), -SEV_ORDER[x["severity"]], -x["count"]))
     return rows
 
@@ -373,6 +373,18 @@ def events(minutes, ns=None, pod=None):
                     "ns": md.get("namespace", ""), "kind": io.get("kind", ""), "object": io.get("name", ""), "reason": e.get("reason", ""),
                     "count": e.get("count") or 1, "source": (e.get("source") or {}).get("host") or (e.get("source") or {}).get("component", ""),
                     "message": msg[:500], "security": sec})
+    po = safe(pod_owners, [(e["ns"], e["object"]) for e in out if e["kind"] == "Pod"], minutes, default={})
+    for e in out:  # the object that creates the pod the event is about (pod notes are filed there)
+        kd = e["kind"].lower()
+        if kd == "pod":
+            o = po.get((e["ns"], e["object"]))
+            e["owner"] = f"{o[0]}/{o[1]}" if o else ""
+        elif kd == "replicaset":
+            e["owner"] = owner_str({"replicaset": {"name": e["object"]}})
+        elif kd in ("deployment", "statefulset", "daemonset", "cronjob", "job"):
+            e["owner"] = f"{kd}/{e['object']}"
+        else:
+            e["owner"] = ""
     return out
 
 
@@ -474,13 +486,22 @@ def overview(minutes):
     return d
 
 
-def pod(ns, pod_name, minutes=1440, text="", container="", stream="", size=200, before=""):
-    """One pod for the pivot page: newest log lines (filtered), per-container counts, security hits, events, alerts."""
+OWNER_KINDS = ("deployment", "statefulset", "daemonset", "cronjob", "job", "replicaset", "pod")
+
+
+def pod(ns, pod_name, minutes=1440, text="", container="", stream="", size=200, before="", owner=""):
+    """One pod for the pivot page: newest log lines (filtered), per-container counts, security hits, events, alerts.
+    owner=<kind> (deployment, statefulset, ...): pod_name is that object's name and the page covers ALL the pods it created."""
     if not (ns and pod_name) or not re.match(r"^[a-z0-9.-]{1,253}$", ns) or not re.match(r"^[A-Za-z0-9._-]{1,253}$", pod_name):
         raise ValueError("bad namespace or pod name")
+    owner = str(owner or "").lower()
+    if owner and owner not in OWNER_KINDS:
+        raise ValueError("bad owner kind")
     size = max(1, min(int(size or 200), MAX_POD_LOGS))
     f = [rng(minutes), {"term": {"kubernetes.namespace": ns}}, {"term": {"kubernetes.pod.name": pod_name}}]
-    if _stable_pod(pod_name) == pod_name:  # a workload name (from a pod note / the Risk page): all its pods, whatever their suffix
+    if owner:
+        f[2] = _owner_filter(owner, pod_name)
+    elif _stable_pod(pod_name) == pod_name:  # a workload name (from a pod note / the Risk page): all its pods, whatever their suffix
         f[2] = {"bool": {"should": [{"term": {"kubernetes.pod.name": pod_name}},
                                     {"prefix": {"kubernetes.pod.name": pod_name + "-"}}], "minimum_should_match": 1}}
     if container:
@@ -519,12 +540,45 @@ def pod(ns, pod_name, minutes=1440, text="", container="", stream="", size=200, 
     d = {"ns": ns, "pod": pod_name, "minutes": minutes, "node": meta.get("node", ""), "ip": meta.get("ip", ""),
          "total": r["hits"]["total"]["value"], "lines": lines, "containers": cont, "histogram": hist,
          "filter": {"text": text, "container": container, "stream": stream, "before": before}}
-    d["signals"] = safe(log_signals, minutes, ns, pod_name, default=[])
-    d["events"] = safe(events, minutes, ns, pod_name, default=[])
+    # the object that created the pod: pod notes are filed on it and apply to all its pods; plus the pods it has now
+    if owner:
+        d["owner"] = {"kind": owner, "name": pod_name}
+    else:
+        om = safe(lambda: q(POD + "," + LOGS, {"size": 1, "sort": [{"@timestamp": "desc"}], "query": {"bool": {"filter": f[1:3]}},
+                                               "_source": OWNER_FIELDS})["hits"]["hits"], default=[])
+        kind, name = owner_of((om[0]["_source"].get("kubernetes") if om else {}) or {}, pod_name)
+        if not om and _stable_pod(pod_name) == pod_name:  # a workload name with no documents: keep the old behaviour
+            kind, name = "pod", pod_name
+        d["owner"] = {"kind": kind, "name": name}
+    d["owner_pods"] = safe(_owner_pods, minutes, ns, d["owner"]["kind"], d["owner"]["name"], default=[])
+    one = None if owner else pod_name  # owner view: hits and events of every pod it created
+    d["signals"] = safe(log_signals, minutes, ns, one, default=[])
+    d["events"] = safe(events, minutes, ns, one, default=[])
+    if owner:
+        names = {p["pod"] for p in d["owner_pods"]} | {pod_name}
+        d["signals"] = [x for x in d["signals"] if x["pod"] in names]
+        d["events"] = [x for x in d["events"] if x["object"] in names or x.get("owner") == f"{owner}/{pod_name}"]
     d["alerts"] = safe(so_alerts, minutes, [d["node"]] if d["node"] else [], [d["ip"]] if d["ip"] else [], default=[])
     d["cluster"] = safe(lambda: node_cluster().get(d.get("node") or ""), default="") or ""  # for the pod's notes (kb subject pod:<cluster>/<ns>/<workload>)
     d["workload"] = _stable_pod(pod_name)
     return d
+
+
+def _owner_pods(minutes, ns, kind, name):
+    """The pods kind/name created that reported in the window: [{pod, node, last}], newest first."""
+    if kind == "pod":
+        return [{"pod": name}]
+    r = q(POD + "," + LOGS, {"size": 0, "query": {"bool": {"filter": [rng(minutes), {"term": {"kubernetes.namespace": ns}}, _owner_filter(kind, name)]}},
+                             "aggs": {"p": {"terms": {"field": "kubernetes.pod.name", "size": 200},
+                                            "aggs": {"last": {"max": {"field": "@timestamp"}},
+                                                     "t": {"top_hits": {"size": 1, "_source": OWNER_FIELDS + ["kubernetes.node.name"]}}}}}})
+    out = []
+    for b in B(r["aggregations"]["p"]):
+        k = (b["t"]["hits"]["hits"] or [{"_source": {}}])[0]["_source"].get("kubernetes") or {}
+        if owner_of(k, b["key"]) == (kind, name) or not any(k.get(x) for x in ("deployment", "statefulset", "daemonset", "job", "replicaset", "cronjob")):
+            out.append({"pod": b["key"], "node": (k.get("node") or {}).get("name", ""), "last": b["last"].get("value_as_string")})
+    out.sort(key=lambda x: x.get("last") or "", reverse=True)
+    return out
 
 
 # ---------------------------------------------------------------- findings (nightly + 15-minute watcher)
@@ -552,10 +606,10 @@ def findings(d, nightly=True):
         if s["severity"] == "high" or s["kind"] == "secret":
             pri = "Investigate" if s["severity"] == "high" else "Review"
             F.append((f"k8s-log|{s['kind']}|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", pri,
-                      f"{s['label']} in container logs of {s['ns']}/{s['pod']}{_cl(s)} ({s['container']}): {s['count']}x - e.g. {s['examples'][0][:200] if s['examples'] else ''}"))
+                      f"{s['label']} in container logs of {s['ns']}/{s['pod']}{_cl(s)}{_own(s)} ({s['container']}): {s['count']}x - e.g. {s['examples'][0][:200] if s['examples'] else ''}"))
         elif nightly and s["kind"] == "authfail" and s["count"] >= 20:
             F.append((f"k8s-log|authfail|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", "Review",
-                      f"{s['count']} authentication failures logged by {s['ns']}/{s['pod']}{_cl(s)} ({s['container']})"))
+                      f"{s['count']} authentication failures logged by {s['ns']}/{s['pod']}{_cl(s)}{_own(s)} ({s['container']})"))
     a = d.get("apiserver") or {}
     if isinstance(a, dict) and "error" not in a:
         if a.get("exec", 0) >= pol["exec_alert"]:
@@ -569,16 +623,16 @@ def findings(d, nightly=True):
         cl = f" [{e['cluster']}]" if e.get("cluster") else ""
         if e["security"] and any(w in e["message"].lower() for w in ("forbidden", "podsecurity", "violates", "unauthorized", "denied")):
             F.append((f"k8s-ev|{e['ns']}|{e['reason']}|{_stable_pod(e['object'])}", "Review",
-                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}{cl}: {e['message'][:200]}"))
+                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}{cl}{_own(e)}: {e['message'][:200]}"))
         elif nightly:  # every other Warning event -> Open events (low; snapshot only, never a watcher alert)
             F.append((f"k8s-ev|{e['ns']}|{e['reason']}|{_stable_pod(e['object'])}", "Review" if e["security"] else "Info",
-                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}{cl} x{e.get('count', 1)}: {e['message'][:200]}"))
+                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}{cl}{_own(e)} x{e.get('count', 1)}: {e['message'][:200]}"))
     if nightly:  # container-log hits that are not findings above (auth failures, denied, TLS, crashes) -> Open events, low
         for s in d.get("signals") or []:
             if s.get("exempt") or s["severity"] == "high" or s["kind"] == "secret":
                 continue
             F.append((f"k8s-log|{s['kind']}|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", "Info",
-                      f"{s['label']} in container logs of {s['ns']}/{s['pod']}{_cl(s)} ({s['container']}): {s['count']}x - e.g. {(s['examples'] or [''])[0][:160]}"))
+                      f"{s['label']} in container logs of {s['ns']}/{s['pod']}{_cl(s)}{_own(s)} ({s['container']}): {s['count']}x - e.g. {(s['examples'] or [''])[0][:160]}"))
     for al in d.get("alerts") or []:
         if al["severity"] in ("high", "critical"):
             F.append((f"k8s-alert|{al['rule']}", "Investigate", f"Security Onion alert on a Kubernetes node/pod: {al['rule']} x{al['count']} "
@@ -603,6 +657,75 @@ def _cl(x):
 def _stable_pod(name):
     """Pod name without the ReplicaSet / random suffix, so a restarted pod keeps the same finding key."""
     return re.sub(r"(-[a-f0-9]{8,10})?-[a-z0-9]{5}$", "", name or "")
+
+
+# ---------------------------------------------------------------- pod owners (pod notes live on the object that creates the pods)
+OWNER_FIELDS = ["kubernetes.deployment.name", "kubernetes.statefulset.name", "kubernetes.daemonset.name", "kubernetes.cronjob.name",
+                "kubernetes.job.name", "kubernetes.replicaset.name"]
+_RS_HASH = re.compile(r"-[a-z0-9]{6,10}$")    # ReplicaSet = <deployment>-<pod-template-hash>
+_JOB_TS = re.compile(r"-\d{8,10}$")            # CronJob Job = <cronjob>-<scheduled minute>
+
+
+def owner_of(k, pod_name=""):
+    """(kind, name) of the object that created a pod, from a document's `kubernetes` fields: Deployment (via its ReplicaSet),
+    StatefulSet, DaemonSet, CronJob (via its Job) or Job; ("pod", <pod name>) when nothing owns it (static / mirror pods).
+    Pods get new names on every restart; their owner keeps its name, so notes on it apply to all its pods."""
+    k = k or {}
+    nm = lambda kind: str((k.get(kind) or {}).get("name") or "")  # noqa: E731
+    if nm("deployment"):
+        return "deployment", nm("deployment")
+    for kind in ("statefulset", "daemonset", "cronjob"):
+        if nm(kind):
+            return kind, nm(kind)
+    if nm("job"):
+        return ("cronjob", _JOB_TS.sub("", nm("job"))) if _JOB_TS.search(nm("job")) else ("job", nm("job"))
+    if nm("replicaset"):
+        rs = nm("replicaset")
+        return ("deployment", _RS_HASH.sub("", rs)) if _RS_HASH.search(rs) else ("replicaset", rs)
+    return "pod", str(pod_name or "")
+
+
+def owner_str(k, pod_name=""):
+    kind, name = owner_of(k, pod_name)
+    return f"{kind}/{name}" if name else ""
+
+
+def _owner_filter(kind, name):
+    """ES filter: every pod (past, present, future name) created by kind/name."""
+    e = re.escape(name).replace("\\-", "-")
+    pat = {"deployment": e + "-[a-z0-9]{1,10}-[a-z0-9]{5}", "statefulset": e + "-[0-9]{1,5}", "daemonset": e + "-[a-z0-9]{5}",
+           "job": e + "-[a-z0-9]{5}", "cronjob": e + "-[0-9]{8,10}-[a-z0-9]{5}", "replicaset": e + "-[a-z0-9]{5}"}.get(kind)
+    if kind == "pod" or not pat:
+        return {"term": {"kubernetes.pod.name": name}}
+    should = [{"regexp": {"kubernetes.pod.name": pat}}]
+    if kind == "deployment":  # long names are cut in the pod name; the ReplicaSet name keeps the whole deployment name
+        should += [{"regexp": {"kubernetes.replicaset.name": e + "-[a-z0-9]{6,10}"}}, {"term": {"kubernetes.deployment.name": name}}]
+    elif kind == "cronjob":
+        should += [{"regexp": {"kubernetes.job.name": e + "-[0-9]{8,10}"}}, {"term": {"kubernetes.cronjob.name": name}}]
+    else:
+        should.append({"term": {f"kubernetes.{kind}.name": name}})
+    return {"bool": {"should": should, "minimum_should_match": 1}}
+
+
+def pod_owners(pairs, minutes=1440):
+    """{(ns, pod): (kind, name)} for the given pods, from the pod metrics (Kubernetes events only name the pod)."""
+    pairs = list({(a, b) for a, b in pairs if a and b})[:500]
+    if not pairs:
+        return {}
+    r = q(POD + "," + LOGS, {"size": 0, "query": {"bool": {"filter": [rng(minutes), {"terms": {"kubernetes.pod.name": sorted({b for _, b in pairs})}}]}},
+                             "aggs": {"p": {"composite": {"size": 1000, "sources": [{"ns": {"terms": {"field": "kubernetes.namespace"}}},
+                                                                                    {"pod": {"terms": {"field": "kubernetes.pod.name"}}}]},
+                                            "aggs": {"t": {"top_hits": {"size": 1, "_source": OWNER_FIELDS}}}}}})
+    out = {}
+    for b in B(r["aggregations"]["p"]):
+        hit = b["t"]["hits"]["hits"]
+        out[(b["key"]["ns"], b["key"]["pod"])] = owner_of((hit[0]["_source"].get("kubernetes") if hit else {}) or {}, b["key"]["pod"])
+    return out
+
+
+def _own(x):
+    """" (owner <kind>/<name>)" for finding texts: kb.pod_of_event reads it to file pod notes on the pod's owner."""
+    return f" (owner {x['owner']})" if x.get("owner") else ""
 
 
 # ---------------------------------------------------------------- nightly collector + image baseline

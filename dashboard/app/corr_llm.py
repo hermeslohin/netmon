@@ -1757,7 +1757,7 @@ def _context_notes(tags, E):
         pod = kb.pod_of_event({"eid": eid, "label": ev.get("label")})  # Kubernetes event: the notes on its workload (pod notes)
         if pod:
             seen_ids = {n["id"] for n in hn}
-            hn += [n for n in kb.pod_notes(pod[1], pod[2], pod[0], ai=True) if n["id"] not in seen_ids]
+            hn += [n for n in kb.pod_notes(pod[1], pod[3], pod[0], kind=pod[2], ai=True) if n["id"] not in seen_ids]
         earts = kb.event_artifact_keys(ev)  # look the event's artifacts up in the notes' artifact index BEFORE choosing which notes to send
         na = kb.note_artifacts([n["id"] for n in hn])
         have = {n["id"] for n in hn}
@@ -2037,15 +2037,16 @@ def _note_expected(model, aid, E, cands, dec):
 
 
 def _note_pods(kb, mname, tag, text, *evs):
-    """Kubernetes events: the expected-artifact note also goes on the workload the event is about (pod note), so the next
-    review of that pod's events sees it. Pod IPs change on every restart; the workload name does not."""
+    """Kubernetes events: the expected-artifact note also goes on the object that created the pod the event is about (its
+    Deployment, StatefulSet, DaemonSet, ...), so the next review of any of its pods' events sees it. Pod names and IPs change
+    on every restart; the owner's name does not."""
     n = 0
     for eid, ev in evs:
         pod = kb.pod_of_event({"eid": eid or ev.get("eid") or ev.get("id") or "", "label": ev.get("label")})
         if not pod:
             continue
         try:
-            subj = kb.pod_subject(pod[0] or "default", pod[1], pod[2])
+            subj = kb.pod_subject(pod[0] or "default", pod[1], pod[2] or "pod", pod[3])  # the pod's owner (Deployment, StatefulSet, ...)
             act, nid = kb.tagged_slot(kb.host_notes([subj]), tag, "expected")
             if act != "skip":
                 kb.add_host_note({"subject": subj}, text, "behavior", author="ai", model=mname, via="event reviewer", note_id=nid)

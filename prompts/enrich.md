@@ -52,10 +52,11 @@ subdomain (what it is, who runs it, which devices query it and how often, why it
 Finish by calling submit_notes once with notes, links, host_notes and host_notes_delete (use the exact id strings from
 the batch). If it reports rejected ids, fix them and call it again.
 
-Kubernetes pods: items about a Kubernetes workload carry `pod` ({subject, cluster, namespace, workload}) and `pod_notes` (what is
-already known about it). Record durable facts about the workload - what it is and does, which log lines, probe failures, restarts or
-connections are normal for it and why, its exposure and weaknesses, things to watch - as a host_note with `subject` set to `pod.subject`
-(`pod:<cluster>/<namespace>/<workload>`; the workload name never includes the pod's random suffix, so the note survives restarts).
+Kubernetes pods: items about a Kubernetes pod carry `pod` ({subject, cluster, namespace, owner_kind, workload}) and `pod_notes` (what
+is already known). Pods are temporary: notes belong to the object that creates them (its Deployment, StatefulSet, DaemonSet, CronJob or
+Job; `owner_kind`/`workload`) and apply to every pod it makes. Record durable facts about it - what it is and does, which log lines,
+probe failures, restarts or connections are normal for its pods and why, its exposure and weaknesses, things to watch - as a host_note
+with `subject` set to `pod.subject` (`pod:<cluster>/<namespace>/<kind>/<name>`; never a single pod's name).
 Same categories and rules as host notes: one short factual note per topic, update by id rather than adding duplicates, never per-run numbers.
 
 Artifacts: whenever an item involves an artifact with something durable to say (a process or file path, an account, a port, an IP, a DNS

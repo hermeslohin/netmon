@@ -146,9 +146,21 @@ ingress or an external service weigh 1.4×. Workload names link to the pod pivot
 
 ## Pod notes
 
-Each workload has notes, like hosts do. The subject is `pod:<cluster>/<namespace>/<workload>`, where the workload is the
-pod name without its random suffix, so notes survive restarts and rollouts. They appear on the pod pivot page
-(**Pod notes**) and on the Notes page.
+Pods are temporary: they get a new name on every restart, rollout or reschedule. So a pod note is not stored on a pod. It is
+stored on the object that **creates** the pods - its Deployment, StatefulSet, DaemonSet, CronJob or Job - and applies to every
+pod that object makes, today's and the ones it creates later. The subject is `pod:<cluster>/<namespace>/<kind>/<name>`, for
+example `pod:talos/opencti/deployment/opencti-worker`. A pod nothing creates (a static pod such as `kube-apiserver-<node>`) keeps
+its notes under kind `pod` and its own name. The owner comes from the Security Onion pod fields (a ReplicaSet maps to its
+Deployment, a CronJob's Job to its CronJob). Notes written with the older subject `pod:<cluster>/<namespace>/<workload>` are still read.
+
+In the dashboard:
+
+- **Pods table** (Kubernetes page): the **Created by** column names each pod's owner and its kind, links to all its pods, and
+  shows 📝 *n* when that owner has notes.
+- **Pod page**: the card is titled **Notes on <Kind> <name>**. A banner says the notes belong to that object, not to the pod, and
+  lists the pods it runs now. **Add note to <Kind>** stores the note there. **View all its pods** opens
+  `#/k8spod/<ns>/<name>?owner=<kind>`, which shows logs, hits and events of all its pods together.
+- **Notes page**: pod notes show the owner kind and "all its pods".
 
 - **People** add notes on the pod page. These are authoritative for the AI.
 - **The AI reads them:**

@@ -289,9 +289,17 @@ def _registry():
 
 
 # ---------------------------------------------------------------- Kubernetes pod notes
+# Pods come and go (new names on every restart, rollout or reschedule), so a pod note is filed on the object that CREATES the
+# pods - its Deployment, StatefulSet, DaemonSet, CronJob or Job - and applies to every pod that object makes, now and later.
+# Subject: pod:<cluster>/<namespace>/<kind>/<name> (kind lower case). A pod nothing owns (static / mirror pods) uses kind "pod".
+# Old 3-part subjects pod:<cluster>/<namespace>/<workload> are still read.
 _K8S_NAME = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
 _POD_SUFFIX = re.compile(r"(-[a-f0-9]{8,10})?-[a-z0-9]{5}$")
 _STS_SUFFIX = re.compile(r"-\d{1,4}$")
+OWNER_KINDS = ("deployment", "statefulset", "daemonset", "cronjob", "job", "replicaset", "pod")
+OWNER_LABEL = {"deployment": "Deployment", "statefulset": "StatefulSet", "daemonset": "DaemonSet", "cronjob": "CronJob", "job": "Job",
+               "replicaset": "ReplicaSet", "pod": "Pod"}
+_OWNER_TAG = re.compile(r"\(owner (deployment|statefulset|daemonset|cronjob|job|replicaset|pod)/([a-z0-9][a-z0-9.-]{0,252})\)")
 
 
 def stable_pod(name):
@@ -299,12 +307,18 @@ def stable_pod(name):
     return _POD_SUFFIX.sub("", str(name or "").lower())
 
 
-def pod_subject(cluster, ns, pod):
-    return resolve(subject=f"pod:{cluster or 'default'}/{ns}/{pod}")[0]
+def pod_subject(cluster, ns, kind, name=None):
+    """Subject of the notes on a pod-creating object: pod_subject(cluster, ns, kind, name).
+    The legacy 3-argument form pod_subject(cluster, ns, workload) still gives the old 3-part subject."""
+    if name is None:
+        return resolve(subject=f"pod:{cluster or 'default'}/{ns}/{kind}")[0]
+    return resolve(subject=f"pod:{cluster or 'default'}/{ns}/{kind or 'pod'}/{name}")[0]
 
 
 def pod_of_event(ev_or_eid):
-    """(cluster or "", ns, workload) of a Kubernetes event (hf|k8s-log|kind|ns|wl|container, hf|k8s-ev|ns|reason|wl), else None."""
+    """(cluster or "", ns, kind or "", name) of a Kubernetes event (hf|k8s-log|kind|ns|wl|container, hf|k8s-ev|ns|reason|wl), else None.
+    The owner (kind/name) comes from the finding text's "(owner <kind>/<name>)" tag (k8s.py); without it kind is "" and the
+    name is the pod name without its random suffix."""
     eid = ev_or_eid if isinstance(ev_or_eid, str) else str((ev_or_eid or {}).get("eid") or (ev_or_eid or {}).get("id") or "")
     p = eid.split("|")
     if p[0] == "hf":
@@ -318,18 +332,59 @@ def pod_of_event(ev_or_eid):
         return None
     text = "" if isinstance(ev_or_eid, str) else str(ev_or_eid.get("label") or ev_or_eid.get("text") or "")
     m = re.search(r"\[([a-z0-9][a-z0-9.-]{0,62})\]", text)
-    return (m.group(1) if m else ""), ns, stable_pod(wl)
+    o = _OWNER_TAG.search(text)
+    if o:
+        return (m.group(1) if m else ""), ns, o.group(1), o.group(2)
+    full = re.search(r"(?:on Pod|container logs of|logged by) " + re.escape(ns) + r"/([a-z0-9][a-z0-9.-]{0,252})", text)  # older texts: guess from the pod name
+    kind, name = guess_owner(full.group(1)) if full else ("", stable_pod(wl))
+    return (m.group(1) if m else ""), ns, kind, name
 
 
-def pod_notes(ns, workload, cluster="", ai=True):
-    """Notes on a workload. Without a cluster: the notes of that namespace/workload in every cluster."""
-    wl = stable_pod(workload)
-    if cluster:
-        return host_notes([pod_subject(cluster, ns, wl)], ai=ai)
+def guess_owner(pod):
+    """(kind, name) from a pod name alone, for texts written before findings carried "(owner kind/name)":
+    <name>-<hash>-<5> Deployment, <name>-<ordinal> StatefulSet, <name>-<5> DaemonSet, else the pod itself."""
+    pod = str(pod or "").lower()
+    for rx, kind in ((r"^(.+)-[a-z0-9]{6,10}-[a-z0-9]{5}$", "deployment"), (r"^(.+)-\d{1,4}$", "statefulset"), (r"^(.+)-[a-z0-9]{5}$", "daemonset")):
+        mm = re.match(rx, pod)
+        if mm:
+            return kind, mm.group(1)
+    return "pod", pod
+
+
+def _like(s):
+    return str(s).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def pod_notes(ns, name, cluster="", kind="", ai=True):
+    """Notes on the object that creates a pod (kind/name). Without a kind: that name under any owner kind (and the old
+    3-part subjects, and a StatefulSet's name for an ordinal pod name). Without a cluster: every cluster."""
+    name = str(name or "").lower()
+    if cluster and kind:
+        return host_notes([pod_subject(cluster, ns, kind, name), pod_subject(cluster, ns, name)], ai=ai)
+    names = {name, stable_pod(name)}
+    if _STS_SUFFIX.search(name):
+        names.add(_STS_SUFFIX.sub("", name))
+    pats = []
+    cl = _like(cluster.lower()) if cluster else "%"
+    for nm in names:
+        if not nm:
+            continue
+        pats.append(f"pod:{cl}/{_like(ns)}/{_like(kind) if kind else '%'}/{_like(nm)}")
+        pats.append(f"pod:{cl}/{_like(ns)}/{_like(nm)}")
+    def ok(subj):  # LIKE's % also matches "/": check every part
+        p = subj[4:].split("/")
+        return ((not cluster or p[0] == cluster.lower()) and p[1] == ns and p[-1] in names
+                and (len(p) == 3 or (len(p) == 4 and (not kind or p[2] == kind))))
     with _db() as c:
-        subs = [r[0] for r in c.execute("SELECT DISTINCT subject FROM host_notes WHERE subject LIKE ? ESCAPE '\\'",
-                                        ("pod:%/" + f"{ns}/{wl}".replace("%", "\\%").replace("_", "\\_"),))]
+        subs = sorted({r[0] for pat in pats for r in c.execute("SELECT DISTINCT subject FROM host_notes WHERE subject LIKE ? ESCAPE '\\'", (pat,))
+                       if ok(r[0])})
     return host_notes(subs, ai=ai) if subs else []
+
+
+def pod_note_counts():
+    """{subject: number of notes} for every pod-creating object that has notes (Kubernetes page: which pods have notes)."""
+    with _db() as c:
+        return {r[0]: r[1] for r in c.execute("SELECT subject, COUNT(*) FROM host_notes WHERE subject LIKE 'pod:%' AND COALESCE(status,'') != 'rejected' GROUP BY subject")}
 
 
 ART_KINDS = ("file", "process", "user", "ip", "dns", "hash")
@@ -356,13 +411,15 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av and valid_art(ak, av):
                 av = av.lower() if ak in ("ip", "dns") else av
                 return f"art:{ak}:{av}", f"{ak} {av}"
-        if k == "pod":  # a Kubernetes workload: pod:<cluster>/<namespace>/<workload> (pod name without its random suffix)
+        if k == "pod":  # the object that creates pods: pod:<cluster>/<namespace>/<kind>/<name>; notes apply to all its pods
             parts = v.strip().lower().split("/")
-            if len(parts) == 3 and all(_K8S_NAME.match(x) for x in parts):
+            if len(parts) == 4 and parts[2] in OWNER_KINDS and all(_K8S_NAME.match(x) for x in (parts[0], parts[1], parts[3])):
+                return "pod:" + "/".join(parts), f"{OWNER_LABEL[parts[2]]} {parts[1]}/{parts[3]} ({parts[0]})"
+            if len(parts) == 3 and all(_K8S_NAME.match(x) for x in parts):  # legacy: pod name without its random suffix
                 parts[2] = stable_pod(parts[2])
                 return "pod:" + "/".join(parts), f"pod {parts[1]}/{parts[2]} ({parts[0]})"
-            raise ValueError(f"bad pod subject {s!r} (use pod:<cluster>/<namespace>/<workload>)")
-        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, net:<cidr>, host:<name>, dom:<domain>, pod:<cluster>/<namespace>/<workload> or art:<kind>:<value>)")
+            raise ValueError(f"bad pod subject {s!r} (use pod:<cluster>/<namespace>/<kind>/<name>, kind one of {', '.join(OWNER_KINDS)})")
+        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, net:<cidr>, host:<name>, dom:<domain>, pod:<cluster>/<namespace>/<kind>/<name> or art:<kind>:<value>)")
     if dom:
         d = str(dom).strip().lower().rstrip(".")
         d = d[2:] if d.startswith("*.") else d  # *.example.com = example.com: a domain note covers all its subdomains

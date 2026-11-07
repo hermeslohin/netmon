@@ -398,10 +398,11 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
             if hn:
                 x["host_notes"] = hn
             pod = kb.pod_of_event({"eid": x["id"], "label": (E.get(x["id"]) or {}).get("label") or x.get("label")})
-            if pod:  # Kubernetes event: what is known about its workload (pod notes); write new ones with subject pod:<cluster>/<ns>/<workload>
-                x["pod"] = {"subject": kb.pod_subject(pod[0] or "default", pod[1], pod[2]), "cluster": pod[0], "namespace": pod[1], "workload": pod[2]}
+            if pod:  # Kubernetes event: what is known about the object that created the pod (pod notes); new ones go to pod:<cluster>/<ns>/<kind>/<name>
+                x["pod"] = {"subject": kb.pod_subject(pod[0] or "default", pod[1], pod[2] or "pod", pod[3]), "cluster": pod[0], "namespace": pod[1],
+                            "owner_kind": pod[2] or "pod", "workload": pod[3]}
                 pn = [{"id": n["id"], "subject": n["subject"], "category": n["category"], "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}
-                      for n in kb.pod_notes(pod[1], pod[2], pod[0], ai=True)]
+                      for n in kb.pod_notes(pod[1], pod[3], pod[0], kind=pod[2], ai=True)]
                 if pn:
                     x["pod_notes"] = pn
             inn = {}  # notes on the external IPs the event involves (Network > Internet notes)

@@ -78,6 +78,31 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(k8s._stable_pod("opencti-worker-5f7c9d8b4-x2k9p"), "opencti-worker")
         self.assertEqual(k8s._stable_pod("calico-node-6lw86"), "calico-node")
 
+    def test_pod_owner(self):
+        """REQ: KUBE-12"""
+        self.assertEqual(k8s.owner_of({"replicaset": {"name": "opencti-worker-7b7699bc8"}}, "opencti-worker-7b7699bc8-dffkj"), ("deployment", "opencti-worker"))
+        self.assertEqual(k8s.owner_of({"deployment": {"name": "web"}, "replicaset": {"name": "web-5f7c9d8b4"}}), ("deployment", "web"))
+        self.assertEqual(k8s.owner_of({"statefulset": {"name": "opencti-rabbitmq"}}, "opencti-rabbitmq-0"), ("statefulset", "opencti-rabbitmq"))
+        self.assertEqual(k8s.owner_of({"daemonset": {"name": "calico-node"}}, "calico-node-6lw86"), ("daemonset", "calico-node"))
+        self.assertEqual(k8s.owner_of({"job": {"name": "backup-29012345"}}), ("cronjob", "backup"))
+        self.assertEqual(k8s.owner_of({"job": {"name": "migrate"}}), ("job", "migrate"))
+        self.assertEqual(k8s.owner_of({}, "kube-apiserver-n1"), ("pod", "kube-apiserver-n1"))
+        f = k8s._owner_filter("deployment", "my.web")
+        self.assertEqual(f["bool"]["should"][0], {"regexp": {"kubernetes.pod.name": "my\\.web-[a-z0-9]{1,10}-[a-z0-9]{5}"}})
+        self.assertEqual(k8s._owner_filter("pod", "x"), {"term": {"kubernetes.pod.name": "x"}})
+        # the finding text names the owner, so the event reviewer and event research file notes on it
+        d = {"signals": [{"kind": "cmd", "severity": "high", "label": "Suspicious command", "ns": "apps", "pod": "web-5f7c9d8b4-x2k9p", "container": "c",
+                          "count": 1, "examples": ["x"], "owner": "deployment/web", "cluster": "talos"}]}
+        txt = k8s.findings(d, nightly=False)[0][2]
+        self.assertIn("[talos] (owner deployment/web)", txt)
+        import kb
+        self.assertEqual(kb.pod_of_event({"eid": "hf|" + k8s.findings(d, nightly=False)[0][0], "label": txt}), ("talos", "apps", "deployment", "web"))
+
+    def test_pod_rejects_bad_owner(self):
+        """REQ: KUBE-04"""
+        with self.assertRaises(ValueError):
+            k8s.pod("apps", "web", owner="widget")
+
     def test_shard_failure_raises(self):
         """REQ: KUBE-01"""
         with mock.patch.object(k8s, "_esq", return_value={"_shards": {"total": 4, "failed": 1, "failures": [{"reason": {"reason": "bad field"}}]}}):

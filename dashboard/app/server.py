@@ -1761,7 +1761,7 @@ class H(BaseHTTPRequestHandler):
                 body = {"action": "pod" if path == "/api/k8s/pod" else "overview", "minutes": g("minutes", "1440"), "end": g("end"), "cluster": g("cluster")[:40],
                         "force": g("force") == "1"}
                 if path == "/api/k8s/pod":
-                    body.update({k: g(k) for k in ("ns", "pod", "text", "container", "stream", "size", "before")})
+                    body.update({k: g(k) for k in ("ns", "pod", "text", "container", "stream", "size", "before", "owner")})
                     self._aud["target"] = f"{body['ns']}/{body['pod']}"
                 try:
                     return self._json(corr_llm.broker("/k8s", body, timeout=120))
@@ -1866,6 +1866,8 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/kb/host":  # notes for one device / endpoint / domain: ?s=mac:..,ip:..,host:..,dom:..
                 subs = [s.strip() for s in (q.get("s") or [""])[0].split(",") if s.strip()][:20]
                 return self._json({"notes": kb.host_notes(subs)})
+            if path == "/api/kb/pods":  # Kubernetes page: {subject: note count} for every pod-creating object with notes
+                return self._json({"counts": kb.pod_note_counts()})
             if path == "/api/kb/resolve":  # canonical subject for ?ip= / ?mac= / ?host= / ?dom=
                 try:
                     s_, label = kb.resolve(ip=(q.get("ip") or [None])[0], mac=(q.get("mac") or [None])[0],

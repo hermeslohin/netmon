@@ -887,7 +887,7 @@ const RISK_COMP = [["exposure", "Exposure", 25, PALETTE[3]], ["weaknesses", "Wea
 const riskCls = (s) => (s >= 40 ? "sev-high" : s >= 20 ? "sev-medium" : s >= 8 ? "sev-low" : "sev-unknown");
 const riskBadge = (s) => `<span class="badge ${riskCls(s)}">${(+s).toFixed(0)}</span>`;
 function riskHostLink(h) {
-  if (h.k8s) return `<a href="#/k8spod/${encodeURIComponent(h.k8s.ns)}/${encodeURIComponent(h.k8s.name)}?cluster=${encodeURIComponent(h.k8s.cluster)}" title="${esc(h.k8s.kind)} · ${h.k8s.pods} pod(s) · ${esc(h.k8s.images.join(", "))}">${esc(h.name)}</a>`;
+  if (h.k8s) return `<a href="#/k8spod/${encodeURIComponent(h.k8s.ns)}/${encodeURIComponent(h.k8s.name)}?cluster=${encodeURIComponent(h.k8s.cluster)}${/^(deployment|statefulset|daemonset|cronjob|job)$/i.test(h.k8s.kind || "") ? "&owner=" + String(h.k8s.kind).toLowerCase() : ""}" title="${esc(h.k8s.kind)} · ${h.k8s.pods} pod(s) · ${esc(h.k8s.images.join(", "))}">${esc(h.name)}</a>`;
   if (h.ip && S.snap?.raw?.devices?.[h.ip]) return `<a href="#/device/${encodeURIComponent(h.ip)}">${esc(h.name)}</a>`;
   const eh = endpointHosts().find((x) => hostMatch(x, h.id));
   return eh ? hostLink(eh) : esc(h.name);

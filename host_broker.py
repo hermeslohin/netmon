@@ -142,7 +142,7 @@ def k8s_ctl(b):
             if act == "pod":
                 return k8s.pod(str(b.get("ns") or ""), str(b.get("pod") or ""), minutes, text=str(b.get("text") or ""),
                                container=str(b.get("container") or ""), stream=str(b.get("stream") or ""),
-                               size=b.get("size") or 200, before=str(b.get("before") or ""))
+                               size=b.get("size") or 200, before=str(b.get("before") or ""), owner=str(b.get("owner") or "")[:20])
         finally:
             k8s.set_end(None)
             k8s.set_cluster(None)

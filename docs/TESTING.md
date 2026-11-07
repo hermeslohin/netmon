@@ -259,8 +259,8 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_issues.py` | 27 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, RISK-03) |
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix-list tracker (issues.track_incremental) is evaluated by request threads and background jobs at (OPS-05) |
-| `tests/unit/test_k8s.py` | 14 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04) |
-| `tests/unit/test_kb_pod.py` | 4 |  (KUBE-12) |
+| `tests/unit/test_k8s.py` | 16 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04, KUBE-12) |
+| `tests/unit/test_kb_pod.py` | 5 |  (KUBE-12) |
 | `tests/unit/test_kube_api.py` | 12 | Unit tests for the read-only Kubernetes API integration, the CIS benchmark and the map (kube_api / kube_cis / kube_map). (KUBE-05, KUBE-06, KUBE-07) |
 | `tests/unit/test_kube_images.py` | 6 | Kubernetes multi-cluster filter, events into Open events, and container image updates/CVEs (k8s.py, kube_images.py). (KUBE-08, KUBE-09, KUBE-10) |
 | `tests/unit/test_lateral.py` | 35 | Unit tests for dashboard/app/lateral.py (admin-session levels, lateral graph edges, multi-period merge). (LAT-01, LAT-02, RISK-04) |
