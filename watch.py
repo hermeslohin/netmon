@@ -67,8 +67,8 @@ def late_note(b):
         t0, t1 = (b.get("t0") or {}).get("value"), (b.get("in") or {}).get("value")
         if t0 and t1 and (t1 - t0) / 1000 > window.LATE_S:
             return f" (happened {(b['t0'].get('value_as_string') or '')[:16].replace('T', ' ')} UTC, arrived {(t1 - t0) / 3.6e6:.1f} h late)"
-    except Exception:  # noqa: BLE001
-        pass
+    except (TypeError, ValueError, AttributeError) as e:
+        print(f"(late note: {e})", file=sys.stderr)
     return ""
 
 

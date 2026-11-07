@@ -174,8 +174,8 @@ def save_lag(stats):
         import store
         with store.connect() as c:
             c.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", ("ingest_lag", json.dumps({"at": time.time(), "window": info(), "sources": stats})))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 - informational only
+        print(f"(ingest lag not saved: {e})", file=__import__("sys").stderr)
 
 
 def load_lag():

@@ -528,9 +528,6 @@ def _lateral_section():
     viol = extras.policy_violations(it.get("flows", []), ip_to_mac, extras.load_policy())
     return {"internal": it, "admin_access": adm, "devices": devs, "violations": viol,
             "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
-    if ARRIVAL:
-        out["arrival_window"] = ARRIVAL
-        out["ingest_lag"] = window.lag_stats(q)
 
 
 def section(name):
