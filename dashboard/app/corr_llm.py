@@ -1754,6 +1754,10 @@ def _context_notes(tags, E):
         for ip in (ev.get("ips") or [])[:4]:
             subs |= set(kb.subjects_for_ip(ip))
         hn = kb.host_notes(sorted(subs), ai=True) if subs else []
+        pod = kb.pod_of_event({"eid": eid, "label": ev.get("label")})  # Kubernetes event: the notes on its workload (pod notes)
+        if pod:
+            seen_ids = {n["id"] for n in hn}
+            hn += [n for n in kb.pod_notes(pod[1], pod[2], pod[0], ai=True) if n["id"] not in seen_ids]
         earts = kb.event_artifact_keys(ev)  # look the event's artifacts up in the notes' artifact index BEFORE choosing which notes to send
         na = kb.note_artifacts([n["id"] for n in hn])
         have = {n["id"] for n in hn}
@@ -1787,7 +1791,8 @@ def _context_notes(tags, E):
             where = "" if n["id"] in homes or not hit else f" (matches {', '.join(hit[:3])})"
             subj = str(n["subject"])
             ext = subj[3:] if subj.startswith("ip:") else subj[7:] if subj.startswith("art:ip:") else ""
-            head = f"internet note [{ext}]" if ext and kb.is_external(ext) else f"host note [{n['category']}] {n['label'] or subj}"
+            head = (f"internet note [{ext}]" if ext and kb.is_external(ext) else f"pod note [{n['category']}] {subj[4:]}" if subj.startswith("pod:")
+                    else f"host note [{n['category']}] {n['label'] or subj}")
             (o if _human(n) else a).append(f"{head}{where}: {_TAG.sub('', str(n['text']))[:240]}")
         if o:
             owner[tag] = o[:lim]
@@ -2017,6 +2022,8 @@ def _note_expected(model, aid, E, cands, dec):
             text = (f"{tag} Expected {art['kind']} {art['value'][:160]}: {art['relation'] or str(d.get('reason') or '')[:150]}. "
                     f"Seen in a correlation between '{E[aid]['label'][:80]}' and '{e['label'][:80]}'. Event reviewer judgement ({mname}), unverified; delete if wrong.")
             for ip in hosts[:2]:
+                if ip.startswith("pod:"):
+                    continue
                 try:
                     act, nid = kb.tagged_slot(kb.host_notes(kb.subjects_for_ip(ip)), tag, "expected")
                     if act == "skip":
@@ -2025,6 +2032,26 @@ def _note_expected(model, aid, E, cands, dec):
                     n += 1
                 except ValueError as ex:  # note limit reached / unresolvable subject
                     print(f"corr_llm: host note not added for {ip}: {ex}", file=sys.stderr)
+            n += _note_pods(kb, mname, tag, text, (aid, E[aid]), (str(e.get("id") or e.get("eid") or ""), e))
+    return n
+
+
+def _note_pods(kb, mname, tag, text, *evs):
+    """Kubernetes events: the expected-artifact note also goes on the workload the event is about (pod note), so the next
+    review of that pod's events sees it. Pod IPs change on every restart; the workload name does not."""
+    n = 0
+    for eid, ev in evs:
+        pod = kb.pod_of_event({"eid": eid or ev.get("eid") or ev.get("id") or "", "label": ev.get("label")})
+        if not pod:
+            continue
+        try:
+            subj = kb.pod_subject(pod[0] or "default", pod[1], pod[2])
+            act, nid = kb.tagged_slot(kb.host_notes([subj]), tag, "expected")
+            if act != "skip":
+                kb.add_host_note({"subject": subj}, text, "behavior", author="ai", model=mname, via="event reviewer", note_id=nid)
+                n += 1
+        except ValueError as ex:
+            print(f"corr_llm: pod note not added for {pod}: {ex}", file=sys.stderr)
     return n
 
 

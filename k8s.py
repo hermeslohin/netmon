@@ -480,6 +480,9 @@ def pod(ns, pod_name, minutes=1440, text="", container="", stream="", size=200, 
         raise ValueError("bad namespace or pod name")
     size = max(1, min(int(size or 200), MAX_POD_LOGS))
     f = [rng(minutes), {"term": {"kubernetes.namespace": ns}}, {"term": {"kubernetes.pod.name": pod_name}}]
+    if _stable_pod(pod_name) == pod_name:  # a workload name (from a pod note / the Risk page): all its pods, whatever their suffix
+        f[2] = {"bool": {"should": [{"term": {"kubernetes.pod.name": pod_name}},
+                                    {"prefix": {"kubernetes.pod.name": pod_name + "-"}}], "minimum_should_match": 1}}
     if container:
         f.append({"term": {"kubernetes.container.name": str(container)[:120]}})
     if stream in ("stdout", "stderr"):
@@ -519,6 +522,8 @@ def pod(ns, pod_name, minutes=1440, text="", container="", stream="", size=200, 
     d["signals"] = safe(log_signals, minutes, ns, pod_name, default=[])
     d["events"] = safe(events, minutes, ns, pod_name, default=[])
     d["alerts"] = safe(so_alerts, minutes, [d["node"]] if d["node"] else [], [d["ip"]] if d["ip"] else [], default=[])
+    d["cluster"] = safe(lambda: node_cluster().get(d.get("node") or ""), default="") or ""  # for the pod's notes (kb subject pod:<cluster>/<ns>/<workload>)
+    d["workload"] = _stable_pod(pod_name)
     return d
 
 
@@ -547,10 +552,10 @@ def findings(d, nightly=True):
         if s["severity"] == "high" or s["kind"] == "secret":
             pri = "Investigate" if s["severity"] == "high" else "Review"
             F.append((f"k8s-log|{s['kind']}|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", pri,
-                      f"{s['label']} in container logs of {s['ns']}/{s['pod']} ({s['container']}): {s['count']}x - e.g. {s['examples'][0][:200] if s['examples'] else ''}"))
+                      f"{s['label']} in container logs of {s['ns']}/{s['pod']}{_cl(s)} ({s['container']}): {s['count']}x - e.g. {s['examples'][0][:200] if s['examples'] else ''}"))
         elif nightly and s["kind"] == "authfail" and s["count"] >= 20:
             F.append((f"k8s-log|authfail|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", "Review",
-                      f"{s['count']} authentication failures logged by {s['ns']}/{s['pod']} ({s['container']})"))
+                      f"{s['count']} authentication failures logged by {s['ns']}/{s['pod']}{_cl(s)} ({s['container']})"))
     a = d.get("apiserver") or {}
     if isinstance(a, dict) and "error" not in a:
         if a.get("exec", 0) >= pol["exec_alert"]:
@@ -573,22 +578,14 @@ def findings(d, nightly=True):
             if s.get("exempt") or s["severity"] == "high" or s["kind"] == "secret":
                 continue
             F.append((f"k8s-log|{s['kind']}|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", "Info",
-                      f"{s['label']} in container logs of {s['ns']}/{s['pod']} ({s['container']}): {s['count']}x - e.g. {(s['examples'] or [''])[0][:160]}"))
+                      f"{s['label']} in container logs of {s['ns']}/{s['pod']}{_cl(s)} ({s['container']}): {s['count']}x - e.g. {(s['examples'] or [''])[0][:160]}"))
     for al in d.get("alerts") or []:
         if al["severity"] in ("high", "critical"):
             F.append((f"k8s-alert|{al['rule']}", "Investigate", f"Security Onion alert on a Kubernetes node/pod: {al['rule']} x{al['count']} "
                                                                 f"({', '.join(al['hosts'] or al['src'])[:120]})"))
     for im in (d.get("new_images") or []):
         F.append((f"k8s-img|{im}", "Review", f"New container image running in Kubernetes: {im}"))
-    if nightly and isinstance(d.get("cis"), dict):  # CIS benchmark per cluster (kube_cis.py, read-only Kubernetes API account)
-        import kube_cis
-        for cl, c in d["cis"].items():
-            if not isinstance(c, dict) or "results" not in c and "error" not in c:
-                continue
-            c.setdefault("cluster", cl)
-            F += kube_cis.findings(c)
-            if c.get("error") and not c.get("not_configured"):
-                F.append((f"k8s-cis|{cl}|error", "Review", f"CIS Kubernetes benchmark could not run on cluster {cl}: {c['error'][:200]}"))
+    # CIS benchmark results (d["cis"], kube_cis.py) are configuration items: they go to the Fix list (dashboard/app/issues.py), not here
     if nightly and isinstance(d.get("images_scan"), dict):  # image CVEs fixed by an available update (kube_images.py)
         import kube_images
         F += kube_images.findings(d["images_scan"])
@@ -598,6 +595,11 @@ def findings(d, nightly=True):
             seen.add(f[0])
             out.append(f)
     return out
+
+
+def _cl(x):
+    """" [cluster]" for finding texts (kb.pod_of_event reads it to file pod notes under the right cluster)."""
+    return f" [{x['cluster']}]" if x.get("cluster") else ""
 
 
 def _stable_pod(name):
@@ -623,8 +625,73 @@ def cis_latest(run=True):
     return out
 
 
+def workloads():
+    """Per-workload security summary of every configured cluster (read-only Kubernetes API, kube_map.py) for the Risk
+    page: pods / IPs, privileged / host access / root, exposure (ingress hosts, NodePort / LoadBalancer), network
+    policy, mounted token, secrets in env, images, failed CIS checks."""
+    import kube_api
+    import kube_map
+    out = []
+    for name, cli in kube_api.clusters():
+        try:
+            m = kube_map.build(cli)
+        except Exception as e:  # noqa: BLE001 - one unreachable cluster must not hide the others
+            print(f"k8s workloads {name}: {e}", file=sys.stderr)
+            continue
+        ns = {n["name"]: n for n in m["namespaces"]}
+        svc = {x["id"]: x for x in m["services"]}
+        sel = {}  # pod id -> services selecting it
+        for e in m["edges"]:
+            if e["kind"] == "selects":
+                sel.setdefault(e["to"], []).append(e["from"])
+        ing_by_svc = {}
+        for e in m["edges"]:
+            if e["kind"] == "routes":
+                ing_by_svc.setdefault(e["to"], []).append(e["from"])
+        ing = {x["id"]: x for x in m["ingresses"]}
+        wl = {}
+        for p in m["pods"]:
+            wid = p["workload"] or f"wl:{p['ns']}/Pod/{p['name']}"
+            w = wl.setdefault(wid, {"cluster": name, "ns": p["ns"], "kind": wid.split("/")[1], "name": wid.split("/", 2)[2],
+                                    "pods": [], "ips": [], "nodes": set(), "images": set(), "flags": set(), "privileged": False,
+                                    "host": set(), "root": False, "token": False, "secrets_env": set(), "restarts": 0,
+                                    "services": set(), "exposed": set(), "ingress_hosts": set(), "no_tls": set()})
+            w["pods"].append(p["name"])
+            if p["ip"]:
+                w["ips"].append(p["ip"])
+            w["nodes"].add(p["node"])
+            w["token"] |= p["automount_token"]
+            w["host"] |= {h for h, on in (("hostNetwork", p["host_network"]), ("hostPID", p["host_pid"]), ("hostIPC", p["host_ipc"])) if on}
+            if any(v["type"] == "hostPath" for v in p["volumes"]):
+                w["host"].add("hostPath")
+            for c in p["containers"]:
+                w["images"].add(c["image"])
+                w["privileged"] |= c["security"]["privileged"]
+                w["root"] |= c["security"]["root"] and not c["init"]
+                w["flags"] |= set(c["security"]["flags"])
+                w["secrets_env"] |= set(c["env_secrets"])
+                w["restarts"] += c["restarts"] or 0
+            for sid in sel.get(p["id"], []):
+                s_ = svc[sid]
+                w["services"].add(s_["name"])
+                if s_["exposed"]:
+                    w["exposed"].add(f"{s_['type']} {s_['name']}")
+                for iid in ing_by_svc.get(sid, []):
+                    w["ingress_hosts"] |= set(ing[iid]["hosts"])
+                    w["no_tls"] |= set(ing[iid]["no_tls"])
+        cis = {x["id"]: x.get("cis") or [] for x in m["workloads"]}
+        for wid, w in wl.items():
+            n = ns.get(w["ns"]) or {}
+            w.update(id=f"k8s:{name}/{w['ns']}/{w['kind']}/{w['name']}", netpol=bool(n.get("netpols")), psa=n.get("psa", ""),
+                     cis=cis.get(wid, []), pods=w["pods"][:50], ips=w["ips"][:50], nodes=sorted(w["nodes"]),
+                     **{k: sorted(w[k]) for k in ("images", "flags", "host", "secrets_env", "services", "exposed", "ingress_hosts", "no_tls")})
+            out.append(w)
+    return out
+
+
 def collect(hours=24, update=True):
     d = overview(hours * 60)
+    d["workloads"] = safe(workloads, default=[])
     d["cis"] = safe(cis_latest, update, default={})
     try:
         import kube_images

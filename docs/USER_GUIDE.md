@@ -370,6 +370,15 @@ Click a technique in the matrix to list the items behind it.
 
 Hosts and vulnerabilities ranked by the risk they pose to the whole network. Host risk is how likely it is to be compromised (its exposure, weaknesses and threat activity) multiplied by how much damage that would do (its role and what it can reach). The **Scoring model** box explains every component. The full model (every weight, cap and threshold, with a worked example) is in [RISK_SCORING.md](RISK_SCORING.md).
 
+**Kubernetes containers** rank in the same list as hosts when a cluster is configured. Each Kubernetes workload (Deployment, StatefulSet, DaemonSet…) is scored with the same likelihood × impact model, using:
+
+- its exposure (ingress, NodePort / LoadBalancer services);
+- image CVEs and risky settings (privileged, host access, secrets in env, root, CIS);
+- Security Onion activity on its pods;
+- node access or a missing NetworkPolicy.
+
+**Show** switches between hosts and containers, hosts only, or containers only. **Container vulnerabilities ranked by risk** lists what to fix per workload. Click a container to pivot into its pod's logs and events. See [KUBERNETES.md](KUBERNETES.md#risk-page).
+
 ### Security → Fix list
 
 Misconfigurations and security suggestions from all snapshots, such as SSH password logins, legacy TLS or exposed admin ports. Each issue shows when it was first and last seen. Segmentation violations are not listed here; they are on Posture and Lateral movement.
@@ -499,7 +508,7 @@ Opening a pod's logs is recorded in the audit log (`k8s.pod_logs`).
 
 Results are:
 
-- **fail**: becomes a Kubernetes finding (`k8s-cis|<id>`).
+- **fail**: becomes a **Fix list** item (`k8s-cis|<cluster>|<id>`) with how to fix it and the failing items. CIS results are configuration items, so they never show as endpoint findings or Open events.
 - **warn**: a list to review by hand, such as who holds cluster-admin.
 - **manual**: cannot be seen from the API. File permissions (1.1), etcd (2) and the kubelet (4) need node access, which the read-only account deliberately lacks. They are never reported as passed.
 - **accepted**: a failed check you accepted with a reason in **Settings → Endpoint policy → k8s → cis_accept**.

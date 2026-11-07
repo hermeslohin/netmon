@@ -333,11 +333,166 @@ def compute(raw, analysis, tracker, policy, known_benign):
                      "likelihood": round(likelihood, 1), "impact": impact, "impact_why": iwhy,
                      "components": comp, "drivers": [{"type": a, "text": b} for a, b in drivers],
                      "vulns": len(vs), "top_vuln": vs[0]["title"] if vs else ""})
+    try:  # Kubernetes workloads rank in the same list (risk must still compute without them)
+        krows, kvulns = k8s_rows(raw, (policy or {}).get("k8s") or {}, kb)
+    except Exception as e:  # noqa: BLE001
+        print(f"risk: kubernetes workloads skipped: {e}")
+        krows, kvulns = [], []
+    rows += krows
     rows.sort(key=lambda r: -r["score"])
     for n, r in enumerate(rows, 1):
         r["rank"] = n
+    for n, v in enumerate(kvulns, 1):
+        v["rank"] = n
     for n, v in enumerate(vulns, 1):
         v["rank"] = n
-    return {"hosts": rows, "vulns": vulns,
+    return {"hosts": rows, "vulns": vulns, "k8s_vulns": kvulns,
             "model": {"sev_base": SEV_BASE, "impact_by_class": IMPACT_BY_CLASS,
                       "components_max": {"exposure": 25, "weaknesses": 30, "threat": 25, "reach": 10, "visibility": 10}}}
+
+
+# ---------------------------------------------------------------- Kubernetes workloads (containers)
+K8S_INFRA_NS = re.compile(r"^(kube-.*|calico-.*|tigera-.*|longhorn-.*|cert-manager|cattle-.*|ingress-.*|metallb-.*|"
+                          r"local-path-storage|flux-system|argocd|gatekeeper-.*|kyverno|monitoring|netmon-readonly)$")
+
+
+def _img_key(image):
+    return (image or "").split("@")[0]
+
+
+def k8s_rows(raw, kpol=None, kb=None):
+    """Kubernetes workloads (Deployment / StatefulSet / DaemonSet / Job / bare pod) scored with the same model as hosts,
+    so containers rank next to them. Input: raw["k8s"] from the snapshot (k8s.collect): workloads (read-only Kubernetes
+    API), images_scan (Trivy), signals / events / alerts (Security Onion). Returns (rows, vulns)."""
+    k = raw.get("k8s") or {}
+    W = k.get("workloads") or []
+    if not W:
+        return [], []
+    kpol, kb = kpol or {}, kb or {}
+    imp_over = kpol.get("impact") or {}  # host_policy k8s.impact {"ns" or "ns/name": [1-5, "why"]}
+    scans = {}
+    for r in (k.get("images_scan") or {}).get("images") or []:
+        scans.setdefault(_img_key(r.get("image")), r)
+    sigs = [x for x in k.get("signals") or [] if not x.get("exempt")]
+    evs = [e for e in k.get("events") or [] if e.get("security")]
+    alerts = k.get("alerts") or []
+    ids = (raw.get("alerts") or {}).get("signatures") or []
+    so_nodes = k.get("so_nodes") or {}
+    rows, vulns = [], []
+    for w in W:
+        comp, drivers, weak = {}, [], []
+        label = f"{w['ns']}/{w['name']}"
+        pods = set(w.get("pods") or [])
+        # hostNetwork pods use their node's IP: alerts on it belong to the node (scored as a host), not to the pod
+        ips = set() if "hostNetwork" in (w.get("host") or []) else set(w.get("ips") or [])
+        mine = lambda x: x.get("ns") == w["ns"] and (x.get("pod") in pods or x.get("object") in pods)  # noqa: E731
+        # exposure
+        e = 0
+        if w.get("ingress_hosts"):
+            e += 10 + 2 * min(3, len(w["ingress_hosts"]))
+            drivers.append(("exposure", f"published by ingress: {', '.join(w['ingress_hosts'][:3])}"))
+        if w.get("no_tls"):
+            e += 4
+            drivers.append(("exposure", f"ingress without TLS: {', '.join(w['no_tls'][:2])}"))
+        if w.get("exposed"):
+            e += 8
+            drivers.append(("exposure", f"reachable outside the cluster: {', '.join(w['exposed'][:2])}"))
+        if "hostNetwork" in (w.get("host") or []):
+            e += 3
+        comp["exposure"] = min(25, e)
+        # weaknesses: image CVEs + risky pod settings, each scored 0-100 and combined like fix-list items on a host
+        unscanned = 0
+        for img in w.get("images") or []:
+            r = scans.get(_img_key(img))
+            cur = ((r or {}).get("current") or {}).get("counts") or {}
+            if not r or not r.get("current"):
+                unscanned += 1
+                continue
+            c, h = cur.get("CRITICAL", 0), cur.get("HIGH", 0)
+            if not (c or h):
+                continue
+            fx = ((r.get("fixed_by_update") or {}).get("counts") or {})
+            sc = min(90, 45 + 4 * c) if c else min(60, 28 + 2 * h)
+            fix = (f"update to {r['update']} (fixes {fx.get('CRITICAL', 0)} critical / {fx.get('HIGH', 0)} high)" if r.get("update") and (fx.get("CRITICAL") or fx.get("HIGH"))
+                   else f"rebuild: {r.get('fixable_in_place', 0)} critical/high have a fixed package" if r.get("fixable_in_place") else "no fix published yet")
+            weak.append((sc, "high" if c else "medium", "Image CVEs", (f"{c} critical / {h} high" if c else f"{h} high") + f" CVEs in {img.rsplit('/', 1)[-1][:60]}", fix,
+                         f"k8s-imgcve|{r.get('repo', '')}"))
+        if w.get("privileged"):
+            weak.append((60, "high", "Container config", "privileged container (full access to its node)", "drop privileged: true", ""))
+        hs = [x for x in w.get("host") or [] if x != "hostNetwork"] + (["hostNetwork"] if "hostNetwork" in (w.get("host") or []) else [])
+        if hs:
+            weak.append((45, "medium", "Container config", f"host access: {', '.join(hs)}", "remove host namespaces / hostPath mounts", ""))
+        if w.get("secrets_env"):
+            weak.append((25, "medium", "Container config", f"secrets in environment variables ({len(w['secrets_env'])})", "mount secrets as files (CIS 5.4.1)", ""))
+        if w.get("root"):
+            weak.append((20, "low", "Container config", "runs as root", "set runAsNonRoot / a non-zero runAsUser", ""))
+        if w.get("cis"):
+            weak.append((min(30, 6 * len(w["cis"])), "low", "CIS", f"{len(w['cis'])} failed CIS pod checks", "; ".join(c.split(" ", 1)[0] for c in w["cis"][:6]), ""))
+        weak.sort(key=lambda x: -x[0])
+        rem = 1.0
+        for x in weak:
+            rem *= 1 - x[0] / 100 * 0.6
+        comp["weaknesses"] = round(30 * (1 - rem), 1)
+        for x in weak[:3]:
+            drivers.append(("weakness", f"{x[3]} ({x[0]:.0f})"))
+        # threat activity (Security Onion: container logs, security events, IDS alerts on the pod IPs)
+        th = 0
+        ms = [x for x in sigs if mine(x)]
+        if ms:
+            th += min(15, sum(10 if x.get("severity") == "high" else 5 if x.get("severity") == "medium" else 1 for x in ms))
+            drivers.append(("threat", f"container logs: {', '.join(sorted({x.get('label') or x.get('kind') for x in ms})[:3])}"))
+        me = [x for x in evs if mine(x)]
+        if me:
+            th += min(8, 4 * len(me))
+            drivers.append(("threat", f"Kubernetes security events: {', '.join(sorted({x['reason'] for x in me})[:3])}"))
+        ma = [a for a in alerts if ips & set((a.get("src") or []) + (a.get("dst") or []))]
+        mi = [sg["name"] for sg in ids if ips & set(sg.get("src") or {}) and not _benign(sg["name"], kb)]
+        if ma or mi:
+            th += min(10, 3 * (len(ma) + len(mi)))
+            drivers.append(("threat", f"IDS: {((ma and ma[0]['rule']) or mi[0])[:60]}"))
+        comp["threat"] = min(25, th)
+        # reach: escape to the node / the rest of the cluster
+        lr = 0
+        if w.get("privileged") or set(w.get("host") or []) & {"hostNetwork", "hostPID", "hostPath"}:
+            lr += 5
+            drivers.append(("reach", "can reach its node (privileged / host access)"))
+        if not w.get("netpol"):
+            lr += 3
+            drivers.append(("reach", f"no NetworkPolicy in namespace {w['ns']}: can reach every pod"))
+        if w.get("token"):
+            lr += 2
+        comp["reach"] = min(10, lr)
+        # visibility
+        vg = 0
+        if not so_nodes.get(w["cluster"]):
+            vg += 6
+            drivers.append(("visibility", "cluster sends no container logs to Security Onion"))
+        if unscanned:
+            vg += 2
+            drivers.append(("visibility", f"{unscanned} image(s) not scanned for CVEs"))
+        comp["visibility"] = min(10, vg)
+        likelihood = min(100, sum(comp.values()))
+        ov = imp_over.get(label) or imp_over.get(w["ns"])
+        if ov:
+            impact, iwhy = int(ov[0]), str(ov[1] if len(ov) > 1 else "set in host_policy k8s.impact")
+        elif w.get("privileged") or set(w.get("host") or []) & {"hostNetwork", "hostPID", "hostPath"}:
+            impact, iwhy = 5, "can take over its node"
+        elif K8S_INFRA_NS.match(w["ns"]):
+            impact, iwhy = 5, "cluster infrastructure"
+        elif w.get("secrets_env") or w.get("ingress_hosts") or w.get("exposed"):
+            impact, iwhy = 4, "holds secrets or serves users"
+        else:
+            impact, iwhy = 3, "application workload"
+        score = round(likelihood * impact / 5, 1)
+        rid = w["id"]
+        for x in weak:
+            vulns.append({"key": x[5] or f"k8s-wl|{w['cluster']}|{label}|{x[2]}|{x[3][:40]}", "title": x[3], "severity": x[1], "category": x[2],
+                          "target": f"{w['cluster']}/{label}", "fix": x[4], "score": round(min(100.0, x[0] * (1.4 if w.get("ingress_hosts") or w.get("exposed") else 1.0)), 1),
+                          "workload": rid, "kind": w["kind"], "pod": (w.get("pods") or [""])[0], "ns": w["ns"], "cluster": w["cluster"]})
+        rows.append({"id": rid, "ip": "", "name": label, "zone": w["cluster"], "class": "container", "type": "container", "score": score,
+                     "likelihood": round(likelihood, 1), "impact": impact, "impact_why": iwhy, "components": comp,
+                     "drivers": [{"type": a, "text": b} for a, b in drivers], "vulns": len(weak), "top_vuln": weak[0][3] if weak else "",
+                     "k8s": {"cluster": w["cluster"], "ns": w["ns"], "kind": w["kind"], "name": w["name"], "pod": (w.get("pods") or [""])[0],
+                             "pods": len(w.get("pods") or []), "images": w.get("images") or [], "nodes": w.get("nodes") or []}})
+    vulns.sort(key=lambda v: -v["score"])
+    return rows, vulns

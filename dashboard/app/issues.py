@@ -57,6 +57,22 @@ def _resolve(raw, macidx, dev):
     return _dkey(dev, (raw.get("devices") or {}).get(dev)), dev
 
 
+CIS_SEV = {"1.2": "medium", "1.3": "medium", "1.4": "medium", "3.2": "low", "5.1": "medium", "5.2": "medium", "5.3": "low", "5.4": "low", "5.7": "low"}
+CIS_FIX = {
+    "1.2": "Set the kube-apiserver flag named in the check (static pod manifest / machine config of each control-plane node).",
+    "1.3": "Set the kube-controller-manager flag named in the check on each control-plane node.",
+    "1.4": "Set the kube-scheduler flag named in the check on each control-plane node.",
+    "3.2": "Enable API server audit logging (--audit-policy-file, --audit-log-path) with a policy that records at least metadata.",
+    "5.1": "Remove the listed RBAC bindings / wildcard rules or narrow them to the verbs and resources actually needed.",
+    "5.2": "Harden the listed pods' securityContext (or label their namespace with a Pod Security level that enforces it); for system pods that need it, accept the check in host_policy k8s.cis_accept.",
+    "5.1.5": "Set automountServiceAccountToken: false on the default ServiceAccount of each listed namespace, and give workloads their own ServiceAccounts.",
+    "5.2.1": "Label each listed namespace with pod-security.kubernetes.io/enforce=baseline (or restricted; privileged only for system namespaces that need it).",
+    "5.3": "Add a default-deny NetworkPolicy to each listed namespace, then allow only the traffic the workloads need.",
+    "5.4.1": "Mount secrets as files (volumes) instead of env valueFrom.secretKeyRef in the listed workloads.",
+    "5.7": "Set seccompProfile: RuntimeDefault in the pods' securityContext and move workloads out of the default namespace.",
+}
+
+
 def check_snapshot(raw, analysis):
     """Return {key: issue} for one snapshot."""
     out = {}
@@ -216,6 +232,25 @@ def check_snapshot(raw, analysis):
                     fix="Confirm these are your own typos/scripts; otherwise add fail2ban / restrict SSH sources.",
                     evidence=f"×{x.get('count')} from {', '.join(x.get('sources') or {})}")
 
+    # ---------- Kubernetes CIS benchmark (k8s.collect -> raw["k8s"]["cis"], one result set per cluster) ----------
+    for cl, c in ((raw.get("k8s") or {}).get("cis") or {}).items():
+        if not isinstance(c, dict):
+            continue
+        if c.get("error") and not c.get("not_configured"):
+            add(f"k8s-cis|{cl}|error", "k8s", "medium", "Misconfiguration", f"CIS Kubernetes benchmark cannot run on cluster {cl}", host=f"Kubernetes {cl}",
+                fix="Check the cluster's read-only account under Settings → Configuration → Integrations → Kubernetes API (Test connection).",
+                evidence=str(c["error"])[:300])
+        for r in c.get("results") or []:
+            if r.get("status") != "fail":  # accepted (host_policy k8s.cis_accept), pass, warn, manual: not a fix-list item
+                continue
+            items = r.get("items") or []
+            ev = (f"{r.get('count', len(items))}: " + ", ".join(items[:8]) + (f" (+{r['count'] - 8} more)" if (r.get("count") or 0) > 8 else "")) if items else ""
+            add(f"k8s-cis|{cl}|{r['id']}", "k8s", CIS_SEV.get(str(r["id"]).split(".")[0] + "." + str(r["id"]).split(".")[1], "low") if "." in str(r["id"]) else "low",
+                "Misconfiguration" if str(r["id"]).startswith(("1.", "3.")) else "Security suggestion",
+                f"CIS Kubernetes {r['id']}: {r['title']}", host=f"Kubernetes {cl}",
+                fix=CIS_FIX.get(str(r["id"]), "") or CIS_FIX.get(".".join(str(r["id"]).split(".")[:2]), "See the CIS Kubernetes Benchmark for this check; to accept it, add it to host_policy k8s.cis_accept with a reason."),
+                evidence=(r.get("detail") or "")[:200] + (" · " if r.get("detail") and ev else "") + ev[:500])
+
     # ---------- UniFi gateway ----------
     U = raw.get("unifi")
     if U and U.get("settings"):
@@ -251,6 +286,8 @@ def sources_of(raw, analysis):
         s.add("analysis")
     if raw.get("hosts"):
         s.add("hosts")
+    if (raw.get("k8s") or {}).get("cis"):
+        s.add("k8s")
     if raw.get("unifi") and raw["unifi"].get("settings"):
         s.add("unifi")
     return s

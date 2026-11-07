@@ -212,7 +212,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `integrations.audit` | More > Audit log > Audit log storage (key, index, send event reviewer / researcher events) | `/api/config/integrations/audit` | SET-05, SET-06, SET-09, SET-10, SET-11, SET-13, SET-14, SET-15, SET-63 | 22 | 1 |
 | `integrations.web` | Configuration > Integrations > Web search (provider, Firecrawl URL, key, CA) | `/api/config/integrations/web` | WEB-01, WEB-02, WEB-03, WEB-04, SET-60, SET-61 | 4 | 9 |
 | `integrations.opencti` | Configuration > Integrations > OpenCTI | `/api/config/integrations/opencti` | OCTI-01, OCTI-03, SET-60, SET-61 | 3 | 9 |
-| `integrations.kubernetes` | Configuration > Integrations > Kubernetes API (URL(s), read-only token, CA, CIS on/off) | `/api/config/integrations/kubernetes` | KUBE-05, KUBE-06, SET-60, SET-61 | 11 | 9 |
+| `integrations.kubernetes` | Configuration > Integrations > Kubernetes API (URL(s), read-only token, CA, CIS on/off) | `/api/config/integrations/kubernetes` | KUBE-05, KUBE-06, SET-60, SET-61 | 13 | 9 |
 | `integrations.feeds` | Configuration > Integrations > Threat-intel feeds | `/api/config/integrations/feeds` | FEED-01, FEED-02, SET-60 | 3 | 4 |
 | `cfg.policy` | Settings > Network policy (zones, roles, device classes, ports, thresholds) | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-49, SET-50, SET-67 | 29 | 3 |
 | `cfg.host_policy` | Settings > Host policy | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48, SET-49 | 20 | 0 |
@@ -257,8 +257,10 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 27 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, RISK-03) |
+| `tests/unit/test_issues_k8s_cis.py` | 2 |  (KUBE-06) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix-list tracker (issues.track_incremental) is evaluated by request threads and background jobs at (OPS-05) |
 | `tests/unit/test_k8s.py` | 14 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04) |
+| `tests/unit/test_kb_pod.py` | 4 |  (KUBE-12) |
 | `tests/unit/test_kube_api.py` | 12 | Unit tests for the read-only Kubernetes API integration, the CIS benchmark and the map (kube_api / kube_cis / kube_map). (KUBE-05, KUBE-06, KUBE-07) |
 | `tests/unit/test_kube_images.py` | 6 | Kubernetes multi-cluster filter, events into Open events, and container image updates/CVEs (k8s.py, kube_images.py). (KUBE-08, KUBE-09, KUBE-10) |
 | `tests/unit/test_lateral.py` | 35 | Unit tests for dashboard/app/lateral.py (admin-session levels, lateral graph edges, multi-period merge). (LAT-01, LAT-02, RISK-04) |
@@ -278,6 +280,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_reviewer_output.py` | 8 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-08, FEAT-09) |
 | `tests/unit/test_reviewlog.py` | 4 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AUD-04) |
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
+| `tests/unit/test_risk_k8s.py` | 4 | Risk: Kubernetes workloads ranked with hosts (risk.k8s_rows). (KUBE-11) |
 | `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |
 | `tests/unit/test_scoped_notes.py` | 3 | Unit tests for dashboard/app/kb.py wider-scope internet notes: parent-domain notes cover subdomains, CIDR-range notes cover addresses. (STO-13) |
 | `tests/unit/test_server_cache.py` | 2 | Unit tests for the dashboard's in-memory document cache (server.load_json). (DASH-02, OPS-05) |

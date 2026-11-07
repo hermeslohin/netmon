@@ -887,6 +887,7 @@ const RISK_COMP = [["exposure", "Exposure", 25, PALETTE[3]], ["weaknesses", "Wea
 const riskCls = (s) => (s >= 40 ? "sev-high" : s >= 20 ? "sev-medium" : s >= 8 ? "sev-low" : "sev-unknown");
 const riskBadge = (s) => `<span class="badge ${riskCls(s)}">${(+s).toFixed(0)}</span>`;
 function riskHostLink(h) {
+  if (h.k8s) return `<a href="#/k8spod/${encodeURIComponent(h.k8s.ns)}/${encodeURIComponent(h.k8s.name)}?cluster=${encodeURIComponent(h.k8s.cluster)}" title="${esc(h.k8s.kind)} · ${h.k8s.pods} pod(s) · ${esc(h.k8s.images.join(", "))}">${esc(h.name)}</a>`;
   if (h.ip && S.snap?.raw?.devices?.[h.ip]) return `<a href="#/device/${encodeURIComponent(h.ip)}">${esc(h.name)}</a>`;
   const eh = endpointHosts().find((x) => hostMatch(x, h.id));
   return eh ? hostLink(eh) : esc(h.name);
@@ -902,27 +903,38 @@ V.risk = (el) => {
   const R = S.risk;
   el.innerHTML = `<h1>Risk ranking</h1><div class="sub">Hosts and vulnerabilities ranked by the risk they pose to the whole network. <b>Host risk</b> = likelihood (exposure, weaknesses from the fix list, threat activity, lateral reach, visibility gaps) × impact (how much a compromise would hurt the network). <b>Vulnerability risk</b> = severity × kind × exposure of the affected host × recurrence. Recomputed for whichever snapshot is selected.</div>`;
   if (!R) { el.insertAdjacentHTML("beforeend", `<div class="empty">Risk data unavailable.</div>`); return; }
-  const H = R.hosts, Vn = R.vulns;
+  const HA = R.hosts, Vn = R.vulns, KV = R.k8s_vulns || [], nC = HA.filter((h) => h.k8s).length;
+  const RT = [["all", "Hosts and containers"], ["hosts", "Hosts only"], ["containers", "Containers only"]];
+  let rt = localStorage.getItem("risk.type") || "all";
+  if (!nC) rt = "all";
+  const H = HA.filter((h) => rt === "all" || (rt === "containers") === !!h.k8s);
+  if (nC) {
+    el.insertAdjacentHTML("beforeend", `<div style="margin:-4px 0 10px"><label class="small">Show <select id="risk-type">${RT.map(([v, t]) => `<option value="${v}" ${v === rt ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <span class="muted small">Containers are Kubernetes workloads (Deployment, StatefulSet, DaemonSet…), scored with the same model and ranked together with hosts.</span></div>`);
+    el.querySelector("#risk-type").onchange = (e) => { localStorage.setItem("risk.type", e.target.value); V.risk(el); };
+  }
   const top5 = H.slice(0, 5).reduce((s, h) => s + h.score, 0) / Math.max(1, Math.min(5, H.length));
   el.insertAdjacentHTML("beforeend", kpis([["Network risk index (top-5 avg)", top5.toFixed(0), top5 >= 40 ? "bad" : top5 >= 20 ? "warn" : "good"],
     ["High-risk hosts (≥40)", H.filter((h) => h.score >= 40).length, H.some((h) => h.score >= 40) ? "bad" : "good"], ["Medium-risk hosts (20–40)", H.filter((h) => h.score >= 20 && h.score < 40).length, "warn"],
-    ["Hosts scored", H.length], ["Critical vulns (≥60)", Vn.filter((v) => v.score >= 60).length, Vn.some((v) => v.score >= 60) ? "bad" : "good"], ["Open vulns", Vn.length]]));
+    ["Hosts scored", HA.length - nC], ...(nC ? [["Containers scored", `<a href="#/k8s">${nC}</a>`], ["Container vulns (≥60)", KV.filter((v) => v.score >= 60).length, KV.some((v) => v.score >= 60) ? "bad" : "good"]] : []), ["Critical vulns (≥60)", Vn.filter((v) => v.score >= 60).length, Vn.some((v) => v.score >= 60) ? "bad" : "good"], ["Open vulns", Vn.length]]));
   const th = H.slice(0, 15);
   el.appendChild(grid("g2",
-    chartCard("Top 15 hosts — risk by component (impact-weighted, click to drill down)", { type: "bar", data: { labels: th.map((h) => h.name),
+    chartCard((rt === "containers" ? "Top 15 containers" : rt === "hosts" ? "Top 15 hosts" : "Top 15 hosts and containers") + " — risk by component (impact-weighted, click to drill down)", { type: "bar", data: { labels: th.map((h) => h.name),
       datasets: RISK_COMP.map(([k, l, , c]) => ({ label: l, data: th.map((h) => +(((h.components[k] || 0) * h.impact) / 5).toFixed(1)), backgroundColor: c })) },
       options: { indexAxis: "y", scales: { x: { stacked: true, max: 100 }, y: { stacked: true, ticks: { autoSkip: false, font: { size: 11 } } } },
         onClick: (e, els) => { if (!els.length) return; const h = th[els[0].index]; location.hash = riskHostLink(h).match(/href="([^"]+)"/)?.[1] || "#/risk"; },
         onHover: (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") } }, "", "tall"),
     chartCard("Likelihood × impact (bubble size = open vulns)", { type: "bubble", data: { datasets: [{ label: "hosts", data: H.map((h) => ({ x: h.likelihood, y: h.impact + (Math.random() - 0.5) * 0.3, r: 4 + Math.min(14, 2 * h.vulns), h })),
+      pointStyle: H.map((h) => (h.k8s ? "rectRot" : "circle")),
       backgroundColor: H.map((h) => (h.score >= 40 ? "#f85149aa" : h.score >= 20 ? "#d29922aa" : "#58a6ff88")) }] },
-      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.raw.h.name}: risk ${c.raw.h.score} (L ${c.raw.h.likelihood}, I ${c.raw.h.impact})` } } },
+      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.raw.h.k8s ? "container " : ""}${c.raw.h.name}: risk ${c.raw.h.score} (L ${c.raw.h.likelihood}, I ${c.raw.h.impact})` } } },
         scales: { x: { title: { display: true, text: "likelihood" }, min: 0, max: 100 }, y: { title: { display: true, text: "impact" }, min: 0.5, max: 5.5, ticks: { stepSize: 1 } } },
         onClick: (e, els) => { if (!els.length) return; const h = H[els[0].index]; location.hash = riskHostLink(h).match(/href="([^"]+)"/)?.[1] || "#/risk"; } } }, "", "tall")));
-  el.appendChild(card(`Hosts ranked by risk (${H.length})`, table(null, [
-    askCol("risky host", (h) => `${h.name}${h.ip ? " (" + h.ip + ")" : ""}, risk ${h.score}`), { k: "rank", t: "#", num: true }, { k: "name", t: "Host", fmt: (v, h) => riskHostLink(h) + (h.ip ? ` <span class="muted small">${esc(h.ip)}</span>` : "") },
+  el.appendChild(card(`${rt === "containers" ? "Containers" : rt === "hosts" || !nC ? "Hosts" : "Hosts and containers"} ranked by risk (${H.length})`, table(null, [
+    askCol("risky host", (h) => h.k8s ? `Kubernetes ${h.k8s.kind} ${h.name} in cluster ${h.k8s.cluster}, risk ${h.score}` : `${h.name}${h.ip ? " (" + h.ip + ")" : ""}, risk ${h.score}`), { k: "rank", t: "#", num: true },
+    { k: "name", t: "Host / container", fmt: (v, h) => riskHostLink(h) + (h.ip ? ` <span class="muted small">${esc(h.ip)}</span>` : "") + (h.k8s ? ` <span class="badge">container</span> <span class="muted small">${esc(h.k8s.kind)} · ${h.k8s.pods} pod(s)</span>` : "") },
     { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "likelihood", t: "Likelihood", num: true }, { k: "impact", t: "Impact", num: true, fmt: (v, h) => `<span title="${esc(h.impact_why)}">${v}</span>` },
-    { k: "zone", t: "Zone" }, { k: "class", t: "Class" }, { k: "vulns", t: "Vulns", num: true },
+    { k: "zone", t: "Zone / cluster" }, { k: "class", t: "Class" }, { k: "vulns", t: "Vulns", num: true },
     { k: "drivers", t: "Top drivers", cls: "small", fmt: (v) => v.slice(0, 3).map((d) => `<span class="chip">${esc(d.type)}</span> ${esc(d.text)}`).join("<br>"), sort: (h) => h.drivers.length },
   ], H, { sort: "score", limit: 30 })));
   const tv = Vn.slice(0, 15);
@@ -935,9 +947,18 @@ V.risk = (el) => {
     { k: "drivers", t: "Score drivers", cls: "small", fmt: (v) => esc(v.join(" · ")), sort: (x) => x.score },
     { k: "fix", t: "How to fix", cls: "small", fmt: (v, x) => `${esc(v)}<details><summary>evidence</summary><span class="mono">${linkifyIps(x.evidence)}</span></details>` },
   ], VA.show, { sort: "score", limit: 40, rowClass: ackRowCls("issue"), urlFilter: ISSUE_FILTERS, evId: (x) => x.key && `iss|${x.key}` })));
+  if (KV.length && rt !== "hosts") {
+    el.appendChild(card(`Container vulnerabilities ranked by risk (${KV.length})`, table(null, [
+      { k: "rank", t: "#", num: true }, { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "severity", t: "Sev", fmt: badge, sort: (v) => sevRank(v.severity) },
+      { k: "title", t: "Vulnerability", fmt: (v, x) => `<b>${esc(v)}</b><br><span class="muted small">${esc(x.category)}</span>` },
+      { k: "target", t: "Container", fmt: (v, x) => `<a href="#/k8spod/${encodeURIComponent(x.ns)}/${encodeURIComponent(x.target.split("/").pop())}?cluster=${encodeURIComponent(x.cluster)}">${esc(x.target)}</a> <span class="muted small">${esc(x.kind)}</span>` },
+      { k: "fix", t: "How to fix", cls: "small", fmt: (v, x) => esc(v) + (x.category === "Image CVEs" ? ` · <a href="#/k8s">images</a>` : "") },
+    ], KV, { sort: "score", limit: 40 })));
+  }
   el.appendChild(card("Scoring model", `<div class="small"><p><b>Host likelihood</b> (0–100) = exposure (≤25: internet-facing services, threat-listed probes, DMZ) + weaknesses (≤30: combined fix-list items on the host) + threat activity (≤25: behaviour anomalies, non-benign IDS alerts, beacons, threat-intel contacts) + lateral reach (≤10: other zones reached, policy violations) + visibility gaps (≤10: unknown device, missing/degraded EDR, DNS bypass).</p>
     <p><b>Impact</b> (1–5): the sensor, the gateway and the crown-jewel hosts configured in the site settings (Settings → Settings (policy & site)) = 5; servers/AI = 5; k8s and work machines = 4; personal devices, DMZ = 3; IoT, cameras, media, consoles = 2. Score = likelihood × impact / 5.</p>
-    <p><b>Vulnerability</b> = severity base (high ${R.model.sev_base.high}, medium ${R.model.sev_base.medium}, low ${R.model.sev_base.low}) × kind factor × host exposure (internet-facing 1.4, DMZ 1.3, server 1.15) × recurrence (+8% per repeat, max +40%). Weights live in <span class="mono">dashboard/app/risk.py</span>.</p></div>`));
+    <p><b>Vulnerability</b> = severity base (high ${R.model.sev_base.high}, medium ${R.model.sev_base.medium}, low ${R.model.sev_base.low}) × kind factor × host exposure (internet-facing 1.4, DMZ 1.3, server 1.15) × recurrence (+8% per repeat, max +40%). Weights live in <span class="mono">dashboard/app/risk.py</span>.</p>
+    <p><b>Containers</b> (Kubernetes workloads) use the same scale. Exposure: published by an ingress (more for several hosts, +4 without TLS), NodePort / LoadBalancer services, hostNetwork. Weaknesses: critical/high CVEs in the running image (Trivy), privileged, host namespaces / hostPath, secrets in environment variables, root, failed CIS pod checks. Threat: Security Onion container-log signals (exempt ones ignored), Kubernetes security events, IDS alerts on the pod IPs. Reach: node access (privileged / host), no NetworkPolicy in the namespace, mounted API token. Visibility: cluster without container logs in Security Onion, images not scanned. Impact: 5 when it can take over its node or is cluster infrastructure (kube-*, CNI, storage, cert-manager…), 4 when it holds secrets or serves users, otherwise 3; override per namespace or workload in host_policy <span class="mono">k8s.impact</span>.</p></div>`));
 };
 
 /* ----- Recurring issues / fix list ----- */

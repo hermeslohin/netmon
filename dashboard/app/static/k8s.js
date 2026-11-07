@@ -77,7 +77,7 @@ async function k8sCisCard(run, cluster) {
   C.results, { sort: "status", dir: 1 });
   const c = k8sBox(title, clTag, kpis([["Failed", sm.fail || 0, sm.fail ? "bad" : "good"], ["Review (warn)", sm.warn || 0, sm.warn ? "warn" : ""], ["Passed", sm.pass || 0, "good"], ["Manual / not visible", sm.manual || 0], ["Accepted", sm.accepted || 0]]),
     `<div class="muted small">${esc(C.benchmark || "")} · Kubernetes ${esc(C.version || "")} · checked ${esc(ft(C.generated))}${C.error ? ` · <span class="sev-high">last run failed: ${esc(C.error)}</span>` : ""} · <button class="k8sCisRun">Run now</button>
-    · Failed checks are Kubernetes findings (k8s-cis|cluster|id). Accept a check in Settings → Endpoint policy → k8s → cis_accept. Sections 1.1, 2 and 4 need node access and are listed as manual.</div>`, t);
+    · Failed checks go to the <a href="#/issues">Fix list</a> (k8s-cis|cluster|id). Accept a check in Settings → Endpoint policy → k8s → cis_accept. Sections 1.1, 2 and 4 need node access and are listed as manual.</div>`, t);
   c.querySelector(".k8sCisRun").onclick = async (e) => { e.target.disabled = true; e.target.textContent = "Running…"; const n = await k8sCisCard(true, cluster); c.replaceWith(n); };
   return c;
 }
@@ -229,6 +229,14 @@ V.k8spod = async (el, arg) => {
     D.ip && k8sKb(`source.ip:${k8sQ(D.ip)} or destination.ip:${k8sQ(D.ip)}`, m, W.end, "Network logs of the pod IP (Zeek / Suricata)"),
     k8sKb(`kubernetes.event.involved_object.name:${k8sQ(pod)}`, m, W.end, "Kubernetes events"),
     D.node && `<a href="#/endpoint/${encodeURIComponent(D.node)}">Node ${esc(D.node)} (Endpoints)</a>`, D.ip && `<a href="#/device/${encodeURIComponent(D.ip)}">Pod IP as a network device</a>`].filter(Boolean);
+  // Notes on the workload (pod notes): people and the AI (event research, event reviewer) read and write them; they survive pod restarts
+  if (window.kbCard) {
+    const cl = D.cluster || P.get("cluster") || K8S.cluster || "default", wl = D.workload || pod;
+    const nc = kbCard([`pod:${cl}/${ns}/${wl}`.toLowerCase()], `pod:${cl}/${ns}/${wl}`.toLowerCase());
+    nc.querySelector("h2").insertAdjacentHTML("afterbegin", "Pod ");
+    nc.querySelector(".kb-text").placeholder = `Add a note about ${ns}/${wl} (what it does, what is normal in its logs, decisions)…`;
+    el.appendChild(nc);
+  }
   el.appendChild(card("Pivot", piv.join(" · ") || `<span class="muted">Set kibana_url in Settings → Site for Kibana links.</span>`));
   if ((D.signals || []).length) el.appendChild(card("Container-log security signals", table(null, [{ k: "severity", t: "Sev", fmt: k8sSev }, { k: "kind", t: "Signal", fmt: (v) => esc(K8S_KIND[v] || v) },
     { k: "container", t: "Container" }, { k: "count", t: "Lines", num: true }, { k: "last", t: "Last", fmt: (v) => esc(ft(v)) },

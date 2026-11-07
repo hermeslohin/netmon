@@ -137,6 +137,16 @@ def tag_digest(reg, repo, tag):
 
 
 # ---------------------------------------------------------------- Trivy
+def update_db():
+    """Download / refresh Trivy's vulnerability databases once, before the parallel scans (which skip the update)."""
+    os.makedirs(TRIVY_CACHE, exist_ok=True)
+    for flag in ("--download-db-only", "--download-java-db-only"):
+        p = subprocess.run(["docker", "run", "--rm", "-v", f"{TRIVY_CACHE}:/root/.cache/trivy", TRIVY_IMAGE, "image", "--quiet", flag],  # noqa: S603,S607 - fixed argv
+                           capture_output=True, text=True, timeout=1800)
+        if p.returncode != 0:
+            raise RuntimeError("trivy database update failed: " + (p.stderr.strip().splitlines() or ["?"])[-1][:300])
+
+
 REF_RE = re.compile(r"^[a-z0-9][a-z0-9._:/@-]{0,250}$", re.I)   # registry/repo[:tag][@sha256:...]; never starts with "-"
 PLAT_RE = re.compile(r"^(linux/[a-z0-9]{1,16}(/[a-z0-9]{1,8})?)?$")
 TRIVY_IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$")
@@ -150,7 +160,10 @@ def trivy(ref, platform):
         raise ValueError(f"refusing to scan unexpected image reference {str(ref)[:80]!r}")
     os.makedirs(TRIVY_CACHE, exist_ok=True)
     cmd = ["docker", "run", "--rm", "-v", f"{TRIVY_CACHE}:/root/.cache/trivy", TRIVY_IMAGE, "image", "--quiet", "--scanners", "vuln",
-           "--image-src", "remote", "--format", "json", "--timeout", "15m"] + (["--platform", platform] if platform else []) + ["--", ref]
+           "--image-src", "remote", "--format", "json", "--timeout", "15m",
+           # parallel scans: the vulnerability databases are refreshed once beforehand (update_db) and only read here;
+           # the per-scan layer cache stays in memory (a shared on-disk one is locked by the first scan -> "cache may be in use")
+           "--skip-db-update", "--skip-java-db-update", "--cache-backend", "memory"] + (["--platform", platform] if platform else []) + ["--", ref]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)  # noqa: S603 - fixed argv, ref from the cluster
     if p.returncode != 0:
         raise RuntimeError((p.stderr.strip().splitlines() or ["trivy failed"])[-1][:300])
@@ -245,6 +258,7 @@ def scan(clusters=None, workers=3):
         u = uniq.setdefault((img, dig, plat), {"image_id": iid, "clusters": set(), "namespaces": set(), "pods": set()})
         for k in ("clusters", "namespaces", "pods"):
             u[k] |= use[k]
+    update_db()
     res = []
     with cf.ThreadPoolExecutor(max_workers=workers) as ex:
         futs = {ex.submit(check_image, img, u["image_id"], plat, cache): (img, plat, u) for (img, dig, plat), u in uniq.items()}

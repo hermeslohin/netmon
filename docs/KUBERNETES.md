@@ -101,6 +101,48 @@ verified. Each configured cluster has its own card, and **Remove cluster** delet
 
   Results are cached per digest for 24 hours. The Trivy database is kept in `~/netmon-trivy-cache` (about 3 GB).
 
+## Risk page
+
+Every workload (Deployment, StatefulSet, DaemonSet, Job, bare pod) is scored with the same model as hosts and ranked in
+the same list. **Show** switches between hosts and containers, hosts only, and containers only.
+
+- **Likelihood** is the sum of five parts:
+  - *Exposure:* ingress hosts (more without TLS), NodePort / LoadBalancer services, hostNetwork.
+  - *Weaknesses:* critical/high CVEs in the running image, privileged, host namespaces / hostPath, secrets in
+    environment variables, root, failed CIS pod checks.
+  - *Threat:* container-log signals that are not exempt, security events, IDS alerts on the pod IPs. Alerts on a
+    hostNetwork pod's IP count for its node, not the pod.
+  - *Reach:* node access, no NetworkPolicy in the namespace, a mounted API token.
+  - *Visibility:* the cluster sends no container logs to Elasticsearch, or images are not scanned.
+- **Impact:**
+  - 5 when the workload can take over its node, or is cluster infrastructure (`kube-*`, CNI, storage,
+    cert-manager…);
+  - 4 when it holds secrets or serves users;
+  - 3 otherwise.
+
+  Override it per namespace or per `namespace/workload` in `host_policy` → `k8s.impact`, for example
+  `{"apps/billing": [5, "payment data"]}`.
+
+**Container vulnerabilities ranked by risk** lists each weakness per workload, with how to fix it. Workloads with an
+ingress or an external service weigh 1.4×. Workload names link to the pod pivot page.
+
+## Pod notes
+
+Each workload has notes, like hosts do. The subject is `pod:<cluster>/<namespace>/<workload>`, where the workload is the
+pod name without its random suffix, so notes survive restarts and rollouts. They appear on the pod pivot page
+(**Pod notes**) and on the Notes page.
+
+- **People** add notes on the pod page. These are authoritative for the AI.
+- **The AI reads them:**
+  - the event reviewer sees them as `pod note` lines for every event about that workload (container-log hits and
+    Kubernetes events);
+  - event research gets them as `pod_notes`.
+- **The AI writes them:**
+  - event research records what it learns about a workload (`subject: pod.subject`);
+  - the event reviewer files its *expected* judgements on the workload as well as on the hosts.
+
+  AI notes are marked ✨, can be accepted or rejected by a defender, and can be deleted.
+
 ## Findings and events
 
 Every result above becomes a host finding with a key starting `k8s-`. So the correlation, the review job, auto-close,
@@ -112,9 +154,12 @@ Posture and **Open events** handle them like any other endpoint finding.
 | `k8s-log\|secret\|…`, `k8s-api\|exec`, `k8s-api\|denied`, `k8s-cov\|…`, `k8s-img\|…` | Review | watcher + nightly |
 | `k8s-ev\|…` forbidden / PodSecurity events | Review | watcher + nightly |
 | `k8s-ev\|…` other warning events, `k8s-log\|…` auth / denied / TLS / crash hits | Info (low in Open events) | nightly snapshot only |
-| `k8s-cis\|<cluster>\|<id>` failed CIS check | Review | nightly |
 | `k8s-imgcve\|<repo>` critical / high CVEs fixed by an available update | Investigate / Review | nightly |
 | `k8s-alert\|<rule>` high Security Onion alert on a node or pod | Investigate | nightly |
+
+Failed CIS checks are configuration problems, not events. They go to **Security → Fix list** (`k8s-cis|<cluster>|<id>`,
+with how to fix and the failing items), not to endpoint findings or Open events. Accepted checks (`k8s.cis_accept`) are
+left out, and a check that passes again moves to *Fixed*.
 
 ## Several clusters
 

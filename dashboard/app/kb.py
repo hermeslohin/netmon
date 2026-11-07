@@ -288,6 +288,50 @@ def _registry():
         return {}
 
 
+# ---------------------------------------------------------------- Kubernetes pod notes
+_K8S_NAME = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
+_POD_SUFFIX = re.compile(r"(-[a-f0-9]{8,10})?-[a-z0-9]{5}$")
+_STS_SUFFIX = re.compile(r"-\d{1,4}$")
+
+
+def stable_pod(name):
+    """Pod name -> its workload (ReplicaSet / DaemonSet suffix removed), so notes outlive restarts; same rule as k8s.py."""
+    return _POD_SUFFIX.sub("", str(name or "").lower())
+
+
+def pod_subject(cluster, ns, pod):
+    return resolve(subject=f"pod:{cluster or 'default'}/{ns}/{pod}")[0]
+
+
+def pod_of_event(ev_or_eid):
+    """(cluster or "", ns, workload) of a Kubernetes event (hf|k8s-log|kind|ns|wl|container, hf|k8s-ev|ns|reason|wl), else None."""
+    eid = ev_or_eid if isinstance(ev_or_eid, str) else str((ev_or_eid or {}).get("eid") or (ev_or_eid or {}).get("id") or "")
+    p = eid.split("|")
+    if p[0] == "hf":
+        p = p[1:]
+    ns = wl = ""
+    if len(p) >= 4 and p[0] == "k8s-log":
+        ns, wl = p[2], p[3]
+    elif len(p) >= 4 and p[0] == "k8s-ev":
+        ns, wl = p[1], p[3]
+    if not (ns and wl and _K8S_NAME.match(ns) and _K8S_NAME.match(wl)):
+        return None
+    text = "" if isinstance(ev_or_eid, str) else str(ev_or_eid.get("label") or ev_or_eid.get("text") or "")
+    m = re.search(r"\[([a-z0-9][a-z0-9.-]{0,62})\]", text)
+    return (m.group(1) if m else ""), ns, stable_pod(wl)
+
+
+def pod_notes(ns, workload, cluster="", ai=True):
+    """Notes on a workload. Without a cluster: the notes of that namespace/workload in every cluster."""
+    wl = stable_pod(workload)
+    if cluster:
+        return host_notes([pod_subject(cluster, ns, wl)], ai=ai)
+    with _db() as c:
+        subs = [r[0] for r in c.execute("SELECT DISTINCT subject FROM host_notes WHERE subject LIKE ? ESCAPE '\\'",
+                                        ("pod:%/" + f"{ns}/{wl}".replace("%", "\\%").replace("_", "\\_"),))]
+    return host_notes(subs, ai=ai) if subs else []
+
+
 ART_KINDS = ("file", "process", "user", "ip", "dns", "hash")
 
 
@@ -312,7 +356,13 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av and valid_art(ak, av):
                 av = av.lower() if ak in ("ip", "dns") else av
                 return f"art:{ak}:{av}", f"{ak} {av}"
-        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, net:<cidr>, host:<name>, dom:<domain> or art:<kind>:<value>)")
+        if k == "pod":  # a Kubernetes workload: pod:<cluster>/<namespace>/<workload> (pod name without its random suffix)
+            parts = v.strip().lower().split("/")
+            if len(parts) == 3 and all(_K8S_NAME.match(x) for x in parts):
+                parts[2] = stable_pod(parts[2])
+                return "pod:" + "/".join(parts), f"pod {parts[1]}/{parts[2]} ({parts[0]})"
+            raise ValueError(f"bad pod subject {s!r} (use pod:<cluster>/<namespace>/<workload>)")
+        raise ValueError(f"bad subject {s!r} (use mac:<mac>, ip:<ip>, net:<cidr>, host:<name>, dom:<domain>, pod:<cluster>/<namespace>/<workload> or art:<kind>:<value>)")
     if dom:
         d = str(dom).strip().lower().rstrip(".")
         d = d[2:] if d.startswith("*.") else d  # *.example.com = example.com: a domain note covers all its subdomains
