@@ -245,7 +245,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_alerts_page.py` | 32 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25) |
 | `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |
-| `tests/unit/test_audit.py` | 37 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03) |
+| `tests/unit/test_audit.py` | 46 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03, AUD-05) |
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
 | `tests/unit/test_autoclose.py` | 11 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |

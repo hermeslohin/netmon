@@ -44,7 +44,9 @@
     const ok = St.connected, sp = St.spool_bytes || 0;
     const html = `<div class="small">Index <b class="mono">${esc(St.index)}</b> on the Security Onion Elasticsearch · ${ok ? `<span class="badge sev-low">connected</span> ${fn(St.docs)} entries stored` : `<span class="badge sev-high">not reachable</span> <span class="muted">${esc(St.error || St.last_error || "")}</span>`}
       ${sp ? `<div style="margin-top:6px"><span class="badge sev-medium">${fb(sp)} waiting</span> Entries are kept on the dashboard (<span class="mono">state/audit_spool.jsonl</span>) and sent as soon as Elasticsearch accepts them.</div>` : ""}
-      ${St.rejected ? `<div style="margin-top:6px"><span class="badge sev-high">${fn(St.rejected)} rejected</span> <span class="muted">${esc(St.last_reject || "")}</span></div>` : ""}
+      ${St.rejected ? `<div style="margin-top:6px"><span class="badge sev-high">${fn(St.rejected)} rejected</span> <span class="muted">kept in <span class="mono">state/audit_rejected.jsonl</span> · ${esc(St.last_reject || "")}</span></div>` : ""}
+      ${St.retried ? `<div style="margin-top:6px"><span class="badge sev-medium">${fn(St.retried)} deferred</span> <span class="muted">Elasticsearch was busy (429 / shard not ready); these were spooled and resent, not lost.</span></div>` : ""}
+      ${St.dropped ? `<div style="margin-top:6px"><span class="badge sev-high">${fn(St.dropped)} dropped</span> <span class="muted">spool full or disk low</span></div>` : ""}
       <div class="muted" style="margin-top:6px">API key: ${St.key_set ? `set <span class="mono">${esc(I?.key_hint || "")}</span>` : "<b>not set</b>"} — it only needs <span class="mono">create_doc</span> and <span class="mono">read</span> on this index, so the dashboard can add and read audit entries but never change or delete them.</div></div>
       <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
         <label><input type="checkbox" id="au-rev"${I?.send_reviewer !== false ? " checked" : ""}> Send event reviewer events (incl. review log)</label>

@@ -30,7 +30,7 @@ class _AuditBase(unittest.TestCase):
         audit.SPOOL = os.path.join(self.tmp, "audit_spool.jsonl")
         audit._q = queue.Queue(maxsize=20000)
         audit.STATUS.update(sent=0, spooled=0, dropped=0, last_ok=None, last_error="")
-        for k in ("skipped", "rejected", "last_reject"):
+        for k in ("skipped", "rejected", "last_reject", "retried"):
             audit.STATUS.pop(k, None)
         self.patches = [mock.patch.object(integrations, "audit_send", lambda who: True)]
         for p in self.patches:
@@ -231,14 +231,15 @@ class TestEntries(_AuditBase):
         self.assertEqual([d["user"]["name"] for d in self.queued()], ["netmon (research job)", "alice"])
         self.assertEqual(audit.STATUS["skipped"], 1)
 
-    def test_full_queue_drops_without_raising(self):
-        """When the in-memory queue is full, emit counts a drop instead of raising or blocking.
-        REQ: AUD-03"""
+    def test_full_queue_spools_without_raising(self):
+        """When the in-memory queue is full, emit writes the entry to the disk spool instead of dropping or blocking.
+        REQ: AUD-03, AUD-05"""
         audit._q = queue.Queue(maxsize=1)
         audit.action("a", "one")
         audit.action("a", "two")
-        self.assertEqual(audit.STATUS["dropped"], 1)
+        self.assertEqual(audit.STATUS["dropped"], 0)
         self.assertEqual(len(self.queued()), 1)
+        self.assertEqual([d["event"]["action"] for d in self.spooled()], ["two"])
 
     def test_existing_timestamp_and_id_kept(self):
         """emit keeps a caller-supplied @timestamp and event id.
@@ -412,6 +413,109 @@ class TestSpoolAndFlush(_AuditBase):
         with mock.patch.object(audit, "_es", side_effect=_down):
             audit.flush([{"weird": {1, 2}}])
         self.assertIsInstance(self.spooled()[0]["weird"], str)
+
+
+class TestNoLoss(_AuditBase):
+    """Back-pressure handling: nothing is thrown away while Elasticsearch is slow, busy or restarting."""
+
+    def _items(self, *statuses):
+        def fake_es(method, path, body=None, **kw):
+            items = []
+            for st in statuses:
+                if st == 201:
+                    items.append({"create": {"status": 201}})
+                elif st == 409:
+                    items.append({"create": {"status": 409, "error": {"type": "version_conflict_engine_exception"}}})
+                elif st == 400:
+                    items.append({"create": {"status": 400, "error": {"type": "document_parsing_exception"}}})
+                else:
+                    items.append({"create": {"status": st, "error": {"type": "es_rejected_execution_exception" if st == 429 else "unavailable_shards_exception"}}})
+            return {"errors": True, "items": items}
+        return fake_es
+
+    def test_bulk_uses_event_id_as_doc_id(self):
+        """Entries with an event id are created under that _id, so a re-send after a timeout cannot duplicate them.
+        REQ: AUD-05"""
+        bodies = []
+        with mock.patch.object(audit, "_es", lambda m, p, body=None, **k: bodies.append(body) or {"errors": False}):
+            audit._bulk([{"@timestamp": "2026-10-30T10:00:00Z", "event": {"id": "abc123"}}])
+        self.assertEqual(json.loads(bodies[0].split("\n")[0]), {"create": {"_index": audit.index() + ".2026.10.30", "_id": "abc123"}})
+
+    def test_conflict_counts_as_stored(self):
+        """A 409 on our own _id means the entry was stored by an earlier attempt: counted as sent, not retried.
+        REQ: AUD-05"""
+        with mock.patch.object(audit, "_es", self._items(201, 409)):
+            self.assertEqual(audit._bulk([{"a": 1}, {"b": 2}]), 2)
+
+    def test_busy_items_are_retried_not_dropped(self):
+        """429 / 503 item errors (ES overloaded, shard not ready) raise Retry with exactly those entries.
+        REQ: AUD-05"""
+        docs = [{"n": 0}, {"n": 1}, {"n": 2}]
+        with mock.patch.object(audit, "_es", self._items(201, 429, 503)):
+            with self.assertRaises(audit.Retry) as cm:
+                audit._bulk(docs)
+        self.assertEqual((cm.exception.sent, [d["n"] for d in cm.exception.docs]), (1, [1, 2]))
+        self.assertEqual(audit.STATUS.get("rejected", 0), 0)
+
+    def test_flush_spools_deferred_entries(self):
+        """flush spools entries ES deferred and keeps the ones it stored out of the spool.
+        REQ: AUD-05"""
+        audit.action("a", "x0")
+        audit.action("a", "x1")
+        with mock.patch.object(audit, "_es", self._items(201, 429)), mock.patch.object(audit, "DEAD", os.path.join(self.tmp, "dead")):
+            self.assertEqual(audit.flush(), 1)
+        self.assertEqual([d["event"]["action"] for d in self.spooled()], ["x1"])
+        self.assertIn("deferred", audit.STATUS["last_error"])
+        self.assertEqual(audit.STATUS["dropped"], 0)
+
+    def test_drain_keeps_deferred_and_rest(self):
+        """A drain chunk with deferred entries keeps them plus every later spooled entry, nothing else.
+        REQ: AUD-05"""
+        with open(audit.SPOOL, "w") as f:
+            for i in range(700):
+                f.write(json.dumps({"n": i}) + "\n")
+
+        def busy(docs):
+            raise audit.Retry(len(docs) - 1, docs[-1:], "busy")
+        with mock.patch.object(audit, "_bulk", busy):
+            audit.flush()
+        self.assertEqual([d["n"] for d in self.spooled(audit.SPOOL + ".sending")], list(range(499, 700)))
+
+    def test_malformed_entries_go_to_dead_letter(self):
+        """Entries rejected as malformed (400 parsing) are kept in the dead-letter file, not resent or lost.
+        REQ: AUD-05"""
+        dead = os.path.join(self.tmp, "dead.jsonl")
+        with mock.patch.object(audit, "_es", self._items(201, 400)), mock.patch.object(audit, "DEAD", dead), \
+                mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(audit._bulk([{"a": 1}, {"b": 2}]), 1)
+        (row,) = self.spooled(dead)
+        self.assertEqual(row["doc"], {"b": 2})
+        self.assertIn("document_parsing", row["error"])
+
+    def test_chunks_bounded_by_bytes(self):
+        """Large LLM entries are split into bulk requests of at most BULK_BYTES.
+        REQ: AUD-05"""
+        docs = [{"t": "x" * 1000} for _ in range(10)]
+        with mock.patch.object(audit, "BULK_BYTES", 2500):
+            sizes = [len(c) for c in audit._chunks(docs)]
+        self.assertEqual(sum(sizes), 10)
+        self.assertTrue(max(sizes) <= 2)
+
+    def test_shutdown_spools_queue(self):
+        """On shutdown the entries still in memory are written to the spool.
+        REQ: AUD-05"""
+        audit.action("a", "late")
+        audit._save_queue()
+        self.assertEqual([d["event"]["action"] for d in self.spooled()], ["late"])
+
+    def test_drops_only_when_disk_low(self):
+        """The spool refuses entries only when free disk space falls below SPOOL_MIN_FREE.
+        REQ: AUD-05"""
+        with mock.patch.object(audit, "SPOOL_MIN_FREE", 1 << 62), mock.patch("sys.stderr", io.StringIO()):
+            audit._spool([{"a": 1}])
+        self.assertEqual(audit.STATUS["dropped"], 1)
+        audit._spool([{"a": 2}])
+        self.assertEqual(len(self.spooled()), 1)
 
 
 class TestReading(_AuditBase):

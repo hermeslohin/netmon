@@ -21,7 +21,7 @@ delays a request. When ES is down or no key is configured yet, entries are appen
 needs create_doc + read on logs-netmon: the dashboard can add audit entries and read them, never change or
 delete them.
 """
-import json, os, queue, re, ssl, sys, threading, time, urllib.error, urllib.request, uuid
+import atexit, json, os, queue, re, signal, ssl, sys, threading, time, urllib.error, urllib.request, uuid
 from datetime import datetime, timezone
 
 STATE = os.environ.get("STATE_DIR", "/state")
@@ -33,11 +33,15 @@ if os.path.isdir(STATE):
 import integrations  # noqa: E402  /netmon/integrations.py (Elasticsearch URL + the audit key)
 
 SPOOL = os.path.join(STATE, "audit_spool.jsonl")
-SPOOL_MAX = 50 * 1024 * 1024
+DEAD = os.path.join(STATE, "audit_rejected.jsonl")   # entries Elasticsearch refused as malformed (kept, not resent)
+SPOOL_MAX = 4 * 1024 ** 3        # spool may grow to 4 GB while Elasticsearch is down or backed up ...
+SPOOL_MIN_FREE = 2 * 1024 ** 3   # ... as long as 2 GB of disk stay free; only then are entries dropped
+BULK_DOCS, BULK_BYTES, BULK_TIMEOUT = 500, 8 * 1024 * 1024, 60
 MAX_TEXT = 32000          # characters kept per prompt / answer
 MAX_PARAM = 4000          # characters kept per request parameter
 _q = queue.Queue(maxsize=20000)
 _lock = threading.Lock()
+_spool_lock = threading.Lock()
 STATUS = {"sent": 0, "spooled": 0, "dropped": 0, "last_ok": None, "last_error": "", "started": False}
 SECRET_RE = re.compile(r"pass(word)?|secret|token|api_?key|^key$|^current$|cookie|auth|p256dh|credential|private", re.I)
 _ctx = ssl._create_unverified_context()  # Security Onion's own CA (same as the collectors)
@@ -80,8 +84,8 @@ def emit(doc):
     doc["event"].update(kind="event", module="netmon")
     try:
         _q.put_nowait(doc)
-    except queue.Full:
-        STATUS["dropped"] += 1
+    except queue.Full:  # writer is behind (ES slow / backed up): straight to the disk spool, never dropped
+        _spool([doc])
     # the server's writer thread (start()) sends it; short-lived CLI processes call flush(drain=False) instead
 
 
@@ -196,56 +200,171 @@ def _es(method, path, body=None, ndjson=False, timeout=15, key=None):
         return json.load(r)
 
 
+class Retry(Exception):
+    """A bulk request where Elasticsearch accepted some entries and asked for the rest to be sent again later
+    (429 / 503 / shard not ready / timeout...). .sent = entries stored, .docs = entries still to send."""
+
+    def __init__(self, sent, docs, reason):
+        super().__init__(reason)
+        self.sent, self.docs, self.reason = sent, docs, reason
+
+
+# per-item errors that are permanent: the entry itself does not fit the index (mapping / parse). Everything else
+# (429 overloaded, 5xx, unavailable shards, cluster blocks, timeouts, auth) is retried, never thrown away.
+PERMANENT = re.compile(r"mapper_parsing|document_parsing|illegal_argument|strict_dynamic_mapping|parse_exception|x_content_parse", re.I)
+
+
+def _action(d):
+    a = {"_index": index_for(d)}
+    eid = (d.get("event") or {}).get("id") if isinstance(d.get("event"), dict) else None
+    if eid and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(eid)):
+        a["_id"] = str(eid)  # idempotent: a re-send after a timeout answers 409 instead of storing a duplicate
+    return {"create": a}
+
+
 def _bulk(docs):
-    body = "".join(json.dumps({"create": {"_index": index_for(d)}}) + "\n" + json.dumps(d, default=str) + "\n" for d in docs)
-    r = _es("POST", "/_bulk", body, ndjson=True, timeout=30)
-    bad = [i["create"] for i in r.get("items", []) if i.get("create", {}).get("error")] if r.get("errors") else []
-    if bad:  # a mapping problem on single entries must not block the rest forever: report it, keep going
-        STATUS["rejected"] = STATUS.get("rejected", 0) + len(bad)
-        STATUS["last_reject"] = str(bad[0].get("error"))[:300]
-        print(f"audit: {len(bad)} entries rejected: {STATUS['last_reject']}", file=sys.stderr)
-    return len(docs) - len(bad)
+    """Send one chunk. Returns the number stored (409 = stored earlier counts as stored). Entries that are
+    permanently malformed go to the dead-letter file; retryable failures raise Retry with those entries."""
+    body = "".join(json.dumps(_action(d)) + "\n" + json.dumps(d, default=str) + "\n" for d in docs)
+    r = _es("POST", "/_bulk", body, ndjson=True, timeout=BULK_TIMEOUT)
+    if not r.get("errors"):
+        return len(docs)
+    retry, dead, why = [], [], ""
+    for d, it in zip(docs, r.get("items", [])):
+        res = it.get("create") or next(iter(it.values()), {})
+        err, st = res.get("error"), res.get("status", 0)
+        if not err or st == 409:  # 409 version_conflict on our own _id: already stored by an earlier attempt
+            continue
+        etxt = json.dumps(err)[:300] if isinstance(err, dict) else str(err)[:300]
+        if st in (0, 400) and PERMANENT.search(etxt):
+            dead.append((d, etxt))
+        else:
+            retry.append(d)
+            why = why or f"{st} {etxt}"
+    if len(r.get("items", [])) < len(docs):  # malformed answer: resend what it did not report on
+        retry.extend(docs[len(r.get("items", [])):])
+    if dead:
+        STATUS["rejected"] = STATUS.get("rejected", 0) + len(dead)
+        STATUS["last_reject"] = dead[0][1]
+        _dead_letter(dead)
+        print(f"audit: {len(dead)} entries rejected (kept in {os.path.basename(DEAD)}): {STATUS['last_reject']}", file=sys.stderr)
+    sent = len(docs) - len(retry) - len(dead)
+    if retry:
+        STATUS["retried"] = STATUS.get("retried", 0) + len(retry)
+        raise Retry(sent, retry, f"Elasticsearch deferred {len(retry)} entries: {why[:200]}")
+    return sent
+
+
+def _chunks(docs):
+    """Bulk-sized chunks: at most BULK_DOCS entries and about BULK_BYTES each (LLM entries are up to ~80 KB)."""
+    out, size = [], 0
+    for d in docs:
+        n = len(json.dumps(d, default=str))
+        if out and (len(out) >= BULK_DOCS or size + n > BULK_BYTES):
+            yield out
+            out, size = [], 0
+        out.append(d)
+        size += n
+    if out:
+        yield out
+
+
+def _dead_letter(items):
+    try:
+        fd = os.open(DEAD, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a") as f:
+            for d, err in items:
+                f.write(json.dumps({"error": err, "doc": d}, default=str) + "\n")
+    except OSError as e:
+        print(f"audit: dead-letter write failed: {e}", file=sys.stderr)
+
+
+def _spool_full():
+    """True only when disk space really runs out: the spool may grow to SPOOL_MAX and must leave SPOOL_MIN_FREE free."""
+    try:
+        if os.path.exists(SPOOL) and os.path.getsize(SPOOL) > SPOOL_MAX:
+            return True
+        st = os.statvfs(os.path.dirname(SPOOL) or ".")
+        return st.f_bavail * st.f_frsize < SPOOL_MIN_FREE
+    except OSError:
+        return False
 
 
 def _spool(docs):
-    try:
-        if os.path.exists(SPOOL) and os.path.getsize(SPOOL) > SPOOL_MAX:
+    """Keep entries on disk until Elasticsearch takes them. Dropping is the very last resort (disk full / unwritable)."""
+    if not docs:
+        return
+    with _spool_lock:
+        try:
+            if _spool_full():
+                STATUS["dropped"] += len(docs)
+                print(f"audit: spool full / disk low - {len(docs)} entries DROPPED", file=sys.stderr)
+                return
+            fd = os.open(SPOOL, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "a") as f:
+                f.write("".join(json.dumps(d, default=str) + "\n" for d in docs))
+                f.flush()
+                os.fsync(f.fileno())
+            STATUS["spooled"] += len(docs)
+        except OSError as e:
             STATUS["dropped"] += len(docs)
-            return
-        fd = os.open(SPOOL, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        with os.fdopen(fd, "a") as f:
-            for d in docs:
-                f.write(json.dumps(d, default=str) + "\n")
-        STATUS["spooled"] += len(docs)
-    except OSError as e:
-        STATUS["dropped"] += len(docs)
-        print(f"audit: spool failed: {e}", file=sys.stderr)
+            print(f"audit: spool failed: {e}", file=sys.stderr)
+
+
+def _read_chunk(f):
+    """Next bulk-sized chunk of spooled entries from an open file (unparseable lines go to the dead-letter file)."""
+    out, size = [], 0
+    while len(out) < BULK_DOCS and size < BULK_BYTES:
+        line = f.readline()
+        if not line:
+            break
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+            size += len(line)
+        except ValueError:
+            _dead_letter([({"raw": line[:MAX_TEXT]}, "unreadable spool line")])
+    return out
 
 
 def _drain_spool():
-    """Send what was spooled while ES was unreachable (oldest first, in chunks)."""
-    if not os.path.exists(SPOOL) or not os.path.getsize(SPOOL):
-        return
+    """Send what was spooled while ES was unreachable or busy: oldest first, streamed in bulk-sized chunks, so a
+    large spool never sits in memory. On a failure the unsent rest (incl. deferred entries) stays for the retry."""
     work = SPOOL + ".sending"
-    if not os.path.exists(work):
-        os.replace(SPOOL, work)
+    with _spool_lock:
+        if not os.path.exists(work):
+            if not os.path.exists(SPOOL) or not os.path.getsize(SPOOL):
+                return
+            os.replace(SPOOL, work)
     with open(work) as f:
-        docs = [json.loads(l) for l in f if l.strip()]
-    for i in range(0, len(docs), 500):
-        try:
-            STATUS["sent"] += _bulk(docs[i:i + 500])
-        except Exception:
-            with open(work + ".tmp", "w") as f:  # keep only what was not sent yet (no duplicates on the retry)
-                f.writelines(json.dumps(d, default=str) + "\n" for d in docs[i:])
-            os.replace(work + ".tmp", work)
-            raise
+        while True:
+            chunk = _read_chunk(f)
+            if not chunk:
+                break
+            try:
+                STATUS["sent"] += _bulk(chunk)
+            except Exception as e:
+                left = e.docs if isinstance(e, Retry) else chunk
+                if isinstance(e, Retry):
+                    STATUS["sent"] += e.sent
+                with open(work + ".tmp", "w") as t:  # keep only what was not stored yet
+                    t.writelines(json.dumps(d, default=str) + "\n" for d in left)
+                    while True:
+                        b = f.read(1 << 20)
+                        if not b:
+                            break
+                        t.write(b)
+                os.replace(work + ".tmp", work)
+                raise
     os.remove(work)
     STATUS["spooled"] = 0
 
 
 def flush(batch=None, drain=True):
     """Write queued entries now. Short-lived CLI processes call flush(drain=False) before they exit: only the
-    server's writer thread sends the spool, so two processes never send the same spooled entries."""
+    server's writer thread sends the spool, so two processes never send the same spooled entries.
+    Nothing is lost on a failure: whatever Elasticsearch did not store is spooled to disk."""
     docs = list(batch or [])
     while True:
         try:
@@ -255,16 +374,36 @@ def flush(batch=None, drain=True):
     if not docs and not os.path.exists(SPOOL) and not os.path.exists(SPOOL + ".sending"):
         return 0
     with _lock:
+        n, chunks, i = 0, [], 0
         try:
             if drain:
                 _drain_spool()
-            n = _bulk(docs) if docs else 0
+            chunks = list(_chunks(docs))
+            for i, c in enumerate(chunks):
+                n += _bulk(c)
             STATUS.update(sent=STATUS["sent"] + n, last_ok=time.time(), last_error="")
             return n
-        except Exception as e:  # noqa: BLE001 - ES down / no key: keep the entries on disk
+        except Exception as e:  # noqa: BLE001 - ES down / busy / no key: keep every unsent entry on disk
+            if chunks:  # failed while sending the new entries: chunk i not (fully) stored, later chunks not tried
+                left = (e.docs if isinstance(e, Retry) else chunks[i]) + [d for c in chunks[i + 1:] for d in c]
+            else:  # failed while draining the spool (which keeps its own rest): none of the new entries were sent
+                left = docs
+            n += e.sent if isinstance(e, Retry) and chunks else 0
+            STATUS["sent"] += n
             STATUS["last_error"] = f"{type(e).__name__}: {str(getattr(e, 'reason', e))[:200]}"
-            _spool(docs)
-            return 0
+            _spool(left)
+            return n
+
+
+def _save_queue():
+    """On shutdown: whatever is still in memory goes to the spool, so a restart / redeploy loses nothing."""
+    left = []
+    while True:
+        try:
+            left.append(_q.get_nowait())
+        except queue.Empty:
+            break
+    _spool(left)
 
 
 def _loop():
@@ -292,6 +431,12 @@ def start():
         STATUS["started"] = True
     threading.Thread(target=ensure_template, name="audit-template", daemon=True).start()
     threading.Thread(target=_loop, name="audit-writer", daemon=True).start()
+    atexit.register(_save_queue)
+    try:  # docker stop sends SIGTERM: exit normally so atexit spools the in-memory queue
+        if threading.current_thread() is threading.main_thread() and signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, None):
+            signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    except (ValueError, OSError):
+        pass
 
 
 # ---------------------------------------------------------------- reading (the Audit log page)
@@ -380,10 +525,11 @@ def doc(doc_id):
 
 
 def status():
-    out = {k: STATUS.get(k) for k in ("sent", "spooled", "dropped", "rejected", "last_reject", "last_ok", "last_error")}
+    out = {k: STATUS.get(k) for k in ("sent", "spooled", "dropped", "rejected", "retried", "last_reject", "last_ok", "last_error")}
     out.update(send_reviewer=integrations.audit_send("reviewer"), send_researcher=integrations.audit_send("researcher"), skipped=STATUS.get("skipped", 0), index=index_for({}), index_pattern=index() + ".*", template=STATUS.get("template"), es_url_set=bool(integrations.es_url()), key_set=bool(integrations.audit_key()), queued=_q.qsize())
     try:
-        out["spool_bytes"] = os.path.getsize(SPOOL) if os.path.exists(SPOOL) else 0
+        out["spool_bytes"] = sum(os.path.getsize(p) for p in (SPOOL, SPOOL + ".sending") if os.path.exists(p))
+        out["rejected_bytes"] = os.path.getsize(DEAD) if os.path.exists(DEAD) else 0
     except OSError:
         out["spool_bytes"] = 0
     try:

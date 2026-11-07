@@ -130,13 +130,24 @@ refusal is itself logged).
 
 - Writing never slows the dashboard down: entries go into a queue and a background thread sends them in batches with
   the `_bulk` API (`create` operations only).
-- If Elasticsearch is unreachable or no key is set, batches are appended to `dashboard/state/audit_spool.jsonl` (0600,
-  max 50 MB). The writer retries with back-off (up to 2 minutes) and sends the spool, oldest first, as soon as
-  Elasticsearch accepts it. Batches sent before a failure are not re-sent.
+- **No entry is lost when Elasticsearch is down, slow or backed up.** Anything it does not store goes to
+  `dashboard/state/audit_spool.jsonl` (0600, fsynced) and is sent again, oldest first, as soon as it accepts writes:
+  - whole request fails (unreachable, timeout, no key, 429 / 5xx answer): the batch is spooled;
+  - single entries deferred inside a bulk answer (429 `es_rejected_execution`, 503 `unavailable_shards` while a
+    daily index's shard is still being allocated after a restart, cluster blocks...): only those entries are spooled
+    (counted as *retried*);
+  - the in-memory queue is full because the writer is behind: new entries go straight to the spool;
+  - the dashboard stops (`docker stop` / redeploy): the queue is spooled on SIGTERM.
+- Re-sends are idempotent: each entry is created with `_id` = `event.id`, and a `409` (already stored by an attempt that
+  timed out on our side) counts as sent, so retries never duplicate entries.
+- The writer backs off up to 2 minutes while Elasticsearch fails or defers, and sends in chunks of at most 500 entries /
+  8 MB. The spool is streamed, never loaded whole; only the unsent rest is kept after a failure.
+- The spool may grow to 4 GB as long as 2 GB of disk stay free. Only beyond that are entries dropped (counted as
+  *dropped*, logged as `audit: spool full / disk low`).
+- Entries Elasticsearch refuses as malformed (400 mapping / parsing error) are counted as *rejected*, kept with the
+  error in `dashboard/state/audit_rejected.jsonl` (not resent) and don't block the rest.
 - Short-lived processes (`enrich.py` / `kb.py` run by the review job and event research, and the console commands) send their own entries
   before they exit, and leave the spool to the dashboard so nothing is sent twice.
-- Entries rejected by Elasticsearch (a mapping problem with a single document) are counted and shown in the storage
-  box, and don't block the rest.
 - The page reads through the same key: `/api/audit` (search and aggregations), `/api/audit/doc` (one entry),
   `/api/audit/status`. The large text fields (prompts, answers) are left out of the list and loaded only when you open
   an entry.
@@ -241,8 +252,8 @@ or move to a data stream with an ILM policy if you want rollover and automatic d
 | Storage box: *not reachable … audit API key not configured* | No key saved yet. See [Setup](#setup). Entries are waiting locally. |
 | *HTTP 401* | The key is wrong, expired or was deleted. Create a new one and save it. |
 | *HTTP 403 … unauthorized … create_doc* | The key lacks `create_doc` or `read` on the index (or the index name was changed). |
-| *N waiting* grows | Elasticsearch is down or refusing writes. Container log: `docker logs netmon-dashboard 2>&1 \| grep audit`. Entries are sent automatically once it works again. Over 50 MB, new entries are dropped (counted as *dropped*). |
-| *N rejected* | A field didn't fit the mapping. The storage box shows the Elasticsearch error; check the template. |
+| *N waiting* grows | Elasticsearch is down or refusing writes. Container log: `docker logs netmon-dashboard 2>&1 \| grep audit`. Entries are sent automatically once it works again (also after 429 / shard-not-ready answers). Entries are dropped only if the spool passes 4 GB or less than 2 GB of disk is free (counted as *dropped*). |
+| *N rejected* | A field didn't fit the mapping. The storage box shows the Elasticsearch error; the entries are kept in `state/audit_rejected.jsonl`; check the template. |
 | Page shows *the server answered HTTP … without data* | The dashboard or the Cloudflare tunnel answered with an error page instead of data. Check that the container is running. |
 | No research-job entries | They appear when the review job runs (`enrich.sh events` / `copy`) or someone clicks **Send to research** (`put` / `kbput`), and only if *Send researcher events* is on. |
 | No event reviewer entries | *Send event reviewer events* is off, or the event reviewer is idle (no undecided links). |
