@@ -393,11 +393,8 @@ def overview(minutes):
     d = {"minutes": minutes, "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "source": "Security Onion Elasticsearch"}
     d["end"] = _END["v"]
     if not d["end"]:
-        try:
-            import window
-            d["end"] = window.end()
-        except Exception:  # noqa: BLE001
-            pass
+        import window
+        d["end"] = window.end()
     d["coverage"] = safe(coverage, default=[])
     inv = safe(inventory, minutes)
     d["inventory"] = inv if "error" not in inv else {"nodes": [], "pods": [], "namespaces": [], "images": [], "error": inv["error"]}
@@ -543,19 +540,26 @@ def collect(hours=24, update=True):
 
 
 def watch_findings(minutes):
-    """15-minute watcher: the cheap, urgent subset (no inventory): logs, API server, events, coverage, new images."""
-    d = {"coverage": safe(coverage, default=[]), "signals": safe(log_signals, minutes, default=[]),
-         "events": safe(events, minutes, default=[]), "apiserver": safe(apiserver, minutes)}
-    try:
-        import store
-        base = store.doc_get("k8s/images", {}) or {}
-        if base:
-            r = q(LOGS, {"size": 0, "query": rng(minutes), "aggs": {"i": {"terms": {"field": "container.image.name", "size": 500}}}})
-            d["new_images"] = [b["key"] for b in B(r["aggregations"]["i"]) if b["key"] not in base]
-    except Exception:  # noqa: BLE001
-        pass
-    errs = [k for k in ("apiserver",) if isinstance(d[k], dict) and "error" in d[k]]
+    """15-minute watcher: the cheap, urgent subset (no inventory): logs, API server, events, coverage, new images.
+    Returns (findings, failed part names); watch.py keeps its arrival bookmark when a part failed, so a failed
+    container-log query is retried next run instead of skipping that window."""
+    d, errs = {}, []
+    for k, fn in (("coverage", coverage), ("signals", lambda: log_signals(minutes)), ("events", lambda: events(minutes)),
+                  ("apiserver", lambda: apiserver(minutes)), ("new_images", lambda: _new_images(minutes))):
+        try:
+            d[k] = fn()
+        except Exception as e:  # noqa: BLE001 - reported to the watcher, which keeps the window
+            errs.append(f"{k}: {type(e).__name__}: {str(e)[:160]}")
     return findings(d, nightly=False), errs
+
+
+def _new_images(minutes):
+    import store
+    base = store.doc_get("k8s/images", {}) or {}
+    if not base:  # no nightly baseline yet: nothing is "new"
+        return []
+    r = q(LOGS, {"size": 0, "query": rng(minutes), "aggs": {"i": {"terms": {"field": "container.image.name", "size": 500}}}})
+    return [b["key"] for b in B(r["aggregations"]["i"]) if b["key"] not in base]
 
 
 if __name__ == "__main__":

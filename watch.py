@@ -326,7 +326,8 @@ try:
             pass
         alert(k, f"**Kubernetes {'ALERT' if pri == 'Investigate' else 'notice'}:** {t}")
     if _kerr:
-        print(f"(kubernetes checks partly failed: {', '.join(_kerr)})", file=sys.stderr)
+        FAILED_CHECKS.append("k8s")
+        print(f"(kubernetes checks partly failed: {'; '.join(_kerr)})", file=sys.stderr)
 except Exception as e:
     FAILED_CHECKS.append("k8s")
     print(f"(kubernetes checks failed: {type(e).__name__}: {e})", file=sys.stderr)

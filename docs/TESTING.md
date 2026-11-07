@@ -256,7 +256,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 27 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, RISK-03) |
-| `tests/unit/test_k8s.py` | 13 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04) |
+| `tests/unit/test_k8s.py` | 14 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04) |
 | `tests/unit/test_lateral.py` | 35 | Unit tests for dashboard/app/lateral.py (admin-session levels, lateral graph edges, multi-period merge). (LAT-01, LAT-02, RISK-04) |
 | `tests/unit/test_lateral_page.py` | 35 | Unit tests for the Lateral movement page: lateral.build() gaps (naming, gateways, scans, allow/cleared flows, internet hosts), server.lateral_periods() and lateral.js page logic under node. (LAT-02, LAT-20, LAT-21, LAT-22, LAT-23, LAT-24, LAT-25, LAT-26, LAT-27, LAT-28, LAT-29, LAT-31, LAT-32, LAT-33, LAT-34, LAT-35, LAT-36, LAT-37, LAT-38, LAT-39, LAT-40, POS-11, POS-16) |
 | `tests/unit/test_llm_parsing.py` | 30 | Unit tests for the network-free parsing helpers of corr_llm.py and llm_providers.py. (COR-03, LLM-01) |

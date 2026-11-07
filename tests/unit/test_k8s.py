@@ -122,6 +122,19 @@ class ApiserverTest(unittest.TestCase):
         self.assertEqual({x["why"] for x in a["rows"]}, {"exec", "denied", "rbac", "secrets-read", "error"})
 
 
+class WatchTest(unittest.TestCase):
+    def test_failed_part_is_reported(self):
+        """REQ: KUBE-01"""
+        with mock.patch.object(k8s, "coverage", return_value=[]), mock.patch.object(k8s, "events", return_value=[]), \
+                mock.patch.object(k8s, "apiserver", return_value={"exec": 0, "denied": 0, "rows": []}), \
+                mock.patch.object(k8s, "_new_images", return_value=[]), \
+                mock.patch.object(k8s, "log_signals", side_effect=RuntimeError("1 of 4 shards failed")):
+            f, errs = k8s.watch_findings(20)
+        self.assertEqual(f, [])
+        self.assertEqual(len(errs), 1)
+        self.assertTrue(errs[0].startswith("signals:"))
+
+
 class CollectMergeTest(unittest.TestCase):
     def test_k8s_into_hosts(self):
         """REQ: KUBE-04"""

@@ -177,8 +177,9 @@ def run_watch(es, inv=None, domain_hits=None, ip_hits=None, findings=(), acks=()
     lateral = types.SimpleNamespace(admin_sessions=lambda raw, pol: list(admin))
     mitre = types.SimpleNamespace(tech=lambda i: {"name": "Technique " + i}, tags_for=lambda kind, text: "")
     opencti = types.SimpleNamespace(report_sightings=lambda hits, w: "stub")
+    k8s = types.SimpleNamespace(watch_findings=lambda minutes: ([], []))  # check 8: covered by tests/unit/test_k8s.py
     mods = {"collect": collect, "extras": ext, "site_cfg": site, "hosts": hosts, "hosts_ack": hosts_ack, "lateral": lateral,
-            "mitre": mitre, "opencti": opencti}
+            "mitre": mitre, "opencti": opencti, "k8s": k8s}
     argv, path, err = list(sys.argv), list(sys.path), io.StringIO()
     try:
         with mock.patch.dict(sys.modules, mods), contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
