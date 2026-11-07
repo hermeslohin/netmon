@@ -135,6 +135,29 @@ Every user action and every AI conversation is written to the Elasticsearch inde
 
 Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 MB) and are sent automatically. Full reference: [AUDIT_LOG.md](AUDIT_LOG.md).
 
+### Collection windows (arrival time)
+
+The 15-minute watcher and the review job select events by **when Elasticsearch stored them** (`event.ingested`), not
+by when they happened (`@timestamp`). When Logstash or the Security Onion ingest pipeline is backed up, events reach
+Elasticsearch hours late; a "last 20 minutes by @timestamp" window would never see them. With arrival time they are
+checked by the first run after they arrive.
+
+- Each job keeps one bookmark in the store (`meta` key `arrival:watch` / `arrival:review`): the end of its last
+  successful window. No event ids are kept.
+- Watcher window = (bookmark, now - 2 min]. Windows touch end to end, so every event is checked exactly once. The
+  2-minute margin covers the data streams' 30 s refresh, so events stamped just before the end are already searchable.
+- Review job window = (min(bookmark, now - lookback), now - 2 min], so it keeps its usual lookback overlap and also
+  covers any runs that were missed.
+- The bookmark moves only after a run without failed checks (watcher) or failed collectors (review job). A failed run is
+  covered by the next one. After an outage longer than 7 days the window restarts at now - 7 days.
+- Documents without `event.ingested` fall back to `@timestamp` over the same span.
+- Hourly charts and baselines still bucket on `@timestamp`, so a late event shows in the hour it happened. IDS alarms
+  for events that arrived more than 30 minutes late say when they happened and how late they arrived.
+- Each watcher run measures the ingest lag per source (Zeek, Suricata, endpoint, system, osquery, detections). The review
+  job stores it in the snapshot (`ingest_lag`), and the Fix list shows **Log pipeline backlog** when the p99 lag is over
+  30 minutes (high over 4 h).
+- Dashboard time ranges and manual `collect.py --start/--end` runs stay on event time: they ask what happened then.
+
 ### Time ranges
 
 Dashboard **time ranges** other than a review-job window are collected by the host broker (`host_broker.py`, `POST /range`: `collect.py --start --end --out dashboard/state/ranges/<id>.json` + `analyze.py --readonly`; the results are stored as `ranges/<id>…` documents in the netmon database, not as files), because the container has no Elasticsearch key. They need the broker service running (step 7); nothing else to set up.

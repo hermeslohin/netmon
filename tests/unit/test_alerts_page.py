@@ -111,7 +111,7 @@ class FakeES:
         self.ids, self.dhcp, self.conn_src, self.inport = kw.get("ids", []), kw.get("dhcp", []), kw.get("conn_src", []), kw.get("inport", [])
         self.dns, self.ssl, self.tiip = kw.get("dns", []), kw.get("ssl", []), kw.get("tiip", [])
         self.tunnel, self.tunnel_subs = kw.get("tunnel", []), kw.get("tunnel_subs", [])
-        self.queries = []
+        self.queries, self.bodies = [], []
 
     @staticmethod
     def _dataset(body):
@@ -123,6 +123,7 @@ class FakeES:
 
     def q(self, idx, body):
         self.queries.append(idx)
+        self.bodies.append(body)
         aggs, dset = body.get("aggs") or {}, self._dataset(body)
         if not aggs:  # the DNS-tunnel subdomain sample
             return {"hits": {"hits": [{"_source": {"dns": {"subdomain": s}}} for s in self.tunnel_subs]}}
@@ -167,7 +168,11 @@ def run_watch(es, inv=None, domain_hits=None, ip_hits=None, findings=(), acks=()
                                 admin_access=lambda minutes: {"errors": {}}, local_lists=lambda: {}, LOCAL_FEEDS={},
                                 match_hash=lambda v, f: [], match_filename=lambda v, f: [])
     site = types.SimpleNamespace(get=lambda k, d=None: "10.0.0.0/8" if k == "internal_cidr" else d, is_internal=lambda ip: ip.startswith("10."))
-    hosts = types.SimpleNamespace(gather=lambda w, nightly=False: {}, load_base=lambda: {}, findings=lambda hd, base, nightly=False: list(findings))
+    def _findings(hd, base, nightly=False):
+        if findings is RuntimeError:
+            raise RuntimeError("host index down (test)")
+        return list(findings)
+    hosts = types.SimpleNamespace(gather=lambda w, nightly=False: {}, load_base=lambda: {}, findings=_findings)
     hosts_ack = types.SimpleNamespace(load=lambda: set(acks))
     lateral = types.SimpleNamespace(admin_sessions=lambda raw, pol: list(admin))
     mitre = types.SimpleNamespace(tech=lambda i: {"name": "Technique " + i}, tags_for=lambda kind, text: "")
@@ -196,6 +201,33 @@ class WatcherRulesTest(unittest.TestCase):
 
     def seed_registry(self):
         store.registry_save({F.mac(1): {"mac": F.mac(1), "name": "laptop", "ips": [IP["laptop"]], "known": 1}})
+
+    def test_arrival_bookmark_moves_only_after_clean_run(self):
+        """The watcher selects by event.ingested and commits its bookmark only when no check failed.
+        REQ: CFG-05"""
+        import window
+        with store.connect() as c:
+            c.execute("DELETE FROM meta WHERE k='arrival:watch'")
+        es = FakeES()
+        run_watch(es)
+        b1 = window.bookmark("watch")
+        self.assertIsNotNone(b1)
+        self.assertTrue(any("event.ingested" in json.dumps(x) for x in es.bodies))
+        bad = FakeES()
+        with mock.patch.object(window, "commit", side_effect=AssertionError("must not commit")):
+            err = run_watch(bad, findings=RuntimeError)
+        self.assertIn("arrival window kept", err)
+
+    def test_late_ids_alert_says_when_it_happened(self):
+        """An IDS alert whose first event arrived >30 min late names when it happened and how late it arrived.
+        REQ: CFG-05"""
+        es = FakeES(ids=[bk("ET MALWARE late one", 2, src=[IP["laptop"]], dst=["203.0.113.9"],
+                            t0={"value": 1_800_000_000_000, "value_as_string": "2027-01-15T08:00:00.000Z"},
+                            **{"in": {"value": 1_800_000_000_000 + 3 * 3600_000}})])
+        run_watch(es)
+        txt = next(t for t, *_ in raised().values() if "late one" in t)
+        self.assertIn("arrived 3.0 h late", txt)
+        self.assertIn("happened 2027-01-15 08:00 UTC", txt)
 
     def test_ids_severity1_and_malware_categories_raise_investigate(self):
         """A Suricata hit not on the known-benign list raises an investigate detection with source/destination and ATT&CK; a benign one is skipped.

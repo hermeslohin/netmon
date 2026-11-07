@@ -124,6 +124,18 @@ class RawChecksTests(_CleanIP2MAC):
         self.assertEqual(sev(0, [{"note": "CaptureLoss::Too_Much_Loss", "count": 3}]), "medium")
         self.assertIsNone(issues.check_snapshot(raw_with(totals={}), None).get("sensor|capture-loss"))
 
+    def test_ingest_lag_levels(self):
+        """Log pipeline backlog: none at p99 <= 30 min, medium above, high above 4 h; evidence names each late source.
+        REQ: ISS-01, CFG-05"""
+        def get(**lag):
+            return issues.check_snapshot(raw_with(ingest_lag=lag), None).get("sensor|ingest-lag")
+        self.assertIsNone(get(zeek={"p99_s": 1800, "p50_s": 60, "n": 10, "late": 0}))
+        self.assertEqual(get(zeek={"p99_s": 3600, "p50_s": 600, "n": 10, "late": 4})["severity"], "medium")
+        hi = get(endpoint={"p99_s": 5 * 3600, "p50_s": 3 * 3600, "n": 100, "late": 100}, osquery={"error": "x"})
+        self.assertEqual(hi["severity"], "high")
+        self.assertIn("endpoint: median 3.0 h, p99 5.0 h, 100/100 events >30 min late", hi["evidence"])
+        self.assertIsNone(issues.check_snapshot(raw_with(), None).get("sensor|ingest-lag"))
+
     def test_unknown_dhcp_inventory(self):
         """Devices missing from the DHCP inventory become low 'inv|<mac>' hygiene issues.
         REQ: ISS-01"""

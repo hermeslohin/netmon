@@ -168,6 +168,124 @@ class TestWindow(unittest.TestCase):
         self.assertEqual(window.since_h("0.5")["range"]["@timestamp"]["gte"], "now-30m")
 
 
+class TestArrivalWindow(unittest.TestCase):
+    """window arrival mode: select by event.ingested with a per-job bookmark so late events are never missed."""
+
+    def setUp(self):
+        _env.fresh_db()
+        import store
+        with store.connect() as c:  # fresh_db keeps meta: drop the bookmarks and lag stats
+            c.execute("DELETE FROM meta WHERE k LIKE 'arrival:%' OR k='ingest_lag'")
+        self._old = os.environ.pop("NETMON_WINDOW_END", None)
+        window.off()
+
+    def tearDown(self):
+        window.off()
+        if self._old is not None:
+            os.environ["NETMON_WINDOW_END"] = self._old
+
+    @staticmethod
+    def span(f):
+        r = f["bool"]["should"][0]["range"]["event.ingested"]
+        return r["gt"], r["lte"]
+
+    def test_first_run_uses_nominal_span_ending_before_now(self):
+        """First run: (now - margin - N min, now - margin] on event.ingested; docs without it fall back to @timestamp.
+        REQ: CFG-05"""
+        w = window.arrival("watch", 20, now=1_800_000_000)
+        to = 1_800_000_000 - window.ARRIVAL_MARGIN_S
+        self.assertTrue(w["first_run"])
+        f = window.since(20)
+        self.assertEqual(self.span(f), (window._iso(to - 1200), window._iso(to)))
+        fb = f["bool"]["should"][1]["bool"]
+        self.assertEqual(fb["must_not"], [{"exists": {"field": "event.ingested"}}])
+        self.assertEqual(fb["filter"][0]["range"]["@timestamp"], {"gt": window._iso(to - 1200), "lte": window._iso(to)})
+
+    def test_windows_touch_end_to_end(self):
+        """After commit the next watcher window starts exactly where the last one ended (no gap, no overlap),
+        however long the gap between runs was.
+        REQ: CFG-05"""
+        window.arrival("watch", 20, now=1_800_000_000)
+        end1 = self.span(window.since(20))[1]
+        window.commit()
+        window.arrival("watch", 20, now=1_800_000_000 + 3 * 3600)  # scheduler paused 3 h
+        a, b = self.span(window.since(20))
+        self.assertEqual(a, end1)
+        self.assertEqual(b, window._iso(1_800_000_000 + 3 * 3600 - window.ARRIVAL_MARGIN_S))
+
+    def test_uncommitted_window_is_covered_again(self):
+        """Without commit (a failed run) the next window starts at the old bookmark again.
+        REQ: CFG-05"""
+        window.arrival("watch", 20, now=1_800_000_000)
+        window.commit()
+        start = self.span(window.since(20))[1]
+        window.arrival("watch", 20, now=1_800_000_900)  # failed run, never committed
+        window.arrival("watch", 20, now=1_800_001_800)
+        self.assertEqual(self.span(window.since(20))[0], start)
+
+    def test_review_overlap_keeps_lookback(self):
+        """overlap=True (review job): from = min(bookmark, to - lookback), so its usual lookback overlap stays.
+        REQ: CFG-05"""
+        window.arrival("review", 120, overlap=True, now=1_800_000_000)
+        window.commit()
+        window.arrival("review", 120, overlap=True, now=1_800_000_900)
+        a, b = self.span(window.since_h(2))
+        self.assertEqual(a, window._iso(1_800_000_900 - window.ARRIVAL_MARGIN_S - 7200))
+
+    def test_other_spans_cover_the_job_window(self):
+        """A since() with another span never starts after the job window (e.g. the 60-min DNS-tunnel check).
+        REQ: CFG-05"""
+        window.arrival("watch", 20, now=1_800_000_000)
+        window.commit()
+        window.arrival("watch", 20, now=1_800_000_000 + 7200)
+        job_from = self.span(window.since(20))[0]
+        self.assertEqual(self.span(window.since(60))[0], job_from)  # 2 h window > 60 min
+        self.assertEqual(self.span(window.since(600))[0], window._iso(1_800_000_000 + 7200 - window.ARRIVAL_MARGIN_S - 36000))
+
+    def test_catchup_capped(self):
+        """A bookmark older than MAX_CATCHUP_H restarts at now - MAX_CATCHUP_H.
+        REQ: CFG-05"""
+        window.arrival("watch", 20, now=1_000_000)
+        window.commit()
+        now = 1_000_000 + 30 * 86400
+        window.arrival("watch", 20, now=now)
+        self.assertEqual(self.span(window.since(20))[0], window._iso(now - window.ARRIVAL_MARGIN_S - window.MAX_CATCHUP_H * 3600))
+
+    def test_time_range_stays_event_time(self):
+        """A dashboard time range (NETMON_WINDOW_END) always selects by @timestamp, even in arrival mode.
+        REQ: CFG-05"""
+        window.arrival("watch", 20)
+        os.environ["NETMON_WINDOW_END"] = "2026-01-05T12:00:00Z"
+        try:
+            self.assertIn("range", window.since(60))
+        finally:
+            os.environ.pop("NETMON_WINDOW_END")
+
+    def test_manual_run_never_commits(self):
+        """job None (manual collect.py N) neither reads nor writes a bookmark.
+        REQ: CFG-05"""
+        window.arrival(None, 60)
+        self.assertFalse(window.commit())
+        self.assertIsNone(window.bookmark("None"))
+
+    def test_lag_stats_shape_and_errors(self):
+        """lag_stats reports n / late / percentiles per source and a per-source error instead of raising.
+        REQ: CFG-05"""
+        window.arrival("watch", 20)
+
+        def q(ix, body):
+            if ix.startswith("logs-zeek"):
+                raise RuntimeError("no index")
+            return {"hits": {"total": {"value": 5}}, "aggregations": {"lag": {"values": {"50.0": 7200.0, "99.0": 9000.0}},
+                                                                       "mx": {"value": 9100.0}, "late": {"doc_count": 5},
+                                                                       "newest": {"value_as_string": "2026-11-06T23:00:00Z"}}}
+        st = window.lag_stats(q)
+        self.assertIn("error", st["zeek"])
+        self.assertEqual(st["suricata"], {"n": 5, "late": 5, "p50_s": 7200.0, "p99_s": 9000.0, "max_s": 9100.0, "newest_event": "2026-11-06T23:00:00Z"})
+        window.save_lag(st)
+        self.assertEqual(window.load_lag()["sources"]["suricata"]["late"], 5)
+
+
 class TestLookback(unittest.TestCase):
     """lookback: research job lookback hours."""
 

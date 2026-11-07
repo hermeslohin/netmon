@@ -146,6 +146,19 @@ def check_snapshot(raw, analysis):
                 evidence=f"{loss * 100:.1f}% of bytes missed ({T.get('missed_bytes', 0) / 1e9:.1f} GB)"
                          + (f"; Zeek {notice['note']} ×{notice['count']}" if notice else ""))
 
+    # Log pipeline backlog: events reaching Elasticsearch long after they happened (Logstash / ingest backed up).
+    # Collection selects by arrival time, so nothing is missed, but alerts and reviews come that much later.
+    lag = {k: v for k, v in (raw.get("ingest_lag") or {}).items() if isinstance(v, dict) and (v.get("p99_s") or 0) > 1800}
+    if lag:
+        worst = max((v.get("p99_s") or 0) for v in lag.values())
+        add("sensor|ingest-lag", "raw", "high" if worst > 4 * 3600 else "medium", "Misconfiguration",
+            "Log pipeline backlog: events reach Elasticsearch late", host="securityonion",
+            fix="Logstash / the SO ingest pipeline can't keep up: check the Redis/Kafka queue depth and Logstash pipeline workers & batch size "
+                "on the manager, and Elasticsearch indexing pressure / heap. netmon collects by arrival time, so late events are still "
+                "checked when they arrive; alerts for them are delayed by the lag.",
+            evidence="; ".join(f"{k}: median {(v.get('p50_s') or 0) / 3600:.1f} h, p99 {(v.get('p99_s') or 0) / 3600:.1f} h, "
+                               f"{v.get('late', 0)}/{v.get('n', 0)} events >30 min late" for k, v in sorted(lag.items())))
+
     # Inventory hygiene
     for u in raw.get("unknown_dhcp") or []:
         ip = u.get("ip", "")

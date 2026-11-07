@@ -12,6 +12,11 @@ Checks over the last WINDOW minutes:
   7. Admin access: failed logins / password guessing / refused connections on SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...
      (lateral.admin_sessions levels: high = guessing or >=3 failures then success, medium = any failed login or >=5 refused)
 Each finding is suppressed for SUPPRESS_H hours after it is first sent.
+
+Window = ARRIVAL time (window.py): every check covers the events Elasticsearch stored since the previous successful
+run (event.ingested), not the events that happened in the last 20 minutes, so events that reach ES hours late (Logstash
+backed up) are still checked, exactly once. The bookmark moves only when no check failed. Per-source ingest lag is
+saved (meta "ingest_lag") for the Fix list and the review job.
 """
 import json, os, sys
 
@@ -21,11 +26,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect import q, ds, buckets, inventory  # noqa: E402
 import extras  # noqa: E402
 
-WINDOW = int(os.environ.get("NETMON_WATCH_WINDOW", 20))       # minutes; env override for testing
+WINDOW = int(os.environ.get("NETMON_WATCH_WINDOW", 20))       # minutes: first-run span; env override for testing
 SUPPRESS_H = 12
+import window  # noqa: E402
+_AW = window.arrival("watch", WINDOW)  # (bookmark, now - margin] on event.ingested; every since() below uses it
+WINDOW = _AW["nominal_minutes"]       # callers passing WINDOW get exactly the bookmark window
+FAILED_CHECKS = []                    # a failed check keeps the bookmark: the next run covers this window again
 import site_cfg as SITE  # noqa: E402  network-specific values (site.json, git-ignored)
 import store  # noqa: E402  SQLite state: registry, served ports, host baseline, mute state. Test with NETMON_DB=<scratch db>.
-R = {"range": {"@timestamp": {"gte": f"now-{WINDOW}m"}}}
+R = window.since(WINDOW)
 INT = {"term": {"source.ip": SITE.get("internal_cidr")}}
 FAILED = ["S0", "REJ", "RSTOS0", "SH", "OTH"]
 
@@ -52,6 +61,17 @@ def is_benign_sig(sig):
     return any(k.lower() in sig.lower() for k in benign.get("signatures", {}))
 
 
+def late_note(b):
+    """' (happened <time>, arrived N h late)' when the first event of a bucket reached ES more than LATE_S late."""
+    try:
+        t0, t1 = (b.get("t0") or {}).get("value"), (b.get("in") or {}).get("value")
+        if t0 and t1 and (t1 - t0) / 1000 > window.LATE_S:
+            return f" (happened {(b['t0'].get('value_as_string') or '')[:16].replace('T', ' ')} UTC, arrived {(t1 - t0) / 3.6e6:.1f} h late)"
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 # 1. IDS
 r = q("logs-suricata.alerts-so", {"size": 0, "query": {"bool": {"filter": [R], "should": [
     {"term": {"rule.severity": 1}},
@@ -62,7 +82,8 @@ r = q("logs-suricata.alerts-so", {"size": 0, "query": {"bool": {"filter": [R], "
     "minimum_should_match": 1}},
     "aggs": {"s": {"terms": {"field": "rule.name", "size": 20},
                    "aggs": {"src": {"terms": {"field": "source.ip", "size": 2}}, "dst": {"terms": {"field": "destination.ip", "size": 2}},
-                            "mt": {"terms": {"field": "rule.metadata.mitre_technique_id", "size": 2}}}}}})
+                            "mt": {"terms": {"field": "rule.metadata.mitre_technique_id", "size": 2}},
+                            "t0": {"min": {"field": "@timestamp"}}, "in": {"max": {"field": "event.ingested"}}}}}})
 for b in buckets(r["aggregations"]["s"]):
     if is_benign_sig(b["key"]):
         continue
@@ -74,7 +95,7 @@ for b in buckets(r["aggregations"]["s"]):
         mt = " [ATT&CK " + ", ".join(f"{i} {mitre.tech(i).get('name', '')}" for i in mt) + "]" if mt else ""
     except Exception:
         mt = ""
-    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}")
+    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}{late_note(b)}")
 
 # 2. New devices
 known_ips = {ip for r_ in registry.values() for ip in r_.get("ips", [])}
@@ -212,14 +233,15 @@ def file_intel():
 try:
     file_intel()
 except Exception as e:  # noqa: BLE001 - one missing index must not stop the watcher
+    FAILED_CHECKS.append("file_intel")
     print(f"file threat intel: {type(e).__name__}: {e}", file=sys.stderr)
 
 if octi_hits:
     import opencti
     print("opencti sightings:", opencti.report_sightings(octi_hits, WINDOW), file=sys.stderr)
 
-# 5. DNS tunnel burst (last hour)
-H = {"range": {"@timestamp": {"gte": "now-60m"}}}
+# 5. DNS tunnel burst (last hour of arrivals, at least the whole window)
+H = window.since(60)
 r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [H, ds("zeek.dns"), {"term": {"destination.port": 53}}],
                                                      "must_not": [{"wildcard": {"dns.highest_registered_domain": "*arpa"}},
                                                                   {"wildcard": {"dns.highest_registered_domain": "*local*"}}]}},
@@ -258,6 +280,7 @@ try:
                 pass
             alert(f"host|{k}", f"**Host {'ALERT' if pri == 'Investigate' else 'notice'}:** {t}")
 except Exception as e:  # never let host checks break the network watcher
+    FAILED_CHECKS.append("hosts")
     print(f"(host checks failed: {type(e).__name__}: {e})", file=sys.stderr)
 
 # 7. Admin access (SSH / RDP / PsExec / WMI / WinRM / VNC ...): failed logins and refused admin connections
@@ -284,6 +307,7 @@ try:
         if k != "windows_logons":
             print(f"(admin check {k} failed: {err})", file=sys.stderr)
 except Exception as e:
+    FAILED_CHECKS.append("admin")
     print(f"(admin checks failed: {type(e).__name__}: {e})", file=sys.stderr)
 
 # --- dedupe + output ---
@@ -300,3 +324,13 @@ if fresh:  # queue for the dashboard's in-app feed + browser/phone push notifica
     except Exception as e:
         print(f"(mute rules unavailable: {e})", file=sys.stderr)
 # no chat message: detections are events for the correlation / AI review; an alarm is raised only when the review calls one suspicious (medium/high)
+
+# --- arrival bookmark + ingest lag ---
+try:
+    window.save_lag(window.lag_stats(q))
+except Exception as e:  # noqa: BLE001 - lag stats are informational
+    print(f"(ingest lag stats failed: {e})", file=sys.stderr)
+if FAILED_CHECKS:
+    print(f"arrival window kept for the next run (failed: {', '.join(FAILED_CHECKS)}): {_AW['from']} .. {_AW['to']}", file=sys.stderr)
+else:
+    window.commit()

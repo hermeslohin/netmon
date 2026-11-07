@@ -242,7 +242,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 
 | File | Tests | Covers |
 |---|---|---|
-| `tests/unit/test_alerts_page.py` | 32 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25) |
+| `tests/unit/test_alerts_page.py` | 34 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25, CFG-05) |
 | `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |
 | `tests/unit/test_audit.py` | 46 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03, AUD-05) |
@@ -250,12 +250,12 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_autoclose.py` | 11 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
-| `tests/unit/test_config.py` | 31 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-02, CFG-03, OPS-03, OPS-06, STO-01, STO-02) |
+| `tests/unit/test_config.py` | 40 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-02, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
 | `tests/unit/test_correlate.py` | 41 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01) |
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
-| `tests/unit/test_issues.py` | 26 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (ISS-01, ISS-02, OPS-05, RISK-03) |
+| `tests/unit/test_issues.py` | 27 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, RISK-03) |
 | `tests/unit/test_lateral.py` | 35 | Unit tests for dashboard/app/lateral.py (admin-session levels, lateral graph edges, multi-period merge). (LAT-01, LAT-02, RISK-04) |
 | `tests/unit/test_lateral_page.py` | 35 | Unit tests for the Lateral movement page: lateral.build() gaps (naming, gateways, scans, allow/cleared flows, internet hosts), server.lateral_periods() and lateral.js page logic under node. (LAT-02, LAT-20, LAT-21, LAT-22, LAT-23, LAT-24, LAT-25, LAT-26, LAT-27, LAT-28, LAT-29, LAT-31, LAT-32, LAT-33, LAT-34, LAT-35, LAT-36, LAT-37, LAT-38, LAT-39, LAT-40, POS-11, POS-16) |
 | `tests/unit/test_llm_parsing.py` | 30 | Unit tests for the network-free parsing helpers of corr_llm.py and llm_providers.py. (COR-03, LLM-01) |

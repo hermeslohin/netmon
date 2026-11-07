@@ -65,6 +65,12 @@ def q(index, body):
     return json.load(urllib.request.urlopen(req, context=CTX, timeout=180))
 
 
+ARRIVAL = None
+if not RANGE_END and os.path.basename(sys.argv[0]) == "collect.py":
+    # review job / manual run: select by arrival time (event.ingested) so events Logstash delivered late are
+    # collected by a later run instead of never. `auto` keeps a bookmark: (min(bookmark, now - lookback), now - margin].
+    ARRIVAL = window.arrival("review" if LOOKBACK else None, HOURS * 60, overlap=True)
+    print(f"arrival window: {ARRIVAL['from']} .. {ARRIVAL['to']} ({ARRIVAL['span_minutes']} min)", file=sys.stderr)
 RANGE = window.since_h(HOURS)
 INTERNAL = {"term": {"source.ip": NET}}
 
@@ -462,6 +468,9 @@ def main():
            "dns_tunnel": dns_tunnel_candidates(),
            **collect_extras(devs),
            "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
+    if ARRIVAL:
+        out["arrival_window"] = ARRIVAL
+        out["ingest_lag"] = window.lag_stats(q)
     if OUT:  # time range: written where the caller says (dashboard/state/ranges), never into data/
         path = OUT
         pass
@@ -469,6 +478,8 @@ def main():
         path = os.path.join(NM, "data", now.strftime("%Y-%m-%dT%H%MZ") + ".json")
     import store  # noqa: E402
     store.jdump(out, path, indent=1, default=str)  # data/ and ranges/ documents live in the SQLite docs table
+    if ARRIVAL and not (out.get("extras_errors") or {}):
+        window.commit()  # a failed collector keeps the bookmark: the next run's window reaches back to it
     print(path)
 
 
@@ -517,6 +528,9 @@ def _lateral_section():
     viol = extras.policy_violations(it.get("flows", []), ip_to_mac, extras.load_policy())
     return {"internal": it, "admin_access": adm, "devices": devs, "violations": viol,
             "inventory_ips": {v["ip"]: v["name"] for v in inv.values()}}
+    if ARRIVAL:
+        out["arrival_window"] = ARRIVAL
+        out["ingest_lag"] = window.lag_stats(q)
 
 
 def section(name):
