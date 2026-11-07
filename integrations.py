@@ -35,6 +35,8 @@ FIRECRAWL_DEFAULT = "https://api.firecrawl.dev"  # Firecrawl cloud; a self-hoste
 OPENCTI_DEFAULTS = {"enabled": False, "ca_pem": "", "pull": True, "min_score": 50, "high_score": 80,
                     "sightings": True, "incidents": False, "incident_min_sev": "high", "incident_min_conf": 0.8}
 OPENCTI_SEVS = ("urgent", "high", "medium", "low")
+# Kubernetes API (kube_api.py): read-only ServiceAccount token for the CIS benchmark (kube_cis.py) and the map (kube_map.py).
+KUBE_DEFAULTS = {"enabled": False, "cis": True}
 OPENCTI_STATE = os.path.join(os.environ.get("STATE_DIR") or ("/state" if os.path.isdir("/state") else os.path.join(_HERE, "dashboard", "state")),
                              "opencti_sync.json")  # a docs-table document (store.DOC_FILES), never a file
 
@@ -151,6 +153,14 @@ def opencti():
     return o
 
 
+def kubernetes():
+    """Effective Kubernetes API settings: {enabled, cis, url, api_key (bearer token), ca_pem, usable}."""
+    k = {**KUBE_DEFAULTS, **(load().get("kubernetes") or {})}
+    k["url"], k["api_key"], k["ca_pem"] = (k.get("url") or "").strip(), k.get("api_key") or "", k.get("ca_pem") or ""
+    k["usable"] = bool(k["enabled"] and k["url"] and k["api_key"])
+    return k
+
+
 # ------------------------------------------------------------------ dashboard
 def _mask(k):
     return f"••••{k[-4:]}" if k and len(k) > 8 else ("••••" if k else "")
@@ -172,6 +182,7 @@ def public():
     d = load()
     e, u, a, w = d.get("elasticsearch") or {}, d.get("unifi") or {}, d.get("audit") or {}, d.get("web") or {}
     oc = opencti()
+    kb = kubernetes()
     try:
         import store
         oc_status = store.jload(OPENCTI_STATE, {}) or {}
@@ -204,6 +215,9 @@ def public():
             "url": w.get("url") or "", "url_fallback": FIRECRAWL_DEFAULT, "ca_set": bool(w.get("ca_pem")),
             "updated_by": w.get("updated_by"), "updated_at": w.get("updated_at")},
         "feeds": _feeds_public(d),
+        "kubernetes": {"enabled": kb["enabled"], "cis": kb["cis"], "url": kb["url"], "ca_set": bool(kb["ca_pem"]),
+                       "key_set": bool(kb["api_key"]), "key_hint": _mask(kb["api_key"]),
+                       "updated_by": (d.get("kubernetes") or {}).get("updated_by"), "updated_at": (d.get("kubernetes") or {}).get("updated_at")},
         "opencti": {
             **{k: oc[k] for k in OPENCTI_DEFAULTS if k != "ca_pem"}, "url": oc["url"], "ca_set": bool(oc.get("ca_pem")),
             "key_set": bool(oc["api_key"]), "key_hint": _mask(oc["api_key"]), "sevs": list(OPENCTI_SEVS),
@@ -279,6 +293,38 @@ def _opencti_candidate(cur, body):
     return new
 
 
+def _kube_candidate(cur, body):
+    """url: one or more https:// API server URLs (comma-separated, tried in order); api_key: ServiceAccount token (write-only)."""
+    new = {}
+    if "url" in body:
+        urls = [u.strip() for u in str(body.get("url") or "").split(",") if u.strip()]
+        if len(urls) > 5:
+            raise ValueError("at most 5 API server URLs")
+        new["url"] = ",".join(_clean_url(u) for u in urls)
+        if any(not u.startswith("https://") for u in new["url"].split(",") if u):
+            raise ValueError("Kubernetes API URLs must start with https://")
+    else:
+        new["url"] = cur.get("url", "")
+    for b in ("enabled", "cis"):
+        new[b] = bool(body[b]) if b in body else cur.get(b, KUBE_DEFAULTS[b])
+    tok = str(body.get("api_key") or "").strip()
+    if tok and (len(tok) > 4096 or any(c.isspace() for c in tok)):
+        raise ValueError("the token is one line of text (a ServiceAccount JWT)")
+    new["api_key"] = "" if body.get("clear_key") else (tok or cur.get("api_key") or "")
+    if body.get("clear_ca"):
+        new["ca_pem"] = ""
+    elif body.get("ca_pem"):
+        try:
+            new["ca_pem"] = _clean_pem(body["ca_pem"])
+        except ssl.SSLError as e:
+            raise ValueError(f"CA certificate is not valid: {e}") from None
+    else:
+        new["ca_pem"] = cur.get("ca_pem", "")
+    if new["enabled"] and not (new["url"] and new["api_key"]):
+        raise ValueError("enter the API server URL and the token before enabling it")
+    return new
+
+
 FEED_NAME = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 MAX_CUSTOM_FEEDS = 40
 
@@ -324,6 +370,8 @@ def candidate(section, body):
     cur = dict(load().get(section) or {})
     if section == "feeds":
         return _feeds_candidate(cur, body)
+    if section == "kubernetes":
+        return {**cur, **_kube_candidate(cur, body)}
     if section == "opencti":
         new = _opencti_candidate(cur, body)
         k = _clean_key(body.get("api_key"))
@@ -362,7 +410,7 @@ def candidate(section, body):
 
 
 def save(section, body, user):
-    if section not in ("elasticsearch", "unifi", "audit", "web", "opencti", "feeds"):
+    if section not in ("elasticsearch", "unifi", "audit", "web", "opencti", "feeds", "kubernetes"):
         raise ValueError("unknown integration")
     d = load()
     d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -464,6 +512,15 @@ def test(section, body):
             return {"ok": False, "provider": prov, "error": str(e)[:300]}
     if section == "feeds":
         return test_feed(body)
+    if section == "kubernetes":
+        if not c.get("url") or not c.get("api_key"):
+            return {"ok": False, "error": "enter the API server URL and the ServiceAccount token to test"}
+        import kube_api
+        try:
+            r = kube_api.check(c)
+            return {"ok": True, **r, **({"error": "this token can do more than read: " + ", ".join(r["too_much"])} if r["too_much"] else {})}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)[:300]}
     if section == "opencti":
         if not c.get("url") or not c.get("api_key"):
             return {"ok": False, "error": "enter the OpenCTI URL and API token to test"}

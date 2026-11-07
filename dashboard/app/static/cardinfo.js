@@ -1,5 +1,25 @@
 // Generated: info texts for the (i) button on each dashboard box (cardinfo_ui.js). Key: "view|normalised title".
 window.CARD_INFO = {
+"config|Kubernetes API (read-only)": {
+"source": "Configuration \u2192 Integrations, section kubernetes: API server URL(s), a write-only ServiceAccount token and the cluster CA.",
+"use": "Create the account with docs/kubernetes-readonly.yaml, paste the token and CA, Test (it must say read-only), then Enable and Save. Used by the CIS benchmark (Devices \u2192 Kubernetes) and the Kubernetes map.",
+"what": "Read-only access to the Kubernetes API."
+},
+"k8s|CIS Kubernetes benchmark": {
+"source": "kube_cis.py through the read-only Kubernetes API account (Configuration → Integrations → Kubernetes API): control-plane static pod flags, RBAC, pods, namespaces, network policies. GET requests only.",
+"use": "Fix failed checks or accept them with a reason in Settings → Endpoint policy → k8s → cis_accept. warn rows are lists to review by hand. Sections 1.1, 2 and 4 need node access and stay manual. Run now re-checks immediately; otherwise every 6 hours.",
+"what": "CIS Kubernetes Benchmark results for the checks the API can answer."
+},
+"k8smap|Kubernetes map": {
+"source": "The Kubernetes API through the read-only account: namespaces, ingresses (and Traefik IngressRoutes), services, pods and containers, network policies; security hits per pod from Security Onion.",
+"use": "Choose namespaces with Namespaces ▾ (kept in this browser). Click a namespace title, ingress, service, pod or container for details on the right. Drag to pan, scroll to zoom.",
+"what": "Map of the cluster: ingress → service → pod → container, per namespace."
+},
+"k8smap|Details": {
+"source": "The selected object from the read-only Kubernetes API (no secrets, ConfigMaps or logs).",
+"use": "Follow the link to the pod page for container logs and security events from Security Onion.",
+"what": "Details of what you clicked on the map."
+},
 "k8s|Kubernetes findings": {
 "source": "k8s.py findings over the chosen window: Security Onion data only (container logs, Kubernetes events, API server metrics, SO alerts).",
 "use": "Each one is also raised by the 15-minute watcher and added to the nightly host findings (key prefix k8s-). Tune thresholds and exempt namespaces in Settings → Endpoint policy → k8s.",

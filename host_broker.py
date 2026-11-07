@@ -14,8 +14,10 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
   POST /clef      {action: status | save | start | stop | restart | enable | disable, settings...} -> the decision-model
                   server (systemd user unit netmon-clef, clef.sh): status, model/runtime choice, start/stop (clef_server.py).
   POST /k8s       {action: overview | pod, minutes, end, ns, pod, text, container, stream, size, before} -> Devices >
-                  Kubernetes (k8s.py): read-only Security Onion queries only (container logs, k8s events, API server
-                  metrics, SO alerts); never the cluster itself. Overview cached 60 s; at most 600 calls per hour.
+                  Kubernetes (k8s.py): read-only Security Onion queries (container logs, k8s events, API server
+                  metrics, SO alerts). Overview cached 60 s; at most 600 calls per hour.
+                  {action: map | cis | cis_run} -> the Kubernetes map (kube_map.py) and the CIS benchmark (kube_cis.py),
+                  through the read-only Kubernetes API account (GET only) from Configuration > Integrations > Kubernetes.
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the event reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
@@ -88,6 +90,16 @@ def k8s_ctl(b):
                 _k8s_cache.clear()
                 _k8s_cache[ck] = (now, out)
                 return out
+            if act in ("map", "cis", "cis_run"):  # read-only Kubernetes API account (Configuration > Integrations > Kubernetes)
+                import kube_api
+                try:
+                    if act == "map":
+                        import kube_map
+                        return kube_map.build()
+                    import kube_cis
+                    return kube_cis.run_and_save() if act == "cis_run" else (kube_cis.latest() or kube_cis.run_and_save())
+                except kube_api.NotConfigured as e:
+                    return {"not_configured": True, "error": str(e)}
             if act == "pod":
                 return k8s.pod(str(b.get("ns") or ""), str(b.get("pod") or ""), minutes, text=str(b.get("text") or ""),
                                container=str(b.get("container") or ""), stream=str(b.get("stream") or ""),

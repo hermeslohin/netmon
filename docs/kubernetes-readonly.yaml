@@ -1,0 +1,85 @@
+# netmon read-only cluster account: CIS benchmark checks + the Kubernetes map in the netmon dashboard.
+# get/list/watch only, on named resources. Deliberately NOT granted: secrets, configmaps, pods/log, pods/exec,
+# pods/attach, pods/portforward, nodes/proxy (kubelet API - can be abused for exec), serviceaccounts/token, any write verb.
+# Apply: kubectl apply -f readonly.yaml ; token: kubectl -n netmon-readonly get secret netmon-readonly-token -o jsonpath='{.data.token}' | base64 -d
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netmon-readonly
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: netmon-readonly
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netmon-readonly
+  namespace: netmon-readonly
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: netmon-readonly-token
+  namespace: netmon-readonly
+  annotations:
+    kubernetes.io/service-account.name: netmon-readonly
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: netmon-readonly
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, namespaces, nodes, serviceaccounts, persistentvolumes, persistentvolumeclaims,
+                resourcequotas, limitranges, replicationcontrollers, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, statefulsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingressclasses, networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations, validatingadmissionpolicies, validatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch]
+  - apiGroups: [crd.projectcalico.org, projectcalico.org]
+    resources: [networkpolicies, globalnetworkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [traefik.io]
+    resources: [ingressroutes, middlewares]
+    verbs: [get, list, watch]
+  - nonResourceURLs: [/version, /healthz, /readyz, /livez]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: netmon-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: netmon-readonly
+subjects:
+  - kind: ServiceAccount
+    name: netmon-readonly
+    namespace: netmon-readonly

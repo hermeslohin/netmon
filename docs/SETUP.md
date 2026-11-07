@@ -310,6 +310,28 @@ What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes, 5 minutes
 
 Switching the integration off removes the local lists at the next run.
 
+## 7e. Kubernetes API, read-only (optional)
+
+Container logs, Kubernetes events and API server metrics reach netmon through Security Onion (the Elastic Agent
+Kubernetes integration). That is enough for **Devices → Kubernetes**. Two further features need to read the cluster
+configuration itself: the **CIS Kubernetes benchmark** and the **Kubernetes map**. Both use one read-only account.
+
+1. Create the account: `kubectl apply -f docs/kubernetes-readonly.yaml`. This creates a ServiceAccount, a long-lived
+   token Secret and a ClusterRole with get/list/watch only. It cannot read secrets, configmaps or pod logs, cannot
+   exec, attach or port-forward, and has no `nodes/proxy`, which can be abused to run commands through the kubelet.
+2. Read the token: `kubectl -n netmon-readonly get secret netmon-readonly-token -o jsonpath='{.data.token}' | base64 -d`.
+   Read the cluster CA from your kubeconfig (`certificate-authority-data`, base64-decoded).
+3. In **Settings → Configuration → Integrations → Kubernetes API**, enter:
+   - the API server URL(s), comma-separated, one per control-plane node;
+   - the token;
+   - the CA.
+
+   Click **Test connection**. It shows the version and node count, and asks the API server what the token may do. If
+   the token can list secrets, create pods, exec, use nodes/proxy, delete or update, Test reports that it is **not
+   read-only**. Then turn **Enabled** on (and **Run CIS benchmark checks**) and click **Save**.
+
+The token is write-only (never shown again). The API server certificate is always verified.
+
 ### Threat-intel feeds
 
 **More > Configuration > Integrations > Threat-intel feeds** lists the block lists netmon downloads (every 12 h) and

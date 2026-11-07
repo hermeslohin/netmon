@@ -490,6 +490,43 @@ Kubernetes findings use keys that start with `k8s-`. The 15-minute watcher raise
 
 Opening a pod's logs is recorded in the audit log (`k8s.pod_logs`).
 
+**CIS Kubernetes benchmark.** This box is only filled when the read-only Kubernetes API account is set up (Configuration → Integrations → Kubernetes API; see SETUP.md 7e). netmon runs the benchmark checks that the API can answer:
+
+- **API server, controller manager and scheduler flags** (CIS 1.2–1.4, 3.2): read from the control-plane static pods.
+- **RBAC** (5.1): who is bound to cluster-admin, who can read secrets or create pods, wildcard roles, default service accounts, mounted tokens, bind/impersonate/escalate, nodes/proxy, webhooks.
+- **Pod security** (5.2), checked on the running pods: privileged, host namespaces, privilege escalation, root, capabilities, hostPath and host ports.
+- **Network policies** (5.3), **secrets in environment variables** (5.4), **seccomp** and **use of the default namespace** (5.7).
+
+Results are:
+
+- **fail**: becomes a Kubernetes finding (`k8s-cis|<id>`).
+- **warn**: a list to review by hand, such as who holds cluster-admin.
+- **manual**: cannot be seen from the API. File permissions (1.1), etcd (2) and the kubelet (4) need node access, which the read-only account deliberately lacks. They are never reported as passed.
+- **accepted**: a failed check you accepted with a reason in **Settings → Endpoint policy → k8s → cis_accept**.
+
+Pods in namespaces labelled `pod-security.kubernetes.io/enforce=privileged` (CNI, storage, monitoring agents that need host access) are listed but do not fail the pod-security checks. The benchmark re-runs every 6 hours with the nightly collection, and **Run now** runs it at once (admins and defenders).
+
+### Devices → Kubernetes map
+
+A live map of the cluster, read through the read-only Kubernetes API account. Each namespace is a box holding its ingresses (⇄, red when a host has no TLS), its services (◆, orange when NodePort or LoadBalancer makes them reachable from outside the cluster) and its pods, with one row per container. Lines go from an ingress to its backend service and from a service to the pods it selects.
+
+Colours:
+
+- **Pod border:** green = fine; amber = restarts, root containers, or security hits in its container logs (number badge, from Security Onion); red = privileged, host access or not running.
+- **Container rows:** the same colours, for that container.
+- **Namespace border:** dashed = no network policy.
+
+**Namespaces ▾** chooses which namespaces to show: tick boxes, or **All**, **None**, **Applications only** (hides kube-*, cattle-*, calico and other platform namespaces) or **With pods**. The choice is kept in your browser. The search box dims everything that does not match a pod, container, image or service name. Drag to pan, scroll to zoom, **Reset view** to start over.
+
+Click any item to see its details on the right:
+
+- **Namespace:** pod-security level, network policies, CIS findings, and a button to hide it.
+- **Ingress:** hosts, TLS, routes, annotations, the services it routes to, and a Kibana link to who connects to its hosts.
+- **Service:** type, cluster IP, ports, selector, the pods it selects (clickable) and the ingresses in front of it.
+- **Pod or container:** workload, node, pod IP, service account and whether its token is mounted, host access, volumes, CIS findings. Per container: image and digest, state, restarts and last exit, ports, security context (privileged, root, privilege escalation, capabilities, read-only root, seccomp), secrets passed as environment variables, requests and limits, and mounts.
+
+From a pod or container, **Logs, security hits and alerts** opens its pod page with logs from Security Onion. The map never reads secrets, ConfigMaps or logs from the cluster.
+
 ### Devices → Notes
 
 The notes knowledge base. (Notes about external IPs and DNS names are on **Network → Internet notes**, below.) **Event notes awaiting approval** lists notes written by User-role accounts, with Approve and Reject (the AI never reads a note until it is approved). **Host notes** are what the AI and people have written about each device (role, what is normal, decisions), by category. The event reviewer also writes **expected behavior** host notes (category *behavior*) when it is confident that a related link is normal, for example a scheduled backup between two hosts. **Event notes** are notes on single events. AI runs read these notes before judging a device or an event; notes written by people count as authoritative. Host notes also appear on the device and endpoint pages.
@@ -523,7 +560,7 @@ Settings that apply to everyone. Admins can change them; network defenders see t
     3. **Hold a host after a suspicious event** (always on, 24 h): while an open event on a device (MAC, host name or host IP) was called suspicious or malicious, by the AI or by a person, and was seen in the last 24 hours, nothing else on that device is auto-closed. AI closures of that device's events active in the window are reopened, so you see the whole picture. Checking the suspicious event off (or marking it Expected / Benign) lifts the hold.
     4. **AI closures expire after N days** (default 7, 0 = never): when an AI-closed event shows up again after that, it reopens and closes again only on a verdict newer than the old closure. Your own closures never expire.
     The card shows how many events each rule holds back right now, which hosts are on hold, and examples. Rules 1 and 2 do not reopen what was closed before they were set; **Reopen N closed earlier that these rules would hold** does that on demand.
-- **Integrations (admins):** the Elasticsearch URL, API key and indices, the UniFi API URL and key, and the web search provider (DuckDuckGo needs no key; Brave Search and Tavily do; Firecrawl needs a key for its cloud, or the **Firecrawl URL** of your own instance, plus its CA certificate if it uses a private CA). Each has **Test connection**. Keys are write-only.
+- **Integrations (admins):** the Elasticsearch URL, API key and indices, the UniFi API URL and key, and the web search provider (DuckDuckGo needs no key; Brave Search and Tavily do; Firecrawl needs a key for its cloud, or the **Firecrawl URL** of your own instance, plus its CA certificate if it uses a private CA), and the **Kubernetes API** (API server URLs, a read-only ServiceAccount token and the cluster CA; its Test says whether the token is really read-only). Each has **Test connection**. Keys are write-only.
 
 ### More → Settings
 

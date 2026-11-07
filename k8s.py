@@ -81,14 +81,19 @@ API_RBAC = {"roles", "rolebindings", "clusterroles", "clusterrolebindings", "ser
 API_WRITE = {"CREATE", "POST", "UPDATE", "PUT", "PATCH", "DELETE", "DELETECOLLECTION", "APPLY"}
 
 
-def policy():
-    """host_policy "k8s" (Settings > Endpoint policy): signal_exempt {namespace: [pattern kinds] or ["*"]}, exec_alert, deny_alert."""
+def policy_raw():
+    """host_policy "k8s" as stored (Settings > Endpoint policy); {} when unreadable."""
     try:
         import store
         hp = store.jload(os.path.join(os.path.dirname(os.path.abspath(__file__)), "host_policy.json")) or {}
     except Exception:  # noqa: BLE001
         hp = {}
-    k = hp.get("k8s") or {}
+    return hp.get("k8s") or {}
+
+
+def policy():
+    """host_policy "k8s": signal_exempt {namespace: [pattern kinds] or ["*"]}, exec_alert, deny_alert."""
+    k = policy_raw()
     return {"signal_exempt": k.get("signal_exempt") or {}, "exec_alert": int(k.get("exec_alert", 1)), "deny_alert": int(k.get("deny_alert", 20))}
 
 
@@ -506,6 +511,11 @@ def findings(d, nightly=True):
                                                                 f"({', '.join(al['hosts'] or al['src'])[:120]})"))
     for im in (d.get("new_images") or []):
         F.append((f"k8s-img|{im}", "Review", f"New container image running in Kubernetes: {im}"))
+    if nightly and isinstance(d.get("cis"), dict):  # CIS benchmark (kube_cis.py, read-only Kubernetes API account)
+        import kube_cis
+        F += kube_cis.findings(d["cis"])
+        if d["cis"].get("error") and not d["cis"].get("not_configured"):
+            F.append(("k8s-cis|error", "Review", f"CIS Kubernetes benchmark could not run: {d['cis']['error'][:200]}"))
     seen, out = set(), []
     for f in F:  # one finding per key (several pods of one ReplicaSet share a key)
         if f[0] not in seen:
@@ -520,8 +530,24 @@ def _stable_pod(name):
 
 
 # ---------------------------------------------------------------- nightly collector + image baseline
+CIS_EVERY_H = 6  # the benchmark is configuration, not events: re-run at most this often
+
+
+def cis_latest(run=True):
+    """Newest CIS results (store doc k8s/cis); re-run when older than CIS_EVERY_H and the integration is on."""
+    import integrations
+    import kube_cis
+    kc = integrations.kubernetes()
+    if not (kc["usable"] and kc.get("cis")):
+        return {"not_configured": True, "results": [], "error": "Kubernetes API integration is off or CIS checks are turned off"}
+    cur = kube_cis.latest()
+    age_h = (time.time() - time.mktime(time.strptime(cur["generated"][:19], "%Y-%m-%dT%H:%M:%S")) + time.timezone) / 3600 if cur.get("generated") else 1e9
+    return kube_cis.run_and_save() if run and age_h >= CIS_EVERY_H else cur
+
+
 def collect(hours=24, update=True):
     d = overview(hours * 60)
+    d["cis"] = safe(cis_latest, update, default={})
     try:
         import store
         base = store.doc_get("k8s/images", {}) or {}

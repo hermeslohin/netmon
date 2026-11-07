@@ -212,6 +212,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `integrations.audit` | More > Audit log > Audit log storage (key, index, send event reviewer / researcher events) | `/api/config/integrations/audit` | SET-05, SET-06, SET-09, SET-10, SET-11, SET-13, SET-14, SET-15, SET-63 | 22 | 1 |
 | `integrations.web` | Configuration > Integrations > Web search (provider, Firecrawl URL, key, CA) | `/api/config/integrations/web` | WEB-01, WEB-02, WEB-03, WEB-04, SET-60, SET-61 | 4 | 9 |
 | `integrations.opencti` | Configuration > Integrations > OpenCTI | `/api/config/integrations/opencti` | OCTI-01, OCTI-03, SET-60, SET-61 | 3 | 9 |
+| `integrations.kubernetes` | Configuration > Integrations > Kubernetes API (URL(s), read-only token, CA, CIS on/off) | `/api/config/integrations/kubernetes` | KUBE-05, KUBE-06, SET-60, SET-61 | 10 | 9 |
 | `integrations.feeds` | Configuration > Integrations > Threat-intel feeds | `/api/config/integrations/feeds` | FEED-01, FEED-02, SET-60 | 3 | 4 |
 | `cfg.policy` | Settings > Network policy (zones, roles, device classes, ports, thresholds) | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-49, SET-50, SET-67 | 29 | 3 |
 | `cfg.host_policy` | Settings > Host policy | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48, SET-49 | 20 | 0 |
@@ -257,6 +258,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 27 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, RISK-03) |
 | `tests/unit/test_k8s.py` | 14 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04) |
+| `tests/unit/test_kube_api.py` | 11 | Unit tests for the read-only Kubernetes API integration, the CIS benchmark and the map (kube_api / kube_cis / kube_map). (KUBE-05, KUBE-06, KUBE-07) |
 | `tests/unit/test_lateral.py` | 35 | Unit tests for dashboard/app/lateral.py (admin-session levels, lateral graph edges, multi-period merge). (LAT-01, LAT-02, RISK-04) |
 | `tests/unit/test_lateral_page.py` | 35 | Unit tests for the Lateral movement page: lateral.build() gaps (naming, gateways, scans, allow/cleared flows, internet hosts), server.lateral_periods() and lateral.js page logic under node. (LAT-02, LAT-20, LAT-21, LAT-22, LAT-23, LAT-24, LAT-25, LAT-26, LAT-27, LAT-28, LAT-29, LAT-31, LAT-32, LAT-33, LAT-34, LAT-35, LAT-36, LAT-37, LAT-38, LAT-39, LAT-40, POS-11, POS-16) |
 | `tests/unit/test_llm_parsing.py` | 30 | Unit tests for the network-free parsing helpers of corr_llm.py and llm_providers.py. (COR-03, LLM-01) |

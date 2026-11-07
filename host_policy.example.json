@@ -405,7 +405,15 @@
    }
   },
   "exec_alert": 1,
-  "deny_alert": 20
+  "deny_alert": 20,
+  "cis_accept": {
+   "1.2.5": "example: kubelet serving certificates are not CA-signed on this platform"
+  },
+  "cis_skip_namespaces": [
+   "kube-system",
+   "kube-public",
+   "kube-node-lease"
+  ]
  },
- "_doc_k8s": "Kubernetes checks (Devices > Kubernetes, nightly report and 15-minute watcher; data from Security Onion only). signal_exempt: namespace -> {kinds, reason} for apps whose container logs legitimately contain attack or malware text (threat-intel platforms, scanners); kinds are cmd, miner, webattack, secret, authfail, denied, tls, crash or * for all. Exempt hits stay visible on the page but raise no finding. exec_alert: pod exec/attach/port-forward requests to the API server in one window that raise a finding (default 1). deny_alert: 401/403 API server responses in one window (default 20)."
+ "_doc_k8s": "Kubernetes checks (Devices > Kubernetes, nightly report and 15-minute watcher; data from Security Onion only). signal_exempt: namespace -> {kinds, reason} for apps whose container logs legitimately contain attack or malware text (threat-intel platforms, scanners); kinds are cmd, miner, webattack, secret, authfail, denied, tls, crash or * for all. Exempt hits stay visible on the page but raise no finding. exec_alert: pod exec/attach/port-forward requests to the API server in one window that raise a finding (default 1). deny_alert: 401/403 API server responses in one window (default 20). cis_accept: CIS benchmark id -> reason, for a failed check you accept (shown as accepted, no finding). cis_skip_namespaces: namespaces left out of the CIS workload checks (default kube-system, kube-public, kube-node-lease)."
 }

@@ -152,6 +152,8 @@
     if (sec === "elasticsearch") b.indices = Object.fromEntries(Object.keys(I.index_defaults).map((k) => [k, v("es-ix-" + k)]));
     if (sec === "web") Object.assign(b, { provider: c.querySelector("#web-provider")?.value || "duckduckgo",
       ca_pem: c.querySelector("#web-ca")?.value.trim() || "", clear_ca: !!c.querySelector("#web-ca-clr")?.checked });
+    if (sec === "kubernetes") Object.assign(b, { url: v("kubernetes-url"), enabled: !!c.querySelector("#kb-enabled")?.checked, cis: !!c.querySelector("#kb-cis")?.checked,
+      ca_pem: c.querySelector("#kb-ca")?.value.trim() || "", clear_ca: !!c.querySelector("#kb-ca-clr")?.checked });
     if (sec === "opencti") {
       const ck = (id) => !!c.querySelector("#" + id)?.checked;
       Object.assign(b, { enabled: ck("oc-enabled"), pull: ck("oc-pull"), sightings: ck("oc-sight"), incidents: ck("oc-inc"),
@@ -175,6 +177,8 @@
         if (sec === "elasticsearch" && R.indices) res.innerHTML = Object.entries(R.indices).map(([k, x]) =>
           `<div>${x.ok ? "✅" : "❌"} <span class="mono">${esc(x.index)}</span> — ${x.ok ? `${Number(x.docs_24h).toLocaleString()} docs in the last 24h` : esc(x.error)}</div>`).join("");
         else if (sec === "web") res.innerHTML = R.ok ? `Search works: ${R.results} result(s) for a test query.` : esc(R.error || "");
+        else if (sec === "kubernetes") res.innerHTML = R.ok ? `Reached Kubernetes ${esc(R.version)} at <span class="mono">${esc(R.url)}</span>: ${esc(R.nodes)} nodes. `
+          + (R.read_only ? "✅ The account is read-only (refused: list secrets, create pods, exec, nodes/proxy, delete, update)." : `<span class="sev-high">❌ The token can do more than read: ${esc((R.too_much || []).join(", "))}. Use a read-only account.</span>`) : esc(R.error || "");
         else if (sec === "opencti") res.innerHTML = R.ok ? `Reached OpenCTI ${esc(R.version)} at <span class="mono">${esc(R.url)}</span> as ${esc(R.user)}: ${Number(R.indicators).toLocaleString()} indicators.` : esc(R.error || "");
         else res.innerHTML = R.ok ? `Reached <span class="mono">${esc(R.url)}</span>: ${R.consoles} console(s), ${R.hosts} host(s) on this account.` : esc(R.error || "");
       } catch (e) { msg.innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; }
@@ -278,10 +282,18 @@
       + cb("oc-inc", O.incidents, "Incidents", "Open events the reviewer labelled suspicious become OpenCTI incidents, with their external IPs and domains attached (internal addresses stay in the description). Up to 25 new per run.")
       + `<label class="cfg-f" style="display:inline-block;margin:4px 16px 4px 22px"><span class="small"><b>Minimum severity</b></span><br><select id="oc-sev">${O.sevs.map((x) => `<option${x === O.incident_min_sev ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>`
       + `<label class="cfg-f" style="display:inline-block;margin:4px 0"><span class="small"><b>Minimum reviewer confidence</b></span><br><input id="oc-conf" type="number" min="0.5" max="1" step="0.05" value="${esc(String(O.incident_min_conf))}" style="width:90px"></label>`, O);
+    const K = D.kubernetes || { enabled: false, cis: true, url: "" };
+    const ck = intCard("kubernetes", "Kubernetes API (read-only)", "Optional. A read-only ServiceAccount token lets netmon run the CIS Kubernetes benchmark checks and draw the Kubernetes map (Devices → Kubernetes map). Logs and events still come from Security Onion. The account needs only get/list/watch; netmon refuses to treat a token that can write, read secrets or exec as read-only and the Test button says so. Example manifest: docs/kubernetes-readonly.yaml.",
+      cb("kb-enabled", K.enabled, "Enabled") + cb("kb-cis", K.cis, "Run CIS benchmark checks", "Every 6 hours (nightly run) and on demand from Devices → Kubernetes. Failed checks become Kubernetes findings.")
+      + fld("kubernetes-url", "API server URL(s)", K.url, "https://k8s-api.example.lan:6443", "One or more https:// URLs, comma-separated (control-plane nodes); the first that answers is used.")
+      + fld("kubernetes-key", "ServiceAccount token", "", K.key_set ? K.key_hint : "eyJhbGciOi… (bearer token)", K.key_set ? keyHelp({ ...K, key_fallback: "nothing (the integration stops)" }) : "Write-only: stored on the server and never shown again.", "password")
+      + `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Cluster CA certificate (PEM)</b></span><div class="muted small">The API server certificate is always verified. Paste the cluster CA (certificate-authority-data from a kubeconfig, base64-decoded).</div>
+         <textarea id="kb-ca" rows="3" spellcheck="false" placeholder="${K.ca_set ? "A CA is saved. Paste a new one to replace it." : "-----BEGIN CERTIFICATE-----"}" style="width:min(560px,100%);box-sizing:border-box;font-family:var(--mono,monospace)"></textarea>
+         ${K.ca_set ? `<div class="muted small"><label><input type="checkbox" id="kb-ca-clr"> remove the saved CA</label></div>` : ""}</label>`, K);
     const cf = feedsCard(D.feeds || { items: [], kinds: {} }, O, (R, m) => paintInt(wrap, R, { sec: "feeds", m }));
-    wrap.append(ce, cu, cw, co, cf);
+    wrap.append(ce, cu, cw, co, ck, cf);
     const rerender = (R, sec, m) => { paintInt(wrap, R, { sec, m }); };
-    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender); wire(co, "opencti", O, rerender);
+    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender); wire(co, "opencti", O, rerender); wire(ck, "kubernetes", K, rerender);
     if (flash) { const m = wrap.querySelector(`[data-sec="${flash.sec}"] .cfg-msg`); if (m) m.innerHTML = `<span class="badge sev-good">${esc(flash.m)}</span>`; }
   }
 

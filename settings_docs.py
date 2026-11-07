@@ -76,7 +76,9 @@ DOCS = {
                "signal_exempt: namespace -> {kinds, reason} for apps whose container logs legitimately contain attack or malware text "
                "(threat-intel platforms, scanners); kinds are cmd, miner, webattack, secret, authfail, denied, tls, crash or * for all. "
                "Exempt hits stay visible on the page but raise no finding. exec_alert: pod exec/attach/port-forward requests to the API "
-               "server in one window that raise a finding (default 1). deny_alert: 401/403 API server responses in one window (default 20).",
+               "server in one window that raise a finding (default 1). deny_alert: 401/403 API server responses in one window (default 20). "
+               "cis_accept: CIS benchmark id -> reason, for a failed check you accept (shown as accepted, no finding). "
+               "cis_skip_namespaces: namespaces left out of the CIS workload checks (default kube-system, kube-public, kube-node-lease).",
         "endpoint_ips": "Maps an endpoint (Elastic Agent) host name to its LAN IP so host findings are tied to the right device for per-device alert subscriptions, risk scoring and the network map.",
     },
     "known_benign": {

@@ -859,7 +859,7 @@ def with_software_vulns(tr):
 
 
 # ---------------------------------------------------------------- audit log (audit.py -> Elasticsearch logs-netmon)
-AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open", "/api/k8s/pod": "k8s.pod_logs"}
+AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open", "/api/k8s/pod": "k8s.pod_logs", "/api/k8s/map": "k8s.map", "/api/k8s/cis": "k8s.cis"}
 AUDIT_TARGET = ("username", "doc", "id", "eid", "key", "pair", "event", "section", "kind", "title", "subject", "route", "provider", "model")
 
 
@@ -1747,6 +1747,12 @@ class H(BaseHTTPRequestHandler):
                 return self._json(tintel.trend_cached([x["id"] for x in snapshots()],
                                                       lambda sid: store.doc_mtime(store.doc_name(os.path.join(DATA, sid + ".json"))),
                                                       lambda sid: store.doc_get(store.doc_name(os.path.join(DATA, sid + ".json")), None)))
+            if path in ("/api/k8s/map", "/api/k8s/cis"):  # Kubernetes map / CIS benchmark: read-only k8s API account via the host broker
+                act = "map" if path == "/api/k8s/map" else ("cis_run" if (q.get("run") or [""])[0] == "1" and role in ("admin", "defender") else "cis")
+                try:
+                    return self._json(corr_llm.broker("/k8s", {"action": act}, timeout=180))
+                except RuntimeError as ex:
+                    return self._json({"error": str(ex)[:300]}, 503)
             if path in ("/api/k8s", "/api/k8s/pod"):  # Devices > Kubernetes: Security Onion data via the host broker (no ES key here)
                 g = lambda k, d="": (q.get(k) or [d])[0]  # noqa: E731
                 body = {"action": "pod" if path == "/api/k8s/pod" else "overview", "minutes": g("minutes", "1440"), "end": g("end"),

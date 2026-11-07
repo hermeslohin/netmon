@@ -19,6 +19,8 @@ SETTINGS = {
                          ["/api/config/integrations/web"], ["integrations.save"], ["WEB-01", "WEB-02", "WEB-03", "WEB-04", "SET-60", "SET-61"]),
     "integrations.opencti": ("Configuration > Integrations > OpenCTI", ["/api/config/integrations/opencti"],
                              ["integrations.save"], ["OCTI-01", "OCTI-03", "SET-60", "SET-61"]),
+    "integrations.kubernetes": ("Configuration > Integrations > Kubernetes API (URL(s), read-only token, CA, CIS on/off)",
+                                ["/api/config/integrations/kubernetes"], ["integrations.save"], ["KUBE-05", "KUBE-06", "SET-60", "SET-61"]),
     "integrations.feeds": ("Configuration > Integrations > Threat-intel feeds", ["/api/config/integrations/feeds"],
                            ["integrations.save"], ["FEED-01", "FEED-02", "SET-60"]),
     # ---- Settings page documents (every documented key, settings_docs.DOCS) ----

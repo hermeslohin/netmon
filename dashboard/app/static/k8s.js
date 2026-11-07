@@ -41,6 +41,23 @@ function k8sBox(title, ...parts) {  // card() with several parts: HTML strings a
 }
 const k8sQ = (v) => '"' + String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 
+// CIS Kubernetes benchmark (kube_cis.py through the read-only Kubernetes API account) - not Security Onion data
+async function k8sCisCard(run) {
+  let C;
+  try { C = await api("/api/k8s/cis" + (run ? "?run=1" : "")); } catch (e) { C = { error: String(e.message || e) }; }
+  if (C.not_configured || (!C.results?.length && C.error)) return card("CIS Kubernetes benchmark", `<div class="muted">${esc(C.error || "Not configured")}. Set up the read-only account under <a href="#/config">Configuration → Integrations → Kubernetes API</a>.</div>`);
+  const sm = C.summary || {}, st = { pass: "good", fail: "sev-high", warn: "sev-medium", manual: "sev-low", accepted: "sev-low" };
+  const t = table(null, [{ k: "id", t: "Check", sort: (r) => r.id.split(".").map((x) => x.padStart(3, "0")).join(".") }, { k: "status", t: "Result", fmt: (v) => `<span class="badge ${st[v] || ""}">${esc(v)}</span>`, sort: (r) => ({ fail: 0, warn: 1, accepted: 2, manual: 3, pass: 4 })[r.status] },
+    { k: "section", t: "Section", cls: "small" }, { k: "title", t: "Recommendation" }, { k: "count", t: "Items", num: true },
+    { k: "detail", t: "Detail", cls: "small", fmt: (v, r) => esc(r.accepted ? "Accepted: " + r.accepted : v) + (r.items?.length ? `<details><summary class="muted">${r.count} item(s)</summary>${r.items.map((x) => `<div class="mono small">${esc(x)}</div>`).join("")}${r.count > r.items.length ? `<div class="muted small">+${r.count - r.items.length} more</div>` : ""}</details>` : "") }],
+  C.results, { sort: "status", dir: 1 });
+  const c = k8sBox("CIS Kubernetes benchmark", kpis([["Failed", sm.fail || 0, sm.fail ? "bad" : "good"], ["Review (warn)", sm.warn || 0, sm.warn ? "warn" : ""], ["Passed", sm.pass || 0, "good"], ["Manual / not visible", sm.manual || 0], ["Accepted", sm.accepted || 0]]),
+    `<div class="muted small">${esc(C.benchmark || "")} · Kubernetes ${esc(C.version || "")} · checked ${esc(ft(C.generated))}${C.error ? ` · <span class="sev-high">last run failed: ${esc(C.error)}</span>` : ""} · <button id="k8sCisRun">Run now</button>
+    · Failed checks are Kubernetes findings (k8s-cis|id). Accept a check in Settings → Endpoint policy → k8s → cis_accept. Sections 1.1, 2 and 4 need node access and are listed as manual.</div>`, t);
+  c.querySelector("#k8sCisRun").onclick = async (e) => { e.target.disabled = true; e.target.textContent = "Running…"; const n = await k8sCisCard(true); c.replaceWith(n); };
+  return c;
+}
+
 V.k8s = async (el) => {
   const W = k8sWindow();
   el.innerHTML = `<h1>Kubernetes</h1><div class="sub">Security monitoring of the Kubernetes cluster from <b>Security Onion</b> data only: container logs, Kubernetes events,
@@ -72,6 +89,7 @@ V.k8s = async (el) => {
     D.findings, { search: false }), `<div class="muted small">Also raised by the 15-minute watcher (Alerts) and fed to the event review as host findings (key prefix k8s-). Tune in Settings → Endpoint policy → k8s.</div>`)
     : card("Kubernetes findings", `<div class="muted">No Kubernetes findings in this window.</div>`));
 
+  el.appendChild(await k8sCisCard());
   el.appendChild(k8sBox("Security Onion data coverage", table(null, [{ k: "dataset", t: "Data set" }, { k: "state", t: "State", fmt: k8sState },
     { k: "docs_24h", t: "Docs (24 h)", num: true, fmt: fn }, { k: "last", t: "Last arrival", fmt: (v, r) => v ? `${esc(ft(v))} <span class="muted">(${esc(r.minutes)} min)</span>` : "never" },
     { k: "error", t: "Collector error", cls: "small", fmt: (v) => esc(v || "") }], cov, { search: false, sort: "state", dir: 1 }),
