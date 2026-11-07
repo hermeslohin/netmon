@@ -2797,15 +2797,76 @@ def start(get_base, latest_sid_fn, every=60):
 
 
 # ---------------------------------------------------------------- status page (#/aireview)
-def overview(events, applied):
+def _verdict_rows(rows, events):
+    """Verdict table rows -> the Decisions list's dicts (labelled with the current snapshot's events where known)."""
+    try:
+        CDv = clef_decisions([r[0] for r in rows])
+    except sqlite3.Error:
+        CDv = {}
+    out = []
+    for p, rel, conf, why, m, ts in rows:
+        a, b = p.split("\x1f", 1)
+        ea, eb = events.get(a) or {}, events.get(b) or {}
+        out.append({"pair": p, "a": a, "b": b, "a_label": ea.get("label") or a, "b_label": eb.get("label") or b,
+                    "a_type": ea.get("type") or a.split("|")[0], "b_type": eb.get("type") or b.split("|")[0],
+                    "a_link": ea.get("link") or "", "b_link": eb.get("link") or "", "current": bool(ea and eb),
+                    "related": bool(rel), "confidence": conf, "reason": why, "model": m, "ts": ts,
+                    "manual": str(m).startswith("manual:"), "clef": CDv.get(p)})
+    return out
+
+
+def verdict_page(events, offset=0, limit=100, verdict="", conf="", pair="", scope="", types=()):
+    """One page of the Decisions list, newest first, for infinite scroll (GET /api/aireview/verdicts).
+    Verdict / confidence filters run in SQL; event pair, event type and "this snapshot only" need the event types and
+    the current snapshot, so those filter in Python over the SQL-filtered rows. Returns rows + total matching."""
+    offset, limit = max(0, int(offset)), max(1, min(int(limit), 1000))
+    where, args = [], []
+    if verdict == "confirmed":
+        where.append("related != 0")
+    elif verdict == "rejected":
+        where.append("related = 0")
+    elif verdict == "manual":
+        where.append("substr(model, 1, 7) = 'manual:'")
+    if conf == "low":
+        where.append("COALESCE(confidence, 1) < 0.7")
+    elif conf == "high":
+        where.append("COALESCE(confidence, 0) >= 0.9")
+    w = (" WHERE " + " AND ".join(where)) if where else ""
+    sel = "SELECT pair, related, confidence, reason, model, ts FROM verdicts" + w + " ORDER BY ts DESC"
+    types = set(types or ())
+    with _db() as c:
+        if not (pair or scope == "current" or types):
+            total = c.execute("SELECT COUNT(*) FROM verdicts" + w, args).fetchone()[0]
+            rows = c.execute(sel + " LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
+        else:
+            def typ(e):
+                return (events.get(e) or {}).get("type") or e.split("|")[0]
+            keep = []
+            for r in c.execute(sel, args):
+                a, b = r[0].split("\x1f", 1)
+                if scope == "current" and not (a in events and b in events):
+                    continue
+                ta, tb = typ(a), typ(b)
+                if pair and "-".join(sorted((ta, tb))) != pair:
+                    continue
+                if types and ta not in types and tb not in types:
+                    continue
+                keep.append(r)
+            total, rows = len(keep), keep[offset:offset + limit]
+    return {"rows": _verdict_rows(rows, events), "total": total, "offset": offset, "more": offset + len(rows) < total}
+
+
+def overview(events, applied, with_rows=True, with_clef=True):
     """Everything the AI-review page shows: worker status, queue for the current snapshot, totals, throughput,
-    and all stored verdicts (labelled with the current snapshot's events where known)."""
+    and (with_rows, the old shape) the newest 3000 stored verdicts. The monitoring page asks for with_rows=False and pages
+    the Decisions list through verdict_page() instead, and loads the decision-model numbers (with_clef=False) separately."""
     now = time.time()
     NOTDIS = "(model IS NULL OR substr(model, 1, 10) != 'dismissed:')"  # queue-clear markers are not reviews
     with _db() as c:  # aggregates in SQL; only the newest 3000 verdicts are sent as rows (was: every verdict loaded into Python)
-        rows = c.execute("SELECT pair, related, confidence, reason, model, ts FROM verdicts ORDER BY ts DESC LIMIT 3000").fetchall()
-        n_all, n_rel, n_man, conf_sum = c.execute(
-            "SELECT COUNT(*), COALESCE(SUM(related != 0), 0), COALESCE(SUM(substr(model, 1, 7) = 'manual:'), 0), COALESCE(SUM(confidence), 0) FROM verdicts").fetchone()
+        rows = c.execute("SELECT pair, related, confidence, reason, model, ts FROM verdicts ORDER BY ts DESC LIMIT 3000").fetchall() if with_rows else []
+        n_all, n_rel, n_man, n_man_rel, conf_sum = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(related != 0), 0), COALESCE(SUM(substr(model, 1, 7) = 'manual:'), 0), "
+            "COALESCE(SUM(substr(model, 1, 7) = 'manual:' AND related != 0), 0), COALESCE(SUM(confidence), 0) FROM verdicts").fetchone()
         models = {m: n for m, n in c.execute("SELECT model, COUNT(*) FROM verdicts GROUP BY model")}
         day = [ts for (ts,) in c.execute(f"SELECT ts FROM verdicts WHERE ts >= ? AND {NOTDIS}", (now - 86400,))]
     hours = {}
@@ -2831,33 +2892,25 @@ def overview(events, applied):
     llm = (applied or {}).get("llm") or {}
     pend = llm.get("pending", 0)
     rate = sum(1 for ts in day if now - ts <= 900) * 4 or last_hour  # per hour, from the last 15 min when busy
-    out = []
-    try:
-        CDv = clef_decisions([r[0] for r in rows])
-    except sqlite3.Error:
-        CDv = {}
-    for p, rel, conf, why, m, ts in rows:
-        a, b = p.split("\x1f", 1)
-        ea, eb = events.get(a) or {}, events.get(b) or {}
-        out.append({"pair": p, "a": a, "b": b, "a_label": ea.get("label") or a, "b_label": eb.get("label") or b,
-                    "a_type": ea.get("type") or a.split("|")[0], "b_type": eb.get("type") or b.split("|")[0],
-                    "a_link": ea.get("link") or "", "b_link": eb.get("link") or "", "current": bool(ea and eb),
-                    "related": bool(rel), "confidence": conf, "reason": why, "model": m, "ts": ts,
-                    "manual": str(m).startswith("manual:"), "clef": CDv.get(p)})
-    return {"status": {k: STATUS.get(k) for k in ("enabled", "model", "provider", "error", "busy", "last_run", "decided_this_run", "es_queries_this_run", "web_queries_this_run", "classified_this_run", "classifying",
+    out = _verdict_rows(rows, events)
+    res = {"status": {k: STATUS.get(k) for k in ("enabled", "model", "provider", "error", "busy", "last_run", "decided_this_run", "es_queries_this_run", "web_queries_this_run", "classified_this_run", "classifying",
                                                  "clef_stage", "clef_todo", "clef_related_this_run")},
             "es_queries": es_overview(events),
             "web_queries": web_overview(events),
             "web_cache": web_cache_stats(),
-            "clef": _clef_ov_safe(),
             "config": config(),
             "url": URL, "workers": WORKERS, "reasoning": REASONING,
             "queue": {"pending": pend, "confirmed": llm.get("confirmed", 0), "rejected": llm.get("rejected", 0),
                       "eta_min": round(pend / rate * 60) if rate and pend else None},
             "totals": {"verdicts": n_all, "related": n_rel, "rejected": n_all - n_rel,
-                       "manual": n_man, "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats, "events_per_day": daily,
+                       "manual": n_man, "manual_related": n_man_rel, "last_hour": last_hour, "rate_per_hour": rate, "rate_per_min": per_min, "tokens_per_min": round(tok5 / 5), "tokens_per_sec": tps, "event_tokens": ev_stats, "events_per_day": daily,
                        "avg_conf": round(conf_sum / n_all, 2) if n_all else None},
-            "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models, "verdicts": out}
+            "per_hour": [hours.get(h, 0) for h in range(23, -1, -1)], "models": models}
+    if with_rows:
+        res["verdicts"] = out
+    if with_clef:
+        res["clef"] = _clef_ov_safe()
+    return res
 
 
 def _clef_ov_safe():

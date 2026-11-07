@@ -721,6 +721,13 @@ def correlation(sid):
         return v
 
 
+def correlation_labels(sid):
+    """Events of the latest built map for a snapshot, even when a newer alert has made it stale: for lists that only need
+    event labels (Decisions on AI pipeline monitoring), so they do not wait for a rebuild. Builds when there is none."""
+    hit = _CORR.get(resolve_sid(sid))
+    return hit[1] if hit else correlation(sid)
+
+
 def _correlation_build(sid, res, alerts, open_iss, ck):
     pol = with_cleared(load_json(os.path.join(ROOT, "policy.json"), {}))
     try:
@@ -1818,11 +1825,24 @@ class H(BaseHTTPRequestHandler):
                 return self._json(enrich.queue_items())
             if path == "/api/llm/notes-consolidate":
                 return self._json(notes_consolidate.view())
-            if path == "/api/aireview":
+            if path == "/api/aireview/clef":  # monitoring page: decision-model numbers, loaded on their own (health check ~1 s)
+                return self._json({"clef": corr_llm._clef_ov_safe()})
+            if path == "/api/aireview/verdicts":  # monitoring page > Decisions: one page, newest first (infinite scroll)
+                s_ = snapshots()
+                base = correlation_labels(s_[-1]["id"]) if s_ else {}
+                g = lambda k, d="": (q.get(k) or [d])[0][:200]  # noqa: E731
+                try:
+                    off, lim = int(g("offset", "0")), int(g("limit", "100"))
+                except ValueError:
+                    return self._json({"error": "bad offset/limit"}, 400)
+                return self._json(corr_llm.verdict_page((base or {}).get("events") or {}, off, lim, verdict=g("verdict"), conf=g("conf"),
+                                                        pair=g("pair"), scope=g("scope"), types=[t for t in g("type").split(",") if t][:20]))
+            if path == "/api/aireview":  # ?rows=0: no verdict rows (paged by /verdicts); ?clef=0: no decision-model numbers (/clef)
                 s_ = snapshots()
                 sid = s_[-1]["id"] if s_ else ""
                 base = correlation(sid) or {}
-                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base)), "snapshot": sid, "admin": admin, "can_limit": role in ("admin", "defender"),
+                ov = {**corr_llm.overview(base.get("events") or {}, corr_llm.apply(base), with_rows=(q.get("rows") or ["1"])[0] != "0",
+                                          with_clef=(q.get("clef") or ["1"])[0] != "0"), "snapshot": sid, "admin": admin, "can_limit": role in ("admin", "defender"),
                       "provider_names": {p["provider"]: p["name"] for p in llm_providers.public()}}
                 ov["review"] = review_job()
                 ov["research"] = research_settings()

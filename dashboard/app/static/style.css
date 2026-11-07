@@ -466,6 +466,19 @@ h2 .ai-flare,h3 .ai-flare{text-transform:none;letter-spacing:.2px;margin-left:4p
 .card.sec-loading::before{content:"";position:absolute;z-index:6;left:50%;top:50%;width:22px;height:22px;margin:-20px 0 0 -11px;border:3px solid var(--border);
   border-top-color:var(--accent,#58a6ff);border-radius:50%;animation:secspin .8s linear infinite}
 .kpis.sec-loading-kpis .kpi .v{opacity:.35;animation:secpulse 1.2s ease-in-out infinite}
+/* AI pipeline monitoring loads each box on its own: .ai-wait = a box whose data has not arrived yet (data-msg = what it waits for) */
+.ai-wait{position:relative;min-height:110px}
+.ai-wait::after{content:attr(data-msg);position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding-top:40px;
+  color:var(--muted);font-size:13px;pointer-events:none}
+.ai-wait::before{content:"";position:absolute;z-index:6;left:50%;top:50%;width:22px;height:22px;margin:-14px 0 0 -11px;border:3px solid var(--border);
+  border-top-color:var(--accent,#58a6ff);border-radius:50%;animation:secspin .8s linear infinite}
+.ai-wait.ai-failed::before{display:none}
+.ai-wait.ai-failed::after{color:var(--bad,#f85149);padding-top:0}
+/* table() infinite scroll (opts.loadMore): the row under the list that fetches the next page */
+.tbl-more{text-align:center;padding:10px 0 4px;color:var(--muted);font-size:12px;cursor:pointer}
+.tbl-more.busy{cursor:default}
+.tbl-more.busy span::before{content:"";display:inline-block;vertical-align:-3px;width:12px;height:12px;margin-right:6px;border:2px solid var(--border);
+  border-top-color:var(--accent,#58a6ff);border-radius:50%;animation:secspin .8s linear infinite}
 #secProg{position:fixed;right:14px;bottom:14px;z-index:50;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:6px 12px;font-size:12px;color:var(--muted);
   box-shadow:0 2px 10px #0006;display:flex;align-items:center;gap:8px}
 #secProg i{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent,#58a6ff);border-radius:50%;animation:secspin .8s linear infinite}

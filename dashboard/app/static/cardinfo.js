@@ -173,7 +173,7 @@ window.CARD_INFO = {
 "aireview|Decisions": {
 "source": "Proposed links from correlate.py, judged by the corr_llm.py event reviewer or by event research, plus manual overrides; stored in the netmon store.",
 "use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗ or ↻ to ask the model again.",
-"what": "Every link decision (newest 3,000): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
+"what": "Every link decision, newest first (100 at a time; scroll to the end of the list for older ones): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
 },
 "aireview|Models": {
 "source": "GET /api/aireview/models: health check of the decision model server, model lists of the local server and AI providers (no tokens), cached one minute.",

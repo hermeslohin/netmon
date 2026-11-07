@@ -243,6 +243,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 
 | File | Tests | Covers |
 |---|---|---|
+| `tests/unit/test_aireview_paging.py` | 4 | Unit tests for AI pipeline monitoring paging (corr_llm.verdict_page / overview without rows): the Decisions list loads (AIR-01) |
 | `tests/unit/test_alerts_page.py` | 34 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25, CFG-05) |
 | `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |

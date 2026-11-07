@@ -184,6 +184,8 @@ const evLabel = (id) => { const e = S.corr?.events?.[id]; const l = e ? e.label 
 /* ---------- table component ---------- */
 // cols: [{k, t, num, fmt(v,row)->html, sort(row)->val, cls}]
 // opts.urlFilter: {param: [label, (row, value) => bool]} — hash query params filter the rows (chart drill-down) and show removable chips
+// opts.loadMore: async () => [rows] | null — infinite scroll: the rows given are the first page; when the end of the list
+// scrolls into view the next page is fetched and appended (null / [] = no more). opts.total() = rows on the server, for the count.
 // opts.evId(row) -> correlation event id ("f|...", "ids|...", "adm|...", "iss|...", "alert|...", "hf|...", "ti|...").
 // Adds a "Related" column (filled by related.js) and the ?ev=<id> drill-down filter for rows of that type.
 function table(id, cols, rows, opts = {}) {
@@ -245,8 +247,27 @@ function table(id, cols, rows, opts = {}) {
     const more = wrap.querySelector(".more");
     if (more) more.innerHTML = opts.limit && r.length > opts.limit && !st.q ? `<button>${st.showAll ? "Show top " + opts.limit : "Show all " + r.length}</button>` : `<span class="muted small">${r.length} rows</span>`;
     wrap.querySelectorAll("th").forEach((th) => { th.classList.remove("sorted-asc", "sorted-desc"); if (th.dataset.k === String(st.key)) th.classList.add(st.dir > 0 ? "sorted-asc" : "sorted-desc"); });
-    st.vis = r; ackAllBtn();
+    st.vis = r; ackAllBtn(); if (opts.loadMore) pageState();
   };
+  // infinite scroll (opts.loadMore): a sentinel under the table fetches the next page when it comes near the screen
+  let paging = false, pageEnd = false, sentinel = null;
+  function pageState() {
+    const more = wrap.querySelector(".more"), tot = opts.total ? opts.total() : null;
+    if (more) more.textContent = tot != null && tot > rows.length ? `${fn(rows.length)} of ${fn(tot)} loaded · scroll for more` : `${fn(st.vis ? st.vis.length : rows.length)} rows`;
+    if (sentinel) { sentinel.hidden = pageEnd; sentinel.classList.toggle("busy", paging); sentinel.querySelector("span").textContent = paging ? "Loading more…" : "Load more"; }
+  }
+  async function nextPage() {
+    if (paging || pageEnd) return;
+    paging = true; pageState();
+    try {
+      let add = await opts.loadMore();
+      if (!add || !add.length) pageEnd = true;
+      else { if (act.length) add = add.filter((x) => act.every(([p, [, f]]) => f(x, P.get(p)))); rows.push(...add); }
+      if (opts.total && rows.length >= opts.total()) pageEnd = true;
+    } catch (e) { console.error("loadMore", e); if (sentinel) sentinel.title = String(e.message || e); }
+    paging = false; render();
+    if (!pageEnd && sentinel && sentinel.isConnected) { const b = sentinel.getBoundingClientRect(); if (b.top < innerHeight + 300 && b.bottom > -300) nextPage(); }  // still in view: keep filling
+  }
   // "Check all": when the list has check-off boxes, one button checks off every unchecked row currently matching the filter
   const ackC = cols.find((c) => c.k === "_ack" && c.fmt);
   const unchecked = () => { if (!ackC) return []; const tp = document.createElement("template");
@@ -271,6 +292,14 @@ function table(id, cols, rows, opts = {}) {
   if (inp) inp.oninput = () => { st.q = inp.value; render(); };
   wrap.addEventListener("click", (e) => { if (e.target.closest(".more button")) { st.showAll = !st.showAll; render(); return; }
     if (opts.onclick && !e.target.closest("a, input, button, summary")) { const tr = e.target.closest("tr[data-i]"); if (tr) opts.onclick(rows[+tr.dataset.i]); } });
+  if (opts.loadMore) {
+    pageEnd = opts.total ? rows.length >= opts.total() : false;
+    sentinel = document.createElement("div"); sentinel.className = "tbl-more";
+    const sp = document.createElement("span"); sp.textContent = "Load more"; sentinel.appendChild(sp);
+    sentinel.onclick = () => nextPage();
+    wrap.appendChild(sentinel);
+    if (window.IntersectionObserver) new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) nextPage(); }, { rootMargin: "300px 0px" }).observe(sentinel);
+  }
   render();
   listMode(wrap, cols, st, render);
   return wrap;
@@ -1479,10 +1508,15 @@ function busyPill(on, text) {
 }
 // Loading another snapshot / range (or the same one again, ⟳ or after a rule change) keeps the current page on screen
 // while the data downloads, then updates it in place (rerender): no blank "Loading…" page.
+// Pages that never read the snapshot (S.snap / risk / issues / acks): on first load they render straight away, in parallel with
+// the snapshot download (several seconds), instead of waiting for it. Their own data comes from their own endpoints.
+const SNAP_FREE = new Set(["aireview", "aiconfig"]);
+const curView = () => (location.hash.replace(/^#\/?/, "").split("?")[0] || "").split("/")[0];
 async function loadSnap(id) {
   const soft = !!S.snap && $("#main").childElementCount > 0 && !$("#main > .loading:only-child");
+  const early = !S.snap && SNAP_FREE.has(curView()) && $("#main").dataset.view === curView();  // already rendered by init()
   if (soft) busyPill(true, `Loading ${id.startsWith("r") ? "time range" : "snapshot " + id}…`);
-  else $("#main").innerHTML = `<div class="loading">Loading ${id.startsWith("r") ? "time range" : "snapshot " + esc(id)}…</div>`;
+  else if (!early) $("#main").innerHTML = `<div class="loading">Loading ${id.startsWith("r") ? "time range" : "snapshot " + esc(id)}…</div>`;
   let got;
   try { got = await Promise.all([api("/api/snapshot?id=" + encodeURIComponent(id)), api("/api/history"), api("/api/registry"), api("/api/issues").catch(() => null), api("/api/risk?id=" + encodeURIComponent(id)).catch(() => null), api("/api/acks").catch(() => ({}))]); }
   finally { if (soft) busyPill(false); }
@@ -1502,7 +1536,7 @@ async function loadSnap(id) {
   $("#foot").textContent = snap.range
     ? `time range ${new Date(snap.range.start).toLocaleString()} – ${new Date(snap.range.end).toLocaleString()} (collected for this range) · alarms and AI triage from nightly report ${snap.base || "—"}`
     : `snapshot ${snap.id} · generated ${new Date(snap.raw.generated).toLocaleString()} · companions: ${["analysis", "sources"].filter((c) => snap[c]).join(", ") || "none"}`;
-  if (soft) rerender(); else route();
+  if (soft) rerender(); else if (!(early && $("#main").dataset.view === curView())) route();
   window.sectionsStart?.();
 }
 // Server-side data changed (a suppression rule added / removed): fetch the open snapshot again and update the page in place.
@@ -1529,9 +1563,14 @@ async function init() {
   $("#reload").onclick = async () => { const wasLatest = S.snap?.id === S.snaps[S.snaps.length - 1]?.id; S.snaps = await api("/api/snapshots");
     if (wasLatest) return window.rangeSelectSnapshot(S.snaps[S.snaps.length - 1].id); loadSnap(S.snap.id); };
   if (!S.snaps.length) { $("#main").innerHTML = `<div class="loading">No snapshots found in netmon/data.</div>`; return; }
+  if (SNAP_FREE.has(curView())) {  // render now; start the (CPU-heavy, unused here) snapshot download once the page's own
+    // first data is in (window.viewCoreDone, called by the page), else the server's work on both slows the page by ~10x. Max 20 s wait.
+    const ready = new Promise((res) => { window.viewCoreDone = res; setTimeout(res, 20000); });
+    route(); await ready; window.viewCoreDone = null;
+  }
   await window.initRange();
 }
-window.addEventListener("hashchange", () => (S.snap || isUserRole() || location.hash.startsWith("#/users")) && route());
+window.addEventListener("hashchange", () => (S.snap || isUserRole() || location.hash.startsWith("#/users") || (S.snaps && SNAP_FREE.has(curView()))) && route());
 
 /* ----- My devices (User role): the events of the devices an admin assigned to this account ----- */
 V.my = async (el) => {

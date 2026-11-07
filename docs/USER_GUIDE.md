@@ -656,7 +656,7 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 
 ### AI pipeline
 
-The AI pipeline has two pages. Each is four boxes, one per part (jump links at the top of each page); what used to be separate boxes are titled sections inside them:
+The AI pipeline has two pages. Each is four boxes, one per part (jump links at the top of each page); what used to be separate boxes are titled sections inside them. The monitoring page loads its parts separately: the status figures, the decision model figures, model status and the Decisions list each show a spinner until their own data arrives, so the rest of the page is usable meanwhile.
 
 | Part | **More → AI pipeline monitoring** (`#/aireview`) | **More → AI pipeline configuration** (`#/aiconfig`) |
 |---|---|---|
@@ -691,7 +691,7 @@ Everyone who can see the pages sees the configuration page; only admins can chan
 | **Event reviewer** | The event reviewer's model, its queue and its throughput: reviews and tokens per minute, and the **average tokens in and out per event review** (last 24 hours; hover for the all-time figure). |
 | **Elasticsearch queries** | The searches the event reviewer (and, in a second box, event research) ran, with when, the event or run, the query, hit count and model. Shown once either has searched. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
-| **Decisions** | Every link decision with its reason and model. You can override it (✓ confirm, ✗ reject), or ask for a new review (↻). Manual decisions always win and are never overwritten. |
+| **Decisions** | Every link decision with its reason and model, newest first. The first 100 load with the page and older ones load as you scroll to the end of the list. Filters from the charts (verdict, confidence, event types, this snapshot) are applied on the server; sorting and the Filter box act on the rows loaded so far. You can override a decision (✓ confirm, ✗ reject), or ask for a new review (↻). Manual decisions always win and are never overwritten. |
 
 ![Review job card with the time and tokens chart](img/aireview-research.png)
 

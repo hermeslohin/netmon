@@ -474,7 +474,7 @@
   }
   // Monitoring > Models: each model role, where it is served and whether it answers now (GET /api/aireview/models, no tokens)
   const STATE = { up: ["up", "sev-good"], warn: ["check", "sev-medium"], down: ["down", "sev-high"], off: ["off", "sev-unknown"] };
-  function modelStatusCard(D) {
+  function modelStatusCard(D, pre) {  // pre: /api/aireview/models already in flight (the monitoring page starts it with the others)
     const c = card("Model status", `<div class="small muted">The model behind each step of the pipeline, where it is served and whether it answers right now. Checked with the
       server's health or model list (no tokens used), at most once a minute. Change models and providers: <a href="#/aiconfig?at=ai-p-models">AI pipeline configuration > Models</a>.</div>
       <div class="ms-body" style="margin-top:8px"><div class="loading inline">Checking…</div></div>`);
@@ -494,7 +494,7 @@
       if (D.admin) { const b = body.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Check now" })); b.style.marginTop = "8px";
         b.onclick = async () => { b.disabled = true; b.textContent = "checking…"; try { show(await api("/api/aireview/models?force=1")); } catch (e) { b.textContent = "error: " + e.message; } }; }
     };
-    api("/api/aireview/models").then(show, (e) => { body.innerHTML = `<div class="bad">Status unavailable: ${esc(e.message || e)}</div>`; });
+    (pre || api("/api/aireview/models")).then(show, (e) => { body.innerHTML = `<div class="bad">Status unavailable: ${esc(e.message || e)}</div>`; });
     return c;
   }
   // Monitoring > Research review: Send to research usage, spend against the caps, waiting events
@@ -1278,9 +1278,14 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
   // Each part is ONE box: everything from a part heading to the next goes into a single card, and the boxes inside it
   // become plain titled sections (.ai-sub, h3; ids kept so ?at= links and live updates still find them).
+  const flat = (c) => { c.classList.remove("card"); c.classList.add("ai-sub");
+    const h = c.querySelector(":scope > h2"); if (h) { const h3 = document.createElement("h3"); h3.append(...h.childNodes); h.replaceWith(h3); } };
+  // Boxes that load on their own: a placeholder with a spinner (.ai-wait, style.css) stands in until its data arrives,
+  // then swapIn() replaces it (flattened like its neighbours once the part boxes exist) and draws its charts.
+  const waitBox = (title, msg, id) => { const c = card(title, ""); c.classList.add("ai-wait"); c.dataset.msg = msg; if (id) c.id = id; return c; };
+  const swapIn = (ph, c) => { if (ph.classList.contains("ai-sub")) flat(c); ph.replaceWith(c); if (!S._morphing) flushCharts(); };
+  const failBox = (ph, e) => { ph.classList.add("ai-failed"); ph.dataset.msg = "Could not load: " + String(e?.message || e).slice(0, 200); };
   function consolidate(el) {
-    const flat = (c) => { c.classList.remove("card"); c.classList.add("ai-sub");
-      const h = c.querySelector(":scope > h2"); if (h) { const h3 = document.createElement("h3"); h3.append(...h.childNodes); h.replaceWith(h3); } };
     [...el.querySelectorAll(":scope > .sec-head")].forEach((hd) => {
       const box = document.createElement("div"); box.className = "card ai-part"; box.id = hd.id; box.dataset.open = "1";
       const h2 = document.createElement("h2"); h2.textContent = hd.querySelector("h2").textContent; box.appendChild(h2);
@@ -1301,7 +1306,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   const buildCfg = async (el) => {
     el.innerHTML = `<h1>AI pipeline configuration</h1><div class="sub">Settings of the AI pipeline, in four parts: Models, Correlation review, Event review and Research review.
       What the pipeline is doing with them: <a href="#/aireview">AI pipeline monitoring</a>.</div><div class="loading">Loading…</div>`;
-    let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
+    let D; try { D = await api("/api/aireview?rows=0"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
     el.querySelector(".loading").remove();
     Object.assign(PROV, D.provider_names || {});
     if (!D.admin) el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:6px 0">Read-only: only an admin can change these settings.</div>`);
@@ -1322,11 +1327,54 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(costCard(D));
     consolidate(el);
   };
+  // Decisions list: the first page comes with the page load, older ones as the user scrolls (table opts.loadMore ->
+  // GET /api/aireview/verdicts). URL filters (verdict, conf, pair, scope, type) are applied by the server so every page matches;
+  // sorting a column and the Filter box act on the rows loaded so far (scrolling down loads more).
+  let VLOADED = 0;  // rows loaded: a background refresh reloads as many as the user had scrolled to (max 1,000)
+  const verdictQuery = () => { const P = hq(), o = new URLSearchParams();
+    for (const k of ["verdict", "conf", "pair", "scope"]) if (P.get(k)) o.set(k, P.get(k));
+    const t = P.get("type"); if (t) o.set("type", [...new Set([...Object.keys(TYPE).filter((k) => TYPE[k] === t), t])].join(","));
+    return o.toString(); };
+  function decisionsCard(V0, vq) {
+    let total = V0.total, loaded = V0.rows.length; VLOADED = loaded;
+    const lst = card(`Decisions (${fn(total)})`, table(null, [
+      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
+      { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
+      { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
+      { k: "clef", t: "Decision model", cls: "small", sort: (r) => (r.clef ? r.clef.p_related : -1),
+        fmt: (v) => (!v ? "" : `${v.related ? "related" : "not related"} ${Math.round(v.p_related * 100)}%`) },
+      { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
+      { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
+      { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
+      { k: "reason", t: "Reason", cls: "small", fmt: (v, r) => `${esc(v)} ${r.manual ? "" : aiFlare({ model: r.model, via: "correlation review", at: new Date(r.ts * 1000).toISOString() })}` },
+      { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
+    ], V0.rows, { sort: "ts", urlFilter: FILTERS, total: () => total,
+      loadMore: async () => { const R = await api(`/api/aireview/verdicts?offset=${loaded}&limit=100${vq ? "&" + vq : ""}`);
+        total = R.total; loaded += R.rows.length; VLOADED = loaded; return R.rows; } }));
+    lst.id = "ai-list"; lst.dataset.open = "1";
+    const chips = document.createElement("div"); chips.className = "tbltools small";
+    chips.innerHTML = `<span class="muted">Show:</span> ${[["All", {}], ["Confirmed", { verdict: "confirmed" }], ["Rejected", { verdict: "rejected" }], ["Set by a person", { verdict: "manual" }], ["Low confidence (<70%)", { conf: "low" }], ["This snapshot only", { scope: "current" }]]
+      .map(([l, p]) => `<a href="${esc(hashWith("aireview", { ...p, at: "ai-list" }))}">${esc(l)}</a>`).join(" · ")} <span class="muted">· newest first, older ones load as you scroll</span>`;
+    lst.insertBefore(chips, lst.children[1]);
+    return lst;
+  }
   // AI pipeline monitoring (#/aireview)
   const build = async (el, bg) => {
-    el.innerHTML = `<h1>AI pipeline monitoring</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them. Settings: <a href="#/aiconfig">AI pipeline configuration</a>.</div><div class="loading">Loading…</div>`;
-    let D; try { D = await api("/api/aireview"); } catch (e) { el.querySelector(".loading").outerHTML = `<pre>${esc(e)}</pre>`; return; }
-    el.querySelector(".loading").remove();
+    el.innerHTML = `<h1>AI pipeline monitoring</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them. Settings: <a href="#/aiconfig">AI pipeline configuration</a>.</div>`;
+    // Every part loads on its own so the page shows up fast: status/queue/settings (light, no verdict rows), the
+    // decision-model numbers (~1 s health check), the first page of Decisions, and the model health check. All four start
+    // now; a skeleton shows until the first one arrives, then each box fills in when its data lands (spinner until then).
+    // A background refresh (route(true), S._noScroll) still swaps the page in one step: build() resolves only once all are in.
+    const keep = !!S._noScroll; if (!keep) VLOADED = 0;
+    const vq = verdictQuery(), quiet = (pr) => (pr.catch(() => {}), pr);
+    const pCore = api("/api/aireview?rows=0&clef=0"), pClef = quiet(api("/api/aireview/clef")), pModels = quiet(api("/api/aireview/models")),
+      pVer = quiet(api(`/api/aireview/verdicts?offset=0&limit=${keep ? Math.min(Math.max(VLOADED, 100), 1000) : 100}${vq ? "&" + vq : ""}`));
+    const sk = document.createElement("div");
+    sk.innerHTML = kpis(["Status", "Queue (no note yet)", "Awaiting review", "Confirmed (this snapshot)", "Rejected (this snapshot)", "Reviews / min", "Tokens / min", "Done in"].map((l) => [l, "…"])).replace('class="kpis', 'class="kpis sec-loading-kpis');
+    sk.appendChild(waitBox("", "Loading status, queue and settings…"));
+    el.appendChild(sk);
+    let D; try { D = await pCore; } catch (e) { sk.replaceWith(Object.assign(document.createElement("pre"), { textContent: String(e) })); window.viewCoreDone?.(); return; }
+    sk.remove();
     Object.assign(PROV, D.provider_names || {});
     const st = D.status, q = D.queue, T = D.totals;
     const health = !st.enabled ? ["Off", "sev-unknown"] : st.error ? ["Error", "sev-high"] : st.busy ? ["Reviewing", "sev-good"] : q.pending ? ["Waiting", "sev-medium"] : ["Idle · up to date", "sev-good"];
@@ -1401,10 +1449,10 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.insertAdjacentHTML("beforeend", `<div class="tbltools small"><span class="muted">Jump to:</span> ${PART.map(([id, t]) => `<a href="#/aireview?at=${id}">${t}</a>`).join(" · ")}</div>`);
     const [rjob, usage] = reviewJobCard(D.review_status || {}, D);
     partHead(el, 0, "mon");
-    el.appendChild(modelStatusCard(D));
+    el.appendChild(modelStatusCard(D, pModels));
     if (usage) el.appendChild(usage);  // Time and tokens lives under Models (user request), 2/3 of the box height
     partHead(el, 1, "mon");
-    el.appendChild(clefCard(D));
+    const clefPh = waitBox("Decision model", "Loading decision model numbers…", "ai-clef"); el.appendChild(clefPh);
 
     const pct = q.pending + q.confirmed + q.rejected ? Math.round((100 * (q.confirmed + q.rejected)) / (q.pending + q.confirmed + q.rejected)) : 100;
     const info = card("Event reviewer", `<div class="idgrid">
@@ -1423,26 +1471,10 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(grid("g3", info,
       chartCard("Verdicts per hour (last 24 h)", { type: "bar", data: { labels: D.per_hour.map((_, i) => (i === 23 ? "now" : `-${23 - i}h`)), datasets: [{ data: D.per_hour, backgroundColor: PALETTE[0], borderRadius: 3 }] },
         options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { autoSkip: true, maxTicksLimit: 8 } } } } }),
-      chartCard("All verdicts", aiColors(doughnutCfg({ Confirmed: T.related - (D.verdicts.filter((v) => v.manual && v.related).length), Rejected: T.rejected - (D.verdicts.filter((v) => v.manual && !v.related).length), "Set by a person": T.manual },
+      chartCard("All verdicts", aiColors(doughnutCfg({ Confirmed: T.related - (T.manual_related || 0), Rejected: T.rejected - (T.manual - (T.manual_related || 0)), "Set by a person": T.manual },
         { onClick: (l) => drill("aireview", { verdict: { Confirmed: "confirmed", Rejected: "rejected", "Set by a person": "manual" }[l], at: "ai-list" }) })))));
 
-    const lst = card(`Decisions (${fn(D.verdicts.length)}${D.verdicts.length >= 3000 ? ", newest 3,000" : ""})`, table(null, [
-      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
-      { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
-      { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
-      { k: "clef", t: "Decision model", cls: "small", sort: (r) => (r.clef ? r.clef.p_related : -1),
-        fmt: (v) => (!v ? "" : `${v.related ? "related" : "not related"} ${Math.round(v.p_related * 100)}%`) },
-      { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
-      { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
-      { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
-      { k: "reason", t: "Reason", cls: "small", fmt: (v, r) => `${esc(v)} ${r.manual ? "" : aiFlare({ model: r.model, via: "correlation review", at: new Date(r.ts * 1000).toISOString() })}` },
-      { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
-    ], D.verdicts, { sort: "ts", limit: 100, urlFilter: FILTERS }));
-    lst.id = "ai-list"; lst.dataset.open = "1"; el.appendChild(lst);
-    const chips = document.createElement("div"); chips.className = "tbltools small";
-    chips.innerHTML = `<span class="muted">Show:</span> ${[["All", {}], ["Confirmed", { verdict: "confirmed" }], ["Rejected", { verdict: "rejected" }], ["Set by a person", { verdict: "manual" }], ["Low confidence (<70%)", { conf: "low" }], ["This snapshot only", { scope: "current" }]]
-      .map(([l, p]) => `<a href="${esc(hashWith("aireview", { ...p, at: "ai-list" }))}">${esc(l)}</a>`).join(" · ")}`;
-    lst.insertBefore(chips, lst.children[1]);
+    const lstPh = waitBox("Decisions", "Loading the newest decisions…", "ai-list"); lstPh.dataset.open = "1"; el.appendChild(lstPh);
     el.appendChild(reviewLogCard());
     partHead(el, 2, "mon");
     el.appendChild(rjob);
@@ -1472,6 +1504,11 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     };
     if (st.busy || q.pending) { const t = setTimeout(() => { if (location.hash.startsWith("#/aireview") && !document.hidden && !midEdit()) refresh(); }, 60000);
       addEventListener("hashchange", () => clearTimeout(t), { once: true }); }
+    if (!S._morphing) flushCharts();  // the boxes above draw now, not after the slower parts below
+    window.viewCoreDone?.();  // first load: the app's snapshot download may start now (app.js init)
+    await Promise.allSettled([
+      pClef.then((r) => { D.clef = r.clef || {}; swapIn(clefPh, clefCard(D)); }, (e) => failBox(clefPh, e)),
+      pVer.then((r) => swapIn(lstPh, decisionsCard(r, vq)), (e) => failBox(lstPh, e))]);
   };
   // Page entry: build inside a wrapper so a background refresh can swap the whole page in one step.
   V.aireview = async (el) => { const w = document.createElement("div"); el.appendChild(w); await build(w); };
