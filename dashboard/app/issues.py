@@ -251,6 +251,21 @@ def check_snapshot(raw, analysis):
                 fix=CIS_FIX.get(str(r["id"]), "") or CIS_FIX.get(".".join(str(r["id"]).split(".")[:2]), "See the CIS Kubernetes Benchmark for this check; to accept it, add it to host_policy k8s.cis_accept with a reason."),
                 evidence=(r.get("detail") or "")[:200] + (" · " if r.get("detail") and ev else "") + ev[:500])
 
+    # ---------- Kubernetes container images with critical / high CVEs fixed by an available update (kube_images.py) ----------
+    try:
+        import kube_images
+        for key, pri, text in kube_images.findings((raw.get("k8s") or {}).get("images_scan") or {}):
+            r = next((x for x in ((raw.get("k8s") or {}).get("images_scan") or {}).get("images") or [] if f"k8s-imgcve|{x.get('repo')}" == key), {})
+            cur = (r.get("current") or {}).get("counts") or {}
+            add(key, "k8s", "high" if pri == "Investigate" else "medium", "Security suggestion",
+                f"Container image {r.get('repo') or key.split('|', 1)[1]}: CVEs fixed in {r.get('update', 'a newer tag')}",
+                host="Kubernetes " + ", ".join(r.get("clusters") or []) if r.get("clusters") else "Kubernetes",
+                fix=f"Update {r.get('image', '')} to {r.get('update', 'the newest tag')} in {', '.join(r.get('namespaces') or [])[:200]} "
+                    f"(Devices → Kubernetes → Container images lists every CVE it fixes).",
+                evidence=text[:500] + (f" · running image: {cur.get('CRITICAL', 0)} critical / {cur.get('HIGH', 0)} high" if cur else ""))
+    except ImportError as e:  # never silently: the Fix list would quietly lose the image items
+        print(f"issues: container image CVE items skipped: {e}", file=_sys.stderr)
+
     # ---------- UniFi gateway ----------
     U = raw.get("unifi")
     if U and U.get("settings"):
@@ -286,7 +301,7 @@ def sources_of(raw, analysis):
         s.add("analysis")
     if raw.get("hosts"):
         s.add("hosts")
-    if (raw.get("k8s") or {}).get("cis"):
+    if (raw.get("k8s") or {}).get("cis") or ((raw.get("k8s") or {}).get("images_scan") or {}).get("images"):
         s.add("k8s")
     if raw.get("unifi") and raw["unifi"].get("settings"):
         s.add("unifi")

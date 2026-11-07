@@ -257,7 +257,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 27 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, RISK-03) |
-| `tests/unit/test_issues_k8s_cis.py` | 2 |  (KUBE-06) |
+| `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix-list tracker (issues.track_incremental) is evaluated by request threads and background jobs at (OPS-05) |
 | `tests/unit/test_k8s.py` | 14 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04) |
 | `tests/unit/test_kb_pod.py` | 4 |  (KUBE-12) |

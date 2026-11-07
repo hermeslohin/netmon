@@ -154,11 +154,11 @@ Posture and **Open events** handle them like any other endpoint finding.
 | `k8s-log\|secret\|…`, `k8s-api\|exec`, `k8s-api\|denied`, `k8s-cov\|…`, `k8s-img\|…` | Review | watcher + nightly |
 | `k8s-ev\|…` forbidden / PodSecurity events | Review | watcher + nightly |
 | `k8s-ev\|…` other warning events, `k8s-log\|…` auth / denied / TLS / crash hits | Info (low in Open events) | nightly snapshot only |
-| `k8s-imgcve\|<repo>` critical / high CVEs fixed by an available update | Investigate / Review | nightly |
 | `k8s-alert\|<rule>` high Security Onion alert on a node or pod | Investigate | nightly |
 
-Failed CIS checks are configuration problems, not events. They go to **Security → Fix list** (`k8s-cis|<cluster>|<id>`,
-with how to fix and the failing items), not to endpoint findings or Open events. Accepted checks (`k8s.cis_accept`) are
+Failed CIS checks and container images with critical/high CVEs fixed by an available update are things to fix, not
+events. They go to **Security → Fix list** (`k8s-cis|<cluster>|<id>`, `k8s-imgcve|<repo>`, with how to fix them), not to
+endpoint findings or Open events. Accepted checks (`k8s.cis_accept`) are
 left out, and a check that passes again moves to *Fixed*.
 
 ## Several clusters

@@ -23,7 +23,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pwd  # noqa: E402
 # Fixed values (not environment variables): they end up in a docker command line.
 TRIVY_IMAGE = "aquasec/trivy:latest"
-TRIVY_CACHE = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "netmon-trivy-cache")
+def _home():
+    try:
+        return pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:  # a uid without a passwd entry (the dashboard container): only scans need the cache, never imports
+        return "/nonexistent"
+
+
+TRIVY_CACHE = os.path.join(_home(), "netmon-trivy-cache")
 PLATFORM = ""  # "" = the node architecture reported by Kubernetes
 RESCAN_H = 24
 MAX_TAG_PAGES = 15

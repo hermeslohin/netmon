@@ -586,9 +586,7 @@ def findings(d, nightly=True):
     for im in (d.get("new_images") or []):
         F.append((f"k8s-img|{im}", "Review", f"New container image running in Kubernetes: {im}"))
     # CIS benchmark results (d["cis"], kube_cis.py) are configuration items: they go to the Fix list (dashboard/app/issues.py), not here
-    if nightly and isinstance(d.get("images_scan"), dict):  # image CVEs fixed by an available update (kube_images.py)
-        import kube_images
-        F += kube_images.findings(d["images_scan"])
+    # image CVEs fixed by an available update (d["images_scan"], kube_images.py) are Fix list items (dashboard/app/issues.py), not here
     seen, out = set(), []
     for f in F:  # one finding per key (several pods of one ReplicaSet share a key)
         if f[0] not in seen:

@@ -33,5 +33,23 @@ class CisFixListTest(unittest.TestCase):
         self.assertFalse([k for k in keys if k.startswith("k8s-cis")], keys)
 
 
+    def test_image_cves_are_fix_list_items(self):
+        """REQ: KUBE-10"""
+        img = {"image": "reg.example/acme/app:1.0", "repo": "acme/app", "update": "1.2", "clusters": ["c1"], "namespaces": ["c1/apps"],
+               "current": {"counts": {"CRITICAL": 2, "HIGH": 5}}, "fixed_by_update": {"counts": {"CRITICAL": 2, "HIGH": 3}}}
+        low = {**img, "repo": "acme/low", "fixed_by_update": {"counts": {"HIGH": 1}}}
+        none = {**img, "repo": "acme/none", "fixed_by_update": {"counts": {}}}
+        raw = {"k8s": {"images_scan": {"images": [img, low, none]}}}
+        out = issues.check_snapshot(raw, {})
+        self.assertEqual(sorted(k for k in out if k.startswith("k8s-imgcve")), ["k8s-imgcve|acme/app", "k8s-imgcve|acme/low"])
+        i = out["k8s-imgcve|acme/app"]
+        self.assertEqual((i["source"], i["severity"], i["host"]), ("k8s", "high", "Kubernetes c1"))
+        self.assertIn("1.2", i["fix"])
+        self.assertEqual(out["k8s-imgcve|acme/low"]["severity"], "medium")
+        self.assertIn("k8s", issues.sources_of(raw, {}))
+        keys = [k for k, _p, _t in k8s.findings({"images_scan": raw["k8s"]["images_scan"], "coverage": [], "signals": [], "events": []}, nightly=True)]
+        self.assertFalse([k for k in keys if k.startswith("k8s-imgcve")], keys)
+
+
 if __name__ == "__main__":
     unittest.main()

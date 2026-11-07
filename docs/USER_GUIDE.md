@@ -524,7 +524,7 @@ Pods in namespaces labelled `pod-security.kubernetes.io/enforce=privileged` (CNI
 - **Fixed by updating:** CVEs in the running image that the newest tag no longer has.
 - **Fix by rebuild:** critical and high CVEs whose package already has a fixed version, so a rebuild fixes them even without a new tag.
 
-Click an image to list its CVEs, with links to NVD and whether each one is gone in the newest tag. An image with critical CVEs fixed by an available update is an Investigate finding, and with high ones a Review finding (`k8s-imgcve|<repo>`).
+Click an image to list its CVEs, with links to NVD and whether each one is gone in the newest tag. An image with critical or high CVEs fixed by an available update is a **Fix list** item (`k8s-imgcve|<repo>`, high for critical CVEs, medium for high ones) with the tag to update to. It is not an endpoint finding.
 
 **Kubernetes events in Open events.** Every Kubernetes warning event (BackOff, Unhealthy, FailedMount, Evicted…) and every container-log hit that is not already a finding (authentication failures, access denied, TLS errors, crashes) is an *Info* host finding (`k8s-ev|…`, `k8s-log|…`). It shows in Open events with low severity, where it can be checked off, correlated and reviewed like any other event. Info events come from the 15-minute snapshot only and never raise a watcher alert. Security-relevant events (forbidden, PodSecurity) stay Review findings and do raise alerts.
 
