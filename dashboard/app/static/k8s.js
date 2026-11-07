@@ -233,7 +233,8 @@ V.k8spod = async (el, arg) => {
   if (window.kbCard) {
     const cl = D.cluster || P.get("cluster") || K8S.cluster || "default", wl = D.workload || pod;
     const nc = kbCard([`pod:${cl}/${ns}/${wl}`.toLowerCase()], `pod:${cl}/${ns}/${wl}`.toLowerCase());
-    nc.querySelector("h2").insertAdjacentHTML("afterbegin", "Pod ");
+    const t = [...nc.querySelector("h2").childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+    if (t) t.textContent = t.textContent.replace(/^(\s*)Notes/, "$1Pod notes");
     nc.querySelector(".kb-text").placeholder = `Add a note about ${ns}/${wl} (what it does, what is normal in its logs, decisions)…`;
     el.appendChild(nc);
   }

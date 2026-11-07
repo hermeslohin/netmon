@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#111c33"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#94a3b8"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+
+  <text x="800" y="62" text-anchor="middle" font-size="38" font-weight="700" fill="#f1f5f9">One Event, Step by Step: Event Reviewer</text>
+  <text x="800" y="96" text-anchor="middle" font-size="19" fill="#94a3b8">The same event after it was labelled suspicious: the reviewer model plans look-ups, searches the logs and the web, then explains</text>
+
+  <!-- connectors -->
+  <g stroke="#94a3b8" stroke-width="3" fill="none" marker-end="url(#arr)">
+    <path d="M405,240 H421"/>
+    <path d="M790,240 H806"/>
+    <path d="M1175,240 H1191"/>
+    <path d="M1377,345 V362 H415 V378"/>
+    <path d="M1185,362 V378"/>
+    <path d="M340,660 V694"/>
+    <path d="M1185,660 V676 H560 V694"/>
+    <path d="M640,765 H666"/>
+  </g>
+
+  <!-- in -->
+  <rect x="40" y="135" width="365" height="210" rx="16" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+  <text x="58" y="170" font-size="21" font-weight="700" fill="#e2e8f0">In from correlation</text>
+  <g font-size="16" fill="#e2e8f0">
+    <text x="58" y="204">game-server probed on port 25565</text>
+    <text x="58" y="228">by 2 threat-listed IPs</text>
+  </g>
+  <rect x="58" y="242" width="200" height="26" rx="13" fill="#fb7185"/>
+  <text x="158" y="260" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1017">LABEL: SUSPICIOUS</text>
+  <g font-size="15" fill="#94a3b8">
+    <text x="58" y="292">p suspicious 0.94 · p expected 0.09</text>
+    <text x="58" y="314">5 related events (link p 0.91–0.98)</text>
+    <text x="58" y="334">1 unrelated candidate left out</text>
+  </g>
+
+  <!-- 1 build prompt -->
+  <rect x="425" y="135" width="365" height="210" rx="16" fill="#241706" stroke="#fbbf24" stroke-width="3"/>
+  <circle cx="460" cy="170" r="20" fill="#fbbf24"/><text x="460" y="177" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">1</text>
+  <text x="492" y="178" font-size="21" font-weight="700" fill="#fef3c7">Build the prompt</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="443" y="214">• Event + 5 related, highest link p first</text>
+    <text x="443" y="238">• Owner, AI and artifact notes on the</text>
+    <text x="455" y="258">hosts, IPs and accounts (capped)</text>
+    <text x="443" y="282">• Known artifacts, threat-intel hits</text>
+    <text x="443" y="306">• <tspan font-weight="700" fill="#fef3c7">"DECISION MODEL LABEL: suspicious"</tspan></text>
+    <text x="443" y="332" font-size="14" fill="#94a3b8">Event text is data, never instructions</text>
+  </g>
+
+  <!-- 2 reuse -->
+  <rect x="810" y="135" width="365" height="210" rx="16" fill="#241706" stroke="#fbbf24" stroke-width="3"/>
+  <circle cx="845" cy="170" r="20" fill="#fbbf24"/><text x="845" y="177" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">2</text>
+  <text x="877" y="178" font-size="21" font-weight="700" fill="#fef3c7">Reuse check</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="828" y="214">Was this event looked up in the</text>
+    <text x="828" y="234">last 6 hours?</text>
+    <text x="828" y="262">• Yes → reuse those results and</text>
+    <text x="840" y="282">their [W] ids, go straight to 5</text>
+    <text x="828" y="306">• No → plan new look-ups</text>
+    <text x="828" y="332" font-weight="700" fill="#fef3c7">Here: first review → plan</text>
+  </g>
+
+  <!-- 3 plan -->
+  <rect x="1195" y="135" width="365" height="210" rx="16" fill="#241706" stroke="#fbbf24" stroke-width="3"/>
+  <circle cx="1230" cy="170" r="20" fill="#fbbf24"/><text x="1230" y="177" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">3</text>
+  <text x="1262" y="178" font-size="21" font-weight="700" fill="#fef3c7">Plan look-ups (1 of 2)</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="1213" y="214">One call whose JSON schema allows</text>
+    <text x="1213" y="234">only look-ups, no decision yet</text>
+    <text x="1213" y="262">Budget per event:</text>
+    <text x="1225" y="282">≤ 6 log searches · ≤ 4 web look-ups</text>
+    <text x="1213" y="310" font-weight="700" fill="#fef3c7">Asked for: 4 searches + 2 web</text>
+    <text x="1213" y="334" font-size="14" fill="#fcd34d" font-style="italic">Reviewer model · chat API, JSON output</text>
+  </g>
+
+  <!-- 4a elasticsearch -->
+  <rect x="40" y="380" width="750" height="280" rx="16" fill="#08222c" stroke="#22d3ee" stroke-width="3"/>
+  <circle cx="75" cy="415" r="20" fill="#22d3ee"/><text x="75" y="421" text-anchor="middle" font-size="16" font-weight="700" fill="#08222c">4a</text>
+  <text x="107" y="423" font-size="21" font-weight="700" fill="#cffafe">Log searches (Elasticsearch, read-only)</text>
+  <g font-size="12" font-weight="700" fill="#94a3b8" letter-spacing="1">
+    <text x="58" y="450">SOURCE</text><text x="160" y="450">SEARCH · WHY</text><text x="772" y="450" text-anchor="end">HITS</text>
+  </g>
+  <line x1="58" y1="457" x2="772" y2="457" stroke="#22d3ee" stroke-opacity=".3"/>
+  <g font-size="15" font-weight="700" fill="#cffafe">
+    <text x="58" y="478">zeek</text><text x="58" y="520">suricata</text><text x="58" y="562">endpoint</text><text x="58" y="604">endpoint</text>
+  </g>
+  <g font-size="15" fill="#e2e8f0">
+    <text x="160" y="478">source.ip = the 5 listed IPs · destination.port 25565</text>
+    <text x="160" y="520">destination 10.0.40.12 · port 25565</text>
+    <text x="160" y="562">host game-server · process java</text>
+    <text x="160" y="604">host game-server · process pasta.avx2</text>
+  </g>
+  <g font-size="13" fill="#94a3b8">
+    <text x="160" y="495">what the connections from the listed IPs looked like</text>
+    <text x="160" y="537">did the IDS alert on the probes?</text>
+    <text x="160" y="579">what the game server process was doing</text>
+    <text x="160" y="621">why pasta.avx2 handles internet connections</text>
+  </g>
+  <g font-size="18" font-weight="700" text-anchor="end">
+    <text x="772" y="480" fill="#cffafe">4</text><text x="772" y="522" fill="#cffafe">1</text>
+    <text x="772" y="564" fill="#64748b">0</text><text x="772" y="606" fill="#64748b">0</text>
+  </g>
+  <text x="58" y="648" font-size="13" fill="#67e8f9" font-style="italic">11:30–14:33 UTC (default: event ±2 h, at most 7 days) · run by the host broker · each logged with a Kibana link</text>
+
+  <!-- 4b web -->
+  <rect x="810" y="380" width="750" height="280" rx="16" fill="#1a1230" stroke="#a78bfa" stroke-width="3"/>
+  <circle cx="845" cy="415" r="20" fill="#a78bfa"/><text x="845" y="421" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1230">4b</text>
+  <text x="877" y="423" font-size="21" font-weight="700" fill="#ede9fe">Web look-ups</text>
+  <g font-size="12" font-weight="700" fill="#94a3b8" letter-spacing="1">
+    <text x="828" y="456">KIND</text><text x="910" y="456">LOOK-UP · WHAT IT SHOWED</text><text x="1542" y="456" text-anchor="end">RESULTS</text>
+  </g>
+  <line x1="828" y1="464" x2="1542" y2="464" stroke="#a78bfa" stroke-opacity=".3"/>
+  <g font-size="15" font-weight="700" fill="#ede9fe">
+    <text x="828" y="486">search</text><text x="828" y="531">page</text>
+  </g>
+  <g font-size="15" fill="#e2e8f0">
+    <text x="910" y="486">"what is pasta.avx2 process"</text>
+    <text x="910" y="531">ipinfo.io/198.51.100.77 (search for a bare IP)</text>
+  </g>
+  <g font-size="13" fill="#94a3b8">
+    <text x="910" y="504">Linux man pages: pasta = user-mode networking for rootless containers  [W1–W5]</text>
+    <text x="910" y="549">owner and ASN of a listed IP: a Los Angeles hosting network  [W6]</text>
+  </g>
+  <g font-size="18" font-weight="700" fill="#ede9fe" text-anchor="end">
+    <text x="1542" y="488">5</text><text x="1542" y="533">1</text>
+  </g>
+  <rect x="828" y="566" width="714" height="80" rx="10" fill="#0b1220" stroke="#fb7185" stroke-opacity=".5"/>
+  <g font-size="14" fill="#cbd5e1">
+    <text x="844" y="589"><tspan font-weight="700" fill="#fecdd3">✗ Refused</tspan> if a search holds a LAN IP, MAC or internal name: only public facts leave</text>
+    <text x="844" y="611">• A bare public IP is turned into its ipinfo.io page (search engines return nothing useful)</text>
+    <text x="844" y="633">• Results cached 21 days (both came from the cache here) · tagged [W1]…[W6] for citing</text>
+  </g>
+
+  <!-- 5 decide -->
+  <rect x="40" y="698" width="600" height="135" rx="16" fill="#241706" stroke="#fbbf24" stroke-width="3"/>
+  <circle cx="75" cy="733" r="20" fill="#fbbf24"/><text x="75" y="740" text-anchor="middle" font-size="20" font-weight="700" fill="#241706">5</text>
+  <text x="107" y="741" font-size="21" font-weight="700" fill="#fef3c7">Decide (2 of 2)</text>
+  <g font-size="14" fill="#cbd5e1">
+    <text x="58" y="772">Prompt + &lt;es_result&gt; / &lt;web_result&gt; blocks (untrusted data). May ask for</text>
+    <text x="58" y="792">more while budget is left, then answers JSON: reason, own label, artifacts.</text>
+    <text x="58" y="820" fill="#94a3b8">Too big → fewer notes, then 6 events and no look-ups · error → label kept, retried ≤ 3×</text>
+  </g>
+
+  <!-- written back -->
+  <rect x="670" y="698" width="890" height="135" rx="16" fill="#1e293b" stroke="#fbbf24" stroke-opacity=".7" stroke-width="2"/>
+  <text x="688" y="728" font-size="18" font-weight="700" fill="#fef3c7">Written back to Open events</text>
+  <g font-size="14" font-style="italic" fill="#e2e8f0">
+    <text x="688" y="754">"…was targeted by multiple inbound connections on port 25565 from IPs identified in threat intelligence feeds … [W6]. …</text>
+    <text x="688" y="773">the continuous probing from known-bad actors suggests an ongoing internet-exposed service vulnerability that warrants monitoring."</text>
+  </g>
+  <g font-size="14" fill="#94a3b8">
+    <text x="688" y="800">Reviewer's own label: suspicious = agrees (decision label stays) · [W6] checked against pages it fetched</text>
+    <text x="688" y="820">Artifacts + Kibana links per related event · host / internet notes at confidence ≥ 0.8 · suspicious reopens check-offs</text>
+  </g>
+
+  <!-- legend -->
+  <g font-size="15" fill="#94a3b8">
+    <rect x="40" y="853" width="22" height="22" rx="5" fill="#241706" stroke="#fbbf24" stroke-width="2"/>
+    <text x="72" y="870">Reviewer model (local, chat API)</text>
+    <rect x="345" y="853" width="22" height="22" rx="5" fill="#08222c" stroke="#22d3ee" stroke-width="2"/>
+    <text x="377" y="870">Network logs, read-only</text>
+    <rect x="590" y="853" width="22" height="22" rx="5" fill="#1a1230" stroke="#a78bfa" stroke-width="2"/>
+    <text x="622" y="870">Public web, public facts only</text>
+    <text x="1570" y="870" text-anchor="end">Real review; addresses and host name changed</text>
+  </g>
+</svg>

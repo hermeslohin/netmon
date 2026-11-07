@@ -17,6 +17,32 @@ next one and AI cost and human attention stay low.
 4. **Event reviewer.** Copies the verdict from an earlier matching note, or leaves the event queued for research (section 6).
 5. **Researcher (optional).** Runs only when a person clicks *Send to research* (section 5).
 
+### One event, step by step
+
+The two images below follow one real event through stages 3 and 4 (addresses and the host name are changed; scores,
+probabilities, queries and hit counts are the real ones). The event is a threat-intel finding: a game server answered
+inbound connections from two threat-listed IPs.
+
+![Correlation of a sample event: candidate search and scoring, the decision model's link decisions and its event label](img/event-correlation-example.png)
+
+- **Candidates come from statistics, not AI.** Of 236 events in the window, 6 share an entity with the sample event
+  and score at least 1.5. A host finding about the same connection never becomes a candidate because it names the
+  host instead of its IP, so the two share no entity.
+- **The decision model judges each link** with one yes/no question. Five links get p ≥ 0.91; the volume drop on the
+  same host gets 0.25 and is dropped.
+- **The decision model then labels the event** from the event and all six candidates with their link p:
+  p suspicious 0.94, p expected 0.09, so the label is *suspicious*.
+
+![Event reviewer on the same event: prompt, reuse check, planned look-ups, Elasticsearch and web searches, decision and write-back](img/event-reviewer-example.png)
+
+- **The event reviewer plans first.** One call may only ask for look-ups. Here it asked for 4 log searches (Zeek
+  connections from the listed IPs: 4 hits, Suricata alerts on the port: 1, two endpoint process searches: 0) and
+  2 web look-ups (what `pasta.avx2` is, and the owner of one listed IP via its ipinfo.io page).
+- **Web look-ups carry only public facts.** A search with a LAN IP, MAC or internal name is refused, and results are
+  cached and numbered [W1]…[W6] so the reason can cite them.
+- **The reviewer writes the reason and its own label** (here it agrees: suspicious), artifacts and Kibana links per
+  related event, and host or internet notes. The decision model's label stays final.
+
 ## 1. Admin access (lateral movement)
 
 Every way an administrator, or an attacker moving sideways, gets onto another machine is tracked between

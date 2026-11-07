@@ -1,0 +1,205 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#111c33"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#94a3b8"/></marker>
+    <marker id="arrR" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#fb7185"/></marker>
+    <marker id="arrG" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#34d399"/></marker>
+    <marker id="arrY" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#fbbf24"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+
+  <text x="800" y="62" text-anchor="middle" font-size="38" font-weight="700" fill="#f1f5f9">One Event, Step by Step: Correlation</text>
+  <text x="800" y="96" text-anchor="middle" font-size="19" fill="#94a3b8">A real finding: statistics pick and score its candidates, then the decision model judges each link and labels the event</text>
+
+  <!-- connectors -->
+  <g stroke="#94a3b8" stroke-width="3" fill="none" marker-end="url(#arr)">
+    <path d="M190,340 V362"/>
+    <path d="M340,500 H366"/>
+    <path d="M702,385 H726"/>
+    <path d="M1272,260 H1296"/>
+    <path d="M1430,375 V391"/>
+  </g>
+
+  <!-- stage 2: statistics raise the event -->
+  <rect x="40" y="135" width="300" height="205" rx="16" fill="#08222c" stroke="#22d3ee" stroke-width="3"/>
+  <circle cx="75" cy="170" r="20" fill="#22d3ee"/><text x="75" y="177" text-anchor="middle" font-size="20" font-weight="700" fill="#08222c">2</text>
+  <text x="107" y="178" font-size="21" font-weight="700" fill="#cffafe">Statistics raise it</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="58" y="220">• Threat-intel check: listed IPs</text>
+    <text x="70" y="240">got an answer from an open port</text>
+    <text x="58" y="266">• No suppress rule, not checked off</text>
+    <text x="58" y="292" font-weight="700" fill="#cffafe">→ finding, severity high</text>
+    <text x="58" y="324" fill="#67e8f9" font-size="14" font-style="italic">Rules &amp; maths · no AI</text>
+  </g>
+
+  <!-- sample event -->
+  <rect x="40" y="366" width="300" height="265" rx="16" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+  <text x="58" y="400" font-size="21" font-weight="700" fill="#e2e8f0">Sample event</text>
+  <rect x="58" y="413" width="138" height="24" rx="12" fill="#fb7185"/>
+  <text x="127" y="430" text-anchor="middle" font-size="13" font-weight="700" fill="#1c1017">FINDING · HIGH</text>
+  <g font-size="16" fill="#e2e8f0">
+    <text x="58" y="466">game-server answered 3</text>
+    <text x="58" y="488">inbound connections from</text>
+    <text x="58" y="510">2 threat-listed IPs on port</text>
+    <text x="58" y="532">25565 (692 bytes)</text>
+  </g>
+  <g font-size="14" fill="#94a3b8">
+    <text x="58" y="566">Window 13:45–14:45 UTC</text>
+    <text x="58" y="588">Entity: host 10.0.40.12</text>
+    <text x="58" y="612" font-style="italic">236 events in the same window</text>
+  </g>
+
+  <!-- 3a correlation script -->
+  <rect x="370" y="135" width="330" height="496" rx="16" fill="#08222c" stroke="#22d3ee" stroke-width="3"/>
+  <circle cx="405" cy="170" r="20" fill="#22d3ee"/><text x="405" y="176" text-anchor="middle" font-size="16" font-weight="700" fill="#08222c">3a</text>
+  <text x="437" y="168" font-size="21" font-weight="700" fill="#cffafe">Correlation script</text>
+  <text x="437" y="190" font-size="15" fill="#67e8f9">finds and scores candidates</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="388" y="228"><tspan font-weight="700" fill="#cffafe">1.</tspan> Index all events by host,</text>
+    <text x="406" y="248">external IP, domain, account</text>
+    <text x="388" y="276"><tspan font-weight="700" fill="#cffafe">2.</tspan> Candidates share ≥ 1 entity</text>
+    <text x="406" y="296">236 events → 6 candidates</text>
+    <text x="388" y="324"><tspan font-weight="700" fill="#cffafe">3.</tspan> Score each pair:</text>
+  </g>
+  <g font-size="14" fill="#cbd5e1">
+    <text x="406" y="346">shared entity, weighted by rarity</text>
+    <text x="418" y="364" fill="#94a3b8">host 3 · ext IP 4 · domain 3.5 · user 2</text>
+    <text x="406" y="386">time: ≤ 15 min +2 · ≤ 1 h +1 · &gt; 6 h −1.5</text>
+    <text x="406" y="406">same problem (topic) +2</text>
+    <text x="406" y="426">weakness on the same host +1.5</text>
+    <text x="406" y="446">same ATT&amp;CK technique +1</text>
+  </g>
+  <rect x="388" y="460" width="294" height="44" rx="8" fill="#0b1220" stroke="#22d3ee" stroke-opacity=".5"/>
+  <text x="400" y="478" font-size="13" fill="#94a3b8">e.g. listed IP: topic 2 + host 1.22</text>
+  <text x="400" y="496" font-size="13" fill="#94a3b8">(common host) + ≤ 15 min 2 = <tspan font-weight="700" fill="#cffafe">5.22</tspan></text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="388" y="530"><tspan font-weight="700" fill="#cffafe">4.</tspan> Keep ≥ 1.5, ≤ 4 per type, top 10</text>
+    <text x="388" y="558"><tspan font-weight="700" fill="#cffafe">5.</tspan> Review limits: is this pair type on?</text>
+    <text x="406" y="578" font-size="14" fill="#94a3b8">finding-high × threat-intel → review</text>
+  </g>
+  <text x="388" y="614" fill="#67e8f9" font-size="14" font-style="italic">Rules &amp; maths · no AI</text>
+
+  <!-- candidate table -->
+  <rect x="730" y="135" width="540" height="496" rx="16" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+  <text x="748" y="170" font-size="21" font-weight="700" fill="#e2e8f0">Candidates for this event</text>
+  <g font-size="12" font-weight="700" fill="#94a3b8" letter-spacing="1">
+    <text x="748" y="202">CANDIDATE EVENT</text>
+    <text x="1078" y="202" text-anchor="end">SCORE</text>
+    <text x="1150" y="202" text-anchor="end">LINK p</text>
+    <text x="1168" y="202">RESULT</text>
+  </g>
+  <line x1="748" y1="211" x2="1254" y2="211" stroke="#334155"/>
+  <rect x="740" y="452" width="520" height="44" rx="6" fill="#fb7185" fill-opacity=".12"/>
+  <g font-size="15" fill="#e2e8f0">
+    <text x="748" y="232">Listed IP 203.0.113.24 → port 25565</text>
+    <text x="748" y="280">Listed IP 198.51.100.77 → port 25565</text>
+    <text x="748" y="328">Weakness: exposed service probed</text>
+    <text x="748" y="376">Alert: pasta.avx2 accepted a conn.</text>
+    <text x="748" y="424">Alert: java accepted a connection</text>
+    <text x="748" y="472">Volume: 4 MB vs normal 22 MB</text>
+  </g>
+  <g font-size="13" fill="#94a3b8">
+    <text x="748" y="250">same problem · same host · ≤ 15 min</text>
+    <text x="748" y="298">same problem · same host · ≤ 15 min</text>
+    <text x="748" y="346">same problem · weakness on same host</text>
+    <text x="748" y="394">same host · ≤ 15 min</text>
+    <text x="748" y="442">same host · ≤ 15 min</text>
+    <text x="748" y="490">same host · ≤ 15 min</text>
+  </g>
+  <g font-size="16" font-weight="700" fill="#cffafe" text-anchor="end">
+    <text x="1078" y="240">5.22</text><text x="1078" y="288">5.22</text><text x="1078" y="336">4.72</text>
+    <text x="1078" y="384">3.22</text><text x="1078" y="432">3.22</text><text x="1078" y="480">3.22</text>
+  </g>
+  <g font-size="16" font-weight="700" fill="#d1fae5" text-anchor="end">
+    <text x="1150" y="240">0.98</text><text x="1150" y="288">0.98</text><text x="1150" y="336">0.97</text>
+    <text x="1150" y="384">0.93</text><text x="1150" y="432">0.91</text><text x="1150" y="480" fill="#fecdd3">0.25</text>
+  </g>
+  <g font-size="15" font-weight="700" fill="#34d399">
+    <text x="1168" y="240">✓ related</text><text x="1168" y="288">✓ related</text><text x="1168" y="336">✓ related</text>
+    <text x="1168" y="384">✓ related</text><text x="1168" y="432">✓ related</text>
+    <text x="1168" y="480" fill="#fb7185">✗ dropped</text>
+  </g>
+  <line x1="748" y1="510" x2="1254" y2="510" stroke="#fb7185" stroke-opacity=".5" stroke-dasharray="6,5"/>
+  <text x="748" y="532" font-size="12" font-weight="700" fill="#fb7185" letter-spacing="1">NEVER CANDIDATES</text>
+  <g font-size="15" fill="#94a3b8">
+    <text x="748" y="558">Host finding: the same connection</text>
+    <text x="748" y="604">228 other events</text>
+  </g>
+  <g font-size="13" fill="#64748b">
+    <text x="748" y="576">names the host, not its IP → no shared entity</text>
+    <text x="748" y="622">share no host, IP, domain or account</text>
+  </g>
+  <g font-size="15" font-weight="700" fill="#64748b">
+    <text x="1078" y="566" text-anchor="end">—</text><text x="1150" y="566" text-anchor="end">—</text><text x="1168" y="566">not linked</text>
+    <text x="1078" y="612" text-anchor="end">—</text><text x="1150" y="612" text-anchor="end">—</text><text x="1168" y="612">ignored</text>
+  </g>
+
+  <!-- 3b link decision -->
+  <rect x="1300" y="135" width="260" height="240" rx="16" fill="#0a2318" stroke="#34d399" stroke-width="3"/>
+  <circle cx="1335" cy="170" r="20" fill="#34d399"/><text x="1335" y="176" text-anchor="middle" font-size="16" font-weight="700" fill="#0a2318">3b</text>
+  <text x="1366" y="168" font-size="19" font-weight="700" fill="#d1fae5">Decision model:</text>
+  <text x="1366" y="190" font-size="19" font-weight="700" fill="#d1fae5">is the link real?</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="1318" y="226">One yes/no question per link:</text>
+    <text x="1318" y="246">both events, times, script</text>
+    <text x="1318" y="266">evidence, people's notes</text>
+    <text x="1318" y="294" font-style="italic" fill="#a7f3d0">"Same incident or chain?"</text>
+    <text x="1318" y="322" font-weight="700" fill="#d1fae5">P(yes) ≥ 0.50 → related</text>
+    <text x="1318" y="344" font-size="14" fill="#94a3b8">6 questions · ~2.5 s each</text>
+    <text x="1318" y="364" font-size="14" fill="#6ee7b7" font-style="italic">Local decision model</text>
+  </g>
+
+  <!-- 3c event label -->
+  <rect x="1300" y="395" width="260" height="236" rx="16" fill="#0a2318" stroke="#34d399" stroke-width="3"/>
+  <circle cx="1335" cy="430" r="20" fill="#34d399"/><text x="1335" y="436" text-anchor="middle" font-size="16" font-weight="700" fill="#0a2318">3c</text>
+  <text x="1366" y="428" font-size="19" font-weight="700" fill="#d1fae5">Decision model:</text>
+  <text x="1366" y="450" font-size="19" font-weight="700" fill="#d1fae5">label the event</text>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="1318" y="484">Event + ALL 6 candidates,</text>
+    <text x="1318" y="504">each with its link p</text>
+    <text x="1318" y="534">suspicious?</text><text x="1540" y="534" text-anchor="end" font-size="18" font-weight="700" fill="#fecdd3">0.94</text>
+    <text x="1318" y="558">expected?</text><text x="1540" y="558" text-anchor="end" font-size="18" font-weight="700" fill="#d1fae5">0.09</text>
+  </g>
+  <rect x="1318" y="572" width="222" height="28" rx="14" fill="#fb7185"/>
+  <text x="1429" y="591" text-anchor="middle" font-size="15" font-weight="700" fill="#1c1017">→ SUSPICIOUS (≥ 0.50)</text>
+  <text x="1318" y="620" font-size="14" fill="#6ee7b7" font-style="italic">Final label · drives alarms</text>
+
+  <!-- outcomes -->
+  <g fill="none" stroke-width="2.5" stroke-dasharray="6,5">
+    <path d="M450,631 V668" stroke="#fb7185" marker-end="url(#arrR)"/>
+    <path d="M1000,631 V668" stroke="#34d399" marker-end="url(#arrG)"/>
+    <path d="M1430,631 V668" stroke="#fbbf24" marker-end="url(#arrY)"/>
+  </g>
+  <g font-size="16" text-anchor="middle">
+    <rect x="40" y="672" width="490" height="110" rx="12" fill="#1e293b" stroke="#fb7185" stroke-opacity=".6"/>
+    <text x="285" y="704" font-weight="700" fill="#fecdd3">Never reach the decision model</text>
+    <text x="285" y="730" fill="#94a3b8" font-size="14">suppress rules · checked-off / cleared items</text>
+    <text x="285" y="750" fill="#94a3b8" font-size="14">pair types switched to skip · score below 1.5</text>
+    <text x="285" y="770" fill="#94a3b8" font-size="14">events that share no entity</text>
+
+    <rect x="555" y="672" width="490" height="110" rx="12" fill="#1e293b" stroke="#34d399" stroke-opacity=".6"/>
+    <text x="800" y="704" font-weight="700" fill="#d1fae5">Stored for the dashboard</text>
+    <text x="800" y="730" fill="#94a3b8" font-size="14">6 link verdicts with their p (Related popover)</text>
+    <text x="800" y="750" fill="#94a3b8" font-size="14">label + p suspicious / p expected (Verdict column)</text>
+    <text x="800" y="770" fill="#94a3b8" font-size="14">what the model was given (AI pipeline page)</text>
+
+    <rect x="1070" y="672" width="490" height="110" rx="12" fill="#241706" stroke="#fbbf24" stroke-width="2"/>
+    <text x="1315" y="704" font-weight="700" fill="#fef3c7">→ Event reviewer (next image)</text>
+    <text x="1315" y="730" fill="#94a3b8" font-size="14">gets the 5 related events + the label;</text>
+    <text x="1315" y="750" fill="#94a3b8" font-size="14">looks things up and writes the reason,</text>
+    <text x="1315" y="770" fill="#94a3b8" font-size="14">artifacts and notes. The label stays.</text>
+  </g>
+
+  <!-- legend -->
+  <g font-size="15" fill="#94a3b8">
+    <rect x="40" y="842" width="22" height="22" rx="5" fill="#08222c" stroke="#22d3ee" stroke-width="2"/>
+    <text x="72" y="859">Rules &amp; maths, no AI</text>
+    <rect x="260" y="842" width="22" height="22" rx="5" fill="#0a2318" stroke="#34d399" stroke-width="2"/>
+    <text x="292" y="859">Local decision model (yes/no probabilities, System One API on loopback)</text>
+    <rect x="860" y="842" width="22" height="22" rx="5" fill="#1c1017" stroke="#fb7185" stroke-width="2"/>
+    <text x="892" y="859">Left out</text>
+    <text x="1570" y="859" text-anchor="end">Real event; addresses and host name changed</text>
+  </g>
+</svg>
