@@ -42,20 +42,86 @@ function k8sBox(title, ...parts) {  // card() with several parts: HTML strings a
 const k8sQ = (v) => '"' + String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 
 // CIS Kubernetes benchmark (kube_cis.py through the read-only Kubernetes API account) - not Security Onion data
-async function k8sCisCard(run) {
+// ---- cluster filter (all Kubernetes pages): "" = all clusters; kept in this browser
+K8S.cluster = localStorage.getItem("k8s.cluster") || "";
+async function k8sClusterList() {
+  if (!K8S._cl || Date.now() - K8S._cl.t > 300e3) {
+    let L = [];
+    try { L = ((await api("/api/k8s/clusters")).clusters || []).filter((c) => c.usable).map((c) => c.name); } catch (_) { /* no API integration */ }
+    K8S._cl = { t: Date.now(), L };
+  }
+  if (K8S.cluster && !K8S._cl.L.includes(K8S.cluster)) K8S.cluster = "";
+  return K8S._cl.L;
+}
+// <select> for the top of a Kubernetes page; onchange(cluster) re-renders the page
+async function k8sClusterBar(onchange) {
+  const L = await k8sClusterList(), w = document.createElement("span");
+  if (L.length < 2) { w.innerHTML = L.length ? `<span class="muted small">Cluster: ${esc(L[0])}</span>` : ""; return w; }
+  w.innerHTML = `<label class="muted">Cluster</label> <select class="k8s-cl"><option value="">All clusters (${L.length})</option>${L.map((c) => `<option value="${esc(c)}" ${K8S.cluster === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+  w.querySelector("select").onchange = (e) => { K8S.cluster = e.target.value; localStorage.setItem("k8s.cluster", K8S.cluster); K8S.cache = {}; onchange(K8S.cluster); };
+  return w;
+}
+const k8sClTag = (c) => (c && (K8S._cl?.L || []).length > 1 ? ` <span class="badge" title="cluster">${esc(c)}</span>` : "");
+
+// CIS Kubernetes benchmark (kube_cis.py through the read-only Kubernetes API account) - one box per cluster
+async function k8sCisCard(run, cluster) {
   let C;
-  try { C = await api("/api/k8s/cis" + (run ? "?run=1" : "")); } catch (e) { C = { error: String(e.message || e) }; }
-  if (C.not_configured || (!C.results?.length && C.error)) return card("CIS Kubernetes benchmark", `<div class="muted">${esc(C.error || "Not configured")}. Set up the read-only account under <a href="#/config">Configuration → Integrations → Kubernetes API</a>.</div>`);
+  const qs = new URLSearchParams({ cluster: cluster || "", ...(run ? { run: "1" } : {}) });
+  try { C = await api("/api/k8s/cis?" + qs); } catch (e) { C = { error: String(e.message || e) }; }
+  const title = "CIS Kubernetes benchmark", clTag = cluster ? `<div style="margin:-4px 0 6px"><span class="badge">cluster ${esc(cluster)}</span></div>` : "";
+  if (C.not_configured || (!C.results?.length && C.error)) return card(title, clTag + `<div class="muted">${esc(C.error || "Not configured")}. Set up the read-only account under <a href="#/config">Configuration → Integrations → Kubernetes API</a>.</div>`);
   const sm = C.summary || {}, st = { pass: "good", fail: "sev-high", warn: "sev-medium", manual: "sev-low", accepted: "sev-low" };
   const t = table(null, [{ k: "id", t: "Check", sort: (r) => r.id.split(".").map((x) => x.padStart(3, "0")).join(".") }, { k: "status", t: "Result", fmt: (v) => `<span class="badge ${st[v] || ""}">${esc(v)}</span>`, sort: (r) => ({ fail: 0, warn: 1, accepted: 2, manual: 3, pass: 4 })[r.status] },
     { k: "section", t: "Section", cls: "small" }, { k: "title", t: "Recommendation" }, { k: "count", t: "Items", num: true },
     { k: "detail", t: "Detail", cls: "small", fmt: (v, r) => esc(r.accepted ? "Accepted: " + r.accepted : v) + (r.items?.length ? `<details><summary class="muted">${r.count} item(s)</summary>${r.items.map((x) => `<div class="mono small">${esc(x)}</div>`).join("")}${r.count > r.items.length ? `<div class="muted small">+${r.count - r.items.length} more</div>` : ""}</details>` : "") }],
   C.results, { sort: "status", dir: 1 });
-  const c = k8sBox("CIS Kubernetes benchmark", kpis([["Failed", sm.fail || 0, sm.fail ? "bad" : "good"], ["Review (warn)", sm.warn || 0, sm.warn ? "warn" : ""], ["Passed", sm.pass || 0, "good"], ["Manual / not visible", sm.manual || 0], ["Accepted", sm.accepted || 0]]),
-    `<div class="muted small">${esc(C.benchmark || "")} · Kubernetes ${esc(C.version || "")} · checked ${esc(ft(C.generated))}${C.error ? ` · <span class="sev-high">last run failed: ${esc(C.error)}</span>` : ""} · <button id="k8sCisRun">Run now</button>
-    · Failed checks are Kubernetes findings (k8s-cis|id). Accept a check in Settings → Endpoint policy → k8s → cis_accept. Sections 1.1, 2 and 4 need node access and are listed as manual.</div>`, t);
-  c.querySelector("#k8sCisRun").onclick = async (e) => { e.target.disabled = true; e.target.textContent = "Running…"; const n = await k8sCisCard(true); c.replaceWith(n); };
+  const c = k8sBox(title, clTag, kpis([["Failed", sm.fail || 0, sm.fail ? "bad" : "good"], ["Review (warn)", sm.warn || 0, sm.warn ? "warn" : ""], ["Passed", sm.pass || 0, "good"], ["Manual / not visible", sm.manual || 0], ["Accepted", sm.accepted || 0]]),
+    `<div class="muted small">${esc(C.benchmark || "")} · Kubernetes ${esc(C.version || "")} · checked ${esc(ft(C.generated))}${C.error ? ` · <span class="sev-high">last run failed: ${esc(C.error)}</span>` : ""} · <button class="k8sCisRun">Run now</button>
+    · Failed checks are Kubernetes findings (k8s-cis|cluster|id). Accept a check in Settings → Endpoint policy → k8s → cis_accept. Sections 1.1, 2 and 4 need node access and are listed as manual.</div>`, t);
+  c.querySelector(".k8sCisRun").onclick = async (e) => { e.target.disabled = true; e.target.textContent = "Running…"; const n = await k8sCisCard(true, cluster); c.replaceWith(n); };
   return c;
+}
+
+// Container images: newer tags in the registry and the CVEs they fix (kube_images.py: Trivy, daily + Scan now)
+const K8S_SEV = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+const k8sSevCnt = (c, keys = ["CRITICAL", "HIGH"]) => (c ? keys.map((k) => `<span class="badge ${k === "CRITICAL" ? "sev-high" : k === "HIGH" ? "sev-medium" : "sev-low"}" title="${k}">${k[0]} ${c[k] || 0}</span>`).join(" ") : '<span class="muted">—</span>');
+async function k8sImagesCard(cluster, run) {
+  let I;
+  try { I = await api("/api/k8s/images" + (run ? "?run=1" : "")); } catch (e) { I = { error: String(e.message || e) }; }
+  const rows = (I.images || []).filter((r) => !cluster || (r.clusters || []).includes(cluster)).map((r) => ({ ...r,
+    _crit: r.current?.counts?.CRITICAL || 0, _high: r.current?.counts?.HIGH || 0, _fix: ((r.fixed_by_update?.counts || {}).CRITICAL || 0) * 1000 + ((r.fixed_by_update?.counts || {}).HIGH || 0) }));
+  const upd = rows.filter((r) => r.update), fixC = rows.reduce((s, r) => s + ((r.fixed_by_update?.counts || {}).CRITICAL || 0), 0), fixH = rows.reduce((s, r) => s + ((r.fixed_by_update?.counts || {}).HIGH || 0), 0);
+  const detail = document.createElement("div");
+  const t = rows.length ? table(null, [{ k: "image", t: "Image", cls: "mono small", fmt: (v, r) => esc(v) + (r.tag === "latest" || (!r.tag && !r.digest) ? ' <span class="badge sev-low" title="mutable tag">:latest</span>' : "") },
+    { k: "namespaces", t: "Where", cls: "small", fmt: (v) => esc((v || []).join(", ")) }, { k: "pods", t: "Pods", num: true },
+    { k: "update", t: "Update available", fmt: (v, r) => (v ? `<b>${esc(v)}</b>${r.update_major && r.update_major !== v ? ` <span class="muted small">(same major: ${esc(r.update_major)})</span>` : ""}` : r.errors?.some((e) => e.startsWith("tags")) ? '<span class="muted small" title="' + esc(r.errors.join("; ")) + '">registry not readable</span>' : '<span class="muted">up to date</span>'), sort: (r) => (r.update ? 1 : 0) },
+    { k: "_crit", t: "CVEs now", fmt: (v, r) => k8sSevCnt(r.current?.counts) + (r.errors?.some((e) => e.startsWith("scan")) ? ' <span class="sev-medium small" title="' + esc(r.errors.join("; ")) + '">scan failed</span>' : ""), sort: (r) => r._crit * 1000 + r._high },
+    { k: "_fix", t: "Fixed by updating", fmt: (v, r) => (r.fixed_by_update ? k8sSevCnt(r.fixed_by_update.counts) : '<span class="muted">—</span>'), sort: (r) => r._fix },
+    { k: "fixable_in_place", t: "Fix by rebuild", num: true, title: "Critical/high CVEs with a fixed package version (rebuild the image even without a new tag)" }],
+  rows, { sort: "_fix", onclick: (r) => k8sImageDetail(detail, r) }) : null;
+  const c = k8sBox("Container images: updates and CVEs", cluster ? `<div style="margin:-4px 0 6px"><span class="badge">cluster ${esc(cluster)}</span></div>` : "",
+    kpis([["Images", rows.length], ["Update available", upd.length, upd.length ? "warn" : "good"], ["Critical CVEs fixed by updating", fixC, fixC ? "bad" : "good"], ["High CVEs fixed by updating", fixH, fixH ? "warn" : "good"],
+      ["Critical CVEs running", rows.reduce((s, r) => s + r._crit, 0), rows.some((r) => r._crit) ? "bad" : "good"]]),
+    `<div class="muted small">Every image running in ${cluster ? "this cluster" : "the clusters"}, read through the read-only Kubernetes API. For each one netmon looks in its registry for a newer tag of the same form, and scans the running image and the newest tag with Trivy: "Fixed by updating" are CVEs in the running image that the newest tag no longer has. Scanned daily at 04:00 UTC${I.generated ? ` · last scan ${esc(ft(I.generated))} (${esc(I.seconds)} s)` : " · not scanned yet"}${I.running ? ' · <b>scan running…</b>' : ""} · <button class="k8sImgRun" ${I.running ? "disabled" : ""}>Scan now</button>
+    · Click an image for its CVE list. Critical CVEs fixed by an update become findings (k8s-imgcve).</div>`
+    + (I.error ? `<pre>${esc(I.error)}</pre>` : "") + (Object.keys(I.errors || {}).length ? `<div class="sev-medium small">${esc(Object.entries(I.errors).map(([k, v]) => k + ": " + v).join("; "))}</div>` : ""),
+    t || `<div class="muted">${I.generated ? "No images in this cluster." : "No scan yet. Click Scan now (a first scan of every image takes several minutes)."}</div>`, detail);
+  c.querySelector(".k8sImgRun").onclick = async (e) => { e.target.disabled = true; e.target.textContent = "Starting…"; c.replaceWith(await k8sImagesCard(cluster, true)); };
+  return c;
+}
+async function k8sImageDetail(box, r) {
+  box.innerHTML = '<div class="loading">Loading CVEs…</div>';
+  let D;
+  try { D = await api("/api/k8s/image?" + new URLSearchParams({ image: r.image, digest: r.digest || "" })); if (D.error) throw new Error(D.error); }
+  catch (e) { box.innerHTML = `<pre>${esc(e.message || e)}</pre>`; return; }
+  const V = (D.current?.vulns || []).filter((v) => v.severity !== "UNKNOWN");
+  box.innerHTML = `<h3 style="margin-top:14px">${esc(D.image)}</h3><div class="small">${esc(D.current?.os || "")} · digest <span class="mono">${esc((D.digest || "").slice(0, 19))}…</span> · scanned ${esc(ft(D.current?.scanned))}
+    ${D.update ? ` · newest tag <b>${esc(D.update)}</b>: ${k8sSevCnt(D.newest?.counts, K8S_SEV)}` : " · no newer tag"} · used in ${esc((D.namespaces || []).join(", "))}</div>`;
+  box.appendChild(table(null, [{ k: "severity", t: "Sev", fmt: (v) => badge(v.toLowerCase()), sort: (x) => K8S_SEV.indexOf(x.severity) },
+    { k: "id", t: "CVE", fmt: (v) => `<a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(v)}" target="_blank" rel="noopener">${esc(v)}</a>` },
+    { k: "pkg", t: "Package", cls: "mono small" }, { k: "installed", t: "Installed", cls: "mono small" }, { k: "fixed", t: "Fixed in package", cls: "mono small" },
+    { k: "fixed_by_update", t: "Gone in newest tag", fmt: (v) => (v ? '<span class="badge good">yes</span>' : "") , sort: (x) => (x.fixed_by_update ? 1 : 0) }, { k: "title", t: "Title", cls: "small" }],
+  V, { sort: "severity", dir: 1 }));
 }
 
 V.k8s = async (el) => {
@@ -66,10 +132,11 @@ V.k8s = async (el) => {
     <div class="tbltools"><label class="muted">Window</label>${W.fixed ? `<span>${esc(ft(S.range.start))} – ${esc(ft(S.range.end))} (time picker)</span>`
       : `<select id="k8sWin">${K8S_WINS.map(([v, l]) => `<option value="${v}" ${K8S.win === v ? "selected" : ""}>last ${l}</option>`).join("")}</select>`}
       <button id="k8sRefresh" title="Query Security Onion again">Refresh</button></div><div class="loading">Loading from Security Onion…</div>`;
+  el.querySelector(".tbltools").prepend(await k8sClusterBar(() => rerender()));
   const ws = el.querySelector("#k8sWin"); if (ws) ws.onchange = () => { K8S.win = ws.value; K8S.cache = {}; rerender(); };
   el.querySelector("#k8sRefresh").onclick = () => { K8S.cache = {}; rerender(); };
   let D;
-  try { D = await k8sGet("/api/k8s", { minutes: W.minutes, end: W.end }); }
+  try { D = await k8sGet("/api/k8s", { minutes: W.minutes, end: W.end, cluster: K8S.cluster }); }
   catch (e) { el.querySelector(".loading").outerHTML = `<div class="card"><h2>Kubernetes data unavailable</h2><pre>${esc(e.message || e)}</pre></div>`; return; }
   el.querySelector(".loading").remove();
   const inv = D.inventory || {}, A = D.apiserver && !D.apiserver.error ? D.apiserver : null, sig = D.signals || [], live = sig.filter((s) => !s.exempt);
@@ -89,7 +156,9 @@ V.k8s = async (el) => {
     D.findings, { search: false }), `<div class="muted small">Also raised by the 15-minute watcher (Alerts) and fed to the event review as host findings (key prefix k8s-). Tune in Settings → Endpoint policy → k8s.</div>`)
     : card("Kubernetes findings", `<div class="muted">No Kubernetes findings in this window.</div>`));
 
-  el.appendChild(await k8sCisCard());
+  if (K8S.cluster && !(D.inventory?.nodes || []).length) el.appendChild(card("No Security Onion data for this cluster", `<div class="muted">None of ${esc(K8S.cluster)}'s nodes ship Kubernetes logs or metrics to Security Onion: install the Elastic Agent Kubernetes integration in it. The CIS benchmark and image checks below use the Kubernetes API and work without it.</div>`));
+  for (const cl of (K8S.cluster ? [K8S.cluster] : await k8sClusterList())) el.appendChild(await k8sCisCard(false, cl));
+  if (!(await k8sClusterList()).length) el.appendChild(await k8sCisCard(false, ""));
   el.appendChild(k8sBox("Security Onion data coverage", table(null, [{ k: "dataset", t: "Data set" }, { k: "state", t: "State", fmt: k8sState },
     { k: "docs_24h", t: "Docs (24 h)", num: true, fmt: fn }, { k: "last", t: "Last arrival", fmt: (v, r) => v ? `${esc(ft(v))} <span class="muted">(${esc(r.minutes)} min)</span>` : "never" },
     { k: "error", t: "Collector error", cls: "small", fmt: (v) => esc(v || "") }], cov, { search: false, sort: "state", dir: 1 }),
@@ -125,7 +194,7 @@ V.k8s = async (el) => {
   const pods = (inv.pods || []).filter((p) => !K8S.ns || p.ns === K8S.ns);
   const sigBy = {}; live.forEach((s) => { const k = s.ns + "/" + s.pod; sigBy[k] = (sigBy[k] || 0) + s.count; });
   const pc = k8sBox("Pods", `<div class="tbltools"><label class="muted">Namespace</label><select id="k8sNs"><option value="">all (${nsl.length})</option>${nsl.map((n) => `<option ${K8S.ns === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>`,
-    table(null, [{ k: "ns", t: "Namespace" }, { k: "pod", t: "Pod", fmt: (v, r) => k8sPodLink(r.ns, v) }, { k: "owner", t: "Owner", cls: "small" }, { k: "node", t: "Node" },
+    table(null, [{ k: "ns", t: "Namespace" }, { k: "pod", t: "Pod", fmt: (v, r) => k8sPodLink(r.ns, v) + k8sClTag(r.cluster) }, { k: "owner", t: "Owner", cls: "small" }, { k: "node", t: "Node" },
       { k: "ip", t: "Pod IP", fmt: (v) => (v ? ipLink(v, false) : "") }, { k: "containers", t: "Containers", cls: "small", fmt: (v) => esc((v || []).join(", ")) },
       { k: "_sig", t: "Sec hits", num: true, sort: (r) => sigBy[r.ns + "/" + r.pod] || 0, fmt: (v, r) => (sigBy[r.ns + "/" + r.pod] ? `<b>${fn(sigBy[r.ns + "/" + r.pod])}</b>` : "") },
       { k: "restarts", t: "Restarts", num: true }, { k: "logs", t: "Log lines", num: true, bar: true, fmt: fn }, { k: "stderr", t: "stderr", num: true, fmt: fn }],
@@ -134,12 +203,10 @@ V.k8s = async (el) => {
   pc.querySelector("#k8sNs").onchange = (e) => { K8S.ns = e.target.value; rerender(); };
 
   el.appendChild(grid("g2",
-    k8sBox("Container images", table(null, [{ k: "image", t: "Image", cls: "mono small" }, { k: "pods", t: "Pods", num: true }, { k: "namespaces", t: "Namespaces", cls: "small", fmt: (v) => esc((v || []).join(", ")) },
-      { k: "risk", t: "Supply-chain", fmt: (v) => (v || []).map((x) => `<span class="badge sev-low">${esc(x)}</span>`).join(" ") }], inv.images || [], { sort: "pods" }),
-      `<div class="muted small">Images seen in container logs. A new image (not in the nightly baseline) raises a finding; mutable tags (:latest / no tag) are flagged.</div>`),
-    card("Nodes", table(null, [{ k: "node", t: "Node", fmt: (v) => hostLink(v) }, { k: "ip", t: "IP", fmt: (v) => (v ? ipLink(v) : "") },
+    card("Nodes", table(null, [{ k: "node", t: "Node", fmt: (v, r) => hostLink(v) + k8sClTag(r.cluster) }, { k: "ip", t: "IP", fmt: (v) => (v ? ipLink(v) : "") },
       { k: "_agent", t: "Elastic Agent", fmt: (v, r) => { const a = (D.agents || []).find((x) => x.host === r.node); return a ? badge(a.status) + ` <span class="muted small">${esc(a.minutes_since_checkin)} min</span>` : "—"; } },
       { k: "_bad", t: "Unhealthy inputs", cls: "small", fmt: (v, r) => { const a = (D.agents || []).find((x) => x.host === r.node); return esc((a?.bad_components || []).join(", ")); } }], inv.nodes || [], { search: false }))));
+  el.appendChild(await k8sImagesCard(K8S.cluster));
 };
 
 V.k8spod = async (el, arg) => {
@@ -149,7 +216,7 @@ V.k8spod = async (el, arg) => {
     <div class="sub">Namespace ${esc(ns)} · logs and security events from Security Onion · window ${W.fixed ? esc(ft(S.range.start)) + " – " + esc(ft(S.range.end))
       : "last " + esc((K8S_WINS.find(([v]) => v === W.minutes) || [, W.minutes + " min"])[1])}</div><div class="loading">Loading from Security Onion…</div>`;
   let D;
-  try { D = await k8sGet("/api/k8s/pod", { ns, pod, minutes: W.minutes, end: W.end, ...f, size: 300 }, 15e3); }
+  try { D = await k8sGet("/api/k8s/pod", { ns, pod, minutes: W.minutes, end: W.end, ...f, cluster: P.get("cluster") || K8S.cluster, size: 300 }, 15e3); }
   catch (e) { el.querySelector(".loading").outerHTML = `<div class="card"><h2>Pod data unavailable</h2><pre>${esc(e.message || e)}</pre></div>`; return; }
   el.querySelector(".loading").remove();
   const live = (D.signals || []).filter((s) => !s.exempt), m = +W.minutes;

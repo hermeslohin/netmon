@@ -48,9 +48,9 @@ def _owner(pod):
     return (ref.get("kind"), ref.get("name")) if ref else (None, None)
 
 
-def build(cli=None):
+def build(cli=None, cluster=None):
     t0 = time.time()
-    cli = cli or kube_api.Client()
+    cli = cli or kube_api.Client(cluster=cluster)
     nss = cli.items("/api/v1/namespaces")
     pods = cli.items("/api/v1/pods")
     svcs = cli.items("/api/v1/services")
@@ -181,12 +181,13 @@ def build(cli=None):
     out_nodes = [{"name": x["metadata"]["name"], "roles": sorted(k.split("/", 1)[1] for k in (x["metadata"].get("labels") or {}) if k.startswith("node-role.kubernetes.io/")),
                   "ip": next((a["address"] for a in (x.get("status") or {}).get("addresses") or [] if a["type"] == "InternalIP"), ""),
                   "kubelet": ((x.get("status") or {}).get("nodeInfo") or {}).get("kubeletVersion", ""),
+                  "arch": ((x.get("status") or {}).get("nodeInfo") or {}).get("architecture", ""),
                   "os": ((x.get("status") or {}).get("nodeInfo") or {}).get("osImage", ""),
                   "ready": any(c["type"] == "Ready" and c["status"] == "True" for c in (x.get("status") or {}).get("conditions") or [])} for x in nodes]
     cis = {}
     try:
         import kube_cis
-        for r in kube_cis.latest().get("results") or []:
+        for r in kube_cis.latest(getattr(cli, "name", "default")).get("results") or []:
             if r["status"] != "fail":
                 continue
             for it in r.get("items") or []:
@@ -200,7 +201,7 @@ def build(cli=None):
     for w in wl.values():
         w["images"] = sorted(w["images"])
         w["cis"] = sorted(set(cis.get(w["id"], [])))
-    return {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "api": cli.used, "namespaces": sorted(out_ns, key=lambda n: n["name"]),
+    return {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "api": cli.used, "cluster": getattr(cli, "name", "default"), "namespaces": sorted(out_ns, key=lambda n: n["name"]),
             "nodes": out_nodes, "ingresses": out_ing, "services": out_svcs, "workloads": sorted(wl.values(), key=lambda w: w["id"]),
             "pods": out_pods, "edges": edges, "cis_ns": {k[3:]: sorted(set(v)) for k, v in cis.items() if k.startswith("ns:")}, "seconds": round(time.time() - t0, 1)}
 

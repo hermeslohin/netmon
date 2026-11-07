@@ -74,7 +74,8 @@ region(980, 70, 300, 740, "CLOUD SERVICES", "#fbbf24")
 
 # ---------------- home network
 node("ep", 50, 100, 320, 84, "back", "Endpoints · Elastic Agent", ["Elastic Defend (process / network / file)", "osquery (osquerybeat) · system auth & syslog"], "HOSTS")
-node("fleet", 50, 206, 320, 52, "back", "Fleet Server", ["agent enrollment + policy"])
+node("fleet", 50, 206, 170, 60, "back", "Fleet Server", ["agent enrollment", "+ policy"])
+node("kube", 230, 206, 140, 60, "back", "Kubernetes", ["one or more clusters", "logs → Elasticsearch"], "K8S")
 node("sensor", 56, 312, 308, 70, "sec", "Network sensor", ["Suricata IDS · Zeek · PCAP", "mirrors all LAN traffic"], "NSM")
 node("es", 56, 430, 308, 120, "db", "Elasticsearch", ["IDS alerts · Zeek conn/dns/tls/files", "endpoint events · osquery results", "detection-rule hits", "read-only API key for netmon", "audit log: logs-netmon (append + read)"], "SIEM")
 node("unifi", 50, 600, 320, 70, "sec", "UniFi gateway", ["IDS/IPS · firewall · traffic flows", "admin audit · client inventory"], "EDGE")
@@ -121,6 +122,10 @@ lab2(960, 236, "#fbbf24", "events", "flows")
 # review job <-> cloud AI provider (event reviewer)
 arrows.append('<path d="M920,240 C955,240 950,138 1000,138" fill="none" stroke="#e879f9" stroke-width="1.5" stroke-dasharray="6,3" marker-start="url(#ah-e879f9)" marker-end="url(#ah-e879f9)"/>')
 lab2(960, 114, "#e879f9", "event", "reviewer")
+# Kubernetes: Elastic Agent ships logs/events into Elasticsearch (the "events via Fleet" path); the host reads each
+# cluster's configuration through one read-only ServiceAccount (CIS benchmark, map, image update/CVE checks)
+arrows.append('<path d="M370,246 L452,246" fill="none" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="4,3" marker-start="url(#ah-22d3ee)"/>')
+arrows.append('<rect x="374" y="250" width="62" height="26" rx="3" fill="#020617" opacity="0.92"/><text x="405" y="261" text-anchor="middle" fill="#22d3ee" font-size="9">read-only</text><text x="405" y="272" text-anchor="middle" fill="#22d3ee" font-size="9">k8s API</text>')
 # scheduler starts the watcher and the review job
 arrows.append('<path d="M660,176 L660,226" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
 arrows.append('<path d="M740,176 L740,226" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-34d399)"/>')
@@ -181,6 +186,7 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Event reviewer look-ups first: a planning call picks Elasticsearch searches (via the broker, max 3) and web look-ups (Firecrawl; ipinfo.io for IPs),",
          "   then it decides with the results and cites pages as [W1] links (Open events, classification pop-up). Re-reviews reuse results for 6 h; web cache 7 days.",
          "Local models (optional): any OpenAI-compatible server for the event reviewer, any System One server on loopback for the decision model; host service, Kubernetes or another server, all interchangeable with cloud APIs.",
+         "Kubernetes (optional, one or more clusters): container logs, events and API metrics reach Elasticsearch via Elastic Agent; a read-only account per cluster gives CIS checks, the map and image CVEs.",
          "OpenCTI (optional, on the LAN): opencti.py pulls scored indicators every 15 min into local intel lists; the watcher matches them and reports sightings back; the event reviewer sees the matches.",
          "Audit log: every user action and every app ↔ LLM conversation (prompt, answer, model, tokens) → logs-netmon; More → Audit log (admins)."]
 for i, t in enumerate(notes):
@@ -193,7 +199,7 @@ reqs = [
     ("ai", "Event reviewer", "local server or API", ["OpenAI Chat Completions or", "  Anthropic Messages API", "local: json_schema structured", "  output · temperature 0 · /v1/models", "tool calling (review job)", "instruct model · ctx >= 32k", "fast: called continuously"]),
     ("ai", "Research · Ask AI", "API or local", ["same APIs + tool / function", "  calling (OpenAI Responses ok)", "reasoning-capable model", "  for event research", "ctx >= 128k recommended", "$ + token caps per run / day"]),
     ("ai", "Decision model", "loopback only", ["System One decision API:", "  POST /v1/systemone", "  GET /health", "server must compute logits", "clef 27B ~17 GB · flash ~6 GB", "ctx >= 8k per slot", "batch >= 4096 tokens"]),
-    ("db", "Data sources", "read-only", ["Elasticsearch 8.x REST _search", "key: read on logs-*", "audit key: create_doc + read", "  on logs-netmon", "Suricata EVE + Zeek logs", "Elastic Agent: Defend, osquery", "opt: UniFi API · OpenCTI token"]),
+    ("db", "Data sources", "read-only", ["Elasticsearch 8.x REST _search", "key: read on logs-*", "audit key: create_doc + read", "  on logs-netmon", "Suricata EVE + Zeek logs", "Elastic Agent: Defend, osquery", "opt: UniFi API · OpenCTI token", "opt: k8s read-only SA token"]),
     ("back", "Monitoring host", "runs netmon", ["Linux · systemd user units", "Python 3.10+ (stdlib only)", "Docker / OCI for the dashboard", "GPU / unified memory only", "  for local models", "HTTPS out to enabled services", "browsers: HTTPS + Web Push"]),
 ]
 cw, gap = 244, 10

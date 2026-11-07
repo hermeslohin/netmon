@@ -330,7 +330,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         # resolve leaves the source empty (the peers are still not that host).
         hips = {v for k, v in host_ents(hl)} if hl else set()
         add(f"hf|{key}", "host", text, w0, w1, e, techniques("host", f"{key}|{text}"), "#/security?ev=hf|" + key,
-            "high" if f.get("priority") == "Investigate" else "medium", topics=top, akey=key, hlabel=hl, item=f,
+            {"Investigate": "high", "Info": "low"}.get(f.get("priority"), "medium"), topics=top, akey=key, hlabel=hl, item=f,
             host=hips if hl else None, dst={v for k, v in e if k in ("ip", "ext") and v not in hips} if hl else None)
 
     # --- threat intel

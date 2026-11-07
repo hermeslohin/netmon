@@ -118,8 +118,8 @@ class CisTest(unittest.TestCase):
         self.assertEqual(r["1.2.1"]["status"], "fail")
         self.assertEqual(r["1.2.16"]["status"], "accepted")
         keys = [k for k, _, _ in kube_cis.findings(res)]
-        self.assertIn("k8s-cis|1.2.1", keys)
-        self.assertNotIn("k8s-cis|1.2.16", keys)
+        self.assertIn("k8s-cis|default|1.2.1", keys)
+        self.assertNotIn("k8s-cis|default|1.2.16", keys)
 
     def test_node_level_sections_are_manual(self):
         """REQ: KUBE-06"""
@@ -169,10 +169,26 @@ class IntegrationTest(unittest.TestCase):
 
     def test_token_never_public(self):
         """REQ: KUBE-05"""
-        with mock.patch.object(integrations, "load", return_value={"kubernetes": {"enabled": True, "url": "https://a:6443", "api_key": "eyJsecretTOKEN1234"}}):
+        cfg = {"kubernetes": {"clusters": {"a": {"enabled": True, "url": "https://a:6443", "api_key": "eyJsecretTOKEN1234"}}}}
+        with mock.patch.object(integrations, "load", return_value=cfg):
             pub = integrations.public()["kubernetes"]
         self.assertNotIn("eyJsecretTOKEN1234", str(pub))
-        self.assertTrue(pub["key_set"])
+        self.assertTrue(pub["clusters"][0]["key_set"])
+
+    def test_multi_cluster_and_legacy_settings(self):
+        """REQ: KUBE-05"""
+        legacy = {"kubernetes": {"enabled": True, "url": "https://a:6443", "api_key": "t"}}
+        with mock.patch.object(integrations, "load", return_value=legacy):
+            self.assertEqual([c["name"] for c in integrations.kube_clusters()], ["default"])
+        two = {"kubernetes": {"clusters": {"talos": {"enabled": True, "url": "https://a:6443", "api_key": "t"},
+                                           "lab": {"enabled": False, "url": "https://b:6443", "api_key": "u"}}}}
+        with mock.patch.object(integrations, "load", return_value=two):
+            self.assertEqual([(c["name"], c["usable"]) for c in integrations.kube_clusters()], [("lab", False), ("talos", True)])
+            self.assertEqual(integrations.kubernetes()["name"], "talos")
+            c = integrations.candidate("kubernetes", {"cluster": "lab", "delete": True})
+            self.assertEqual(list(c["clusters"]), ["talos"])
+            with self.assertRaises(ValueError):
+                integrations.candidate("kubernetes", {"cluster": "Bad Name"})
 
     def test_client_refuses_http_and_unconfigured(self):
         """REQ: KUBE-05"""

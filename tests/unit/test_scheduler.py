@@ -120,7 +120,8 @@ class SchedulerStatusTest(unittest.TestCase):
     def test_jobs_defined(self):
         """The watch, review, weekly, unifi and opencti jobs (event research is never a scheduled job) are configured with the expected scripts.
         REQ: OPS-03"""
-        self.assertEqual(set(scheduler.JOBS), {"watch", "review", "weekly", "unifi", "opencti"})
+        self.assertEqual(set(scheduler.JOBS), {"watch", "review", "weekly", "unifi", "opencti", "k8simages"})
+        self.assertTrue(scheduler.JOBS["k8simages"][1].endswith("kube_images.py"))
         self.assertTrue(scheduler.JOBS["opencti"][1].endswith("opencti.py"))
         self.assertTrue(scheduler.JOBS["watch"][-1].endswith("watch.py"))
         self.assertIn("review.py", scheduler.JOBS["review"][1])

@@ -153,12 +153,36 @@ def opencti():
     return o
 
 
-def kubernetes():
-    """Effective Kubernetes API settings: {enabled, cis, url, api_key (bearer token), ca_pem, usable}."""
-    k = {**KUBE_DEFAULTS, **(load().get("kubernetes") or {})}
+KUBE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
+
+def _kube_raw():
+    """{name: stored cluster settings}. Older single-cluster settings (flat url/api_key) read as cluster "default"."""
+    raw = load().get("kubernetes") or {}
+    if "clusters" in raw:
+        return dict(raw["clusters"] or {})
+    return {"default": raw} if raw.get("url") or raw.get("api_key") else {}
+
+
+def _kube_eff(name, k):
+    k = {**KUBE_DEFAULTS, **(k or {}), "name": name}
     k["url"], k["api_key"], k["ca_pem"] = (k.get("url") or "").strip(), k.get("api_key") or "", k.get("ca_pem") or ""
     k["usable"] = bool(k["enabled"] and k["url"] and k["api_key"])
     return k
+
+
+def kube_clusters():
+    """Every configured Kubernetes cluster, effective settings, in name order."""
+    return [_kube_eff(n, c) for n, c in sorted(_kube_raw().items())]
+
+
+def kubernetes(name=None):
+    """One cluster's effective settings {name, enabled, cis, url, api_key (bearer token), ca_pem, usable}; name None = the
+    first usable cluster (else the first one, else an empty disabled entry)."""
+    cs = kube_clusters()
+    if name is not None:
+        return next((c for c in cs if c["name"] == name), _kube_eff(name, {}))
+    return next((c for c in cs if c["usable"]), cs[0] if cs else _kube_eff("default", {}))
 
 
 # ------------------------------------------------------------------ dashboard
@@ -182,7 +206,6 @@ def public():
     d = load()
     e, u, a, w = d.get("elasticsearch") or {}, d.get("unifi") or {}, d.get("audit") or {}, d.get("web") or {}
     oc = opencti()
-    kb = kubernetes()
     try:
         import store
         oc_status = store.jload(OPENCTI_STATE, {}) or {}
@@ -215,9 +238,9 @@ def public():
             "url": w.get("url") or "", "url_fallback": FIRECRAWL_DEFAULT, "ca_set": bool(w.get("ca_pem")),
             "updated_by": w.get("updated_by"), "updated_at": w.get("updated_at")},
         "feeds": _feeds_public(d),
-        "kubernetes": {"enabled": kb["enabled"], "cis": kb["cis"], "url": kb["url"], "ca_set": bool(kb["ca_pem"]),
-                       "key_set": bool(kb["api_key"]), "key_hint": _mask(kb["api_key"]),
-                       "updated_by": (d.get("kubernetes") or {}).get("updated_by"), "updated_at": (d.get("kubernetes") or {}).get("updated_at")},
+        "kubernetes": {"clusters": [{"name": kb["name"], "enabled": kb["enabled"], "cis": kb["cis"], "url": kb["url"], "ca_set": bool(kb["ca_pem"]),
+                                     "key_set": bool(kb["api_key"]), "key_hint": _mask(kb["api_key"]),
+                                     "updated_by": kb.get("updated_by"), "updated_at": kb.get("updated_at")} for kb in kube_clusters()]},
         "opencti": {
             **{k: oc[k] for k in OPENCTI_DEFAULTS if k != "ca_pem"}, "url": oc["url"], "ca_set": bool(oc.get("ca_pem")),
             "key_set": bool(oc["api_key"]), "key_hint": _mask(oc["api_key"]), "sevs": list(OPENCTI_SEVS),
@@ -370,8 +393,16 @@ def candidate(section, body):
     cur = dict(load().get(section) or {})
     if section == "feeds":
         return _feeds_candidate(cur, body)
-    if section == "kubernetes":
-        return {**cur, **_kube_candidate(cur, body)}
+    if section == "kubernetes":  # body.cluster = which cluster (new name = add one); body.delete = remove it
+        name = str(body.get("cluster") or "").strip().lower()
+        if not KUBE_NAME.match(name):
+            raise ValueError("cluster name: 1-40 lower-case letters, digits and dashes")
+        cls = _kube_raw()
+        if body.get("delete"):
+            cls.pop(name, None)
+        else:
+            cls[name] = {**cls.get(name, {}), **_kube_candidate(cls.get(name, {}), body)}
+        return {"clusters": cls, "_cluster": name}
     if section == "opencti":
         new = _opencti_candidate(cur, body)
         k = _clean_key(body.get("api_key"))
@@ -413,7 +444,15 @@ def save(section, body, user):
     if section not in ("elasticsearch", "unifi", "audit", "web", "opencti", "feeds", "kubernetes"):
         raise ValueError("unknown integration")
     d = load()
-    d[section] = {**candidate(section, body), "updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    c = candidate(section, body)
+    stamp = {"updated_by": user, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if section == "kubernetes":  # stamp the cluster that changed, not the whole section
+        name = c.pop("_cluster")
+        if name in c["clusters"]:
+            c["clusters"][name].update(stamp)
+        d[section] = c
+    else:
+        d[section] = {**c, **stamp}
     p = path()
     import store
     store.jdump(d, p)
@@ -513,6 +552,7 @@ def test(section, body):
     if section == "feeds":
         return test_feed(body)
     if section == "kubernetes":
+        c = c["clusters"].get(c["_cluster"]) or {}
         if not c.get("url") or not c.get("api_key"):
             return {"ok": False, "error": "enter the API server URL and the ServiceAccount token to test"}
         import kube_api

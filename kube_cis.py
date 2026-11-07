@@ -201,7 +201,8 @@ def run(cli=None):
             cp[comp][(p.get("spec") or {}).get("nodeName", md.get("name"))] = flags(p)
     A, C, Sch = cp["kube-apiserver"], cp["kube-controller-manager"], cp["kube-scheduler"]
     if not A:
-        res.append(R("1.2", "1.2 API server", "API server flags", "manual", "No kube-apiserver static pods visible in kube-system (managed control plane?)."))
+        res.append(R("1.2", "1.2 API server", "API server flags", "manual", "No kube-apiserver static pods in kube-system: the control plane runs outside "
+                     "Kubernetes (k0s, k3s, managed clusters), so its flags are not visible through the API.", scored=False))
     else:
         res += [
             _flag_check("1.2.1", "--anonymous-auth is false", A, _eq("anonymous-auth", "false")),
@@ -395,39 +396,46 @@ def run(cli=None):
             "summary": summ, "results": res, "seconds": round(time.time() - t0, 1)}
 
 
-def run_and_save(cli=None):
+def _doc(cluster):
+    return "k8s/cis/" + cluster
+
+
+def run_and_save(cluster):
     import store
     try:
-        d = run(cli)
+        d = run(kube_api.Client(cluster=cluster))
     except kube_api.NotConfigured as e:
         d = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "error": str(e), "not_configured": True, "results": []}
     except Exception as e:  # noqa: BLE001 - keep the previous results, record the error
-        prev = store.doc_get("k8s/cis", {}) or {}
+        prev = store.doc_get(_doc(cluster), {}) or {}
         prev["error"], prev["error_at"] = f"{type(e).__name__}: {str(e)[:300]}", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        store.doc_put("k8s/cis", prev)
+        prev["cluster"] = cluster
+        store.doc_put(_doc(cluster), prev)
         return prev
-    store.doc_put("k8s/cis", d)
+    d["cluster"] = cluster
+    store.doc_put(_doc(cluster), d)
     return d
 
 
-def latest():
+def latest(cluster):
     import store
-    return store.doc_get("k8s/cis", {}) or {}
+    return store.doc_get(_doc(cluster), {}) or {}
 
 
-def findings(d=None):
-    """[(key, priority, text)] for failed CIS checks (warn = manual review, shown on the page only)."""
-    d = d if d is not None else latest()
-    out = []
+def findings(d):
+    """[(key, priority, text)] for failed CIS checks of one cluster's results (warn = manual review, page only)."""
+    out, cl = [], d.get("cluster") or "default"
     for r in d.get("results") or []:
         if r["status"] == "fail":
             ex = ", ".join(r["items"][:4]) + (f" (+{r['count'] - 4} more)" if r["count"] > 4 else "")
-            out.append((f"k8s-cis|{r['id']}", "Review", f"CIS Kubernetes {r['id']} failed: {r['title']}" + (f" - {r['count']}: {ex}" if r["count"] else f" - {r['detail'][:160]}")))
+            out.append((f"k8s-cis|{cl}|{r['id']}", "Review", f"CIS Kubernetes {r['id']} failed on cluster {cl}: {r['title']}"
+                        + (f" - {r['count']}: {ex}" if r["count"] else f" - {r['detail'][:160]}")))
     return out
 
 
 if __name__ == "__main__":
     import json
-    d = run_and_save() if "--save" in sys.argv else run()
+    cl = next((a for a in sys.argv[1:] if not a.startswith("-")), None) or kube_api.INTEG.kubernetes()["name"]
+    d = run_and_save(cl) if "--save" in sys.argv else run(kube_api.Client(cluster=cl))
     print(json.dumps({"summary": d.get("summary"), "error": d.get("error"),
                       "results": [(r["id"], r["status"], r["count"], r["title"]) for r in d.get("results") or []]}, indent=1))

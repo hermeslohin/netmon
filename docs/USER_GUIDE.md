@@ -506,6 +506,19 @@ Results are:
 
 Pods in namespaces labelled `pod-security.kubernetes.io/enforce=privileged` (CNI, storage, monitoring agents that need host access) are listed but do not fail the pod-security checks. The benchmark re-runs every 6 hours with the nightly collection, and **Run now** runs it at once (admins and defenders).
 
+**Several clusters.** Add each cluster under Configuration → Integrations → Kubernetes API (one card per cluster, its own read-only token; **Remove cluster** deletes it). Every Kubernetes page has a **Cluster** selector at the top: *All clusters* or one of them. The choice is kept in your browser. Security Onion's Kubernetes data carries no cluster name, so netmon matches it to a cluster by the names of the nodes that sent it. A cluster without the Elastic Agent Kubernetes integration says *No Security Onion data for this cluster*; its CIS benchmark, images and map still work through the API. CIS findings carry the cluster in their key (`k8s-cis|<cluster>|<id>`).
+
+**Container images: updates and CVEs.** Every image running in the clusters is checked daily at 04:00 UTC, and on **Scan now** (admins and defenders):
+
+- **Update available:** the newest tag of the same form in the image's registry, such as `7.261030.1` → `7.261105.0`. Pre-release tags (rc, beta, alpha) are skipped, and the newest tag within the running major version is shown too. Registries that need a login show *registry not readable*.
+- **CVEs now:** critical and high CVEs in the running image (its exact digest), from a Trivy scan.
+- **Fixed by updating:** CVEs in the running image that the newest tag no longer has.
+- **Fix by rebuild:** critical and high CVEs whose package already has a fixed version, so a rebuild fixes them even without a new tag.
+
+Click an image to list its CVEs, with links to NVD and whether each one is gone in the newest tag. An image with critical CVEs fixed by an available update is an Investigate finding, and with high ones a Review finding (`k8s-imgcve|<repo>`).
+
+**Kubernetes events in Open events.** Every Kubernetes warning event (BackOff, Unhealthy, FailedMount, Evicted…) and every container-log hit that is not already a finding (authentication failures, access denied, TLS errors, crashes) is an *Info* host finding (`k8s-ev|…`, `k8s-log|…`). It shows in Open events with low severity, where it can be checked off, correlated and reviewed like any other event. Info events come from the 15-minute snapshot only and never raise a watcher alert. Security-relevant events (forbidden, PodSecurity) stay Review findings and do raise alerts.
+
 ### Devices → Kubernetes map
 
 A live map of the cluster, read through the read-only Kubernetes API account. Each namespace is a box holding its ingresses (⇄, red when a host has no TLS), its services (◆, orange when NodePort or LoadBalancer makes them reachable from outside the cluster) and its pods, with one row per container. Lines go from an ingress to its backend service and from a service to the pods it selects.
@@ -516,7 +529,7 @@ Colours:
 - **Container rows:** the same colours, for that container.
 - **Namespace border:** dashed = no network policy.
 
-**Namespaces ▾** chooses which namespaces to show: tick boxes, or **All**, **None**, **Applications only** (hides kube-*, cattle-*, calico and other platform namespaces) or **With pods**. The choice is kept in your browser. The search box dims everything that does not match a pod, container, image or service name. Drag to pan, scroll to zoom, **Reset view** to start over.
+With *All clusters* selected the map shows every cluster, with each namespace box labelled by its cluster. **Namespaces ▾** chooses which namespaces to show: tick boxes, or **All**, **None**, **Applications only** (hides kube-*, cattle-*, calico and other platform namespaces) or **With pods**. The choice is kept in your browser. The search box dims everything that does not match a pod, container, image or service name. Drag to pan, scroll to zoom, **Reset view** to start over.
 
 Click any item to see its details on the right:
 

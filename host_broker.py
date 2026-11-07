@@ -16,8 +16,10 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
   POST /k8s       {action: overview | pod, minutes, end, ns, pod, text, container, stream, size, before} -> Devices >
                   Kubernetes (k8s.py): read-only Security Onion queries (container logs, k8s events, API server
                   metrics, SO alerts). Overview cached 60 s; at most 600 calls per hour.
-                  {action: map | cis | cis_run} -> the Kubernetes map (kube_map.py) and the CIS benchmark (kube_cis.py),
-                  through the read-only Kubernetes API account (GET only) from Configuration > Integrations > Kubernetes.
+                  {action: clusters | map | cis | cis_run, cluster} -> the configured clusters, the Kubernetes map
+                  (kube_map.py) and the CIS benchmark (kube_cis.py) through the read-only Kubernetes API accounts (GET only).
+                  {action: images | image | images_run} -> container image updates + CVEs (kube_images.py; images_run
+                  starts a background scan, Trivy in a container).
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the event reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
@@ -64,6 +66,27 @@ def esquery(b):
 
 
 _k8s_lock, _k8s_sent, _k8s_cache = threading.Lock(), [], {}
+_bg_threads = {}
+
+
+def _bg(name, fn):
+    """Run fn in one background thread per name (a second request while it runs is a no-op)."""
+    t = _bg_threads.get(name)
+    if t and t.is_alive():
+        return False
+    def run():
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            print(f"{name}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+    _bg_threads[name] = threading.Thread(target=run, daemon=True, name=name)
+    _bg_threads[name].start()
+    return True
+
+
+def _bg_running(name):
+    t = _bg_threads.get(name)
+    return bool(t and t.is_alive())
 
 
 def k8s_ctl(b):
@@ -80,24 +103,40 @@ def k8s_ctl(b):
         if len(_k8s_sent) >= 600:
             raise ValueError("rate limit: too many Kubernetes page queries this hour")
         _k8s_sent.append(now)
-        ck = (act, minutes, end)
+        ck = (act, minutes, end, str(b.get("cluster") or ""))
         if act == "overview" and ck in _k8s_cache and now - _k8s_cache[ck][0] < 60 and not b.get("force"):
             return _k8s_cache[ck][1]
         k8s.set_end(end)
+        if act in ("overview", "pod"):
+            k8s.set_cluster(str(b.get("cluster") or "") or None)
         try:
             if act == "overview":
                 out = k8s.overview(minutes)
                 _k8s_cache.clear()
                 _k8s_cache[ck] = (now, out)
                 return out
-            if act in ("map", "cis", "cis_run"):  # read-only Kubernetes API account (Configuration > Integrations > Kubernetes)
+            if act in ("map", "cis", "cis_run", "clusters", "images", "image", "images_run"):  # read-only Kubernetes API accounts
                 import kube_api
+                cl = str(b.get("cluster") or "") or None
                 try:
+                    if act == "clusters":
+                        import integrations
+                        return {"clusters": [{"name": c["name"], "usable": c["usable"], "cis": c.get("cis")} for c in integrations.kube_clusters()]}
                     if act == "map":
                         import kube_map
-                        return kube_map.build()
+                        return kube_map.build(cluster=cl)
+                    if act in ("images", "image", "images_run"):
+                        import kube_images
+                        if act == "image":
+                            return kube_images.image_detail(str(b.get("image") or ""), str(b.get("digest") or ""))
+                        if act == "images_run":
+                            _bg("k8simages", kube_images.scan)
+                        d = kube_images.latest()
+                        d["running"] = _bg_running("k8simages")
+                        return d
                     import kube_cis
-                    return kube_cis.run_and_save() if act == "cis_run" else (kube_cis.latest() or kube_cis.run_and_save())
+                    cl = cl or kube_api.INTEG.kubernetes()["name"]
+                    return kube_cis.run_and_save(cl) if act == "cis_run" else (kube_cis.latest(cl) or kube_cis.run_and_save(cl))
                 except kube_api.NotConfigured as e:
                     return {"not_configured": True, "error": str(e)}
             if act == "pod":
@@ -106,6 +145,7 @@ def k8s_ctl(b):
                                size=b.get("size") or 200, before=str(b.get("before") or ""))
         finally:
             k8s.set_end(None)
+            k8s.set_cluster(None)
     raise ValueError("unknown action")
 
 

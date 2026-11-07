@@ -1,12 +1,22 @@
 // Generated: info texts for the (i) button on each dashboard box (cardinfo_ui.js). Key: "view|normalised title".
 window.CARD_INFO = {
+"k8s|Container images: updates and CVEs": {
+"source": "kube_images.py: every image running in the configured clusters (read-only Kubernetes API), its registry's tag list (anonymous pull token) and Trivy CVE scans of the running digest and the newest tag. Daily at 04:00 UTC and on Scan now.",
+"use": "Sort by 'Fixed by updating' to see which updates remove the most serious CVEs. 'Fix by rebuild' counts critical/high CVEs whose package has a fix even when no newer tag exists. Click an image for its CVE list with NVD links. Critical CVEs fixed by an update become findings.",
+"what": "Which container images have updates, and which CVEs those updates fix."
+},
+"k8s|No Security Onion data for this cluster": {
+"source": "Security Onion Kubernetes data streams, matched to the cluster by its node names.",
+"use": "Install the Elastic Agent Kubernetes integration in the cluster to get container logs, events and API server metrics.",
+"what": "The selected cluster sends nothing to Security Onion."
+},
 "config|Kubernetes API (read-only)": {
 "source": "Configuration \u2192 Integrations, section kubernetes: API server URL(s), a write-only ServiceAccount token and the cluster CA.",
 "use": "Create the account with docs/kubernetes-readonly.yaml, paste the token and CA, Test (it must say read-only), then Enable and Save. Used by the CIS benchmark (Devices \u2192 Kubernetes) and the Kubernetes map.",
 "what": "Read-only access to the Kubernetes API."
 },
 "k8s|CIS Kubernetes benchmark": {
-"source": "kube_cis.py through the read-only Kubernetes API account (Configuration → Integrations → Kubernetes API): control-plane static pod flags, RBAC, pods, namespaces, network policies. GET requests only.",
+"source": "kube_cis.py through each cluster's read-only Kubernetes API account (one box per cluster) (Configuration → Integrations → Kubernetes API): control-plane static pod flags, RBAC, pods, namespaces, network policies. GET requests only.",
 "use": "Fix failed checks or accept them with a reason in Settings → Endpoint policy → k8s → cis_accept. warn rows are lists to review by hand. Sections 1.1, 2 and 4 need node access and stay manual. Run now re-checks immediately; otherwise every 6 hours.",
 "what": "CIS Kubernetes Benchmark results for the checks the API can answer."
 },

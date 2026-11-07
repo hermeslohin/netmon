@@ -332,6 +332,8 @@ configuration itself: the **CIS Kubernetes benchmark** and the **Kubernetes map*
 
 The token is write-only (never shown again). The API server certificate is always verified.
 
+For more than one cluster, repeat the steps in each cluster and fill in the **Kubernetes API: add a cluster** card (pick a short name). Image update and CVE checks run [Trivy](https://trivy.dev) in a container (`aquasec/trivy`) on the host with Docker. Its vulnerability database is cached in `~/netmon-trivy-cache` (about 3 GB), and it scans images straight from their registries (`--image-src remote`), so images are never pulled into Docker.
+
 ### Threat-intel feeds
 
 **More > Configuration > Integrations > Threat-intel feeds** lists the block lists netmon downloads (every 12 h) and

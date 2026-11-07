@@ -152,7 +152,7 @@
     if (sec === "elasticsearch") b.indices = Object.fromEntries(Object.keys(I.index_defaults).map((k) => [k, v("es-ix-" + k)]));
     if (sec === "web") Object.assign(b, { provider: c.querySelector("#web-provider")?.value || "duckduckgo",
       ca_pem: c.querySelector("#web-ca")?.value.trim() || "", clear_ca: !!c.querySelector("#web-ca-clr")?.checked });
-    if (sec === "kubernetes") Object.assign(b, { url: v("kubernetes-url"), enabled: !!c.querySelector("#kb-enabled")?.checked, cis: !!c.querySelector("#kb-cis")?.checked,
+    if (sec === "kubernetes") Object.assign(b, { cluster: c.dataset.cluster || v("kb-name").toLowerCase(), url: v("kubernetes-url"), enabled: !!c.querySelector("#kb-enabled")?.checked, cis: !!c.querySelector("#kb-cis")?.checked,
       ca_pem: c.querySelector("#kb-ca")?.value.trim() || "", clear_ca: !!c.querySelector("#kb-ca-clr")?.checked });
     if (sec === "opencti") {
       const ck = (id) => !!c.querySelector("#" + id)?.checked;
@@ -282,18 +282,33 @@
       + cb("oc-inc", O.incidents, "Incidents", "Open events the reviewer labelled suspicious become OpenCTI incidents, with their external IPs and domains attached (internal addresses stay in the description). Up to 25 new per run.")
       + `<label class="cfg-f" style="display:inline-block;margin:4px 16px 4px 22px"><span class="small"><b>Minimum severity</b></span><br><select id="oc-sev">${O.sevs.map((x) => `<option${x === O.incident_min_sev ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>`
       + `<label class="cfg-f" style="display:inline-block;margin:4px 0"><span class="small"><b>Minimum reviewer confidence</b></span><br><input id="oc-conf" type="number" min="0.5" max="1" step="0.05" value="${esc(String(O.incident_min_conf))}" style="width:90px"></label>`, O);
-    const K = D.kubernetes || { enabled: false, cis: true, url: "" };
-    const ck = intCard("kubernetes", "Kubernetes API (read-only)", "Optional. A read-only ServiceAccount token lets netmon run the CIS Kubernetes benchmark checks and draw the Kubernetes map (Devices → Kubernetes map). Logs and events still come from Security Onion. The account needs only get/list/watch; netmon refuses to treat a token that can write, read secrets or exec as read-only and the Test button says so. Example manifest: docs/kubernetes-readonly.yaml.",
-      cb("kb-enabled", K.enabled, "Enabled") + cb("kb-cis", K.cis, "Run CIS benchmark checks", "Every 6 hours (nightly run) and on demand from Devices → Kubernetes. Failed checks become Kubernetes findings.")
-      + fld("kubernetes-url", "API server URL(s)", K.url, "https://k8s-api.example.lan:6443", "One or more https:// URLs, comma-separated (control-plane nodes); the first that answers is used.")
-      + fld("kubernetes-key", "ServiceAccount token", "", K.key_set ? K.key_hint : "eyJhbGciOi… (bearer token)", K.key_set ? keyHelp({ ...K, key_fallback: "nothing (the integration stops)" }) : "Write-only: stored on the server and never shown again.", "password")
-      + `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Cluster CA certificate (PEM)</b></span><div class="muted small">The API server certificate is always verified. Paste the cluster CA (certificate-authority-data from a kubeconfig, base64-decoded).</div>
-         <textarea id="kb-ca" rows="3" spellcheck="false" placeholder="${K.ca_set ? "A CA is saved. Paste a new one to replace it." : "-----BEGIN CERTIFICATE-----"}" style="width:min(560px,100%);box-sizing:border-box;font-family:var(--mono,monospace)"></textarea>
-         ${K.ca_set ? `<div class="muted small"><label><input type="checkbox" id="kb-ca-clr"> remove the saved CA</label></div>` : ""}</label>`, K);
+    // Kubernetes API: one card per cluster (read-only ServiceAccount each) + one to add a cluster
+    const kubeCard = (K, isNew) => {
+      const c = intCard("kubernetes", isNew ? "Kubernetes API: add a cluster" : `Kubernetes API (read-only): ${esc(K.name)}`,
+        isNew ? "Add another cluster. Create the read-only account in it first (docs/kubernetes-readonly.yaml), then paste its token and CA here, Test, Enable and Save."
+          : "A read-only ServiceAccount token lets netmon run the CIS Kubernetes benchmark checks, draw the Kubernetes map and check container images for updates and CVEs. Logs and events come from Security Onion. Test asks the API server what the token may do and says so if it can do more than read. Example manifest: docs/kubernetes-readonly.yaml.",
+        (isNew ? fld("kb-name", "Cluster name", "", "e.g. lab", "Lower-case letters, digits and dashes; shown in the cluster filter on the Kubernetes pages.") : "")
+        + cb("kb-enabled", K.enabled, "Enabled") + cb("kb-cis", K.cis !== false, "Run CIS benchmark checks", "Every 6 hours (nightly run) and on demand from Devices → Kubernetes. Failed checks become Kubernetes findings.")
+        + fld("kubernetes-url", "API server URL(s)", K.url || "", "https://k8s-api.example.lan:6443", "One or more https:// URLs, comma-separated (control-plane nodes); the first that answers is used.")
+        + fld("kubernetes-key", "ServiceAccount token", "", K.key_set ? K.key_hint : "eyJhbGciOi… (bearer token)", K.key_set ? keyHelp({ ...K, key_fallback: "nothing (the cluster stops being checked)" }) : "Write-only: stored on the server and never shown again.", "password")
+        + `<label class="cfg-f" style="display:block;margin:8px 0"><span class="small"><b>Cluster CA certificate (PEM)</b></span><div class="muted small">The API server certificate is always verified. Paste the cluster CA (certificate-authority-data from a kubeconfig, base64-decoded).</div>
+           <textarea id="kb-ca" rows="3" spellcheck="false" placeholder="${K.ca_set ? "A CA is saved. Paste a new one to replace it." : "-----BEGIN CERTIFICATE-----"}" style="width:min(560px,100%);box-sizing:border-box;font-family:var(--mono,monospace)"></textarea>
+           ${K.ca_set ? `<div class="muted small"><label><input type="checkbox" id="kb-ca-clr"> remove the saved CA</label></div>` : ""}</label>`, K);
+      c.dataset.cluster = isNew ? "" : K.name;
+      if (!isNew) {
+        const del = document.createElement("button"); del.textContent = "Remove cluster"; del.className = "danger";
+        c.querySelector(".cfg-test").after(del);
+        del.onclick = async () => { if (!confirm(`Stop checking cluster ${K.name} and delete its saved token?`)) return;
+          try { rerender(await apiPost("/api/config/integrations/kubernetes", { cluster: K.name, delete: true }), "kubernetes", "Removed."); }
+          catch (e) { c.querySelector(".cfg-msg").innerHTML = `<span class="sev-high">${esc(String(e))}</span>`; } };
+      }
+      return c;
+    };
+    const kubeCards = [...((D.kubernetes || {}).clusters || []).map((K) => kubeCard(K, false)), kubeCard({ enabled: false, cis: true, url: "" }, true)];
     const cf = feedsCard(D.feeds || { items: [], kinds: {} }, O, (R, m) => paintInt(wrap, R, { sec: "feeds", m }));
-    wrap.append(ce, cu, cw, co, ck, cf);
+    wrap.append(ce, cu, cw, co, ...kubeCards, cf);
     const rerender = (R, sec, m) => { paintInt(wrap, R, { sec, m }); };
-    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender); wire(co, "opencti", O, rerender); wire(ck, "kubernetes", K, rerender);
+    wire(ce, "elasticsearch", E, rerender); wire(cu, "unifi", U, rerender); wire(cw, "web", Wb, rerender); wire(co, "opencti", O, rerender); kubeCards.forEach((c) => wire(c, "kubernetes", {}, rerender));
     if (flash) { const m = wrap.querySelector(`[data-sec="${flash.sec}"] .cfg-msg`); if (m) m.innerHTML = `<span class="badge sev-good">${esc(flash.m)}</span>`; }
   }
 

@@ -6,6 +6,7 @@
                  + "Run now" requests from the AI pipeline pages
 Event research (research.py) is never scheduled: the host broker starts it when a person clicks Send to research.
   weekly         Sunday 03:00 UTC            weekly_rebuild.sh (dashboard image rebuild + security scan)
+  k8simages      daily 04:00 UTC             kube_images.py (Kubernetes image updates + CVEs; only with a cluster configured)
 Jobs never overlap with themselves; a slot missed while the host was down is not made up, except the review job,
 which starts late within its own slot. Output of each job goes to logs/<job>.log (rotated at 5 MB).
 
@@ -32,6 +33,7 @@ JOBS = {
     "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
     "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],
+    "k8simages": [PY, os.path.join(NM, "kube_images.py")],  # daily: container image updates + CVEs (Trivy) for every Kubernetes cluster
     "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
 running = {}
@@ -73,6 +75,14 @@ def reap():
             del running[n]
 
 
+def _kube_wanted():
+    try:
+        import integrations
+        return any(c["usable"] for c in integrations.kube_clusters())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _opencti_wanted():
     """Configured, or switched off with its lists still in the store (one more run removes them)."""
     try:
@@ -100,6 +110,10 @@ def tick(now=None):
     uq = int(now // 300)
     if s.get("unifi") != uq and start("unifi", why="(5-min slot)"):
         s["unifi"] = uq
+    # Kubernetes image updates + CVE scan: daily, 04:00-04:59 UTC, only when a Kubernetes cluster is configured
+    dy = t.strftime("%Y-%m-%d")
+    if t.hour == 4 and s.get("k8simages") != dy and _kube_wanted() and start("k8simages", why="(daily 04 UTC)"):
+        s["k8simages"] = dy
     # weekly rebuild: Sunday 03:00-03:59 UTC, once per week
     wk = t.strftime("%G-W%V")
     if t.weekday() == 6 and t.hour == 3 and s.get("weekly") != wk:

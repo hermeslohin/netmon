@@ -37,7 +37,7 @@ class FindingsTest(unittest.TestCase):
         self.assertTrue(f[0][0].startswith("k8s-log|cmd|apps|web|web"))
         self.assertEqual(self.keys({"signals": [sig("miner", "high", ns="opencti", exempt="threat intel")]}), [])
         self.assertEqual(self.keys({"signals": [sig("secret", "medium")]}), ["k8s-log|secret|apps|web|web"])
-        self.assertEqual(self.keys({"signals": [sig("denied", "low", count=500)]}), [])
+        self.assertEqual(self.keys({"signals": [sig("denied", "low", count=500)]}, nightly=False), [])  # nightly: an Info event (Open events)
 
     def test_replicas_share_one_key(self):
         """REQ: KUBE-02"""
@@ -57,7 +57,8 @@ class FindingsTest(unittest.TestCase):
                         {"security": False, "message": "Readiness probe failed", "ns": "apps", "reason": "Unhealthy", "kind": "Pod", "object": "y"}],
              "alerts": [{"severity": "high", "rule": "ET EXPLOIT x", "count": 2, "hosts": ["node1"], "src": []}, {"severity": "low", "rule": "ET INFO y", "count": 9, "hosts": [], "src": []}],
              "new_images": ["evil/miner:latest"]}
-        self.assertEqual(self.keys(d), ["k8s-ev|apps|FailedCreate|x-6d4cf56db6", "k8s-alert|ET EXPLOIT x", "k8s-img|evil/miner:latest"])
+        self.assertEqual(self.keys(d), ["k8s-ev|apps|FailedCreate|x-6d4cf56db6", "k8s-ev|apps|Unhealthy|y", "k8s-alert|ET EXPLOIT x", "k8s-img|evil/miner:latest"])
+        self.assertEqual(self.keys(d, nightly=False), ["k8s-ev|apps|FailedCreate|x-6d4cf56db6", "k8s-alert|ET EXPLOIT x", "k8s-img|evil/miner:latest"])
 
 
 class HelpersTest(unittest.TestCase):
@@ -87,7 +88,7 @@ class HelpersTest(unittest.TestCase):
     def test_only_security_onion(self):
         """REQ: KUBE-01"""
         src = open(k8s.__file__).read()
-        for bad in ("kubectl", "kubeconfig", "subprocess", "/api/v1/", "6443"):
+        for bad in ("kubectl", "kubeconfig", "subprocess", "6443"):  # node names for the cluster filter come via kube_api (read-only, GET)
             self.assertNotIn(bad, src.split('"""', 2)[2])
 
     def test_pod_rejects_bad_names(self):

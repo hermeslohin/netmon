@@ -112,12 +112,58 @@ def exempt(ns, kind, pol=None):
 _END = {"v": None}  # explicit window end (ISO) for dashboard requests through the host broker
 
 
+_CL = {"name": None, "nodes": None}  # dashboard cluster filter: Security Onion docs of that cluster's nodes only
+_NODES = {"t": 0, "v": {}}
+
+
+def cluster_nodes():
+    """{cluster: [node names]} from each configured cluster's API (cached 10 min); {} when none is configured.
+    Security Onion's Kubernetes documents carry no cluster name, so a document belongs to the cluster whose node
+    shipped it (host.name / kubernetes.node.name)."""
+    if time.time() - _NODES["t"] < 600:
+        return _NODES["v"]
+    out = {}
+    try:
+        import kube_api
+        for name, cli in kube_api.clusters():
+            try:
+                out[name] = sorted(n["metadata"]["name"] for n in cli.items("/api/v1/nodes"))
+            except Exception as e:  # noqa: BLE001 - one unreachable cluster must not hide the others
+                print(f"k8s: nodes of {name}: {e}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"k8s: clusters: {e}", file=sys.stderr)
+    _NODES.update(t=time.time(), v=out)
+    return out
+
+
+def node_cluster():
+    return {n: c for c, ns in cluster_nodes().items() for n in ns}
+
+
+def set_cluster(name):
+    """Limit every query to one cluster's nodes (None = all clusters)."""
+    if not name:
+        _CL.update(name=None, nodes=None)
+        return
+    nodes = cluster_nodes().get(name)
+    if nodes is None:
+        raise ValueError(f"unknown or unreachable Kubernetes cluster '{name}'")
+    _CL.update(name=name, nodes=nodes or ["(none)"])
+
+
+def _cl_filter():
+    return {"terms": {"host.name": _CL["nodes"]}} if _CL["nodes"] else None
+
+
 def rng(minutes):
     if _END["v"]:
         m = max(1, int(round(minutes)))
-        return {"range": {"@timestamp": {"gte": f"{_END['v']}||-{m}m", "lte": _END["v"]}}}
-    import window  # now, or the end of a collect.py time range / the watcher's arrival window
-    return window.since(minutes)
+        r = {"range": {"@timestamp": {"gte": f"{_END['v']}||-{m}m", "lte": _END["v"]}}}
+    else:
+        import window  # now, or the end of a collect.py time range / the watcher's arrival window
+        r = window.since(minutes)
+    cf = _cl_filter()
+    return {"bool": {"filter": [r, cf]}} if cf else r
 
 
 def set_end(end):
@@ -162,7 +208,7 @@ def _sev_of(key):
 
 # ---------------------------------------------------------------- coverage: is Security Onion receiving the data?
 def coverage():
-    r = q("logs-kubernetes.*,metrics-kubernetes.*", {"size": 0, "query": {"range": {"@timestamp": {"gte": "now-7d"}}},
+    r = q("logs-kubernetes.*,metrics-kubernetes.*", {"size": 0, "query": {"bool": {"filter": [{"range": {"@timestamp": {"gte": "now-7d"}}}] + ([_cl_filter()] if _cl_filter() else [])}},
           "aggs": {"ds": {"terms": {"field": "data_stream.dataset", "size": 60},
                           "aggs": {"ing": {"max": {"field": "event.ingested"}}, "ts": {"max": {"field": "@timestamp"}},
                                    "d24": {"filter": {"range": {"@timestamp": {"gte": "now-24h"}}}},
@@ -411,6 +457,19 @@ def overview(minutes):
     ips = [n["ip"] for n in d["inventory"]["nodes"]] + [p["ip"] for p in d["inventory"]["pods"]]
     d["alerts"] = safe(so_alerts, minutes, nodes, ips, default=[])
     d["findings"] = [{"key": k, "priority": p, "text": t} for k, p, t in findings(d, nightly=True)]
+    nc = safe(node_cluster, default={})  # which cluster each row belongs to (several clusters configured)
+    pc = {}
+    for p in d["inventory"]["pods"]:
+        p["cluster"] = nc.get(p["node"], "")
+        pc[(p["ns"], p["pod"])] = p["cluster"]
+    for n in d["inventory"]["nodes"]:
+        n["cluster"] = nc.get(n["node"], "")
+    for s in d["signals"] if isinstance(d["signals"], list) else []:
+        s["cluster"] = pc.get((s["ns"], s["pod"]), "")
+    for e in d["events"] if isinstance(d["events"], list) else []:
+        e["cluster"] = nc.get(e.get("source", ""), "")
+    d["cluster"] = _CL["name"]
+    d["so_nodes"] = {c: [n for n in ns if n in {x["node"] for x in d["inventory"]["nodes"]}] for c, ns in (nc and cluster_nodes() or {}).items()}
     d["seconds"] = round(time.time() - t0, 1)
     return d
 
@@ -502,20 +561,37 @@ def findings(d, nightly=True):
                             for x in a["rows"] if x["why"] == "denied")[:240]
             F.append(("k8s-api|denied", "Review", f"{a['denied']} unauthorized/forbidden (401/403) API server responses: {top}"))
     for e in d.get("events") or []:
+        cl = f" [{e['cluster']}]" if e.get("cluster") else ""
         if e["security"] and any(w in e["message"].lower() for w in ("forbidden", "podsecurity", "violates", "unauthorized", "denied")):
             F.append((f"k8s-ev|{e['ns']}|{e['reason']}|{_stable_pod(e['object'])}", "Review",
-                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}: {e['message'][:200]}"))
+                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}{cl}: {e['message'][:200]}"))
+        elif nightly:  # every other Warning event -> Open events (low; snapshot only, never a watcher alert)
+            F.append((f"k8s-ev|{e['ns']}|{e['reason']}|{_stable_pod(e['object'])}", "Review" if e["security"] else "Info",
+                      f"Kubernetes {e['reason']} on {e['kind']} {e['ns']}/{e['object']}{cl} x{e.get('count', 1)}: {e['message'][:200]}"))
+    if nightly:  # container-log hits that are not findings above (auth failures, denied, TLS, crashes) -> Open events, low
+        for s in d.get("signals") or []:
+            if s.get("exempt") or s["severity"] == "high" or s["kind"] == "secret":
+                continue
+            F.append((f"k8s-log|{s['kind']}|{s['ns']}|{_stable_pod(s['pod'])}|{s['container']}", "Info",
+                      f"{s['label']} in container logs of {s['ns']}/{s['pod']} ({s['container']}): {s['count']}x - e.g. {(s['examples'] or [''])[0][:160]}"))
     for al in d.get("alerts") or []:
         if al["severity"] in ("high", "critical"):
             F.append((f"k8s-alert|{al['rule']}", "Investigate", f"Security Onion alert on a Kubernetes node/pod: {al['rule']} x{al['count']} "
                                                                 f"({', '.join(al['hosts'] or al['src'])[:120]})"))
     for im in (d.get("new_images") or []):
         F.append((f"k8s-img|{im}", "Review", f"New container image running in Kubernetes: {im}"))
-    if nightly and isinstance(d.get("cis"), dict):  # CIS benchmark (kube_cis.py, read-only Kubernetes API account)
+    if nightly and isinstance(d.get("cis"), dict):  # CIS benchmark per cluster (kube_cis.py, read-only Kubernetes API account)
         import kube_cis
-        F += kube_cis.findings(d["cis"])
-        if d["cis"].get("error") and not d["cis"].get("not_configured"):
-            F.append(("k8s-cis|error", "Review", f"CIS Kubernetes benchmark could not run: {d['cis']['error'][:200]}"))
+        for cl, c in d["cis"].items():
+            if not isinstance(c, dict) or "results" not in c and "error" not in c:
+                continue
+            c.setdefault("cluster", cl)
+            F += kube_cis.findings(c)
+            if c.get("error") and not c.get("not_configured"):
+                F.append((f"k8s-cis|{cl}|error", "Review", f"CIS Kubernetes benchmark could not run on cluster {cl}: {c['error'][:200]}"))
+    if nightly and isinstance(d.get("images_scan"), dict):  # image CVEs fixed by an available update (kube_images.py)
+        import kube_images
+        F += kube_images.findings(d["images_scan"])
     seen, out = set(), []
     for f in F:  # one finding per key (several pods of one ReplicaSet share a key)
         if f[0] not in seen:
@@ -534,20 +610,27 @@ CIS_EVERY_H = 6  # the benchmark is configuration, not events: re-run at most th
 
 
 def cis_latest(run=True):
-    """Newest CIS results (store doc k8s/cis); re-run when older than CIS_EVERY_H and the integration is on."""
+    """{cluster: newest CIS results} (store docs k8s/cis/<cluster>); a cluster's run is redone when older than CIS_EVERY_H."""
     import integrations
     import kube_cis
-    kc = integrations.kubernetes()
-    if not (kc["usable"] and kc.get("cis")):
-        return {"not_configured": True, "results": [], "error": "Kubernetes API integration is off or CIS checks are turned off"}
-    cur = kube_cis.latest()
-    age_h = (time.time() - time.mktime(time.strptime(cur["generated"][:19], "%Y-%m-%dT%H:%M:%S")) + time.timezone) / 3600 if cur.get("generated") else 1e9
-    return kube_cis.run_and_save() if run and age_h >= CIS_EVERY_H else cur
+    out = {}
+    for kc in integrations.kube_clusters():
+        if not (kc["usable"] and kc.get("cis")):
+            continue
+        cur = kube_cis.latest(kc["name"])
+        age_h = (time.time() - time.mktime(time.strptime(cur["generated"][:19], "%Y-%m-%dT%H:%M:%S")) + time.timezone) / 3600 if cur.get("generated") else 1e9
+        out[kc["name"]] = kube_cis.run_and_save(kc["name"]) if run and age_h >= CIS_EVERY_H else cur
+    return out
 
 
 def collect(hours=24, update=True):
     d = overview(hours * 60)
     d["cis"] = safe(cis_latest, update, default={})
+    try:
+        import kube_images
+        d["images_scan"] = kube_images.latest()  # the daily scheduler job (k8simages) does the scanning
+    except Exception as e:  # noqa: BLE001
+        d["images_scan"] = {"error": str(e)[:200]}
     try:
         import store
         base = store.doc_get("k8s/images", {}) or {}

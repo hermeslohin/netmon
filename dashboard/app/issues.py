@@ -34,6 +34,11 @@ IP2MAC = {}  # filled by track(): ip -> mac learned across all snapshots
 
 
 _LOOK = None  # while track() evaluates one snapshot: {ip: IP2MAC value used}, so a cached result knows what it depended on
+# IP2MAC and _LOOK are module state: two threads evaluating at once (a page request and a background job when a new
+# snapshot lands) clobbered each other - one thread's `_LOOK = None` reached the other's result and cached
+# look=None, and every later Fix list / risk call failed until a restart. track()/track_incremental() hold this lock.
+import threading as _threading
+_TRACK_LOCK = _threading.RLock()
 
 
 def _dkey(ip, d=None):
@@ -258,13 +263,13 @@ def _devmap(raw):
 def _eval(raw, an):
     """One snapshot's tracker inputs (needs IP2MAC filled): devices present, issues, sources, full-day flag, IP2MAC lookups."""
     global _LOOK
-    _LOOK = {}
+    look = _LOOK = {}
     try:
         present = {_dkey(ip, d) for ip, d in (raw.get("devices") or {}).items()}
         cur = check_snapshot(raw, an)
         srcs = sources_of(raw, an)
         full = float(raw.get("hours") or 24) >= 23
-        return {"present": present, "cur": cur, "srcs": srcs, "full": full, "look": _LOOK}
+        return {"present": present, "cur": cur, "srcs": srcs, "full": full, "look": look}
     finally:
         _LOOK = None
 
@@ -278,6 +283,11 @@ def _site_sig():
 
 def track(snaps, min_occ=2):
     """snaps: ordered, re-iterable (walked twice) (sid, generated, raw, analysis). Returns tracker dict."""
+    with _TRACK_LOCK:
+        return _track(snaps, min_occ)
+
+
+def _track(snaps, min_occ=2):
     IP2MAC.clear()
     for _, _, raw, _ in snaps:
         IP2MAC.update(_devmap(raw))
@@ -285,6 +295,11 @@ def track(snaps, min_occ=2):
 
 
 def track_incremental(items, cache, min_occ=2, keep=8):
+    with _TRACK_LOCK:
+        return _track_incremental(items, cache, min_occ, keep)
+
+
+def _track_incremental(items, cache, min_occ=2, keep=8):
     """track() over [(sid, mtime, load)] where load() -> (generated, raw, analysis) or None, reusing `cache` (a dict the
     caller keeps): a snapshot is parsed again only when it is new/changed or an IP2MAC value / site setting it used changed.
     Same result as track(); at most `keep` freshly parsed snapshots are held at once."""
@@ -312,7 +327,8 @@ def track_incremental(items, cache, min_occ=2, keep=8):
     for sid in live:
         c = cache[sid]
         ev = c["ev"]
-        if ev is None or c.get("site") != site or any(IP2MAC.get(ip) != v for ip, v in ev["look"].items()):
+        if ev is None or not isinstance(ev.get("look"), dict) or c.get("site") != site \
+                or any(IP2MAC.get(ip) != v for ip, v in ev["look"].items()):
             got = fresh.pop(sid, None) or loads[sid]()
             if not got or not got[1]:
                 continue

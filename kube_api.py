@@ -24,12 +24,13 @@ class NotConfigured(RuntimeError):
 
 
 class Client:
-    def __init__(self, cfg=None, timeout=20):
-        c = cfg if cfg is not None else INTEG.kubernetes()
+    def __init__(self, cfg=None, timeout=20, cluster=None):
+        c = cfg if cfg is not None else INTEG.kubernetes(cluster)
+        self.name = c.get("name") or cluster or "default"
         if not (c.get("url") and c.get("api_key")):
-            raise NotConfigured("Kubernetes API not configured (Configuration > Integrations > Kubernetes)")
+            raise NotConfigured(f"Kubernetes cluster '{self.name}' not configured (Configuration > Integrations > Kubernetes API)")
         if cfg is None and not c.get("enabled"):
-            raise NotConfigured("Kubernetes API integration is turned off (Configuration > Integrations > Kubernetes)")
+            raise NotConfigured(f"Kubernetes cluster '{self.name}' is turned off (Configuration > Integrations > Kubernetes API)")
         self.urls = [u.strip().rstrip("/") for u in str(c["url"]).split(",") if u.strip()]
         for u in self.urls:
             if not u.startswith("https://"):
@@ -95,6 +96,11 @@ class Client:
         return None
 
 
+def clusters(cis_only=False):
+    """[(name, Client)] for every enabled cluster (cis_only: those with CIS checks on)."""
+    return [(c["name"], Client(c)) for c in INTEG.kube_clusters() if c["usable"] and (c.get("cis") or not cis_only)]
+
+
 def check(cfg):
     """Integration test: version, identity checks (must be read-only)."""
     c = Client(cfg)
@@ -108,4 +114,4 @@ def check(cfg):
 
 
 if __name__ == "__main__":
-    print(json.dumps(check(INTEG.kubernetes()), indent=1))
+    print(json.dumps({c["name"]: check(c) for c in INTEG.kube_clusters() if c["url"]}, indent=1))
