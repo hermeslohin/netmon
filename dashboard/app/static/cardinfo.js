@@ -1,5 +1,85 @@
 // Generated: info texts for the (i) button on each dashboard box (cardinfo_ui.js). Key: "view|normalised title".
 window.CARD_INFO = {
+"k8s|Kubernetes findings": {
+"source": "k8s.py findings over the chosen window: Security Onion data only (container logs, Kubernetes events, API server metrics, SO alerts).",
+"use": "Each one is also raised by the 15-minute watcher and added to the nightly host findings (key prefix k8s-). Tune thresholds and exempt namespaces in Settings → Endpoint policy → k8s.",
+"what": "Kubernetes security problems found in this window."
+},
+"k8s|Security Onion data coverage": {
+"source": "The logs-kubernetes.* and metrics-kubernetes.* data streams in Security Onion: last arrival (event.ingested), documents in 24 h and the newest collector error.",
+"use": "If container logs are stale or missing, the log-based checks are blind. Fix the Kubernetes integration in the Fleet policy. Error rows are collectors that run but cannot reach their target.",
+"what": "Which Kubernetes data Security Onion is receiving."
+},
+"k8s|Container-log security signals": {
+"source": "Container log lines (logs-kubernetes.container_logs) that match security phrases: reverse shells, miners, web-attack payloads, private keys, auth failures, access denied, TLS errors, crashes.",
+"use": "Click a row to open the pod with its logs. Rows marked [exempt] belong to namespaces exempted in Settings → Endpoint policy → k8s and raise no finding.",
+"what": "Security-relevant text in container logs, by pod and container."
+},
+"k8s|API server security": {
+"source": "metrics-kubernetes.apiserver request counters (increase over the window per verb, resource, subresource and code).",
+"use": "Pod exec / attach / port-forward means someone opened a shell or tunnel into a container: confirm it was you. 401/403 bursts can mean probing with a stolen or wrong token. These counters have no user names; use the cluster audit log for who.",
+"what": "What the Kubernetes API server answered: denials, interactive access, RBAC and secret writes."
+},
+"k8s|API server responses by code": {
+"source": "metrics-kubernetes.apiserver request counters, summed by HTTP response code.",
+"use": "Watch for 401/403 and 5xx. 429 means the API server is throttling clients.",
+"what": "API server responses by status code."
+},
+"k8s|Kubernetes warning events": {
+"source": "metrics-kubernetes.event, type Warning, newest occurrence per event.",
+"use": "Rows marked sec are security-relevant (forbidden, PodSecurity, admission denials, image pull problems, evictions). Click a pod name to open it.",
+"what": "Kubernetes warning events in the window."
+},
+"k8s|Security Onion alerts on nodes and pods": {
+"source": "logs-detections.alerts-so and logs-suricata.alerts-so where source, destination or host is a Kubernetes node or pod IP.",
+"use": "High-severity rows also raise a finding. Click an IP to open it as a network device.",
+"what": "Security Onion alerts that involve the cluster."
+},
+"k8s|Pods": {
+"source": "Pod and container metrics plus container-log volume per pod (metrics-kubernetes.pod/container, logs-kubernetes.container_logs).",
+"use": "Sort by security hits or restarts; click a pod to see its logs, events and alerts.",
+"what": "Every pod seen in the window."
+},
+"k8s|Container images": {
+"source": "container.image.name from the container logs; the nightly run keeps a baseline of images seen.",
+"use": "A new image raises a finding. :latest or untagged images are mutable: pin a version or digest.",
+"what": "Container images running in the cluster."
+},
+"k8s|Nodes": {
+"source": "Kubernetes node metrics and the Elastic Agent registry (.fleet-agents).",
+"use": "An agent that stops checking in raises a finding; unhealthy inputs show which collector is failing.",
+"what": "Cluster nodes and their Elastic Agent health."
+},
+"k8spod|Pivot": {
+"source": "Links built from the pod's namespace, name, node and IP; Kibana base URL from Settings → Site (kibana_url).",
+"use": "Open the raw documents in Kibana, the node's endpoint page or the pod IP's network page.",
+"what": "Jump from this pod to related data."
+},
+"k8spod|Log volume": {
+"source": "logs-kubernetes.container_logs for this pod, per 15 minutes (per hour for windows over 24 h), split into stdout and stderr.",
+"use": "A burst of stderr often marks the moment something went wrong.",
+"what": "How much the pod logged over time."
+},
+"k8spod|Container logs": {
+"source": "logs-kubernetes.container_logs for this pod in Security Onion, newest first, up to 300 lines per page.",
+"use": "Filter by words, container or stream. Use Older lines to page back. The filters are in the address, so the view can be bookmarked. Opening pod logs is recorded in the audit log.",
+"what": "The pod's log lines."
+},
+"k8spod|Container-log security signals": {
+"source": "Same security phrases as on the Kubernetes page, for this pod only.",
+"use": "Click a row to filter the log viewer to that signal.",
+"what": "Security-relevant text in this pod's logs."
+},
+"k8spod|Kubernetes warning events": {
+"source": "metrics-kubernetes.event warnings whose involved object is this pod.",
+"use": "BackOff, Unhealthy and FailedMount explain restarts. Forbidden or PodSecurity events point to a policy violation.",
+"what": "Warning events for this pod."
+},
+"k8spod|Security Onion alerts on this pod / node": {
+"source": "Suricata and detection alerts whose source, destination or host is this pod's IP or node.",
+"use": "Click an IP to open it as a network device.",
+"what": "Security Onion alerts involving this pod."
+},
 "audit|Audit log storage": {
 "source": "Dashboard settings (integrations.json, section audit) and a live count from the Security Onion Elasticsearch index logs-netmon.",
 "use": "Green 'connected' means entries are being written. If Elasticsearch is unreachable or no key is set, entries wait on the dashboard and are sent automatically later. The key only needs create_doc and read on logs-netmon. The two checkboxes switch the event reviewer's (correlation + review job) and event research's entries on or off independently.",

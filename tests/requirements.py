@@ -296,5 +296,10 @@ REQUIREMENTS = {
     "FEAT-10": ("AI pipeline pages", "Both AI pipeline pages fold their boxes into four part boxes (Models, Correlation review, Event review, Research review), each with an ⓘ text (what, source, use) under the cardinfo.js key view|title, normalised the same way as cardinfo_ui.js.", "git 38dd1a3, 76d0f88; references/dashboard.md"),
     "FEAT-11": ("Box info texts", "Every new or renamed top-level dashboard box (Alerts: Recent alerts, Detections by verdict; Configuration: Auto-close) has its own ⓘ text in cardinfo.js instead of the generic fallback.", "home-network-report skill step 7 (cardinfo.js)"),
     "SET-90": ("Settings", "Every setting the code exposes (settings endpoints, Integrations sections, Settings-page documents, setter functions) is listed in the settings inventory, and each one is verified by at least one test.", "TESTING.md (Settings coverage)"),
+    # ---- Kubernetes (Devices > Kubernetes, k8s.py) ----
+    "KUBE-01": ("Kubernetes", "Kubernetes monitoring reads only Security Onion Elasticsearch (esq/integrations); a shard failure is an error, never a silent partial result.", "USER_GUIDE.md (Devices → Kubernetes)"),
+    "KUBE-02": ("Kubernetes", "Stale or missing container logs, high-severity container-log signals (reverse shell, miner, web attack), secrets in logs, pod exec/attach/port-forward, 401/403 bursts, forbidden/PodSecurity events, high SO alerts and new images raise k8s- findings; namespaces exempt in host_policy k8s.signal_exempt raise none.", "USER_GUIDE.md (Devices → Kubernetes)"),
+    "KUBE-03": ("Kubernetes", "API server request counters are turned into per-window increases (max - min per series) and classified as denied, exec, rbac, secrets-read or error.", "k8s.py"),
+    "KUBE-04": ("Kubernetes", "Kubernetes findings join the nightly host findings (key prefix k8s-, no duplicates) so correlation, review and Posture see them; the pod pivot rejects malformed namespace/pod names.", "USER_GUIDE.md (Devices → Kubernetes)"),
     "OPS-05": ("Operations", "The dashboard's parsed-document cache is bounded (LRU), so walking every snapshot cannot exhaust the container's memory.", "server.py"),
 }

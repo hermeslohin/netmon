@@ -1403,7 +1403,7 @@ async function route(keep) {
   let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
   if (isUserRole() && !USER_VIEWS.has(view)) { view = "my"; rest = []; }
   const arg = decodeURIComponent(rest.join("/"));
-  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "tls" && a.dataset.r === "dns")));
+  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "k8spod" && a.dataset.r === "k8s") || (view === "tls" && a.dataset.r === "dns")));
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
   const el = $("#main");
   const morph = !!keep && el.childElementCount > 0 && el.dataset.view === view && view !== "chat";  // chat keeps live stream state: plain render

@@ -634,3 +634,9 @@ a.oe-rel .rel-why{display:block;margin-top:2px}
 /* Alerts: the event reviewer's paragraph under each alert (all roles) */
 .ai-rev { margin-top: 4px; padding: 4px 8px; border-left: 3px solid var(--accent, #4a8); background: rgba(127,127,127,.08); border-radius: 4px; white-space: normal; line-height: 1.35; max-width: 70ch; }
 .ai-rev-h { font-weight: 600; margin-right: 4px; }
+
+/* Devices > Kubernetes: pod log viewer (k8s.js) */
+.k8slog { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 70vh; overflow: auto; background: rgba(0,0,0,.18); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
+.k8slog > div { white-space: pre-wrap; word-break: break-word; border-bottom: 1px solid rgba(127,127,127,.12); padding: 1px 0; }
+.k8slog > div.err { color: #ff9a8f; }
+tr.muted td { opacity: .6; }

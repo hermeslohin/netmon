@@ -11,6 +11,8 @@ Checks over the last WINDOW minutes:
   6. Host anomalies (Elastic Agent / Defend)
   7. Admin access: failed logins / password guessing / refused connections on SSH, RDP, PsExec/SMB, WMI, WinRM, VNC...
      (lateral.admin_sessions levels: high = guessing or >=3 failures then success, medium = any failed login or >=5 refused)
+  8. Kubernetes (k8s.py, Security Onion data only): attack / miner / reverse-shell / secret text in container logs, pod
+     exec/attach/port-forward and 401/403 at the API server, forbidden/PodSecurity events, new images, stale container logs
 Each finding is suppressed for SUPPRESS_H hours after it is first sent.
 
 Window = ARRIVAL time (window.py): every check covers the events Elasticsearch stored since the previous successful
@@ -309,6 +311,25 @@ try:
 except Exception as e:
     FAILED_CHECKS.append("admin")
     print(f"(admin checks failed: {type(e).__name__}: {e})", file=sys.stderr)
+
+# 8. Kubernetes (k8s.py, Security Onion data only): container-log attack/miner/reverse-shell/secret patterns, pod exec /
+#    attach / port-forward and 401/403 bursts at the API server, PodSecurity/forbidden events, new images, and the
+#    container-log feed going stale.
+try:
+    import k8s  # noqa: E402
+    _kf, _kerr = k8s.watch_findings(WINDOW)
+    for k, pri, t in _kf:
+        try:
+            import mitre
+            t += mitre.tags_for("host", f"{k}|{t}")
+        except Exception:
+            pass
+        alert(k, f"**Kubernetes {'ALERT' if pri == 'Investigate' else 'notice'}:** {t}")
+    if _kerr:
+        print(f"(kubernetes checks partly failed: {', '.join(_kerr)})", file=sys.stderr)
+except Exception as e:
+    FAILED_CHECKS.append("k8s")
+    print(f"(kubernetes checks failed: {type(e).__name__}: {e})", file=sys.stderr)
 
 # --- dedupe + output ---
 fresh = store.mute_filter(alerts, SUPPRESS_H)  # atomic: prune expired, drop muted, mute the new ones

@@ -465,6 +465,31 @@ Computers running the Elastic Agent: agent health, telemetry and auth/sudo/Defen
 
 ![Endpoints page](img/endpoints.png)
 
+### Devices → Kubernetes
+
+Security monitoring of the Kubernetes cluster, built **only from Security Onion data**: what the Elastic Agent Kubernetes integration ships (container logs, Kubernetes events, API server metrics, pod/container/node metrics) plus Security Onion alerts that involve a node or pod IP. netmon never connects to the cluster (no kubectl, no API access). Choose the window (1 hour to 7 days) at the top, or use the header time picker.
+
+- **Security Onion data coverage:** every Kubernetes data set with its last arrival and collector error. If *kubernetes.container_logs* is stale or missing, the log checks are blind, and a finding says so. Error rows are collectors that run but cannot reach their target (for example kube-state-metrics that is not installed).
+- **Container-log security signals:** container log lines that match reverse-shell and suspicious-command text, crypto-miner indicators, web-attack payloads (`${jndi:`, path traversal, `/etc/passwd`), private keys written to logs, authentication failures, access denied, TLS errors and crashes, by pod and container, with an example line. Namespaces whose logs legitimately contain such text (a threat-intel platform) can be exempted per pattern kind in **Settings → Endpoint policy → k8s → signal_exempt**. Exempt rows stay visible, greyed out, and raise no finding.
+- **API server security:** what the API server counted in the window: 401/403 responses, pod **exec / attach / port-forward** (interactive access into containers), writes to RBAC objects, secrets, webhooks and nodes, throttling and 5xx. These are request counters, not audit logs, so they show the kind of request and its result but not who sent it.
+- **Kubernetes warning events:** warning events (BackOff, Unhealthy, FailedMount, Evicted…), with security-relevant ones (forbidden, PodSecurity, admission denials, image pull problems) marked *sec*.
+- **Security Onion alerts on nodes and pods:** Suricata and detection-rule alerts whose source, destination or host is a node or pod.
+- **Pods, Container images, Nodes:** inventory with security hits, restarts and log volume per pod; images with mutable-tag warnings (`:latest` or no tag); nodes with Elastic Agent health.
+
+Click a pod (or a signal row) to **pivot into the pod**. The pod page shows its node and IP, security hits, warning events, Security Onion alerts and a log-volume chart (stdout and stderr). It also has a log viewer that you can filter by text, container and stream, with an **Older lines** link. The filters are kept in the address, so a filtered view can be bookmarked. The **Pivot** box links to Kibana (all logs of the pod, stderr only, network logs of the pod IP, Kubernetes events), the node's endpoint page and the pod IP as a network device.
+
+Kubernetes findings use keys that start with `k8s-`. The 15-minute watcher raises them as alerts (check 8), and the nightly snapshot adds them to the host findings, so the correlation, the review job and Posture handle them like any other host finding. Findings cover:
+
+- container-log feed stale;
+- reverse shell, miner, web-attack or secret text in container logs;
+- pod exec/attach/port-forward;
+- bursts of 401/403 responses;
+- forbidden or PodSecurity events;
+- high-severity Security Onion alerts on a node or pod;
+- a container image not seen before.
+
+Opening a pod's logs is recorded in the audit log (`k8s.pod_logs`).
+
 ### Devices → Notes
 
 The notes knowledge base. (Notes about external IPs and DNS names are on **Network → Internet notes**, below.) **Event notes awaiting approval** lists notes written by User-role accounts, with Approve and Reject (the AI never reads a note until it is approved). **Host notes** are what the AI and people have written about each device (role, what is normal, decisions), by category. The event reviewer also writes **expected behavior** host notes (category *behavior*) when it is confident that a related link is normal, for example a scheduled backup between two hosts. **Event notes** are notes on single events. AI runs read these notes before judging a device or an event; notes written by people count as authoritative. Host notes also appear on the device and endpoint pages.

@@ -72,6 +72,11 @@ DOCS = {
         "service_child_suspicious": "One regular expression naming child programs that a service should never start: shells, curl/wget, netcat, socat, telnet, base64... Used with service_parents.",
         "package_managed_prefixes": "Directories whose contents are owned by the OS package manager (/usr/bin, /usr/sbin, /lib...). An executable outside them is 'unmanaged'; a changed file inside them without a package update is suspicious.",
         "osquery": "Rules for the osquery host-posture pack: package_managed_prefixes, max_uptime_days (flag hosts that have not rebooted for kernel updates, default 45), risky_exposed_ports (port -> why it is risky when listening on the LAN), sysctl_expect (kernel setting -> accepted values, severity and reason), host_exceptions (host -> {posture item: reason} to accept a known risk) and the ld_preload_allow / nopasswd_allow / deleted_allow lists of accepted items.",
+        "k8s": "Kubernetes checks (Devices > Kubernetes, nightly report and 15-minute watcher; data from Security Onion only). "
+               "signal_exempt: namespace -> {kinds, reason} for apps whose container logs legitimately contain attack or malware text "
+               "(threat-intel platforms, scanners); kinds are cmd, miner, webattack, secret, authfail, denied, tls, crash or * for all. "
+               "Exempt hits stay visible on the page but raise no finding. exec_alert: pod exec/attach/port-forward requests to the API "
+               "server in one window that raise a finding (default 1). deny_alert: 401/403 API server responses in one window (default 20).",
         "endpoint_ips": "Maps an endpoint (Elastic Agent) host name to its LAN IP so host findings are tied to the right device for per-device alert subscriptions, risk scoring and the network map.",
     },
     "known_benign": {

@@ -430,6 +430,8 @@ def collect_extras(devs):
     jobs["hosts"] = lambda: hosts.collect(HOURS, update=not RANGE_END)  # a time range never changes the host baseline
     import mitre
     jobs["mitre_ids"] = lambda: mitre.collect_ids(HOURS)
+    import k8s  # Kubernetes security (Security Onion data only): container logs, events, API server, SO alerts on nodes/pods
+    jobs["k8s"] = lambda: k8s.collect(HOURS, update=not RANGE_END)
     for k, fn in jobs.items():
         try:
             out[k] = fn()
@@ -437,7 +439,17 @@ def collect_extras(devs):
             errors[k] = f"{type(e).__name__}: {e}"
             traceback.print_exc()
     out["extras_errors"] = errors
+    _k8s_into_hosts(out)
     return out
+
+
+def _k8s_into_hosts(out):
+    """Kubernetes findings also go into hosts.findings (keys start with 'k8s-'), so the correlation, the review job,
+    auto-close, Posture and the Fix list treat them like every other host finding - no separate plumbing."""
+    kf = (out.get("k8s") or {}).get("findings") or []
+    if kf and isinstance(out.get("hosts"), dict):
+        have = {f.get("key") for f in out["hosts"].get("findings") or []}
+        out["hosts"].setdefault("findings", []).extend(f for f in kf if f.get("key") not in have)
 
 
 def main():
@@ -485,7 +497,7 @@ def main():
 
 # ---- one section at a time (dashboard time range: the host broker runs `collect.py --start --end --section NAME`) ----
 SECTIONS = ["unifi", "totals", "devices", "alerts", "detections", "notices", "dns_tunnel", "threat_intel", "beacons", "internal",
-            "admin_access", "iot_dest", "files", "tls", "hosts", "mitre_ids"]
+            "admin_access", "iot_dest", "files", "tls", "hosts", "mitre_ids", "k8s"]
 
 
 def _devices_section():
@@ -560,6 +572,9 @@ def section(name):
     if name == "hosts":
         import hosts
         return {name: hosts.collect(HOURS, update=False)}  # a section never changes the host baseline
+    if name == "k8s":
+        import k8s
+        return {name: k8s.collect(HOURS, update=False)}
     if name == "mitre_ids":
         import mitre
         return {name: mitre.collect_ids(HOURS)}

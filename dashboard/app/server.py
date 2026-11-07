@@ -226,11 +226,11 @@ def range_status(rid):
 # an empty placeholder of the right shape so every view still renders.
 SECTION_DEFAULTS = {"unifi": {}, "totals": {}, "devices": {}, "alerts": {}, "detections": [], "notices": [], "weird": [], "unknown_dhcp": [],
                     "dns_tunnel": [], "threat_intel": {}, "beacons": {}, "internal": {}, "admin_access": {}, "iot_dest": {}, "files": {},
-                    "tls": {}, "hosts": {}, "mitre_ids": {}, "inventory_ips": {}, "zeek_retention_start": None, "inventory_file": "", "self_ip": ""}
+                    "tls": {}, "hosts": {}, "mitre_ids": {}, "k8s": {}, "inventory_ips": {}, "zeek_retention_start": None, "inventory_file": "", "self_ip": ""}
 SECTION_KEYS = {"unifi": ["unifi"], "totals": ["totals"], "devices": ["devices", "unknown_dhcp", "zeek_retention_start", "inventory_file", "self_ip", "inventory_ips"],
                 "alerts": ["alerts"], "detections": ["detections"], "notices": ["notices", "weird"], "dns_tunnel": ["dns_tunnel"], "threat_intel": ["threat_intel"],
                 "beacons": ["beacons"], "internal": ["internal"], "admin_access": ["admin_access"], "iot_dest": ["iot_dest"], "files": ["files"], "tls": ["tls"],
-                "hosts": ["hosts"], "mitre_ids": ["mitre_ids"]}
+                "hosts": ["hosts"], "mitre_ids": ["mitre_ids"], "k8s": ["k8s"]}
 SECTION_NAMES = list(SECTION_KEYS) + ["analysis"]
 
 
@@ -859,7 +859,7 @@ def with_software_vulns(tr):
 
 
 # ---------------------------------------------------------------- audit log (audit.py -> Elasticsearch logs-netmon)
-AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open"}
+AUDIT_GET = {"/api/ti/lookup": "ti.lookup", "/api/audit": "audit.search", "/api/audit/doc": "audit.open", "/api/k8s/pod": "k8s.pod_logs"}
 AUDIT_TARGET = ("username", "doc", "id", "eid", "key", "pair", "event", "section", "kind", "title", "subject", "route", "provider", "model")
 
 
@@ -1747,6 +1747,17 @@ class H(BaseHTTPRequestHandler):
                 return self._json(tintel.trend_cached([x["id"] for x in snapshots()],
                                                       lambda sid: store.doc_mtime(store.doc_name(os.path.join(DATA, sid + ".json"))),
                                                       lambda sid: store.doc_get(store.doc_name(os.path.join(DATA, sid + ".json")), None)))
+            if path in ("/api/k8s", "/api/k8s/pod"):  # Devices > Kubernetes: Security Onion data via the host broker (no ES key here)
+                g = lambda k, d="": (q.get(k) or [d])[0]  # noqa: E731
+                body = {"action": "pod" if path == "/api/k8s/pod" else "overview", "minutes": g("minutes", "1440"), "end": g("end"),
+                        "force": g("force") == "1"}
+                if path == "/api/k8s/pod":
+                    body.update({k: g(k) for k in ("ns", "pod", "text", "container", "stream", "size", "before")})
+                    self._aud["target"] = f"{body['ns']}/{body['pod']}"
+                try:
+                    return self._json(corr_llm.broker("/k8s", body, timeout=120))
+                except RuntimeError as ex:
+                    return self._json({"error": str(ex)[:300]}, 400 if "broker:" in str(ex) else 503)
             if path == "/api/history":
                 return self._json(history())
             if path == "/api/issues":

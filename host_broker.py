@@ -13,6 +13,9 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
   POST /section {name: "lateral"} -> the lateral-movement report's data for a period (internal flows, admin sessions, violations).
   POST /clef      {action: status | save | start | stop | restart | enable | disable, settings...} -> the decision-model
                   server (systemd user unit netmon-clef, clef.sh): status, model/runtime choice, start/stop (clef_server.py).
+  POST /k8s       {action: overview | pod, minutes, end, ns, pod, text, container, stream, size, before} -> Devices >
+                  Kubernetes (k8s.py): read-only Security Onion queries only (container logs, k8s events, API server
+                  metrics, SO alerts); never the cluster itself. Overview cached 60 s; at most 600 calls per hour.
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the event reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
   GET  /health
@@ -56,6 +59,42 @@ def esquery(b):
     out["seconds"] = round(time.time() - t, 2)
     return out
 
+
+
+_k8s_lock, _k8s_sent, _k8s_cache = threading.Lock(), [], {}
+
+
+def k8s_ctl(b):
+    import k8s
+    act = str(b.get("action") or "overview")
+    try:
+        minutes = max(15, min(int(b.get("minutes") or 1440), 7 * 1440))
+    except (TypeError, ValueError):
+        raise ValueError("minutes must be a number") from None
+    end = str(b.get("end") or "")[:40] or None
+    with _k8s_lock:
+        now = time.time()
+        _k8s_sent[:] = [t for t in _k8s_sent if now - t < 3600]
+        if len(_k8s_sent) >= 600:
+            raise ValueError("rate limit: too many Kubernetes page queries this hour")
+        _k8s_sent.append(now)
+        ck = (act, minutes, end)
+        if act == "overview" and ck in _k8s_cache and now - _k8s_cache[ck][0] < 60 and not b.get("force"):
+            return _k8s_cache[ck][1]
+        k8s.set_end(end)
+        try:
+            if act == "overview":
+                out = k8s.overview(minutes)
+                _k8s_cache.clear()
+                _k8s_cache[ck] = (now, out)
+                return out
+            if act == "pod":
+                return k8s.pod(str(b.get("ns") or ""), str(b.get("pod") or ""), minutes, text=str(b.get("text") or ""),
+                               container=str(b.get("container") or ""), stream=str(b.get("stream") or ""),
+                               size=b.get("size") or 200, before=str(b.get("before") or ""))
+        finally:
+            k8s.set_end(None)
+    raise ValueError("unknown action")
 
 
 def clef_ctl(b):
@@ -136,7 +175,7 @@ def range_start(b):
 
 
 SECTIONS = ["unifi", "totals", "devices", "alerts", "detections", "notices", "dns_tunnel", "threat_intel", "beacons", "internal",
-            "admin_access", "iot_dest", "files", "tls", "hosts", "mitre_ids"]
+            "admin_access", "iot_dest", "files", "tls", "hosts", "mitre_ids", "k8s"]
 _sec_sem = threading.Semaphore(3)
 _sec_locks, _sec_locks_guard = {}, threading.Lock()
 
@@ -248,6 +287,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, esquery(b))
             if self.path == "/clef":
                 return self._send(200, clef_ctl(b))
+            if self.path == "/k8s":
+                return self._send(200, k8s_ctl(b))
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)[:300]})
