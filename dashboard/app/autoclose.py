@@ -27,7 +27,8 @@ Guard rails (an AI verdict alone is not always enough; a person's verdict is nev
   2. protected categories (setting protect): attack-type events (CATS) are never closed by AI verdicts, only by a person.
   3. host hold (setting host_hold, on/off; window fixed at HOLD_HOURS): while an open event on the same host (MAC / host name / host IP) was called
      suspicious or malicious by any source and was seen in the last HOLD_HOURS, nothing on that host is auto-closed, and AI
-     closures of that host's events that were active in the window are reopened.
+     closures of that host's events that were active in the window are reopened. Code-scan findings (iss|sec|, NO_HOLD)
+     never put a host on hold; when they are called suspicious only they stay open.
   6. expiry (setting expire_days, 0 = never): an AI closure lasts expire_days; when the event repeats after that, it is
      reopened (log state "expired") and closes again only on a verdict newer than the old closure. Person closures never expire.
 Rules 1 and 2 apply to new closures; items closed before are left closed and counted (reopen them with "reopen_guard").
@@ -53,6 +54,7 @@ PERSON = ("person_expected", "person_benign")
 _lock = threading.Lock()
 
 HOLD_HOURS = 24  # guard 3: a recent open suspicious event holds auto-close on its host for this long (fixed)
+NO_HOLD = ("iss|sec|",)  # guard 3 ignores these: code-scan findings say nothing about the host's own behaviour
 CATS = {  # guard 2: attack-type event categories auto-close can be kept away from (key: label)
     "ids_high": "High-severity IDS signatures (and first-seen high-severity signatures)",
     "threat_intel": "Threat-intel hits (traffic with listed IPs, in or out)",
@@ -348,7 +350,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
         sus = {}
         for e in (oe if g["host_hold"] else ()):
             mem = [e["eid"], *(e.get("members") or [])]
-            if _epoch(e.get("last_seen")) < cut:
+            if _epoch(e.get("last_seen")) < cut or str(e["eid"]).startswith(NO_HOLD):
                 continue
             pn = max((pv[m] for m in mem if m in pv), key=lambda n: n["ts"] or 0, default=None)
             badv = (pn["verdict"] in BAD) if pn else any(v in BAD for m in mem for v in _verdicts(m, notes, cls).values())

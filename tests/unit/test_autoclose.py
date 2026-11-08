@@ -261,6 +261,21 @@ class AutoCloseGuardRails(unittest.TestCase):
         self.assertNotIn(OK_F, _open())
         self.assertIn(SUS_F, _open())
 
+    def test_code_scan_finding_never_holds_its_host(self):
+        """With host_hold on, a suspicious code-scan finding (iss|sec|) on a host's IP holds nothing else on that host.
+        REQ: STO-12
+        """
+        sec = "iss|sec|ruff|S608|app/x.py|abc123"
+        eventstore.upsert({sec: {"type": "issue", "label": "S608 in app/x.py", "sev": "medium", "t1": 103,
+                                 "host_ips": ["10.0.0.40"]}}, "s2")
+        _cls(sec, "suspicious")
+        _cls(OK_F, "benign")
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertTrue(autoclose.settings()["host_hold"])
+        self.assertEqual((r["guard"]["host"], r["guard"]["held_hosts"]), (0, 0))
+        self.assertNotIn(OK_F, _open())
+        self.assertIn(sec, _open())
+
     def test_ai_closure_expires_when_the_event_repeats(self):
         """An AI closure older than expire_days reopens when the event repeats; it closes again only on a newer verdict.
         REQ: STO-12

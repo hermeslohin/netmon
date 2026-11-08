@@ -489,7 +489,8 @@ Configuration). They hold back AI verdicts only; a person's verdict note always 
 2. *Protected categories* (`autoclose.categories(eid, sev)`, keys in `CATS`): events in a ticked category are never
    closed by an AI verdict.
 3. *Host hold* (`host_hold`, default on; window fixed 24 h, `HOLD_HOURS`). Off: only the suspicious event itself stays
-   open, the rest of its host closes on its own verdicts. On: hosts (id device/host part plus `host_ips`, never destination IPs) of open
+   open, the rest of its host closes on its own verdicts. Code-scan findings (`iss|sec|`, `NO_HOLD`) never hold a host.
+   On: hosts (id device/host part plus `host_ips`, never destination IPs) of open
    events seen in the last 24 h whose newest person verdict, or any AI verdict, is suspicious/malicious are held: no AI
    closure on them, and AI closures of their events active in the window are reopened (`reopened-verdict`, reason "held").
 4. *Expiry* (`expire_days`, default 7, 0 = never): an AI closure older than that whose event group repeated after the

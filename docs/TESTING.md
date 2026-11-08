@@ -224,7 +224,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
 | `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 24 | 7 |
 | `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
-| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 12 | 6 |
+| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 13 | 6 |
 | `notes.consolidate` | AI pipeline configuration > Nightly note consolidation | `/api/llm/notes-consolidate` | STO-09, SET-66 | 6 | 8 |
 | `llm.models` | AI pipeline configuration > Models (event reviewer, research, chat model) | `/api/llm/config` | SET-22, SET-23, SET-65 | 6 | 4 |
 | `llm.providers` | AI pipeline configuration > AI providers (added APIs, local server) | `/api/llm/providers` | SET-32, SET-33, SET-34, SET-65 | 8 | 4 |
@@ -249,7 +249,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |
 | `tests/unit/test_audit.py` | 46 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03, AUD-05) |
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
-| `tests/unit/test_autoclose.py` | 12 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
+| `tests/unit/test_autoclose.py` | 13 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
 | `tests/unit/test_config.py` | 40 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-02, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
