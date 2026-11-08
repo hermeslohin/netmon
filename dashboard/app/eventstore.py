@@ -391,6 +391,19 @@ def decision_inputs(eid):
     return {"decisions": DI, "events": _ev_view({x["id"] for d in DI for x in d["inputs"]})}
 
 
+def artifact_event(eid):
+    """One stored event as {label, host_ips, dst_ips, ips, arts} for kb.event_artifact_keys (the verdict scope picker)."""
+    r = _c().execute("SELECT label, doc FROM events WHERE eid=?", (str(eid),)).fetchone()
+    if not r:
+        return {}
+    try:
+        dd = json.loads(r["doc"] or "{}")
+    except ValueError:
+        dd = {}
+    return {"label": r["label"] or "", "host_ips": dd.get("host_ips") or [], "dst_ips": dd.get("dst_ips") or [], "ips": dd.get("ips") or [],
+            "arts": dd.get("arts") or []}
+
+
 def _ev_view(eids):
     """Minimal event records (type, label, link, time, host IPs) for the Related popover."""
     eids, out = list(eids), {}

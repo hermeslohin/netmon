@@ -212,8 +212,7 @@
     const sv = pop.querySelector(".kb-save"), ta = pop.querySelector(".kb-text"), sc = pop.querySelector(".kb-scope");
     const loadArts = () => {
       if (artsLoaded) return; artsLoaded = true;
-      const ev = me ? { ips: me.ips || [], host_ips: me.host_ips || [], dst_ips: me.dst_ips || [], arts: me.arts || [], label: me.label || "" } : {};
-      apiPost("/api/kb/event", { action: "arts", eid, event: ev }).then((r) => {
+      apiPost("/api/kb/event", { action: "arts", eid }).then((r) => {
         const L = pop?.querySelector(".kb-scope-list"); if (!L) return;
         const a = r.arts || [];
         L.classList.remove("muted");

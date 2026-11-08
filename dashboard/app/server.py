@@ -1512,10 +1512,12 @@ class H(BaseHTTPRequestHandler):
                 if role == "user" and act not in ("add", "delete", "arts"):
                     return self._json({"error": "only a network defender or admin can approve notes"}, 403)
                 if act == "arts":  # the artifact keys an event shows, offered as the scope of an expected / benign verdict
-                    ev = body.get("event") if isinstance(body.get("event"), dict) else {}
-                    ev = {k: ev.get(k) for k in ("ips", "host_ips", "dst_ips", "arts", "label") if isinstance(ev.get(k), (list, str))}
-                    try:
-                        keys = kb.clean_scope(sorted(kb.event_artifact_keys(ev)))
+                    if role == "user" and eid not in {e["id"] for e in my_events(user)["events"]}:
+                        return self._json({"error": "you can only see artifacts of your assigned devices' events"}, 403)
+                    try:  # read from the stored event (its IPs, the artifacts the script read from it, its label), never from the client
+                        import eventstore
+                        ev = eventstore.artifact_event(eid)
+                        keys = kb.clean_scope(sorted(kb.event_artifact_keys(ev), key=lambda k: (k.split(":")[0] != "ip", k)))
                     except Exception as e:  # noqa: BLE001 - a malformed event just offers no artifacts
                         print(f"kb: event artifacts failed: {type(e).__name__}: {e}", file=sys.stderr)
                         keys = []
