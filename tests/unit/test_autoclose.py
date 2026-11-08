@@ -245,6 +245,22 @@ class AutoCloseGuardRails(unittest.TestCase):
         autoclose.run({}, {}, [], trigger="test")
         self.assertNotIn(OK_F, _open())
 
+    def test_host_hold_off_holds_only_the_suspicious_event(self):
+        """With host_hold off a suspicious event stays open itself but holds nothing else on its host.
+        REQ: STO-12
+        """
+        autoclose.set_settings({"reviewer_expected": True, "reviewer_benign": True, "host_hold": False}, "t")
+        self.assertFalse(autoclose.settings()["host_hold"])
+        autoclose.set_settings({"reviewer_expected": True, "reviewer_benign": True}, "t")  # missing key keeps the saved value
+        self.assertFalse(autoclose.settings()["host_hold"])
+        eventstore.upsert({SUS_F: {"type": "finding", "label": "long DNS names on the TV", "sev": "medium", "t1": 103}}, "s2")
+        _cls(SUS_F, "suspicious")
+        _cls(OK_F, "benign")
+        r = autoclose.run({}, {}, [], trigger="test")
+        self.assertEqual((r["guard"]["host"], r["guard"]["held_hosts"]), (0, 0))
+        self.assertNotIn(OK_F, _open())
+        self.assertIn(SUS_F, _open())
+
     def test_ai_closure_expires_when_the_event_repeats(self):
         """An AI closure older than expire_days reopens when the event repeats; it closes again only on a newer verdict.
         REQ: STO-12

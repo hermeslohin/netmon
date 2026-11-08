@@ -25,7 +25,7 @@ Guard rails (an AI verdict alone is not always enough; a person's verdict is nev
   1. confidence (setting min_conf, 0 = off): an event reviewer label closes only at or above min_conf, or when the
      research note agrees (also expected/benign). Below it the event stays open with its reviewer flair.
   2. protected categories (setting protect): attack-type events (CATS) are never closed by AI verdicts, only by a person.
-  3. host hold (fixed, HOLD_HOURS): while an open event on the same host (MAC / host name / host IP) was called
+  3. host hold (setting host_hold, on/off; window fixed at HOLD_HOURS): while an open event on the same host (MAC / host name / host IP) was called
      suspicious or malicious by any source and was seen in the last HOLD_HOURS, nothing on that host is auto-closed, and AI
      closures of that host's events that were active in the window are reopened.
   6. expiry (setting expire_days, 0 = never): an AI closure lasts expire_days; when the event repeats after that, it is
@@ -64,7 +64,7 @@ CATS = {  # guard 2: attack-type event categories auto-close can be kept away fr
     "gateway_threat": "Gateway threat blocks (THREAT_BLOCKED; already blocked by the gateway)",
     "high_sev": "Any event with high or urgent severity",
 }
-GUARD_DEFAULTS = {"min_conf": 0.8, "expire_days": 7,
+GUARD_DEFAULTS = {"min_conf": 0.8, "expire_days": 7, "host_hold": True,
                   "protect": ["ids_high", "threat_intel", "admin", "new_device", "exposure", "c2_exfil", "host_tamper"]}
 HIGH = ("high", "urgent", "critical")
 
@@ -169,7 +169,8 @@ def _guard(s):
         ed = GUARD_DEFAULTS["expire_days"]
     pr = s.get("protect", GUARD_DEFAULTS["protect"])
     pr = [k for k in CATS if k in (pr if isinstance(pr, (list, tuple)) else [])]
-    return {"min_conf": round(mc, 2), "expire_days": ed, "protect": pr}
+    return {"min_conf": round(mc, 2), "expire_days": ed, "protect": pr,
+            "host_hold": bool(s.get("host_hold", GUARD_DEFAULTS["host_hold"]))}
 
 
 def settings(c=None):
@@ -343,8 +344,9 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
             return out
 
         # guard 3: hosts with an open event some source (or a person) called suspicious/malicious, seen in the last HOLD_HOURS
+        # off (host_hold false): only the event called suspicious stays open; the rest of its host closes as usual
         sus = {}
-        for e in oe:
+        for e in (oe if g["host_hold"] else ()):
             mem = [e["eid"], *(e.get("members") or [])]
             if _epoch(e.get("last_seen")) < cut:
                 continue

@@ -1224,7 +1224,7 @@ class H(BaseHTTPRequestHandler):
                 if u.path == "/api/config/triage":
                     ns = autoclose.set_settings(body, user)
                     print(f"autoclose settings: {user} on={[o for o in autoclose.OPTS if ns.get(o)]} min_conf={ns['min_conf']} "
-                          f"expire_days={ns['expire_days']} protect={ns['protect']}", file=sys.stderr)
+                          f"expire_days={ns['expire_days']} host_hold={ns['host_hold']} protect={ns['protect']}", file=sys.stderr)
                 elif u.path == "/api/config/triage/reopen":
                     k = body.get("kind")
                     autoclose.reopen_all(user, k if k in autoclose.OPTS else None)

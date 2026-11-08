@@ -44,9 +44,9 @@
         ${Object.entries(C).map(([k, l]) => `<label class="small" style="display:flex;gap:6px;align-items:flex-start"><input type="checkbox" class="g-cat" data-k="${k}" ${prot.has(k) ? "checked" : ""} ${dis}>
           <span>${esc(l)}${bc[k] ? ` <b>(${bc[k]} held)</b>` : ""}</span></label>`).join("")}</div>
         <div class="muted small">The AI still labels and annotates them. Now: <b>${G.protected || 0}</b> open events held${G.kept_protected ? ` · ${G.kept_protected} closed earlier (left closed)` : ""}.</div></div>
-      <div style="margin:10px 0 0 0"><b class="small">3. Hold a host after a suspicious event (always on, ${G.hold_hours || 24} h)</b>
-        <div class="muted small">While an open event on a device (MAC, host name or host IP) was called suspicious or malicious — by either AI or a person — and was seen in the last ${G.hold_hours || 24} h, nothing else on that device is auto-closed, and AI closures of its events active in that window are reopened. Checking off (or marking Expected) the suspicious event lifts the hold.
-          Now: <b>${G.held_hosts || 0}</b> hosts on hold, <b>${G.host || 0}</b> open events held${G.reopen_host_due ? `, ${G.reopen_host_due} auto-closed events will reopen on the next pass` : ""}${G.reopened_host ? `, ${G.reopened_host} reopened` : ""}.
+      <div style="margin:10px 0 0 0"><label class="small" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="g-hold" ${s.host_hold === false ? "" : "checked"} ${dis}><b>3. Hold a host after a suspicious event (${G.hold_hours || 24} h)</b></label>
+        <div class="muted small">${s.host_hold === false ? "Off: only the event called suspicious or malicious stays open; other events on the same device close on their own verdicts. " : ""}When on: while an open event on a device (MAC, host name or host IP) was called suspicious or malicious — by either AI or a person — and was seen in the last ${G.hold_hours || 24} h, nothing else on that device is auto-closed, and AI closures of its events active in that window are reopened. Checking off (or marking Expected) the suspicious event lifts the hold.
+          ${s.host_hold === false ? "" : `Now: <b>${G.held_hosts || 0}</b> hosts on hold, <b>${G.host || 0}</b> open events held${G.reopen_host_due ? `, ${G.reopen_host_due} auto-closed events will reopen on the next pass` : ""}${G.reopened_host ? `, ${G.reopened_host} reopened` : ""}.`}
           ${hosts.length ? `<br>Held: ${hosts.slice(0, 12).map(([h, n]) => `<span class="mono">${esc(h)}</span> (${n})`).join(", ")}` : ""}</div></div>
       <div style="margin:10px 0 0 0"><b class="small">4. AI closures expire after</b>
         <input id="g-exp" type="number" min="0" max="365" step="1" value="${s.expire_days ?? 7}" style="width:5em" ${dis}> <span class="small">days</span>
@@ -114,7 +114,7 @@
     if (gs) gs.onclick = () => {
       const mc = parseFloat(c.querySelector("#g-conf").value), ed = parseInt(c.querySelector("#g-exp").value, 10);
       if (!(mc >= 0 && mc <= 1) || !(ed >= 0 && ed <= 365)) { c.querySelector("#g-msg").textContent = "confidence 0–1, days 0–365"; return; }
-      save({ ...Object.fromEntries(OPTS.map((o) => [o, !!s[o]])), min_conf: mc, expire_days: ed,
+      save({ ...Object.fromEntries(OPTS.map((o) => [o, !!s[o]])), min_conf: mc, expire_days: ed, host_hold: !!c.querySelector("#g-hold")?.checked,
         protect: [...c.querySelectorAll(".g-cat:checked")].map((x) => x.dataset.k) });
     };
     const gr = c.querySelector("#g-reopen");

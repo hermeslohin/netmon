@@ -482,13 +482,14 @@ Open events window show **👤 <verdict> verdict applied · the event reviewer s
 threat intel* / *event reviewer confident*. The Alerts **Verdict** column shows a person's verdict first, then the
 event reviewer's label, else *not reviewed*.
 
-Auto-close guard rails (`autoclose.py`, settings `min_conf`, `protect`, `expire_days` in meta `autoclose`; More →
+Auto-close guard rails (`autoclose.py`, settings `min_conf`, `protect`, `expire_days`, `host_hold` in meta `autoclose`; More →
 Configuration). They hold back AI verdicts only; a person's verdict note always applies:
 1. *Confidence*: an event reviewer label closes only when its `event_class.confidence >= min_conf` (default 0.8) or a
    research note also says expected/benign.
 2. *Protected categories* (`autoclose.categories(eid, sev)`, keys in `CATS`): events in a ticked category are never
    closed by an AI verdict.
-3. *Host hold* (fixed 24 h, `HOLD_HOURS`): hosts (id device/host part plus `host_ips`, never destination IPs) of open
+3. *Host hold* (`host_hold`, default on; window fixed 24 h, `HOLD_HOURS`). Off: only the suspicious event itself stays
+   open, the rest of its host closes on its own verdicts. On: hosts (id device/host part plus `host_ips`, never destination IPs) of open
    events seen in the last 24 h whose newest person verdict, or any AI verdict, is suspicious/malicious are held: no AI
    closure on them, and AI closures of their events active in the window are reopened (`reopened-verdict`, reason "held").
 4. *Expiry* (`expire_days`, default 7, 0 = never): an AI closure older than that whose event group repeated after the
