@@ -232,8 +232,8 @@ window.CARD_INFO = {
 },
 "aiconfig|Decision model settings": {
 "source": "Decision model settings in the AI configuration (clef.py, key clef).",
-"use": "Switch the decision model on or off and set how sure it must be before a link counts as related or an event as suspicious. Applies from the next pass.",
-"what": "On/off and probability thresholds of the decision model that decides every proposed link and labels each event."
+"use": "Switch the decision model on or off and set how sure it must be before a link counts as related. Applies from the next pass.",
+"what": "On/off and the related threshold of the decision model that decides every proposed link (the event reviewer labels each event)."
 },
 "aiconfig|Event reviewer context notes": {
 "source": "AI configuration (corr_llm.py context_notes) used by the event reviewer and event research prompts.",
@@ -1106,8 +1106,8 @@ window.CARD_INFO = {
 "what": "Recovery instructions for when nobody can sign in, for example after a forgotten password or too many failed attempts."
 },
 "alerts|Detections by verdict": {
-"source": "The urgent-alert feed (15-minute watcher, scans, account checks; last 30 days) joined with verdicts: a person's verdict, else the event reviewer's label, else the decision model's label.",
-"use": "Click a verdict chip or a KPI tile to filter. A person's verdict (👤) wins over the event reviewer (AI), which wins over the decision model. Click a row for the research, web research and notes behind it.",
+"source": "The urgent-alert feed (15-minute watcher, scans, account checks; last 30 days) joined with verdicts: a person's verdict, else the event reviewer's label.",
+"use": "Click a verdict chip or a KPI tile to filter. A person's verdict (👤) wins over the event reviewer (AI). Click a row for the research, web research and notes behind it.",
 "what": "Every detection that was not promoted to an alarm, with the verdict it got. Only detections reviewed as suspicious at medium or high severity become alarms."
 },
 "alerts|Alerts for my devices": {

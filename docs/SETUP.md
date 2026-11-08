@@ -300,8 +300,9 @@ What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes, 5 minutes
   hourly. Every hash entry is serious (an exact match); generic file names (setup.exe, svchost.exe ...) are skipped and a
   file-name match below the high score is only context.
 - **Reviewer context**: `intelmatch.py` checks every event's IPs, domains, file names and hashes against all feeds; the
-  event reviewer and the decision model see a *threat-intel hits* line with the OpenCTI score, source and labels
-  (malware family, campaign). A new hit re-reviews the event.
+  event reviewer (labelling the event) and the decision model (deciding each link) see a *threat-intel hits* line
+  with the OpenCTI score, source and labels (malware family, campaign). A new hit re-reviews the event, and a
+  person's expected / benign verdict never turns a suspicious label on an event with a hit into expected / benign.
 - **Sightings** (on by default): each OpenCTI indicator the watcher sees in traffic gets one sighting by the identity
   `netmon (<site name>)`; later hits add to its count.
 - **Incidents** (off by default): open events the reviewer labelled suspicious at or above the chosen severity and

@@ -123,9 +123,9 @@
       <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>
       ${webs.length && U.artifactsHtml ? `<details class="oe-det oe-sub"><summary>${webs.length} web ${webs.length === 1 ? "source" : "sources"} used</summary>${U.artifactsHtml(webs, "Pages the event reviewer relied on")}</details>` : ""}`;
   }
-  // the events passed in to the AI determinations (decision model label, event reviewer) made during win (one firing), or the
+  // the events passed in to the AI determinations (event reviewer label; older decision-model labels) made during win (one firing), or the
   // latest one of each stage (window header)
-  // the events passed in to the AI determinations (decision model label, event reviewer) made during win (one firing), or the
+  // the events passed in to the AI determinations (event reviewer label; older decision-model labels) made during win (one firing), or the
   // latest one of each stage (window header): one collapsed arrow like "N artifacts", each determination collapsed inside
   function inputsBlock(d, eids, win) {
     const U = window.relUi || {}; if (!U.inputsHtml) return "";

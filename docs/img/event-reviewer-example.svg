@@ -8,7 +8,7 @@
   <rect width="1600" height="900" fill="url(#bg)"/>
 
   <text x="800" y="62" text-anchor="middle" font-size="38" font-weight="700" fill="#f1f5f9">One Event, Step by Step: Event Reviewer</text>
-  <text x="800" y="96" text-anchor="middle" font-size="19" fill="#94a3b8">The same event after it was labelled suspicious: the reviewer model plans look-ups, searches the logs and the web, then explains</text>
+  <text x="800" y="96" text-anchor="middle" font-size="19" fill="#94a3b8">The same event once its links are decided: the reviewer model plans look-ups, searches the logs and the web, then labels it</text>
 
   <!-- connectors -->
   <g stroke="#94a3b8" stroke-width="3" fill="none" marker-end="url(#arr)">
@@ -29,10 +29,10 @@
     <text x="58" y="204">game-server probed on port 25565</text>
     <text x="58" y="228">by 2 threat-listed IPs</text>
   </g>
-  <rect x="58" y="242" width="200" height="26" rx="13" fill="#fb7185"/>
-  <text x="158" y="260" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1017">LABEL: SUSPICIOUS</text>
+  <rect x="58" y="242" width="200" height="26" rx="13" fill="#34d399"/>
+  <text x="158" y="260" text-anchor="middle" font-size="14" font-weight="700" fill="#0a2318">ALL LINKS DECIDED</text>
   <g font-size="15" fill="#94a3b8">
-    <text x="58" y="292">p suspicious 0.94 · p expected 0.09</text>
+    <text x="58" y="292">No label yet: this step sets it</text>
     <text x="58" y="314">5 related events (link p 0.91–0.98)</text>
     <text x="58" y="334">1 unrelated candidate left out</text>
   </g>
@@ -46,7 +46,7 @@
     <text x="443" y="238">• Owner, AI and artifact notes on the</text>
     <text x="455" y="258">hosts, IPs and accounts (capped)</text>
     <text x="443" y="282">• Known artifacts, threat-intel hits</text>
-    <text x="443" y="306">• <tspan font-weight="700" fill="#fef3c7">"DECISION MODEL LABEL: suspicious"</tspan></text>
+    <text x="443" y="306">• <tspan font-weight="700" fill="#fef3c7">"PERSON'S VERDICT"</tspan> if one matches</text>
     <text x="443" y="332" font-size="14" fill="#94a3b8">Event text is data, never instructions</text>
   </g>
 
@@ -140,19 +140,21 @@
   <text x="107" y="741" font-size="21" font-weight="700" fill="#fef3c7">Decide (2 of 2)</text>
   <g font-size="14" fill="#cbd5e1">
     <text x="58" y="772">Prompt + &lt;es_result&gt; / &lt;web_result&gt; blocks (untrusted data). May ask for</text>
-    <text x="58" y="792">more while budget is left, then answers JSON: reason, own label, artifacts.</text>
-    <text x="58" y="820" fill="#94a3b8">Too big → fewer notes, then 6 events and no look-ups · error → label kept, retried ≤ 3×</text>
+    <text x="58" y="792">more while budget is left, then JSON: label + confidence, reason, artifacts.</text>
+    <text x="58" y="820" fill="#94a3b8">Too big → fewer notes, then 6 events and no look-ups · error → retried ≤ 3×</text>
   </g>
 
   <!-- written back -->
   <rect x="670" y="698" width="890" height="135" rx="16" fill="#1e293b" stroke="#fbbf24" stroke-opacity=".7" stroke-width="2"/>
   <text x="688" y="728" font-size="18" font-weight="700" fill="#fef3c7">Written back to Open events</text>
+  <rect x="1312" y="710" width="230" height="26" rx="13" fill="#fb7185"/>
+  <text x="1427" y="728" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1017">LABEL: SUSPICIOUS · 0.85</text>
   <g font-size="14" font-style="italic" fill="#e2e8f0">
     <text x="688" y="754">"…was targeted by multiple inbound connections on port 25565 from IPs identified in threat intelligence feeds … [W6]. …</text>
     <text x="688" y="773">the continuous probing from known-bad actors suggests an ongoing internet-exposed service vulnerability that warrants monitoring."</text>
   </g>
   <g font-size="14" fill="#94a3b8">
-    <text x="688" y="800">Reviewer's own label: suspicious = agrees (decision label stays) · [W6] checked against pages it fetched</text>
+    <text x="688" y="800">[W6] checked against fetched pages · a 📝 person's verdict would outweigh this label (threat intel keeps suspicious)</text>
     <text x="688" y="820">Artifacts + Kibana links per related event · host / internet notes at confidence ≥ 0.8 · suspicious reopens check-offs</text>
   </g>
 

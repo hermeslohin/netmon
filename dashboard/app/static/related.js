@@ -152,7 +152,7 @@
     if (e.type === "vuln" || !e.t0) return "ongoing (no event time)";
     return e.t1 && e.t1 - e.t0 >= 60 ? `${f(e.t0)} → ${f(e.t1)}` : f(e.t0);
   };
-  // decision model (clef) chips: event label (p suspicious / p expected) and per-link p(related)
+  // decision model (clef) chips: per-link p(related) (it decides links only; the event reviewer labels events)
   const pct = (p) => Math.round((p || 0) * 100) + "%";
   // a person's verdict weighed against the event reviewer's label (corr_llm.apply_owner): applied, held back, or agreeing
   const ownerHtml = (c) => { const o = c?.owner; if (!o) return "";
@@ -269,7 +269,7 @@
         <p>${reasonHtml(c.reason, c.sources)}</p>
         ${sourcesHtml(c.sources)}
         <div class="rel-inputs" data-inputs="${esc(id)}"><div class="small muted">Loading the events passed in…</div></div>
-        <div class="small muted">Label from the decision model (clef) once all of this event's links were decided; the reason is the event reviewer's. Verify before acting.</div></div>`;
+        <div class="small muted">Label and reason from the event reviewer once all of this event's links were decided by the decision model; a person's verdict outweighs it. Verify before acting.</div></div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
     pop.style.width = w + "px";

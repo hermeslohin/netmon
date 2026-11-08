@@ -11,7 +11,7 @@
   <rect width="1600" height="900" fill="url(#bg)"/>
 
   <text x="800" y="62" text-anchor="middle" font-size="38" font-weight="700" fill="#f1f5f9">One Event, Step by Step: Correlation</text>
-  <text x="800" y="96" text-anchor="middle" font-size="19" fill="#94a3b8">A real finding: statistics pick and score its candidates, then the decision model judges each link and labels the event</text>
+  <text x="800" y="96" text-anchor="middle" font-size="19" fill="#94a3b8">A real finding: statistics pick and score its candidates, then the decision model decides each link (yes/no, never a label)</text>
 
   <!-- connectors -->
   <g stroke="#94a3b8" stroke-width="3" fill="none" marker-end="url(#arr)">
@@ -151,20 +151,20 @@
     <text x="1318" y="364" font-size="14" fill="#6ee7b7" font-style="italic">Local decision model</text>
   </g>
 
-  <!-- 3c event label -->
+  <!-- 3c links decided -->
   <rect x="1300" y="395" width="260" height="236" rx="16" fill="#0a2318" stroke="#34d399" stroke-width="3"/>
   <circle cx="1335" cy="430" r="20" fill="#34d399"/><text x="1335" y="436" text-anchor="middle" font-size="16" font-weight="700" fill="#0a2318">3c</text>
-  <text x="1366" y="428" font-size="19" font-weight="700" fill="#d1fae5">Decision model:</text>
-  <text x="1366" y="450" font-size="19" font-weight="700" fill="#d1fae5">label the event</text>
+  <text x="1366" y="428" font-size="19" font-weight="700" fill="#d1fae5">Every link</text>
+  <text x="1366" y="450" font-size="19" font-weight="700" fill="#d1fae5">decided</text>
   <g font-size="15" fill="#cbd5e1">
-    <text x="1318" y="484">Event + ALL 6 candidates,</text>
-    <text x="1318" y="504">each with its link p</text>
-    <text x="1318" y="534">suspicious?</text><text x="1540" y="534" text-anchor="end" font-size="18" font-weight="700" fill="#fecdd3">0.94</text>
-    <text x="1318" y="558">expected?</text><text x="1540" y="558" text-anchor="end" font-size="18" font-weight="700" fill="#d1fae5">0.09</text>
+    <text x="1318" y="484">The link verdicts are the</text>
+    <text x="1318" y="504">model's whole output</text>
+    <text x="1318" y="534">related</text><text x="1540" y="534" text-anchor="end" font-size="18" font-weight="700" fill="#d1fae5">5</text>
+    <text x="1318" y="558">dropped</text><text x="1540" y="558" text-anchor="end" font-size="18" font-weight="700" fill="#fecdd3">1</text>
   </g>
-  <rect x="1318" y="572" width="222" height="28" rx="14" fill="#fb7185"/>
-  <text x="1429" y="591" text-anchor="middle" font-size="15" font-weight="700" fill="#1c1017">→ SUSPICIOUS (≥ 0.50)</text>
-  <text x="1318" y="620" font-size="14" fill="#6ee7b7" font-style="italic">Final label · drives alarms</text>
+  <rect x="1318" y="572" width="222" height="28" rx="14" fill="#fbbf24"/>
+  <text x="1429" y="591" text-anchor="middle" font-size="15" font-weight="700" fill="#241706">→ EVENT REVIEWER</text>
+  <text x="1318" y="620" font-size="14" fill="#6ee7b7" font-style="italic">No event label from this model</text>
 
   <!-- outcomes -->
   <g fill="none" stroke-width="2.5" stroke-dasharray="6,5">
@@ -182,14 +182,14 @@
     <rect x="555" y="672" width="490" height="110" rx="12" fill="#1e293b" stroke="#34d399" stroke-opacity=".6"/>
     <text x="800" y="704" font-weight="700" fill="#d1fae5">Stored for the dashboard</text>
     <text x="800" y="730" fill="#94a3b8" font-size="14">6 link verdicts with their p (Related popover)</text>
-    <text x="800" y="750" fill="#94a3b8" font-size="14">label + p suspicious / p expected (Verdict column)</text>
-    <text x="800" y="770" fill="#94a3b8" font-size="14">what the model was given (AI pipeline page)</text>
+    <text x="800" y="750" fill="#94a3b8" font-size="14">no event label yet: the event reviewer sets it</text>
+    <text x="800" y="770" fill="#94a3b8" font-size="14">each link question + answer (AI pipeline page)</text>
 
     <rect x="1070" y="672" width="490" height="110" rx="12" fill="#241706" stroke="#fbbf24" stroke-width="2"/>
     <text x="1315" y="704" font-weight="700" fill="#fef3c7">→ Event reviewer (next image)</text>
-    <text x="1315" y="730" fill="#94a3b8" font-size="14">gets the 5 related events + the label;</text>
-    <text x="1315" y="750" fill="#94a3b8" font-size="14">looks things up and writes the reason,</text>
-    <text x="1315" y="770" fill="#94a3b8" font-size="14">artifacts and notes. The label stays.</text>
+    <text x="1315" y="730" fill="#94a3b8" font-size="14">gets the 5 related events + notes, looks things up,</text>
+    <text x="1315" y="750" fill="#94a3b8" font-size="14">labels it suspicious / benign / expected with a</text>
+    <text x="1315" y="770" fill="#94a3b8" font-size="14">confidence; a person's verdict outweighs it</text>
   </g>
 
   <!-- legend -->
@@ -197,7 +197,7 @@
     <rect x="40" y="842" width="22" height="22" rx="5" fill="#08222c" stroke="#22d3ee" stroke-width="2"/>
     <text x="72" y="859">Rules &amp; maths, no AI</text>
     <rect x="260" y="842" width="22" height="22" rx="5" fill="#0a2318" stroke="#34d399" stroke-width="2"/>
-    <text x="292" y="859">Local decision model (yes/no probabilities, System One API on loopback)</text>
+    <text x="292" y="859">Local decision model (yes/no per link, System One API on loopback)</text>
     <rect x="860" y="842" width="22" height="22" rx="5" fill="#1c1017" stroke="#fb7185" stroke-width="2"/>
     <text x="892" y="859">Left out</text>
     <text x="1570" y="859" text-anchor="end">Real event; addresses and host name changed</text>

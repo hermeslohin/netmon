@@ -182,7 +182,7 @@ notes = ["Elasticsearch is queried read-only; the one write is the dashboard's a
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and event reviewer look-ups go through host_broker.py.",
-         "Correlation: the script proposes links, review limits filter them, the decision model (System One API) decides links + labels; the event reviewer explains them.",
+         "Correlation: the script proposes links, review limits filter them, the decision model (System One API) decides links only; the event reviewer labels each event and explains it; a person's verdict outweighs its label.",
          "Event reviewer look-ups first: a planning call picks Elasticsearch searches (via the broker, max 3) and web look-ups (Firecrawl; ipinfo.io for IPs),",
          "   then it decides with the results and cites pages as [W1] links (Open events, classification pop-up). Re-reviews reuse results for 6 h; web cache 7 days.",
          "Local models (optional): any OpenAI-compatible server for the event reviewer, any System One server on loopback for the decision model; host service, Kubernetes or another server, all interchangeable with cloud APIs.",
