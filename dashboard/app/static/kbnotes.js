@@ -15,8 +15,8 @@
     + (n.status === "pending" ? `<button type="button" class="kb-rev" data-act="reject" data-id="${esc(n.id)}" data-eid="${esc(n.eid)}" title="Keep this note away from the AI">Reject</button>` : ""));
   window.kbStBadge = stBadge;
   // a person's verdict on an event (📝 buttons): authoritative for the AI; Expected / Benign close it (and its repeats), Suspicious reopens it
-  const VBTN = [["expected", "✅", "Expected: normal for this network. Saved as an authoritative note; the event (and later repeats) is closed."],
-    ["benign", "🟢", "Benign: harmless. Saved as an authoritative note; the event (and later repeats) is closed."],
+  const VBTN = [["expected", "✅", "Expected: normal for this network. Pick it, add why and the artifacts it applies to, then Save. Saved as an authoritative note; the event (and later repeats) is closed."],
+    ["benign", "🟢", "Benign: harmless. Pick it, add why and the artifacts it applies to, then Save. Saved as an authoritative note; the event (and later repeats) is closed."],
     ["suspicious", "⚠️", "Suspicious: needs attention. Saved as an authoritative note; the event goes back to the open findings and is never auto-closed."]];
   const VCLS = { expected: "sev-info", benign: "sev-low", suspicious: "sev-high" };
   const vBadge = (n) => (n?.verdict ? `<span class="badge ${VCLS[n.verdict] || ""}" title="A person's verdict: the AI treats it as authoritative">${esc(n.verdict)}</span> ` : "");
@@ -179,10 +179,12 @@
     pop.innerHTML = `<div class="rel-head"><b>Your notes</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : eid)}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body">
         ${ns.map((n) => `<div class="kb-note kb-st-${esc(n.status || "approved")}"><div class="kb-meta">👤 <b>${esc(n.author)}</b> ${vBadge(n)}${stBadge(n)} <span class="muted small">${esc(when(n.ts))}${n.same_event ? "" : " · written on an earlier run of this event"}</span>
-          ${reviewBtns(n)}<button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.verdict ? String(n.text).replace(/^ANALYST VERDICT: [^)]*\)\.?\s*/, "") : n.text)}</div>${artChips(n)}</div>`).join("") || `<div class="muted small">No notes on this event yet.</div>`}
+          ${reviewBtns(n)}<button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.verdict ? String(n.text).replace(/^ANALYST VERDICT: [^)]*\)\.?\s*/, "") : n.text)}</div>${n.scope?.length ? `<div class="small muted" title="The decision model weighs this verdict very heavily on any event that shows all of these artifacts">Applies to any event with all of:</div>` : ""}${artChips(n)}</div>`).join("") || `<div class="muted small">No notes on this event yet.</div>`}
         <textarea class="kb-text" rows="3" maxlength="2000" placeholder="e.g. Expected: this is my nightly backup. / Escalate if seen again from this host."></textarea>
         <div class="kb-vrow">${VBTN.map(([v, ic, tip]) => `<button type="button" class="kb-verdict kb-v-${v}${cur?.verdict === v ? " on" : ""}" data-v="${v}" title="${esc(tip)}">${ic} ${v[0].toUpperCase() + v.slice(1)}</button>`).join(" ")}
           <button type="button" class="kb-save">Save note</button></div>
+        <div class="kb-scope" hidden><div class="small"><b>Applies to</b> <span class="muted">— tick the artifacts this verdict covers. Any event that shows <i>all</i> ticked artifacts gets your verdict, weighted very heavily. Tick the device IP too to keep it to this device; tick none for this event only.</span></div>
+          <div class="kb-scope-list small muted">Loading artifacts…</div></div>
         ${cur ? `<div class="small">Current verdict: ${vBadge(cur)} <span class="muted">by ${esc(String(cur.author).replace(/^user:/, ""))}, ${esc(when(cur.ts))}${cur.status === "pending" ? " (awaiting approval)" : ""}</span></div>` : ""}
         <div class="small muted">${U ? "Tell the network defenders what this event is (e.g. 'that was me installing an app'). Your note goes to them for review; the AI only reads it after a defender or admin approves it."
           : "The AI reads approved notes on this event (and on later repeats of it) in every review run, in event research and when deciding which events are related, and treats them as authoritative guidance. Notes written by User accounts need your approval first."}</div>
@@ -200,11 +202,36 @@
     apiPost("/api/research/request", { action: "status", eid }).then(rsShow, () => { rs.textContent = ""; });
     const save = (verdict) => {
       const t = pop.querySelector(".kb-text").value.trim(); if (!t && !verdict) return;
+      const scope = verdict === "expected" || verdict === "benign" ? [...pop.querySelectorAll(".kb-scope-cb:checked")].map((x) => x.value) : [];
       pop.querySelectorAll(".kb-verdict, .kb-save").forEach((b) => { b.disabled = true; });
-      apiPost("/api/kb/event", { action: "add", eid, label: me?.label || "", text: t, verdict }).then((r) => { (S.corr.unotes ||= {})[eid] = r.notes || []; refreshBtns(eid); render(btn); }, (er) => { alert(er.message); render(btn); });
+      apiPost("/api/kb/event", { action: "add", eid, label: me?.label || "", text: t, verdict, scope }).then((r) => { (S.corr.unotes ||= {})[eid] = r.notes || []; refreshBtns(eid); render(btn); }, (er) => { alert(er.message); render(btn); });
     };
-    pop.querySelector(".kb-save").onclick = () => save("");
-    pop.querySelectorAll(".kb-verdict").forEach((b) => b.onclick = () => save(b.dataset.v));
+    // Expected / Benign only pick the verdict: the person adds why and which artifacts it covers, then presses Save.
+    // Suspicious is saved at once (it reopens the event).
+    let pick = "", artsLoaded = false;
+    const sv = pop.querySelector(".kb-save"), ta = pop.querySelector(".kb-text"), sc = pop.querySelector(".kb-scope");
+    const loadArts = () => {
+      if (artsLoaded) return; artsLoaded = true;
+      const ev = me ? { ips: me.ips || [], host_ips: me.host_ips || [], dst_ips: me.dst_ips || [], arts: me.arts || [], label: me.label || "" } : {};
+      apiPost("/api/kb/event", { action: "arts", eid, event: ev }).then((r) => {
+        const L = pop?.querySelector(".kb-scope-list"); if (!L) return;
+        const a = r.arts || [];
+        L.classList.remove("muted");
+        L.innerHTML = a.length ? a.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
+          return `<label class="art-chip kb-scope-it" title="${esc(nm)}"><input type="checkbox" class="kb-scope-cb" value="${esc(k)}"> ${ic} <code>${esc(k.slice(i + 1))}</code></label>`; }).join("")
+          : `<span class="muted">No artifacts found on this event: the verdict applies to this event only.</span>`;
+      }, () => { const L = pop?.querySelector(".kb-scope-list"); if (L) L.textContent = "Artifacts unavailable: the verdict applies to this event only."; });
+    };
+    const setPick = (v) => {
+      pick = pick === v ? "" : v;
+      pop.querySelectorAll(".kb-verdict").forEach((b) => b.classList.toggle("on", b.dataset.v === pick || (!pick && cur?.verdict === b.dataset.v)));
+      sc.hidden = !pick;
+      sv.textContent = pick ? `Save ${pick === "expected" ? "✅ Expected" : "🟢 Benign"}` : "Save note";
+      ta.placeholder = pick ? `Why is this ${pick}? e.g. nightly backup job to the NAS, started by the backup service account.` : "e.g. Expected: this is my nightly backup. / Escalate if seen again from this host.";
+      if (pick) { loadArts(); ta.focus(); }
+    };
+    sv.onclick = () => save(pick);
+    pop.querySelectorAll(".kb-verdict").forEach((b) => b.onclick = () => (b.dataset.v === "suspicious" ? save("suspicious") : setPick(b.dataset.v)));
     pop.querySelectorAll(".kb-rev").forEach((b) => b.onclick = () => {
       apiPost("/api/kb/event", { action: b.dataset.act, id: +b.dataset.id, eid }).then((r) => { (S.corr.unotes ||= {})[eid] = r.notes || []; refreshBtns(eid); render(btn); }, (er) => alert(er.message));
     });

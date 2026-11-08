@@ -767,6 +767,49 @@ def _ti_sig(e):
         return ""
 
 
+def owner_verdicts(eids, E):
+    """A person's verdict that applies to each event: {eid: {verdict, kind, weight, note, ts, match, text}}.
+    kind 'artifacts' = an approved expected / benign note whose chosen artifacts the event shows (all of them; any event,
+    any host); kind 'event' = the newest approved verdict note on this event or an earlier run of it. The heavier weight
+    wins (clef.OWNER_WEIGHT), the newer note on a tie. Also returned per eid: 'extra' = texts of matching notes written on
+    OTHER events, for the decision model's and event reviewer's owner notes."""
+    import clef
+    import kb
+    eids = [e for e in eids if e in E]
+    if not eids:
+        return {}
+    try:
+        own, scoped = kb.event_notes(eids, ai=True), kb.scoped_verdicts()
+    except Exception as e:  # noqa: BLE001 - the review runs without notes
+        print(f"corr_llm: owner verdicts unavailable: {e}", file=sys.stderr)
+        return {}
+    out = {}
+    for eid in eids:
+        cand = []
+        vs = [n for n in own.get(eid, []) if n.get("verdict") in kb.VERDICTS]
+        if vs:
+            n = max(vs, key=lambda x: x["ts"] or 0)
+            cand.append({"verdict": n["verdict"], "kind": "event", "weight": clef.OWNER_WEIGHT["event"], "note": n["id"], "ts": n["ts"] or 0,
+                         "match": n.get("scope") or [], "text": n["text"]})
+        hits = kb.scope_matches(kb.event_artifact_keys(E[eid]), scoped) if scoped else []
+        for n in hits:
+            cand.append({"verdict": n["verdict"], "kind": "artifacts", "weight": clef.OWNER_WEIGHT["artifacts"], "note": n["id"], "ts": n["ts"] or 0,
+                         "match": n["scope"], "text": n["text"]})
+        if cand:
+            best = max(cand, key=lambda x: (x["weight"], x["ts"]))
+            own_ids = {n["id"] for n in own.get(eid, [])}
+            best["extra"] = [f"(owner verdict written on another event; this event shows all of its artifacts: {', '.join(n['scope'])}) {n['text']}"
+                             for n in hits if n["id"] not in own_ids][:3]
+            out[eid] = best
+    return out
+
+
+def _with_owner(sig, ov):
+    """Fold the person's verdict that applies to an event into its review signature, so a new or changed verdict (on the event or
+    on artifacts it shows) has the event decided again."""
+    return hashlib.sha256(f"{sig}|owner:{ov['kind']}:{ov['note']}:{ov['verdict']}".encode()).hexdigest()[:16] if ov else sig
+
+
 def _with_ti(sig, e):
     """Fold the event's threat-intel hits into its review signature (unchanged when there are none)."""
     t = _ti_sig(e)
@@ -835,6 +878,12 @@ def _schema(c):
         c.execute("ALTER TABLE clef_event ADD COLUMN reviewer_label TEXT")
     except sqlite3.OperationalError:
         pass
+    # the model's own answers before a person's verdict was weighed in, and that verdict ({verdict, kind, weight, note, match})
+    for col in ("p_suspicious_raw REAL", "p_expected_raw REAL", "owner TEXT"):
+        try:
+            c.execute("ALTER TABLE clef_event ADD COLUMN " + col)
+        except sqlite3.OperationalError:
+            pass
     # the events passed in to each event determination (stage decision = decision model, review = event reviewer), newest
     # DECISION_INPUTS_KEEP per event: inputs = [{id, p (link probability), sent (in the request), related}]
     c.execute("""CREATE TABLE IF NOT EXISTS decision_inputs (eid TEXT, ts REAL, stage TEXT, model TEXT, label TEXT,
@@ -1812,6 +1861,10 @@ def _owner_notes(aid, ids, E=None):
         return {}
     out = {"anchor": [n["text"] for n in un.get(aid, [])]}
     out.update({f"c{i}": [n["text"] for n in un.get(x, [])] for i, x in enumerate(ids, 1)})
+    if E and aid in E:  # a person's verdict on artifacts this event shows (written on another event) is owner guidance too
+        ov = owner_verdicts([aid], E).get(aid)
+        if ov and ov.get("extra"):
+            out["anchor"] = ov["extra"] + out["anchor"]
     if E:
         try:
             for k, v in _context_notes({"anchor": aid, **{f"c{i}": x for i, x in enumerate(ids, 1)}}, E)[0].items():
@@ -2131,13 +2184,20 @@ def decision_inputs_view(eids, per=DECISION_INPUTS_KEEP):
 
 
 def clef_events_view(eids):
-    """Decision model (clef) event labels: {eid: {label, p_suspicious, p_expected, model, at}}."""
+    """Decision model (clef) event labels: {eid: {label, p_suspicious, p_expected, model, at[, owner, raw]}}; owner = the person's
+    verdict that was weighed in ({verdict, kind, weight, note, match}) and raw = the model's own answers before it."""
     eids, out = list(eids), {}
     with _db() as c:
         for i in range(0, len(eids), 500):
             ch = eids[i:i + 500]
-            for e, ps, pe, lab, m, ts in c.execute(f"SELECT eid, p_suspicious, p_expected, label, model, ts FROM clef_event WHERE eid IN ({','.join('?' * len(ch))})", ch):
+            for e, ps, pe, lab, m, ts, rs, re_, ow in c.execute(f"SELECT eid, p_suspicious, p_expected, label, model, ts, p_suspicious_raw, p_expected_raw, owner "
+                                                               f"FROM clef_event WHERE eid IN ({','.join('?' * len(ch))})", ch):
                 out[e] = {"label": lab, "p_suspicious": ps, "p_expected": pe, "model": m, "at": ts}
+                if ow:
+                    try:
+                        out[e].update(owner=json.loads(ow), raw={"p_suspicious": rs, "p_expected": re_})
+                    except ValueError:
+                        pass
     return out
 
 
@@ -2526,6 +2586,7 @@ def event_pass(base):
     skipped, CL = _limit_fn(base), _cleared()
     with _db() as c:
         have = dict(c.execute("SELECT eid, sig FROM event_class"))
+    OV = owner_verdicts([a for a in rel if a in E and a not in CL], E)
     todo = []
     for a, lst in rel.items():
         if a not in E or a in CL or skipped.bad(a):
@@ -2533,7 +2594,7 @@ def event_pass(base):
         dec = [(r["id"], V[pair(a, r["id"])]) for r in lst if pair(a, r["id"]) in V and r["id"] in E]
         if not dec:
             continue
-        sig = _with_ti(hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode(), usedforsecurity=False).hexdigest()[:16], E[a])
+        sig = _with_owner(_with_ti(hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode(), usedforsecurity=False).hexdigest()[:16], E[a]), OV.get(a))
         if have.get(a) == sig:
             continue
         todo.append((a, sig, [i for i, v in dec if v["related"]], [i for i, _ in dec]))
@@ -2576,9 +2637,14 @@ def clef_events(base, todo):
     ON = {}
     try:
         import kb
-        ON = {k: [n["text"] for n in v] for k, v in kb.event_notes([t[0] for t in todo], ai=True).items()}
+        ON = {k: [n["text"] for n in sorted(v, key=lambda n: (not n.get("verdict"), -(n["ts"] or 0)))]  # verdicts first, newest first
+              for k, v in kb.event_notes([t[0] for t in todo], ai=True).items()}
     except Exception as e:  # noqa: BLE001
         print(f"clef: owner notes unavailable: {e}", file=sys.stderr)
+    OV = owner_verdicts([t[0] for t in todo], E)
+    for k, ov in OV.items():  # verdicts on matching artifacts, written on other events, go in as owner notes too
+        if ov.get("extra"):
+            ON[k] = ov["extra"] + ON.get(k, [])
     STATUS.update(clef_stage="event decisions", clef_todo=len(todo))
 
     def one(t):
@@ -2602,10 +2668,16 @@ def clef_events(base, todo):
             STATUS["decision_failed_this_run"] = STATUS.get("decision_failed_this_run", 0) + 1
             _set_error("decision", f"decision model: {type(e).__name__}: {str(e)[:200]}")
             return 0
+        raw, ov = dict(p), OV.get(eid)
+        if ov:  # a person's verdict outweighs the model (clef.OWNER_WEIGHT); threat-intel hits halve that weight
+            p = dict(p)
+            p["suspicious"], p["expected"] = clef.owner_adjust(p["suspicious"], p["expected"], ov["verdict"], ov["weight"], ti=bool(_ti_sig(E[eid])))
         with _lock, _db() as c:
             lab, now = clef.label(p["suspicious"], p["expected"], cfg), time.time()
-            c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms) VALUES (?,?,?,?,?,?,?,?)",
-                      (eid, p["suspicious"], p["expected"], lab, sig, cfg["model"], now, ms))
+            c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms, p_suspicious_raw, p_expected_raw, owner) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                      (eid, p["suspicious"], p["expected"], lab, sig, cfg["model"], now, ms, raw["suspicious"], raw["expected"],
+                       json.dumps({k: ov[k] for k in ("verdict", "kind", "weight", "note", "match")}) if ov else None))
             n_in = kept.get("n", len(order))
             record_inputs(c, eid, now, "decision", cfg["model"], lab, p["suspicious"], p["expected"],
                           [{"id": i, "p": round(prob(i), 3), "sent": k < n_in, "related": i in rel} for k, i in enumerate(order)])

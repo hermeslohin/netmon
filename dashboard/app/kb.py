@@ -69,7 +69,8 @@ def _db():
             c.execute(f"ALTER TABLE host_notes ADD COLUMN {col} {decl}")
     have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
     for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL"),
-                      ("verdict", "TEXT NOT NULL DEFAULT ''")):  # verdict: a person's expected / benign / suspicious call (authoritative)
+                      ("verdict", "TEXT NOT NULL DEFAULT ''"),  # verdict: a person's expected / benign / suspicious call (authoritative)
+                      ("scope", "TEXT NOT NULL DEFAULT ''")):  # JSON list of artifact keys an expected / benign verdict applies to (any event showing all of them)
         if col not in have:  # older kb.db: every existing note was written by an admin/defender, so it stays approved
             c.execute(f"ALTER TABLE event_notes ADD COLUMN {col} {decl}")
     return c
@@ -719,7 +720,10 @@ def put(doc):
 
 
 # ---------------------------------------------------------------- event notes (people)
-_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict")
+_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict", "scope")
+SCOPE_VERDICTS = ("expected", "benign")  # verdicts a person may extend to other events by choosing the artifacts they apply to
+SCOPE_MAX = 20
+_SCOPE_KINDS = {"ip": "ip", "dns": "dns", "proc": "process", "user": "user", "port": None}
 VERDICTS = ("expected", "benign", "suspicious")  # the 📝 popover's buttons: a person's call on the event, authoritative for the AI and auto-close
 VERDICT_TAG = "ANALYST VERDICT: "  # prefix of the note text, so every AI prompt that reads notes sees the verdict
 STATUSES = ("pending", "approved", "rejected")
@@ -766,8 +770,7 @@ def event_notes(eids, ai=False, author=None):
         for i in range(0, len(ks), 500):
             ch = ks[i:i + 500]
             for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE skey IN ({','.join('?' * len(ch))}){extra} ORDER BY ts", ch + xargs):
-                n = dict(zip(_ECOLS, r))
-                n["artifacts"] = sorted(artifact_keys(n["text"]))
+                n = _enote(r)
                 for eid in keys[n["skey"]]:
                     out.setdefault(eid, []).append({**n, "same_event": n["eid"] == eid})
     return out
@@ -781,19 +784,72 @@ def all_event_notes(limit=500, ai=False):
             seen = {n["id"] for n in rows}
             rows += [dict(zip(_ECOLS, r)) for r in c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE status='pending' ORDER BY ts DESC")
                      if r[0] not in seen]
-        for n in rows:
-            n["artifacts"] = sorted(artifact_keys(n["text"]))
-        return rows
+        return [_enote(n) for n in rows]
 
 
-def verdict_text(verdict, author, text=""):
-    """Note text for a person's verdict: the AI reads it as the analyst's final, authoritative call on the event."""
+def _enote(r):
+    """One event_notes row as a dict: scope = the artifact keys a person chose (list); artifacts = the scope when set, else
+    the artifacts read from the text."""
+    n = dict(zip(_ECOLS, r)) if not isinstance(r, dict) else dict(r)
+    try:
+        n["scope"] = [str(x) for x in json.loads(n.get("scope") or "[]")][:SCOPE_MAX]
+    except (TypeError, ValueError):
+        n["scope"] = []
+    n["artifacts"] = n["scope"] or sorted(artifact_keys(n["text"]))
+    return n
+
+
+def clean_scope(keys):
+    """Artifact keys a person chose for a verdict ("kind:value", kind ip / dns / proc / user / port), deduplicated and
+    validated like every other note artifact; anything else is dropped."""
+    out = []
+    for k in keys or []:
+        k = str(k or "").strip()
+        kind, _, v = k.partition(":")
+        kind, v = kind.lower(), v.strip()
+        if kind not in _SCOPE_KINDS or not v:
+            continue
+        if kind == "port":
+            if not v.isdigit() or not 0 < int(v) < 65536:
+                continue
+        elif kind == "proc":
+            v = _proc_key(v)[5:]  # same base-name form as event_artifact_keys
+            if not valid_art("process", v):
+                continue
+        elif not valid_art(_SCOPE_KINDS[kind], v):
+            continue
+        if kind in ("dns", "user"):
+            v = v.lower().strip(".")
+        k = f"{kind}:{v}"
+        if k not in out:
+            out.append(k)
+    return out[:SCOPE_MAX]
+
+
+def scoped_verdicts():
+    """Approved expected / benign verdict notes that carry a scope (the artifacts a person said they apply to), newest first."""
+    with _db() as c:
+        rows = c.execute(f"SELECT {','.join(_ECOLS)} FROM event_notes WHERE status='approved' AND verdict IN ('expected','benign') "
+                         "AND scope NOT IN ('', '[]') ORDER BY ts DESC LIMIT 2000").fetchall()
+    return [n for n in (_enote(r) for r in rows) if n["scope"]]
+
+
+def scope_matches(ev_keys, notes):
+    """The scoped verdict notes whose EVERY chosen artifact the event shows (a person's call on those artifacts)."""
+    ev = set(ev_keys or ())
+    return [n for n in notes if n["scope"] and set(n["scope"]) <= ev]
+
+
+def verdict_text(verdict, author, text="", scope=None):
+    """Note text for a person's verdict: the AI reads it as the analyst's final, authoritative call on the event (and, with a
+    scope, on any event that shows all of those artifacts)."""
     who = str(author or "").replace("user:", "")
+    sc = f"; applies to any event with {', '.join(scope)}" if scope else ""
     return (f"{VERDICT_TAG}{verdict.upper()} (set by {who}; authoritative - the network owner/defender has decided this event is "
-            f"{verdict}; do not contradict it)" + (f". {text}" if text else ""))[:MAX_TEXT]
+            f"{verdict}{sc}; do not contradict it)" + (f". {text}" if text else ""))[:MAX_TEXT]
 
 
-def add_event_note(eid, text, author, label="", role="admin", verdict=""):
+def add_event_note(eid, text, author, label="", role="admin", verdict="", scope=None):
     """Notes by a User-role account start 'pending' (hidden from the AI until approved); others are approved at once.
     verdict (expected / benign / suspicious): a person's call on the event - stored in its own column and written into the
     text, so it reaches every AI prompt; once approved, auto-close applies it to this event and its repeats."""
@@ -801,8 +857,9 @@ def add_event_note(eid, text, author, label="", role="admin", verdict=""):
     verdict = str(verdict or "").strip().lower()
     if verdict and verdict not in VERDICTS:
         raise ValueError("verdict must be expected, benign or suspicious")
+    scope = clean_scope(scope) if verdict in SCOPE_VERDICTS else []
     if verdict:
-        text = verdict_text(verdict, author, text)
+        text = verdict_text(verdict, author, text, scope)
     if not eid or not text:
         raise ValueError("event id and text required")
     status = "pending" if role == "user" else "approved"
@@ -812,8 +869,9 @@ def add_event_note(eid, text, author, label="", role="admin", verdict=""):
             n = c.execute("SELECT count(*) FROM event_notes WHERE author=? AND status='pending'", (str(author)[:60],)).fetchone()[0]
             if n >= MAX_PENDING_PER_USER:
                 raise ValueError(f"you already have {n} notes waiting for approval - wait for a defender to review them")
-        cur = c.execute("INSERT INTO event_notes (skey, eid, label, author, text, ts, status, role, verdict) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (k, eid, str(label or "")[:200], str(author)[:60], text, time.time(), status, str(role or "")[:20], verdict))
+        cur = c.execute("INSERT INTO event_notes (skey, eid, label, author, text, ts, status, role, verdict, scope) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (k, eid, str(label or "")[:200], str(author)[:60], text, time.time(), status, str(role or "")[:20], verdict,
+                         json.dumps(scope) if scope else ""))
         return cur.lastrowid
 
 

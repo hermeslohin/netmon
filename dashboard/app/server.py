@@ -1509,18 +1509,28 @@ class H(BaseHTTPRequestHandler):
                 act, eid = body.get("action"), str(body.get("eid") or "")
                 mine = user if role == "user" else None  # a User sees / deletes only their own notes
                 notes_for = lambda: kb.event_notes([eid], author=mine).get(eid, [])  # noqa: E731
-                if role == "user" and act not in ("add", "delete"):
+                if role == "user" and act not in ("add", "delete", "arts"):
                     return self._json({"error": "only a network defender or admin can approve notes"}, 403)
+                if act == "arts":  # the artifact keys an event shows, offered as the scope of an expected / benign verdict
+                    ev = body.get("event") if isinstance(body.get("event"), dict) else {}
+                    ev = {k: ev.get(k) for k in ("ips", "host_ips", "dst_ips", "arts", "label") if isinstance(ev.get(k), (list, str))}
+                    try:
+                        keys = kb.clean_scope(sorted(kb.event_artifact_keys(ev)))
+                    except Exception as e:  # noqa: BLE001 - a malformed event just offers no artifacts
+                        print(f"kb: event artifacts failed: {type(e).__name__}: {e}", file=sys.stderr)
+                        keys = []
+                    return self._json({"ok": True, "arts": keys})
                 if act == "add":
                     if role == "user" and eid not in {e["id"] for e in my_events(user)["events"]}:
                         print(f"access denied: {user} (user) note on event outside their devices {eid[:80]!r}", file=sys.stderr)
                         return self._json({"error": "you can only add notes to events of your assigned devices"}, 403)
                     vd = str(body.get("verdict") or "").lower()
                     try:
-                        nid = kb.add_event_note(eid, body.get("text"), user, body.get("label"), role=role, verdict=vd)
+                        sc = body.get("scope") if isinstance(body.get("scope"), list) else None
+                        nid = kb.add_event_note(eid, body.get("text"), user, body.get("label"), role=role, verdict=vd, scope=sc)
                     except ValueError as e:
                         return self._json({"error": str(e)}, 400)
-                    print(f"kb: {user} ({role}) added event note {nid} on {eid[:80]!r}{' verdict ' + vd if vd else ''}{' - pending approval' if role == 'user' else ''}", file=sys.stderr)
+                    print(f"kb: {user} ({role}) added event note {nid} on {eid[:80]!r}{' verdict ' + vd if vd else ''}{f' scope {len(sc)} artifacts' if sc else ''}{' - pending approval' if role == 'user' else ''}", file=sys.stderr)
                     if vd and role != "user":  # authoritative at once; a User's verdict waits for approval
                         autoclose.person_marked(eid, vd, user, autoclose_inputs)
                     return self._json({"ok": True, "id": nid, "notes": notes_for()})

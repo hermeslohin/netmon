@@ -661,3 +661,4 @@ tr.muted td { opacity: .6; }
 .k8m-nsbox { position: absolute; z-index: 30; background: var(--card, #161b22); border: 1px solid rgba(127,127,127,.35); border-radius: 8px; padding: 8px 10px;
   max-height: 60vh; overflow: auto; min-width: 280px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 .k8m-nsbox label { display: block; padding: 2px 0; white-space: nowrap; }
+.kb-scope{margin:4px 0 6px;padding:6px;border:1px dashed var(--line,#444);border-radius:6px}.kb-scope-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.kb-scope-it{cursor:pointer;user-select:none}.kb-scope-it input{margin:0 3px 0 0;vertical-align:middle}

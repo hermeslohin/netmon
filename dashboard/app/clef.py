@@ -47,15 +47,37 @@ def event_state(e, related, when, desc, notes=None, rel_notes=None, kept=None):
     while len(txt) > STATE_MAX and len(rel) > 1:
         rel.pop()
         txt = json.dumps(s, ensure_ascii=False, default=str)
-    if len(txt) > STATE_MAX:
+    if len(txt) > STATE_MAX:  # the EVENT's own owner notes / verdicts stay: they are the strongest guidance
         for d in [s["EVENT"], *rel]:
-            d.pop("owner_notes", None); d["description"] = d["description"][:250]
+            if d is not s["EVENT"]:
+                d.pop("owner_notes", None)
+            d["description"] = d["description"][:250]
         if kept is not None:
             kept["cut"] = len(json.dumps(s, ensure_ascii=False, default=str)) > STATE_MAX
         txt = json.dumps(s, ensure_ascii=False, default=str)[:STATE_MAX]
     if kept is not None:
         kept["n"] = len(rel)
     return txt
+
+
+# A person's expected / benign verdict outweighs the model: the decision model's probabilities are pulled toward the verdict
+# by this weight (0 = ignore, 1 = the verdict wins outright). A verdict on artifacts the person chose that the event shows
+# (all of them) is the strongest signal; a verdict on this same event (or an earlier run of it) is next. Threat-intel hits
+# on the event halve the weight, so a person's call never fully hides concrete evidence of harm.
+OWNER_WEIGHT = {"artifacts": 0.9, "event": 0.8}
+
+
+def owner_adjust(p_sus, p_exp, verdict, weight, ti=False):
+    """(p_suspicious, p_expected) after a person's verdict with the given weight: expected / benign pull suspicious toward 0
+    (expected also pulls expected toward 1); suspicious pulls suspicious toward 1 and expected toward 0."""
+    w = max(0.0, min(1.0, float(weight or 0))) * (0.5 if ti else 1.0)
+    if verdict in ("expected", "benign"):
+        p_sus = p_sus * (1 - w)
+        if verdict == "expected":
+            p_exp = p_exp + (1 - p_exp) * w
+    elif verdict == "suspicious":
+        p_sus, p_exp = p_sus + (1 - p_sus) * w, p_exp * (1 - w)
+    return round(p_sus, 4), round(p_exp, 4)
 
 
 def label(p_sus, p_exp, cfg=None):
@@ -236,8 +258,8 @@ def _ev(e, when, desc, notes=None):
             d["threat_intel_hits"] = ti[:5]
     except Exception as ex:  # noqa: BLE001 - threat-intel hits are optional context
         print(f"clef: threat-intel lookup skipped: {ex}", file=sys.stderr)
-    if notes:
-        d["owner_notes"] = [str(n)[:300] for n in notes[:3]]
+    if notes:  # verdict notes first (callers sort them), each kept long enough to carry the person's reason
+        d["owner_notes"] = [str(n)[:500 if str(n).startswith("ANALYST VERDICT") else 300] for n in notes[:4]]
     return d
 
 
