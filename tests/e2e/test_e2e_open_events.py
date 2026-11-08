@@ -89,12 +89,13 @@ class OpenEventsApi(unittest.TestCase):
 
     def test_filters(self):
         """type= (repeatable), sev= (any case) and q= filter the rows; counts and total stay unfiltered.
-        REQ: OE-05, OE-17
+        REQ: OE-05, OE-17, OE-19
         """
         self.assertEqual(self.eids("/api/events/open?type=gw&type=ti&q=E2E"), [TI, GW])
         self.assertEqual(self.eids("/api/events/open?sev=HIGH&q=e2e%20gateway"), [GW])
         body = self.get("/api/events/open?type=vuln&q=nothing-matches")
         self.assertEqual(body["events"], [])
+        self.assertNotIn("vuln", body["counts"])  # Fix-list items are on the Fix list page, never here (OE-19)
         self.assertGreaterEqual(body["counts"].get("ids", 0), BULK + 1)
         self.assertGreaterEqual(body["total"], BULK + 5)
 

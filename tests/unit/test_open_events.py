@@ -215,6 +215,17 @@ class OpenEventsListTest(_Fresh):
         self.assertEqual(r["counts"], {"ids": 1, "gw": 1, "vuln": 1, "ti": 1})
         self.assertEqual(r["shown"], 0)
 
+    def test_exclude_drops_type_from_rows_counts_and_total(self):
+        """exclude= leaves a type out entirely: no rows, no per-type count and not in the total (the page's Fix-list
+        items live on the Fix list page).
+        REQ: OE-19
+        """
+        r = eventstore.open_events(exclude={"vuln"})
+        self.assertNotIn("iss|a", [e["eid"] for e in r["events"]])
+        self.assertEqual(r["counts"], {"ids": 1, "gw": 1, "ti": 1})
+        self.assertEqual(r["total"], 3)
+        self.assertEqual(eventstore.open_events(types={"vuln"}, exclude={"vuln"})["events"], [])
+
     def test_limit_and_count_only_request(self):
         """limit caps the rows returned (shown); limit=0 (the nav badge) returns the total with no rows and no extras.
         REQ: OE-05
@@ -606,11 +617,11 @@ class OpenEventsPageJsTest(unittest.TestCase):
         """Rows are drawn as one card per type, in the page's fixed type order, titled with the open count.
         REQ: OE-15
         """
-        ev_ = [_oe_row(IDS, "ids"), _oe_row("ids|two", "ids"), _oe_row(BEACON_1, "finding"), _oe_row("iss|a", "vuln"),
+        ev_ = [_oe_row(IDS, "ids"), _oe_row("ids|two", "ids"), _oe_row(BEACON_1, "finding"),
                _oe_row(GW, "gw"), _oe_row("alarm|z", "alarm")]
-        out = self.render(ev_, {"ids": 2, "finding": 1, "vuln": 1, "gw": 1, "alarm": 1})
+        out = self.render(ev_, {"ids": 2, "finding": 1, "gw": 1, "alarm": 1})
         self.assertEqual([c["title"] for c in out["cards"]], ["Baseline findings (1 open)", "IDS signatures (2 open)", "Gateway events (1 open)",
-                                                               "Fix list (vulnerabilities / misconfigurations) (1 open)", "Triage alarms (1 open)"])
+                                                               "Triage alarms (1 open)"])
         self.assertEqual(out["cards"][1]["body"]["rows"], [IDS, "ids|two"])
         self.assertTrue(all(c["body"]["sort"] == "sev" for c in out["cards"]))
 
@@ -620,12 +631,11 @@ class OpenEventsPageJsTest(unittest.TestCase):
         REQ: OE-15
         """
         out = self.render([_oe_row(BEACON_1, "finding"), _oe_row(IDS, "ids"), _oe_row(HF_A, "host"), _oe_row(GW, "gw"),
-                           _oe_row(ADM, "admin"), _oe_row("iss|a", "vuln")])
+                           _oe_row(ADM, "admin")])
         cols = {c["title"].split(" (")[0]: c["body"]["cols"] for c in out["cards"]}
         head, tail = ["✓", "Severity", "Verdict", "Notes"], ["First seen", "Last seen", "Seen"]
         mid = {"Baseline findings": ["Kind", "Device", "Detail"], "IDS signatures": ["Signature", "Count", "From", "To"],
-               "Endpoint": ["Host", "To", "Finding"], "Gateway events": ["Time", "Event"], "Admin sessions": ["Event", "Hosts"],
-               "Fix list": ["Issue", "Target"]}
+               "Endpoint": ["Host", "To", "Finding"], "Gateway events": ["Time", "Event"], "Admin sessions": ["Event", "Hosts"]}
         self.assertEqual(set(cols), set(mid))
         for name, m in mid.items():
             self.assertEqual(cols[name], head + m + tail, name)
@@ -640,8 +650,9 @@ class OpenEventsPageJsTest(unittest.TestCase):
         self.assertTrue(any(h.startswith("KPIS:") and '["Open events",0]' in h for h in out["html"]))
 
     def test_every_correlation_type_has_a_card(self):
-        """Every event type correlate.py emits has a card in openevents.js TYPES (no open event is invisible).
-        REQ: OE-15
+        """Every event type correlate.py emits has a card in openevents.js TYPES (no open event is invisible), except
+        Fix-list items (vuln), which are on the Fix list page and never in Open events.
+        REQ: OE-15, OE-19
         """
         import re
         with open(os.path.join(_env.APP, "correlate.py")) as f:
@@ -649,7 +660,8 @@ class OpenEventsPageJsTest(unittest.TestCase):
         with open(OE_JS) as f:
             listed = set(re.findall(r'^\s*\["([a-z]+)", "', f.read(), re.M))
         self.assertTrue({"finding", "host", "ids", "gw", "vuln"} <= emitted, emitted)
-        self.assertEqual(emitted - listed, set())
+        self.assertEqual(emitted - listed, {"vuln"})
+        self.assertNotIn("vuln", listed)
 
 
 if __name__ == "__main__":

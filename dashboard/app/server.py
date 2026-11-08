@@ -1709,7 +1709,8 @@ class H(BaseHTTPRequestHandler):
                 except ValueError:
                     return self._json({"error": "limit must be a whole number (0-5000)"}, 400)
                 return self._json(eventstore.open_events(types=set(q.get("type") or []) or None, sev=(q.get("sev") or [""])[0].lower() or None,
-                                                         q=(q.get("q") or [""])[0] or None, limit=lim, merge=True))
+                                                         q=(q.get("q") or [""])[0] or None, limit=lim, merge=True,
+                                                         exclude={"vuln"}))  # Fix-list items live on the Fix list page (#/issues)
             if path == "/api/events/detail":  # Open events modal: all occurrences of one event + its related events
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]

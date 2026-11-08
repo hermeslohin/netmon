@@ -10,7 +10,6 @@
     ["gw", "Gateway events", "gateway event", "gateway"],
     ["admin", "Admin sessions", "admin session", "alarm"],
     ["ti", "Threat intel hits", "threat-intel hit", "alarm"],
-    ["vuln", "Fix list (vulnerabilities / misconfigurations)", "vulnerability", "alarm"],
     ["alert", "Alerts", "alert", "alarm"],
     ["alarm", "Triage alarms", "alarm", "alarm"],
   ];
@@ -30,7 +29,7 @@
   }
   const pivItem = (x) => {
     const it = { ...itemOf(x) };
-    if (["admin", "ti", "vuln", "alert"].includes(x.type)) { it.title = x.label; it.who = (x.ips || []).join(" "); it.evidence = [it.src, it.dst, it.ip, it.domain].filter(Boolean).join(" "); }
+    if (["admin", "ti", "alert"].includes(x.type)) { it.title = x.label; it.who = (x.ips || []).join(" "); it.evidence = [it.src, it.dst, it.ip, it.domain].filter(Boolean).join(" "); }
     if (x.t0 && x.t1) it._win = [x.t0 * 1000 - 300000, x.t1 * 1000 + 300000];  // Kibana opens on the event's own time, not the loaded snapshot's
     return it;
   };
@@ -65,7 +64,6 @@
       gw: [{ k: "time", t: "Time", fmt: (v, x) => when(itemOf(x).time), sort: (x) => itemOf(x).time || "" }, { k: "evt", t: "Event", fmt: (v, x) => linkifyIps(`${itemOf(x).key || ""}: ${itemOf(x).message || x.label}`) }],
       admin: [label, hosts],
       ti: [label, hosts],
-      vuln: [{ k: "title", t: "Issue", fmt: (v, x) => esc(itemOf(x).title || x.label), sort: (x) => itemOf(x).title || "" }, { k: "target", t: "Target", fmt: (v, x) => ipLink(itemOf(x).target || itemOf(x).ip || ""), sort: (x) => itemOf(x).target || "" }],
       alert: [label, hosts],
     }[t] || [label, hosts];
     return [ack, sev, verdict, notes, ...by, ...times];
@@ -279,7 +277,7 @@
     el.innerHTML = "";
     const f = OE.f, c = r.counts || {};
     const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev));
-    el.insertAdjacentHTML("beforeend", `<div class="muted small">Your backlog: every event stays here until someone accepts it (checks it off), however old — the time range does not apply and nothing expires. Fix-list items and vulnerabilities also leave once fixed. Repeats of one condition are collapsed into one row (unlike <a href=\"#/posture\">Posture</a>, which lists what happened in the selected time range, row by row). Click a row for every occurrence and its related events.</div>`);
+    el.insertAdjacentHTML("beforeend", `<div class="muted small">Your backlog: every event stays here until someone accepts it (checks it off), however old — the time range does not apply and nothing expires. Fix-list items (vulnerabilities / misconfigurations) are not listed here: they are on the <a href="#/issues">Fix list</a>. Repeats of one condition are collapsed into one row (unlike <a href="#/posture">Posture</a>, which lists what happened in the selected time range, row by row). Click a row for every occurrence and its related events.</div>`);
     el.insertAdjacentHTML("beforeend", kpis([["Open events", r.total], ...TYPES.filter(([t]) => c[t]).map(([t, name]) => [name.replace(/ \(.*/, ""), c[t]])]));
     const bar = document.createElement("div"); bar.className = "fchips";
     bar.innerHTML = `<select id="oeT"><option value="">All types</option>${TYPES.map(([t, n]) => `<option value="${t}" ${f.type === t ? "selected" : ""}>${esc(n.replace(/ \(.*/, ""))}${c[t] ? " (" + c[t] + ")" : ""}</option>`).join("")}</select> ` +

@@ -171,14 +171,18 @@ def gkey(eid):
     return str(eid)
 
 
-def open_events(types=None, sev=None, q=None, limit=2000, merge=False):
-    """Unchecked, unresolved events (any age), most severe then newest first. Repeats of one condition are one row."""
+def open_events(types=None, sev=None, q=None, limit=2000, merge=False, exclude=None):
+    """Unchecked, unresolved events (any age), most severe then newest first. Repeats of one condition are one row.
+    exclude: event types left out entirely (rows, counts and total), e.g. {'vuln'} for the Open events page, whose
+    Fix-list items live on the Fix list page instead."""
     c = _c()
     acks = store.acks_load(c)
     alert_ok = {r[0] for r in c.execute("SELECT id FROM alerts WHERE cleared=0 AND held=0 AND source!='review'")}
     groups = {}
     for r in c.execute("SELECT * FROM events WHERE resolved=0 ORDER BY COALESCE(t1,0), last_seen"):  # oldest -> newest
         eid = r["eid"]
+        if exclude and r["type"] in exclude:
+            continue
         if eid.startswith("alert|"):
             try:
                 if int(eid.split("|")[1]) not in alert_ok:
