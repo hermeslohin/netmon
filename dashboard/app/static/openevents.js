@@ -218,7 +218,7 @@
 
   async function openDetail(x) {
     document.querySelector(".oe-back")?.remove();
-    const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], cev = X.clef_ev?.[x.eid];
+    const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid];
     const [, , askKind, pivKind] = kindOf(x.type);
     const back = document.createElement("div"); back.className = "modal-back oe-back";
     const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); removeEventListener("hashchange", close); };
@@ -226,14 +226,14 @@
     document.addEventListener("keydown", onKey, true); addEventListener("hashchange", close);
     const verdictHtml = (c || n) ? `<div class="oe-verdict">
         ${c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span>
-          ${cev ? ` <span class="small muted">decision model p(suspicious) ${Math.round((cev.p_suspicious || 0) * 100)}%</span>` : ""}
+          ${c.owner && window.relUi?.ownerHtml ? `<div>${window.relUi.ownerHtml(c)}</div>` : ""}
           ${c.reason ? `<div class="small">${/^Decision model:/.test(c.reason) ? "" : aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) + " "}${window.relUi?.reasonHtml ? window.relUi.reasonHtml(c.reason, c.sources) : esc(c.reason)}</div>` : ""}
           ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}
         ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note${n.priority ? " · priority " + esc(n.priority) : ""}</span>
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
     const extraHtml = researchHtml(x.eid, X);
     const mb = (role, m, cls) => m ? `<span class="oe-ai ${cls || ""}" title="${esc(role)}: ${esc(m)}"><span class="oe-ai-r">${esc(role)}</span>${esc(String(m).replace(/^.*[:/]/, ""))}</span>` : "";
-    const aiBadges = [mb("classified by", c?.model), mb("decision model", cev?.model, "dm"), mb("researched by", n?.model, "rs")].filter(Boolean).join("");
+    const aiBadges = [mb("classified by", c?.model), mb("researched by", n?.model, "rs")].filter(Boolean).join("");
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
       <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
         <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×${x.repeats > 1 ? ` · <span class="oe-var" title="Same condition, but the numbers in the text differ between reports (counts, ports, bytes). Each firing below is tagged with its variant.">${x.repeats} variants</span>` : ""}</div></div>

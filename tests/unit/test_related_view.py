@@ -22,7 +22,6 @@ class RelatedView(unittest.TestCase):
             c.execute("INSERT INTO clef (pair, p_related, related, model, ts) VALUES (?,?,?,?,?)", (P("a2", "x"), 0.83, 1, "cloudflare_clef", 20))
             c.execute("INSERT INTO pair_artifacts (pair, kind, value, relation, decision, model, ts) VALUES (?,?,?,?,?,?,?)",
                       (P("a2", "x"), "ip", "10.0.0.5", "shared host", "suspicious", "gemma", 20))
-            c.execute("INSERT INTO clef_event (eid, p_suspicious, p_expected, label, model, ts) VALUES (?,?,?,?,?,?)", ("a2", 0.8, 0.1, "suspicious", "cloudflare_clef", 20))
 
     def test_counts_details_and_clef(self):
         """Stored related links of a row (all its repeats), newest verdict per partner, artifacts and clef decisions.
@@ -37,7 +36,6 @@ class RelatedView(unittest.TestCase):
         self.assertAlmostEqual(x["clef"]["p_related"], 0.83)
         self.assertEqual(x["llm_artifacts"][0]["value"], "10.0.0.5")
         self.assertIsNone(R["a2"][1]["clef"])
-        self.assertEqual(corr_llm.clef_events_view(["a2", "a1"])["a2"]["label"], "suspicious")
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ store.alerts_add([("w|1", "IDS: ET MALWARE Test - %s -> %s" % (IP["laptop"], EXT
 ids = {r["key"]: r["id"] for r in c.execute("SELECT id, key FROM alerts")}
 with corr_llm._db() as cc:
     for k, label, why in (("w|1", "benign", "Known scanner."), ("a|lap1", "suspicious", "Beacon to a listed IP.")):
-        cc.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", ("alert|%d" % ids[k], label, 0.8, why, "test-model", "s", time.time()))
+        cc.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", ("alert|%d" % ids[k], label, 0.8, why, "test-model", "s", time.time()))
 '''
 
 

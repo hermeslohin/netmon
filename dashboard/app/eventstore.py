@@ -314,13 +314,7 @@ def extras(rows):
     try:
         import corr_llm
         R, _ = corr_llm.related_view({r["eid"]: set(r["members"]) | {r["eid"]} for r in rows}, detail=False)
-        CE = corr_llm.clef_events_view(allids)
         out["related_n"] = {k: len(v) for k, v in R.items()}
-        for r in rows:
-            for m in reversed(r["members"]):
-                if m in CE:
-                    out.setdefault("clef_ev", {})[r["eid"]] = CE[m]
-                    break
     except Exception as e:  # noqa: BLE001 - the page works without them
         print(f"eventstore related: {e}", file=sys.stderr)
     return out
@@ -331,8 +325,7 @@ def related(eid, members):
     import corr_llm
     ms = [*members, eid]  # oldest -> newest
     R, partners = corr_llm.related_view({eid: set(ms)})
-    CE = corr_llm.clef_events_view(ms)
-    return {"related": R.get(eid, []), "events": _ev_view(partners | {eid}), "clef_ev": next((CE[m] for m in reversed(ms) if m in CE), None)}
+    return {"related": R.get(eid, []), "events": _ev_view(partners | {eid})}
 
 
 def detail(eid):
@@ -348,7 +341,7 @@ def detail(eid):
         if r["resolved"] == 0 and gkey(r["eid"]) == gk or r["eid"] == eid:
             occ.append({k: r[k] for k in ("eid", "label", "sev", "link", "t0", "t1", "first_seen", "last_seen", "n")})
     if not occ:
-        return {"occurrences": [], "related": [], "events": {}, "clef_ev": None}
+        return {"occurrences": [], "related": [], "events": {}}
     members = [o["eid"] for o in occ][:300]
     ch = members
     fires = [dict(r) for r in c.execute(f"SELECT eid,sid,seen,t0,t1,label FROM event_fires WHERE eid IN ({','.join('?' * len(ch))}) "
@@ -360,7 +353,6 @@ def detail(eid):
     import corr_llm
     fe = list(dict.fromkeys([f["eid"] for f in fires] or members[:1]))[:60]
     R, partners = corr_llm.related_view({e: {e} for e in fe})
-    CE = corr_llm.clef_events_view(fe)
     DI = corr_llm.decision_inputs_view(fe)  # the events passed in to each determination (the firings show the ones in their span)
     ev = _ev_view(partners | set(fe) | {x["id"] for L in DI.values() for d in L for x in d["inputs"]})
     by = {}
@@ -380,7 +372,7 @@ def detail(eid):
                 x.update({k: v for k, v in r.items() if k not in ("llm_artifacts", "llm_ats")})
         by[e] = sorted(seen.values(), key=lambda x: -(x.get("llm_conf") or 0))[:40]
     return {"fires": fires, "fires_since": since, "occurrences": occ[:500], "n_occurrences": len(occ), "by_event": by, "events": ev,
-            "clef_ev": next((CE[m] for m in fe if m in CE), None), "decisions": DI,
+            "decisions": DI,
             "inputs_since": corr_llm.decision_inputs_since()}
 
 
@@ -448,9 +440,6 @@ def alert_verdict(ref, X):
     c = (X.get("classes") or {}).get(ref)
     if c and c.get("label") in VERDICTS:
         return c["label"], "ai"
-    ce = (X.get("clef_ev") or {}).get(ref)
-    if ce and ce.get("label") in VERDICTS:
-        return ce["label"], "model"
     return "unreviewed", ""
 
 
@@ -508,14 +497,14 @@ def alert_view(alerts, related=True, art_limit=6):
     if related:
         X = extras(rows)
     else:  # big detection lists: verdict sources only (related_view over thousands of rows is slow)
-        X = {"notes": {}, "classes": {}, "unotes": {}, "clef_ev": {}}
+        X = {"notes": {}, "classes": {}, "unotes": {}}
         try:
             import enrich, corr_llm, kb
             allids = [m for r in rows for m in r["members"]]
-            N, C, U, CE = enrich.load(allids), corr_llm.classes(allids), kb.event_notes(allids), corr_llm.clef_events_view(allids)
+            N, C, U = enrich.load(allids), corr_llm.classes(allids), kb.event_notes(allids)
             for r in rows:
                 for m in reversed(r["members"]):
-                    for src, dst in ((N, "notes"), (C, "classes"), (U, "unotes"), (CE, "clef_ev")):
+                    for src, dst in ((N, "notes"), (C, "classes"), (U, "unotes")):
                         if m in src and r["eid"] not in X[dst]:
                             X[dst][r["eid"]] = src[m]
         except Exception as e:  # noqa: BLE001 - the page works without them
@@ -577,14 +566,14 @@ def detections(limit=300, verdict=None):
     for a in allrows:
         a["eid"] = alert_ref(a)
     refs = list(dict.fromkeys(a["eid"] for a in allrows))
-    X = {"classes": {}, "unotes": {}, "clef_ev": {}}
+    X = {"classes": {}, "unotes": {}}
     try:
         import corr_llm, kb
         ids = list(dict.fromkeys(refs + [f"alert|{a['id']}" for a in allrows]))
-        C, U, CE = corr_llm.classes(ids), kb.event_notes(ids), corr_llm.clef_events_view(ids)
+        C, U = corr_llm.classes(ids), kb.event_notes(ids)
         for a in allrows:
             for m in (a["eid"], f"alert|{a['id']}"):
-                for src, dst in ((C, "classes"), (U, "unotes"), (CE, "clef_ev")):
+                for src, dst in ((C, "classes"), (U, "unotes")):
                     if m in src and a["eid"] not in X[dst]:
                         X[dst][a["eid"]] = src[m]
     except Exception as e:  # noqa: BLE001

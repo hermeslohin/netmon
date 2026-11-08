@@ -107,11 +107,11 @@ class DetailPerFiringTest(unittest.TestCase):
         eventstore._c().execute("DELETE FROM event_fires")
         import corr_llm
         self.corr_llm = corr_llm
-        self._saved = (corr_llm.related_view, corr_llm.clef_events_view, corr_llm.decision_inputs_view, corr_llm.decision_inputs_since)
+        self._saved = (corr_llm.related_view, corr_llm.decision_inputs_view, corr_llm.decision_inputs_since)
 
     def tearDown(self):
         c = self.corr_llm
-        c.related_view, c.clef_events_view, c.decision_inputs_view, c.decision_inputs_since = self._saved
+        c.related_view, c.decision_inputs_view, c.decision_inputs_since = self._saved
 
     def test_merged_related_links_keep_each_review_time(self):
         """Two variants of one related condition merge into one line with both review times (llm_ats), merged artifacts,
@@ -124,7 +124,6 @@ class DetailPerFiringTest(unittest.TestCase):
                  "llm_artifacts": [{"kind": "ip", "value": "a"}, {"kind": "dns", "value": "b"}]}]
         c = self.corr_llm
         c.related_view = lambda groups, **k: ({e: list(rows) for e in groups}, {BEACON_A, BEACON_B})
-        c.clef_events_view = lambda eids: {}
         c.decision_inputs_view = lambda eids: {}
         c.decision_inputs_since = lambda: None
         d = eventstore.detail(IDS)

@@ -228,7 +228,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `notes.consolidate` | AI pipeline configuration > Nightly note consolidation | `/api/llm/notes-consolidate` | STO-09, SET-66 | 6 | 8 |
 | `llm.models` | AI pipeline configuration > Models (event reviewer, research, chat model) | `/api/llm/config` | SET-22, SET-23, SET-65 | 6 | 4 |
 | `llm.providers` | AI pipeline configuration > AI providers (added APIs, local server) | `/api/llm/providers` | SET-32, SET-33, SET-34, SET-65 | 8 | 4 |
-| `llm.clef` | AI pipeline configuration > Decision model settings (on/off, thresholds) | `/api/llm/clef` | SET-30, SET-31, SET-66 | 7 | 8 |
+| `llm.clef` | AI pipeline configuration > Decision model settings (on/off, thresholds) | `/api/llm/clef` | SET-30, SET-31, SET-66 | 6 | 8 |
 | `llm.clef_server` | AI pipeline configuration > Decision model server | `/api/llm/clef-server` | SET-35 | 3 | 0 |
 | `llm.notes` | AI pipeline configuration > Event reviewer context notes | `/api/llm/notes` | SET-20, SET-21, SET-66 | 5 | 8 |
 | `llm.review_limits` | AI pipeline configuration > Review limits | `/api/llm/review-limits` | STO-05, SET-26, SET-27, SET-28, SET-29, SET-66, SET-69 | 23 | 15 |
@@ -273,20 +273,20 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_notes_consolidate.py` | 11 | Unit tests for dashboard/app/notes_consolidate.py: nightly merge of AI-written host notes (AI review > Host note consolidation). (COR-05, STO-09, STO-11) |
 | `tests/unit/test_open_events.py` | 43 | Open events page backend (eventstore: upsert, vuln lifecycle, grouping, filters, check-offs, display merges, extras, (OE-01, OE-02, OE-03, OE-04, OE-05, OE-06, OE-07, OE-08, OE-09, OE-10, OE-11, OE-12, OE-13, OE-14, OE-15, OE-16) |
 | `tests/unit/test_opencti.py` | 13 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07) |
-| `tests/unit/test_owner_verdict_scope.py` | 8 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, clef.owner_adjust weighs it (STO-14) |
+| `tests/unit/test_owner_verdict_scope.py` | 9 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
 | `tests/unit/test_posture.py` | 30 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
 | `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, RISK-03, STO-06, STO-07) |
 | `tests/unit/test_related_view.py` | 1 | Open events page: related events of rows older than the loaded snapshot come from the stored verdicts (STO-10) |
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |
 | `tests/unit/test_review_noai.py` | 6 | Unit tests for the review / research split: review.py never researches, research.py runs only for a person's click. (OPS-06) |
-| `tests/unit/test_reviewer_output.py` | 8 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-08, FEAT-09) |
+| `tests/unit/test_reviewer_output.py` | 5 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-09) |
 | `tests/unit/test_reviewlog.py` | 4 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AUD-04) |
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
 | `tests/unit/test_risk_k8s.py` | 4 | Risk: Kubernetes workloads ranked with hosts (risk.k8s_rows). (KUBE-11) |
 | `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |
 | `tests/unit/test_scoped_notes.py` | 3 | Unit tests for dashboard/app/kb.py wider-scope internet notes: parent-domain notes cover subdomains, CIDR-range notes cover addresses. (STO-13) |
 | `tests/unit/test_server_cache.py` | 2 | Unit tests for the dashboard's in-memory document cache (server.load_json). (DASH-02, OPS-05) |
-| `tests/unit/test_settings_ai.py` | 44 | Unit tests for every AI-pipeline setting: corr_llm setters (notes, models, look-ups, review limits), the decision-model (SET-20, SET-21, SET-22, SET-23, SET-24, SET-25, SET-26, SET-27, SET-28, SET-29, SET-30, SET-31, SET-32, SET-33, SET-34, SET-35) |
+| `tests/unit/test_settings_ai.py` | 43 | Unit tests for every AI-pipeline setting: corr_llm setters (notes, models, look-ups, review limits), the decision-model (SET-20, SET-21, SET-22, SET-23, SET-24, SET-25, SET-26, SET-27, SET-28, SET-29, SET-30, SET-31, SET-32, SET-33, SET-34, SET-35) |
 | `tests/unit/test_settings_integrations.py` | 40 | Unit tests for the Integrations settings (integrations.py) sections elasticsearch, unifi and audit, plus the audit on/off switches end to end. (SET-01, SET-02, SET-03, SET-04, SET-05, SET-06, SET-07, SET-08, SET-09, SET-10, SET-11, SET-12, SET-13, SET-14, SET-15) |
 | `tests/unit/test_settings_inventory.py` | 5 | Settings coverage guard: every setting found in the code is in tests/settings_inventory.py and covered by a test. (SET-90) |
 | `tests/unit/test_settings_site.py` | 37 | Unit tests for the Settings page documents: settings_docs catalog vs templates, store cfg round trip, server.cfg_validate (SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-48, SET-49, SET-50, SET-51, SET-52, SET-53, SET-54, SET-55) |

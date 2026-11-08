@@ -5,8 +5,8 @@ served on the System One API (/v1/systemone) by any compatible server on loopbac
 (default; clef_server.py), llama.cpp's llama-server (host unit netmon-clef, clef.sh) or NETMON_CLEF_URL. netmon asks it one yes/no
 ("noul") question per candidate link the correlation script proposed: are the two events related? That answer is the
 verdict (corr_llm.db tables `clef` + `verdicts`). The selected correlation model never decides a link: once every link
-is decided it makes one call per event with all its related events and notes (corr_llm.event_pass) and writes the
-reason paragraph for the decision model's suspicious / benign / expected label and the link artifacts.
+is decided it makes one call per event with all its related events and notes (corr_llm.event_pass): it labels the event
+suspicious / benign / expected, writes the reason paragraph and the link artifacts. The decision model only decides links.
 Settings live in llm_config (key `clef`), edited on AI pipeline configuration > Decision model settings.
 """
 import json
@@ -26,66 +26,6 @@ Q_RELATED = ("Are EVENT A and EVENT B genuinely related: the same incident or ac
              "underlying problem seen by two different detectors, or a vulnerability or misconfiguration that the other "
              "event's activity could exploit or is explained by? Answer no when they merely share a busy host, a common "
              "service or the same time window with no logical connection.")
-
-Q_EVENT_SUSPICIOUS = ("Taking EVENT and all of its RELATED EVENTS together, does this activity look suspicious: possible compromise, "
-                      "misuse, an unknown actor, or a real weakness being exploited, so that a person should look at it? Owner notes "
-                      "saying it is normal count against suspicious, but never above concrete evidence of harm.")
-Q_EVENT_EXPECTED = ("Is EVENT normal, expected activity for this device, user or task (routine service behaviour, a known job, "
-                    "what the owner notes describe)?")
-
-
-def event_state(e, related, when, desc, notes=None, rel_notes=None, kept=None):
-    """JSON state for one event with all of its related events (each: event + the decision model's link probability).
-    kept (dict, optional) gets n = how many of `related` (in order) went into the state, cut = the state was clipped."""
-    rel = []
-    for x, p in related[:20]:
-        d = _ev(x, when(x), desc(x.get("type")), (rel_notes or {}).get(id(x)))
-        d["link probability"] = round(p, 2)
-        rel.append(d)
-    s = {"EVENT": _ev(e, when(e), desc(e.get("type")), notes), "RELATED EVENTS": rel}
-    txt = json.dumps(s, ensure_ascii=False, default=str)
-    while len(txt) > STATE_MAX and len(rel) > 1:
-        rel.pop()
-        txt = json.dumps(s, ensure_ascii=False, default=str)
-    if len(txt) > STATE_MAX:  # the EVENT's own owner notes / verdicts stay: they are the strongest guidance
-        for d in [s["EVENT"], *rel]:
-            if d is not s["EVENT"]:
-                d.pop("owner_notes", None)
-            d["description"] = d["description"][:250]
-        if kept is not None:
-            kept["cut"] = len(json.dumps(s, ensure_ascii=False, default=str)) > STATE_MAX
-        txt = json.dumps(s, ensure_ascii=False, default=str)[:STATE_MAX]
-    if kept is not None:
-        kept["n"] = len(rel)
-    return txt
-
-
-# A person's expected / benign verdict outweighs the model: the decision model's probabilities are pulled toward the verdict
-# by this weight (0 = ignore, 1 = the verdict wins outright). A verdict on artifacts the person chose that the event shows
-# (all of them) is the strongest signal; a verdict on this same event (or an earlier run of it) is next. Threat-intel hits
-# on the event halve the weight, so a person's call never fully hides concrete evidence of harm.
-OWNER_WEIGHT = {"artifacts": 0.9, "event": 0.8}
-
-
-def owner_adjust(p_sus, p_exp, verdict, weight, ti=False):
-    """(p_suspicious, p_expected) after a person's verdict with the given weight: expected / benign pull suspicious toward 0
-    (expected also pulls expected toward 1); suspicious pulls suspicious toward 1 and expected toward 0."""
-    w = max(0.0, min(1.0, float(weight or 0))) * (0.5 if ti else 1.0)
-    if verdict in ("expected", "benign"):
-        p_sus = p_sus * (1 - w)
-        if verdict == "expected":
-            p_exp = p_exp + (1 - p_exp) * w
-    elif verdict == "suspicious":
-        p_sus, p_exp = p_sus + (1 - p_sus) * w, p_exp * (1 - w)
-    return round(p_sus, 4), round(p_exp, 4)
-
-
-def label(p_sus, p_exp, cfg=None):
-    cfg = cfg or config()
-    if p_sus >= cfg["suspicious_min"]:
-        return "suspicious"
-    return "expected" if p_exp >= 0.5 else "benign"
-
 
 def _cfg_raw():
     import corr_llm
@@ -132,17 +72,17 @@ def config():
         except (TypeError, ValueError):
             return d
     return {"enabled": c.get("enabled", True) is not False, "url": url, "model": str(c.get("model") or (PATAPSCO_MODEL if url == PATAPSCO_URL else MODEL_DEFAULT)),
-            "related_min": thr("related_min", 0.5), "suspicious_min": thr("suspicious_min", 0.5),
+            "related_min": thr("related_min", 0.5),
             "by": c.get("by"), "at": c.get("at")}
 
 
-def set_config(user, enabled=None, related_min=None, suspicious_min=None):
+def set_config(user, enabled=None, related_min=None):
     import corr_llm
     raw = corr_llm._raw_config()
     c = dict(raw.get("clef") or {})
     if enabled is not None:
         c["enabled"] = bool(enabled)
-    for k, v in (("related_min", related_min), ("suspicious_min", suspicious_min)):
+    for k, v in (("related_min", related_min),):
         if v is not None:
             v = float(v)
             if not 0.05 <= v <= 0.95:

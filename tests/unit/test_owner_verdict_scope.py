@@ -1,14 +1,14 @@
-"""A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, clef.owner_adjust weighs it
-over the decision model, and corr_llm.clef_events applies it to other events that show every chosen artifact."""
+"""A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it
+over the event reviewer's label, and corr_llm.event_pass applies it to other events that show every chosen artifact."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E402
 
 import json  # noqa: E402
 import unittest  # noqa: E402
 
-import clef  # noqa: E402
 import corr_llm  # noqa: E402
 import kb  # noqa: E402
-from unit import test_clef_stage as T  # noqa: E402  (fake /v1/systemone server: 0.7 for every event answer)
+import fixtures as F  # noqa: E402
+from unit import test_clef_stage as T  # noqa: E402  (fake /v1/systemone server for the link decisions)
 
 
 class ScopeStore(unittest.TestCase):
@@ -40,6 +40,20 @@ class ScopeStore(unittest.TestCase):
         self.assertEqual(n2["scope"], [])
         self.assertEqual([n["id"] for n in kb.scoped_verdicts()], [n1["id"]])
 
+    def test_scope_keys_name_device_finding_signature_port(self):
+        """Baseline findings, IDS signatures and gateway events offer the device, the kind of finding, the signature and
+        ports written as 443/tcp, so a verdict can be scoped to e.g. 'port-spike on this device on port 443'.
+        REQ: STO-14
+        """
+        self.assertEqual(sorted(kb.scope_keys(f"f|port-spike|{F.mac(1)}|x", {"label": "port 443/tcp: 358 conns vs normal"})),
+                         ["dev:" + F.mac(1), "find:port-spike", "port:443"])
+        self.assertIn("sig:ET INFO Http Client Body contains pin= in cleartext",
+                      kb.scope_keys("f|new-signature|-|x", {"label": "first time seen: 'ET INFO Http Client Body contains pin= in cleartext' x1"}))
+        self.assertEqual(kb.scope_keys("ids|ET INFO STUN Binding", {"label": "IDS"}), {"sig:ET INFO STUN Binding"})
+        self.assertEqual(kb.scope_keys("gw|t|THREAT_BLOCKED_V3|a|b", {}), {"find:threat_blocked_v3"})
+        self.assertEqual(kb.clean_scope(["dev:" + F.mac(1).upper(), "find:Port-Spike", "find:bad value!", "dev:not a host"]),
+                         ["dev:" + F.mac(1), "find:port-spike"])
+
     def test_match_needs_every_artifact(self):
         """A scoped verdict applies only to events showing all of its artifacts.
         REQ: STO-14
@@ -58,65 +72,86 @@ class ScopeStore(unittest.TestCase):
 
 
 class OwnerWeight(unittest.TestCase):
-    def test_owner_adjust(self):
-        """Expected pulls suspicious toward 0 and expected toward 1 with the given weight; threat intel halves the weight.
+    def test_apply_owner(self):
+        """A person's verdict replaces the event reviewer's label unless the reviewer is at least as confident as the verdict's
+        weight; a threat-intel hit keeps a suspicious label; an agreeing label is kept as is.
         REQ: STO-14
         """
-        self.assertEqual(clef.owner_adjust(0.9, 0.1, "expected", 0.9), (0.09, 0.91))
-        self.assertEqual(clef.owner_adjust(0.9, 0.1, "benign", 0.9), (0.09, 0.1))
-        self.assertEqual(clef.owner_adjust(0.9, 0.1, "expected", 0.9, ti=True), (0.495, 0.505))
-        s, e = clef.owner_adjust(0.2, 0.8, "suspicious", 0.8)
-        self.assertGreater(s, 0.8); self.assertLess(e, 0.2)
-        self.assertGreater(clef.OWNER_WEIGHT["artifacts"], clef.OWNER_WEIGHT["event"])
+        W = corr_llm.OWNER_WEIGHT
+        ov = {"verdict": "expected", "kind": "artifacts", "weight": W["artifacts"], "note": 1, "match": ["ip:10.0.0.5"]}
+        lab, conf, rec = corr_llm.apply_owner("suspicious", 0.8, ov)
+        self.assertEqual((lab, conf, rec["applied"], rec["model_label"]), ("expected", W["artifacts"], True, "suspicious"))
+        lab, _c, rec = corr_llm.apply_owner("suspicious", 0.97, ov)
+        self.assertEqual((lab, rec["applied"], rec["held"]), ("suspicious", False, "event reviewer confident"))
+        lab, _c, rec = corr_llm.apply_owner("suspicious", 0.5, ov, ti=True)
+        self.assertEqual((lab, rec["held"]), ("suspicious", "threat intel"))
+        self.assertEqual(corr_llm.apply_owner("benign", 0.6, None), ("benign", 0.6, None))
+        self.assertTrue(corr_llm.apply_owner("expected", 0.6, ov)[2]["agreed"])
+        self.assertGreater(W["artifacts"], W["event"])
 
 
 class ScopedVerdictOnOtherEvent(unittest.TestCase):
-    """End to end against the fake decision-model server (both answers 0.7 = 'suspicious' on its own)."""
+    """End to end: the event reviewer (stubbed) says suspicious; a person's scoped verdict decides the stored label."""
     setUpClass, tearDownClass = T.ClefStageTest.setUpClass, T.ClefStageTest.tearDownClass
 
     def setUp(self):
         T.ClefStageTest.setUp(self)
         with kb._db() as c:
             c.execute("DELETE FROM event_notes")
+        self.sys = []
+
+        def fake(target, anchor, cands, notes, *a, **kw):
+            self.sys.append((kw.get("system") or "", notes))
+            return ([{"id": "anchor", "label": "suspicious", "confidence": 0.7, "reason": "ssh brute force"}], {"prompt": 1, "completion": 1}, 1.0)
+        self.old = (corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked)
+        corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = fake, (lambda model=None: {"provider": "lmstudio", "model": "reviewer"}), (lambda *a, **k: None)
+        corr_llm.clef_pass(T.BASE, [("a", r) for r in T.BASE["related"]["a"]])
 
     def tearDown(self):
+        corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = self.old
         with kb._db() as c:
             c.execute("DELETE FROM event_notes")
 
     def test_scoped_verdict_relabels_matching_event(self):
-        """An expected verdict written on another event, scoped to an artifact event 'a' shows, turns the decision model's
-        'suspicious' into 'expected', keeps the raw answers and the verdict, and is sent to the model as an owner note.
+        """An expected verdict written on another event, scoped to an artifact event 'a' shows, is told to the event reviewer
+        (PERSON'S VERDICT line + owner note) and outweighs its 'suspicious' (0.7); the reviewer's own call is kept.
         REQ: STO-14
         """
         kb.add_event_note("other-event", "my backup box", "user:dan", verdict="expected", scope=["ip:10.0.0.5"])
-        n = corr_llm.clef_events(T.BASE, [("a", "sig1", ["b"], ["b", "c"])])
-        self.assertEqual(n, 1)
-        v = corr_llm.clef_events_view(["a"])["a"]
-        self.assertEqual(v["label"], "expected")
-        self.assertEqual(v["raw"], {"p_suspicious": 0.7, "p_expected": 0.7})
-        self.assertEqual(v["owner"]["kind"], "artifacts")
-        self.assertEqual(v["owner"]["match"], ["ip:10.0.0.5"])
-        st = json.loads(next(s for q, s in T.CALLS if q != "related"))
-        self.assertTrue(any("owner verdict written on another event" in x for x in st["EVENT"].get("owner_notes", [])))
+        self.assertEqual(corr_llm.event_pass(T.BASE), 1)
+        c = corr_llm.classes(["a"])["a"]
+        self.assertEqual(c["label"], "expected")
+        self.assertEqual((c["owner"]["kind"], c["owner"]["match"], c["owner"]["model_label"], c["owner"]["applied"]),
+                         ("artifacts", ["ip:10.0.0.5"], "suspicious", True))
+        self.assertTrue(c["reason"].startswith("Person's verdict applied"))
+        system, notes = self.sys[0]
+        self.assertIn("PERSON'S VERDICT: expected", system)
+        self.assertTrue(any("owner verdict written on another event" in x for x in notes.get("anchor", [])))
 
     def test_no_match_keeps_model_label(self):
         """A scoped verdict on an artifact the event does not show changes nothing.
         REQ: STO-14
         """
         kb.add_event_note("other-event", "", "user:dan", verdict="expected", scope=["ip:10.9.9.9"])
-        corr_llm.clef_events(T.BASE, [("a", "sig1", ["b"], ["b", "c"])])
-        v = corr_llm.clef_events_view(["a"])["a"]
-        self.assertEqual(v["label"], "suspicious")
-        self.assertNotIn("owner", v)
+        corr_llm.event_pass(T.BASE)
+        c = corr_llm.classes(["a"])["a"]
+        self.assertEqual(c["label"], "suspicious")
+        self.assertNotIn("owner", c)
+        self.assertNotIn("\nPERSON'S VERDICT:", self.sys[0][0])
 
     def test_new_verdict_changes_signature(self):
-        """A new verdict that applies to an event changes its review signature, so it is decided again.
+        """A new verdict that applies to an event changes its review signature, so it is reviewed again.
         REQ: STO-14
         """
         self.assertEqual(corr_llm._with_owner("abc", None), "abc")
         a = corr_llm._with_owner("abc", {"kind": "artifacts", "note": 1, "verdict": "expected"})
         self.assertNotEqual(a, "abc")
         self.assertNotEqual(a, corr_llm._with_owner("abc", {"kind": "artifacts", "note": 2, "verdict": "expected"}))
+        corr_llm.event_pass(T.BASE)
+        self.assertEqual(corr_llm.event_pass(T.BASE), 0)
+        kb.add_event_note("other-event", "", "user:dan", verdict="benign", scope=["ip:10.0.0.5"])
+        self.assertEqual(corr_llm.event_pass(T.BASE), 1)
+        self.assertEqual(corr_llm.classes(["a"])["a"]["label"], "benign")
 
 
 if __name__ == "__main__":

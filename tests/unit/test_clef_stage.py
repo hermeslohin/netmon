@@ -67,8 +67,9 @@ class ClefStageTest(unittest.TestCase):
         self.assertTrue(all(x["model"] == clef.config()["model"] for x in v.values()))
 
     def test_event_pass_one_call_with_all_related_events(self):
-        """After every link is decided the event reviewer gets ONE call per event with all its related events, classifies the
-        event in one paragraph and gives each link only artifacts (no per-link reason); it cannot change a link's verdict.
+        """After every link is decided the event reviewer gets ONE call per event with all its related events, LABELS the
+        event (the decision model asks no event question) in one paragraph and gives each link only artifacts (no per-link
+        reason); it cannot change a link's verdict.
         REQ: LLM-03"""
         corr_llm.clef_pass(BASE, [("a", r) for r in BASE["related"]["a"]])
         calls = []
@@ -89,24 +90,18 @@ class ClefStageTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], ["ssh brute force on nas"])  # only the clef-related event is sent
         self.assertTrue(calls[0][1].startswith(corr_llm.EVENT_SYSTEM))
-        self.assertIn("DECISION MODEL LABEL: suspicious", calls[0][1])
+        self.assertNotIn("DECISION MODEL LABEL", calls[0][1])
         v = corr_llm.verdicts({corr_llm.pair("a", "b")})[corr_llm.pair("a", "b")]
         self.assertTrue(v["related"]); self.assertFalse(v["reason"].startswith("same ssh target nas"))  # no link note written
-        self.assertNotIn("link note pending", v["reason"])
         self.assertIn("ONE short paragraph", calls[0][1])
         with corr_llm._db() as c:
-            self.assertEqual(c.execute("SELECT label FROM event_class WHERE eid='a'").fetchone()[0], "suspicious")
-        # the decision model labelled the event (one request over the event and ALL its candidates) and that label is used;
-        # the event reviewer's own (different) label is only recorded for the agreement figure
-        self.assertEqual([q for q, _ in CALLS], ["related", "related", "suspicious"])
-        self.assertIn("printer firmware", CALLS[-1][1])  # the not-related candidate is in the decision model's state too
-        with corr_llm._db() as c:
-            self.assertEqual(c.execute("SELECT reviewer_label FROM clef_event WHERE eid='a'").fetchone()[0], "benign")
-        self.assertEqual(corr_llm.clef_compare()["matrix"], {"suspicious|benign": 1})
+            self.assertEqual(c.execute("SELECT label, confidence, model FROM event_class WHERE eid='a'").fetchone(), ("benign", 0.8, "reviewer"))
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM clef_event").fetchone()[0], 0)
+        self.assertEqual([q for q, _ in CALLS], ["related", "related"])  # the decision model only decides links
 
     def test_determination_inputs_recorded(self):
-        """Each determination records the events passed in: the decision model gets the event + every candidate (with
-        link probability), the event reviewer only the related ones; the view returns both, newest first.
+        """Each determination records the events passed in: the event reviewer gets the related ones (with link
+        probability); determinations made before recording are rebuilt from the link decisions.
         REQ: LLM-03"""
         corr_llm.clef_pass(BASE, [("a", r) for r in BASE["related"]["a"]])
         fake = lambda target, anchor, cands, *a, **kw: ([{"id": "anchor", "label": "benign", "confidence": 0.8, "reason": "r"}], {"prompt": 1, "completion": 1}, 1.0)
@@ -117,22 +112,21 @@ class ClefStageTest(unittest.TestCase):
         finally:
             corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = old
         D = corr_llm.decision_inputs_view(["a"])["a"]
-        dec = next(d for d in D if d["stage"] == "decision"); rev = next(d for d in D if d["stage"] == "review")
-        self.assertEqual(dec["label"], "suspicious")
-        self.assertEqual([(x["id"], x["sent"], x["related"]) for x in dec["inputs"]], [("b", True, True), ("c", True, False)])
-        self.assertEqual(dec["inputs"][0]["p"], 0.9)
+        self.assertEqual([d["stage"] for d in D], ["review"])
+        rev = D[0]
         self.assertEqual([(x["id"], x["sent"]) for x in rev["inputs"]], [("b", True)])
+        self.assertEqual(rev["inputs"][0]["p"], 0.9)
         self.assertEqual(rev["label"], "benign")
         with corr_llm._db() as c:  # determinations made before recording started are rebuilt from the link decisions
             c.execute("DELETE FROM decision_inputs")
         R = corr_llm.decision_inputs_view(["a"])["a"]
         self.assertTrue(all(d.get("reconstructed") for d in R))
-        self.assertEqual({x["id"] for x in next(d for d in R if d["stage"] == "decision")["inputs"]}, {"b", "c"})
+        self.assertEqual([(d["stage"], d["label"], [x["id"] for x in d["inputs"]]) for d in R], [("review", "benign", ["b"])])
 
     def test_event_without_related_links_still_labelled(self):
-        """An event whose every link the decision model rejected still gets its label: the event reviewer is told the empty
-        candidate list is deliberate, and if it still answers in prose the label is stored anyway and the notes are retried
-        (at most REVIEW_RETRIES times).
+        """An event whose every link the decision model rejected is still labelled by the event reviewer, which is told the
+        empty candidate list is deliberate. A failed answer stores nothing and is retried on later passes, at most
+        REVIEW_RETRIES times per signature.
         REQ: LLM-03"""
         nr = {"events": {"d": _ev("vuln", "printer firmware outdated"), "e": _ev("ids", "smart TV DNS quirk")},
               "related": {"d": [{"id": "e", "score": 2, "why": ["same hour"]}]}}
@@ -149,31 +143,29 @@ class ClefStageTest(unittest.TestCase):
             return ([{"id": "anchor", "label": "expected", "confidence": 0.7, "reason": "routine printer notice", "artifacts": []}], {"prompt": 5, "completion": 3}, 1.0)
         old = (corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked)
         corr_llm._target, corr_llm.reopen_checked = (lambda model=None: {"provider": "lmstudio", "model": "reviewer"}), (lambda *a, **k: None)
-        sig = lambda: corr_llm._db().execute("SELECT label, sig, reason FROM event_class WHERE eid='d'").fetchone()
+        row = lambda: corr_llm._db().execute("SELECT label, sig, reason FROM event_class WHERE eid='d'").fetchone()
+        corr_llm._REVIEW_FAILS.clear()
         try:
             corr_llm._ask_full = prose
-            self.assertEqual(corr_llm.event_pass(nr), 1)
-            lab, s1, why = sig()
-            self.assertEqual(lab, "suspicious")  # the decision model's label is stored even though the event reviewer failed
-            self.assertTrue(s1.endswith("|retry1")); self.assertIn("event reviewer note pending", why)
+            self.assertEqual(corr_llm.event_pass(nr), 0)
+            self.assertIsNone(row())  # nothing stored on failure
             self.assertEqual(seen[0][0], 0); self.assertIn("NO related events", seen[0][1])
-            self.assertEqual(corr_llm.event_pass(nr), 1)  # retried on the next pass
-            self.assertTrue(sig()[1].endswith("|retry2"))
             corr_llm._ask_full = ok
-            self.assertEqual(corr_llm.event_pass(nr), 1)
-            lab, s3, why = sig()
-            self.assertNotIn("|retry", s3); self.assertEqual(why, "routine printer notice")
+            self.assertEqual(corr_llm.event_pass(nr), 1)  # retried on the next pass
+            lab, _s, why = row()
+            self.assertEqual((lab, why), ("expected", "routine printer notice"))
             self.assertEqual(corr_llm.event_pass(nr), 0)  # done: not asked again
             corr_llm._ask_full = prose  # a signature that keeps failing stops after REVIEW_RETRIES calls
             with corr_llm._db() as c:
                 c.execute("DELETE FROM event_class")
+            corr_llm._REVIEW_FAILS.clear()
             calls_before = len(seen)
             for _ in range(corr_llm.REVIEW_RETRIES + 2):
                 corr_llm.event_pass(nr)
             self.assertEqual(len(seen) - calls_before, corr_llm.REVIEW_RETRIES)
-            self.assertNotIn("|retry", sig()[1])
         finally:
             corr_llm._ask_full, corr_llm._target, corr_llm.reopen_checked = old
+            corr_llm._REVIEW_FAILS.clear()
 
     def test_rereview_clears_decision(self):
         """Asking again removes the decision-model answer so the whole chain runs again.

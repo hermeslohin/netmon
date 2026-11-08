@@ -573,13 +573,12 @@ class AlertsPageJsTest(unittest.TestCase):
         self.assertEqual(st["calls"], ["/api/push/prefs"], "a User's page loads no verdicts, detections or mute rules")
 
     def test_research_notes_and_artifact_cells(self):
-        """Research shows the research note, reviewed, cited pages and look-ups (or the decision model's p(suspicious)); Notes and Artifact notes show counts.
+        """Research shows the research note, reviewed, cited pages and look-ups; Notes and Artifact notes show counts.
         REQ: ALR-22"""
         rows_ = [feed_row(1, "a", verdict="benign", vsrc="ai"), feed_row(2, "b"), feed_row(3, "c")]
         ex = {"classes": {"alert|1": {"label": "benign", "confidence": 0.9, "reason": "Routine update traffic.", "sources": [{"url": "https://a"}, {"url": "https://b"}]}},
               "notes": {"alert|1": {"verdict": "benign", "summary": "known updater"}},
               "web": {"alert|1": [{"kind": "search", "query": "updater domain"}]},
-              "clef_ev": {"alert|2": {"p_suspicious": 0.27}},
               "unotes": {"alert|1": [{"status": "pending"}, {"status": "approved"}]},
               "art_notes": {"alert|1": [{"id": "n1"}]}, "art_note_text": {"n1": {"subject": "updater", "text": "fine"}}}
         out = self.run_js(feed_=feed(rows_), extra={"alerts": rows_, "extra": ex}, held=NO_HELD)
@@ -587,7 +586,7 @@ class AlertsPageJsTest(unittest.TestCase):
         c = {k: [r[t["cols"].index(k)] for r in t["cells"]] for k in ("Research", "Notes", "Artifact notes", "Alert")}
         for s in ("📝 benign", "🤖 reviewed", "🌍2", "🔎1"):
             self.assertIn(s, c["Research"][0])
-        self.assertIn("decision model: p(suspicious) 27%", c["Research"][1])
+        self.assertIn("none yet", c["Research"][1])
         self.assertIn("none yet", c["Research"][2])
         self.assertIn("📝 2 ⏳", c["Notes"][0])
         self.assertIn('data-unote="alert|2"', c["Notes"][1])

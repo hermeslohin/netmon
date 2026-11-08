@@ -23,7 +23,7 @@ def _web(ts, anchor, query, kind="search", cands=(), purpose=None, urls=None, er
 
 def _classify(eid, label, model="test-model"):
     with corr_llm._db() as c:
-        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, 0.9, "test reason", model, "sig", time.time()))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", (eid, label, 0.9, "test reason", model, "sig", time.time()))
 
 
 def _clear_ai():
@@ -44,15 +44,15 @@ class AlertRefVerdictTest(unittest.TestCase):
         self.assertEqual(eventstore.alert_ref({"id": 8, "key": None}), "alert|8")
 
     def test_person_verdict_wins(self):
-        """A person's verdict beats the event reviewer's, which beats the decision model's; rejected notes are ignored.
+        """A person's verdict beats the event reviewer's; rejected notes are ignored; the decision model gives no event verdict.
         REQ: FEAT-03"""
         X = {"unotes": {EV: [{"verdict": "benign"}, {"verdict": "suspicious", "status": "rejected"}]},
-             "classes": {EV: {"label": "suspicious"}}, "clef_ev": {EV: {"label": "expected"}}}
+             "classes": {EV: {"label": "suspicious"}}}
         self.assertEqual(eventstore.alert_verdict(EV, X), ("benign", "person"))
         X["unotes"] = {EV: [{"verdict": "suspicious", "status": "rejected"}]}
         self.assertEqual(eventstore.alert_verdict(EV, X), ("suspicious", "ai"))
         X["classes"] = {EV: {"label": "not-a-verdict"}}
-        self.assertEqual(eventstore.alert_verdict(EV, X), ("expected", "model"))
+        self.assertEqual(eventstore.alert_verdict(EV, X), ("unreviewed", ""))
         self.assertEqual(eventstore.alert_verdict(EV, {}), ("unreviewed", ""))
 
     def test_newest_person_verdict_counts(self):

@@ -442,7 +442,7 @@ class ExtrasTest(_Fresh):
         self.assertIn(IDS, X["seen"])
 
     def test_related_count_and_decision_model_from_stored_verdicts(self):
-        """Rows get their related count from stored verdicts (any member) and the newest member's decision-model label.
+        """Rows get their related count from stored verdicts (any member); the decision model labels links only, so no event label.
         REQ: OE-10, OE-11
         """
         P = corr_llm.pair
@@ -450,11 +450,9 @@ class ExtrasTest(_Fresh):
             c.execute("INSERT INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", (P(BEACON_1, IDS), 1, 0.9, "same host", "m", 10))
             c.execute("INSERT INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", (P(BEACON_2, GW), 1, 0.8, "same host", "m", 11))
             c.execute("INSERT INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", (P(BEACON_2, "ti|x"), 0, 0.1, "no", "m", 11))
-            for e, lab in ((BEACON_1, "benign"), (BEACON_2, "suspicious")):
-                c.execute("INSERT INTO clef_event (eid, p_suspicious, p_expected, label, model, ts) VALUES (?,?,?,?,?,?)", (e, 0.5, 0.5, lab, "m", 1))
         X = eventstore.extras([{"eid": BEACON_2, "members": [BEACON_1, BEACON_2], "n": 2, "first_seen": "a", "last_seen": "b"}])
         self.assertEqual(X["related_n"][BEACON_2], 2)
-        self.assertEqual(X["clef_ev"][BEACON_2]["label"], "suspicious")
+        self.assertNotIn("clef_ev", X)
 
     def test_open_events_attaches_extras_for_shown_rows(self):
         """open_events returns extras keyed by the shown rows' ids.
@@ -480,7 +478,7 @@ class RelatedDetailTest(_Fresh):
 
     def test_related_lists_links_of_all_members_with_event_records(self):
         """related() returns links of every member (not links between its own members), records for partners (a pruned
-        partner by id) and the newest member's decision-model label.
+        partner by id); no decision-model event label.
         REQ: OE-11
         """
         eventstore.upsert({GW: ev("gw", "gateway", "high", t1=5, ips=[IP["laptop"]])}, "s1")
@@ -489,12 +487,11 @@ class RelatedDetailTest(_Fresh):
             c.executemany("INSERT INTO verdicts (pair, related, confidence, reason, model, ts) VALUES (?,?,?,?,?,?)", [
                 (P(BEACON_1, GW), 1, 0.9, "same host", "m", 10), (P(BEACON_2, "ti|gone"), 1, 0.6, "dst", "m", 11),
                 (P(BEACON_1, BEACON_2), 1, 0.9, "repeat", "m", 12)])
-            c.execute("INSERT INTO clef_event (eid, p_suspicious, p_expected, label, model, ts) VALUES (?,?,?,?,?,?)", (BEACON_2, 0.7, 0.2, "suspicious", "m", 1))
         r = eventstore.related(BEACON_2, [BEACON_1])
         self.assertEqual([x["id"] for x in r["related"]], [GW, "ti|gone"])
         self.assertEqual(r["events"][GW]["host_ips"], [IP["laptop"]])
         self.assertEqual(r["events"]["ti|gone"], {"type": "ti", "label": "ti|gone", "link": "", "t0": None, "t1": None})
-        self.assertEqual(r["clef_ev"]["label"], "suspicious")
+        self.assertNotIn("clef_ev", r)
         self.assertEqual(eventstore.related(IDS, [])["related"], [])
 
     def test_detail_lists_every_open_variant_newest_first(self):
@@ -509,14 +506,14 @@ class RelatedDetailTest(_Fresh):
         self.assertEqual([o["eid"] for o in d["occurrences"]], [BEACON_2, BEACON_1])
         self.assertEqual(d["n_occurrences"], 2)
         self.assertEqual({f["eid"] for f in d["fires"]}, {BEACON_1, BEACON_2})
-        for k in ("by_event", "events", "decisions", "fires_since", "inputs_since", "clef_ev"):
+        for k in ("by_event", "events", "decisions", "fires_since", "inputs_since"):
             self.assertIn(k, d)
 
     def test_detail_of_unknown_event_is_empty(self):
         """An event id that is not stored gives an empty detail, not an error.
         REQ: OE-12
         """
-        self.assertEqual(eventstore.detail("ids|nothing here"), {"occurrences": [], "related": [], "events": {}, "clef_ev": None})
+        self.assertEqual(eventstore.detail("ids|nothing here"), {"occurrences": [], "related": [], "events": {}})
 
     def test_detail_of_resolved_vuln_shows_only_itself(self):
         """A resolved Fix-list item still opens (its own row) even though it is no longer open.

@@ -91,7 +91,7 @@
   async function paintBar() { const s = document.querySelector("#alSetBar .sb-sum"); if (s) s.innerHTML = await barSummary(); }
 
   // ---- verdicts, research and notes per alert (admin / defender): /api/alerts?extra=1 (alarm feed), ?held=1&v= (detections) ----
-  const VORD = ["suspicious", "expected", "benign", "unreviewed"], VSRC = { person: "a person's verdict", ai: "event reviewer (AI)", model: "decision model" };
+  const VORD = ["suspicious", "expected", "benign", "unreviewed"], VSRC = { person: "a person's verdict", ai: "event reviewer (AI)" };
   const TYPE_OF = { f: "finding", hf: "host", ids: "ids", ti: "ti", adm: "admin", iss: "vuln", gw: "gw", alert: "alert" };
   const X = () => window.__oeExtra || {};
   const mergeExtra = (e) => { const W = window.__oeExtra = window.__oeExtra || {};
@@ -107,13 +107,12 @@
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";
     return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · <span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>` : ""}</span> ${fl} ${body}</div>`; };
   const alertText = (v, x) => `<span style="${x.read === 0 ? "font-weight:600" : ""}">${linkifyIps(v)}</span>${revBlock(x)}`;
-  const researchCell = (a) => { const c = X().classes?.[a.eid], n = X().notes?.[a.eid], ce = X().clef_ev?.[a.eid], src = c?.sources?.length || 0;
+  const researchCell = (a) => { const c = X().classes?.[a.eid], n = X().notes?.[a.eid], src = c?.sources?.length || 0;
     const r = String(c?.reason || "");
     return (n ? `<span class="note-v v-${esc(String(n.verdict || "").replace(/[^a-z-]/g, ""))}" title="Research note: ${esc(n.summary || "")}">📝 ${esc(n.verdict || "researched")}</span> ` : "")
       + (r && !/^Decision model:/.test(r) ? `<span class="small muted" title="The event reviewer's explanation is shown under the alert">🤖 reviewed</span>` : "")
       + (src ? ` <span class="small" title="the event reviewer cited ${src} web page${src === 1 ? "" : "s"}">🌍${src}</span>` : "")
       + ((X().web?.[a.eid] || []).length ? ` <span class="small" title="${esc((X().web[a.eid]).map((w) => (w.kind === "page" ? "page: " : "search: ") + w.query).join("\n"))}">🔎${X().web[a.eid].length}</span>` : "")
-      + (ce && !c ? `<span class="small muted">decision model: p(suspicious) ${Math.round((ce.p_suspicious || 0) * 100)}%</span>` : "")
       || `<span class="muted small">none yet</span>`; };
   const unoteBtn = (a) => { const ns = S.corr?.unotes?.[a.eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {};

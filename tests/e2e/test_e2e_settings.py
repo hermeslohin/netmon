@@ -501,14 +501,15 @@ class EventReviewer(Base):
                            lambda: {k: aireview(a)["web_cache"][k] for k in ("enabled", "days")})
 
     def test_clef_saved(self):
-        """The decision model switch and its thresholds are saved; thresholds outside 0.05-0.95 are refused.
+        """The decision model switch and its related threshold are saved; a threshold outside 0.05-0.95 is refused.
         REQ: SET-66"""
         a = admin()
-        r = self.ok(a, "/api/llm/clef", {"enabled": False, "related_min": 0.6, "suspicious_min": 0.7})
+        r = self.ok(a, "/api/llm/clef", {"enabled": False, "related_min": 0.6})
         self.assertEqual((r["clef"]["enabled"], r["clef"]["related_min"]), (False, 0.6))
         c = aireview(a)["clef"]["config"]
-        self.assertEqual((c["enabled"], c["related_min"], c["suspicious_min"]), (False, 0.6, 0.7))
-        self.bad_unchanged(a, [("/api/llm/clef", {"enabled": True, "related_min": 2}), ("/api/llm/clef", {"suspicious_min": 0.01}),
+        self.assertEqual((c["enabled"], c["related_min"]), (False, 0.6))
+        self.assertNotIn("suspicious_min", c)
+        self.bad_unchanged(a, [("/api/llm/clef", {"enabled": True, "related_min": 2}), ("/api/llm/clef", {"related_min": 0.01}),
                                ("/api/llm/clef", {"related_min": "high"})],
                            lambda: aireview(a)["clef"]["config"])
 

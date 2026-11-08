@@ -51,7 +51,7 @@
     if (!S.corr || S.corr._snap !== S.snap?.id) return;
     for (const [k, v] of Object.entries(orphanNotes)) if (!S.corr.notes?.[k] && !S.corr.events?.[k]) (S.corr.notes = S.corr.notes || {})[k] = v;
     const X = location.hash.startsWith("#/events") ? window.__oeExtra : null;  // Open events page: AI notes, classifications, your notes, times seen
-    if (X) for (const m of ["notes", "classes", "unotes", "seen", "clef_ev"]) S.corr[m] = { ...(S.corr[m] || {}), ...(X[m] || {}) };
+    if (X) for (const m of ["notes", "classes", "unotes", "seen"]) S.corr[m] = { ...(S.corr[m] || {}), ...(X[m] || {}) };
     fetchOrphans();
     main.querySelectorAll(".rel-btn").forEach((b) => {
       // rows older than the loaded snapshot (Open events): the count of stored related verdicts; details load on click
@@ -154,7 +154,12 @@
   };
   // decision model (clef) chips: event label (p suspicious / p expected) and per-link p(related)
   const pct = (p) => Math.round((p || 0) * 100) + "%";
-  const clefEvHtml = (c) => !c ? "" : `<span class="note-v v-${esc(String(c.label || "").replace(/[^a-z-]/g, ""))}" title="Decision model (${esc(c.model || "clef")}) event label: p(suspicious) ${pct(c.p_suspicious)}, p(expected) ${pct(c.p_expected)}">clef: ${esc(c.label || "?")}</span> <span class="small muted">p sus ${pct(c.p_suspicious)} · p exp ${pct(c.p_expected)}</span>${c.owner ? ` <span class="small muted" title="A person's ${esc(c.owner.verdict)} verdict ${c.owner.kind === "artifacts" ? `on matching artifacts (${esc((c.owner.match || []).join(", "))})` : "on this event"} was weighed in at ${pct(c.owner.weight)}">· 👤 ${esc(c.owner.verdict)} verdict applied (model alone: p sus ${pct(c.raw?.p_suspicious)} · p exp ${pct(c.raw?.p_expected)})</span>` : ""}`;
+  // a person's verdict weighed against the event reviewer's label (corr_llm.apply_owner): applied, held back, or agreeing
+  const ownerHtml = (c) => { const o = c?.owner; if (!o) return "";
+    const what = o.kind === "artifacts" ? `on matching artifacts (${esc((o.match || []).join(", "))})` : "on this event";
+    return o.applied ? `<span class="small" title="A person's ${esc(o.verdict)} verdict ${what} outweighed the event reviewer (weight ${pct(o.weight)})">👤 ${esc(o.verdict)} verdict applied <span class="muted">· the event reviewer said ${esc(o.model_label || "?")} (${pct(o.model_confidence)})</span></span>`
+      : o.held ? `<span class="small muted" title="A person's ${esc(o.verdict)} verdict ${what} was not applied">👤 ${esc(o.verdict)} verdict not applied: ${esc(o.held)}</span>`
+      : `<span class="small muted" title="A person's ${esc(o.verdict)} verdict ${what}">👤 agrees with a person's ${esc(o.verdict)} verdict</span>`; };
   const clefLinkHtml = (r) => r.clef ? `<span class="rel-ai ${r.clef.related ? "yes" : "pend"}" title="Decision model (${esc(r.clef.model || "clef")}) p(related) = ${(r.clef.p_related || 0).toFixed(3)}">clef ${pct(r.clef.p_related)} related</span>`
     : `<span class="rel-ai pend" title="Decided before the decision model (clef) ran: ${esc(r.llm_model || "reviewer")} verdict">no clef decision</span>`;
   // the events passed in to an event's determinations (decision model: the event + every candidate with its link probability;
@@ -185,7 +190,7 @@
       if (pop && root === pop) { const r = pop.getBoundingClientRect(); if (r.bottom > innerHeight - 8) pop.style.top = Math.max(8, innerHeight - r.height - 8) + "px"; }
     }).catch((e) => { ph.innerHTML = `<div class="small muted">${esc(e.message || e)}</div>`; });
   }
-  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml, inputsHtml };  // used by the Open events window (openevents.js)
+  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml, inputsHtml, ownerHtml };  // used by the Open events window (openevents.js)
   const loadingRel = new Set();
   function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
     const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);
@@ -196,17 +201,15 @@
       S.corr.related = S.corr.related || {}; S.corr.events = S.corr.events || {};
       if (d.related?.length) S.corr.related[id] = d.related;
       for (const [k, v] of Object.entries(d.events || {})) if (!S.corr.events[k]) S.corr.events[k] = v;
-      if (d.clef_ev) (S.corr.clef_ev = S.corr.clef_ev || {})[id] = d.clef_ev;
     }).catch(() => {}).finally(() => { loadingRel.delete(id); fill(); if (btn.isConnected && S.corr?.related?.[id]?.length) { open(btn); if (pop) pop._for = btn; } });
   }
   function open(btn) {
     close();
     const id = btn.dataset.rel, rel = S.corr?.related?.[id] || [], me = S.corr?.events?.[id];
     if (!rel.length) { if (window.__oeExtra?.related_n?.[id] && location.hash.startsWith("#/events")) openStored(btn); return; }
-    const cev = S.corr?.clef_ev?.[id];
     pop = document.createElement("div"); pop.className = "rel-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>Related events</b> <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
-      ${cev ? `<div class="small" style="padding:4px 10px">${clefEvHtml(cev)}</div><div class="rel-inputs" data-inputs="${esc(id)}" style="padding:0 10px 4px"><div class="small muted">Loading the events passed in…</div></div>` : ""}
+      ${S.corr?.classes?.[id] ? `<div class="rel-inputs" data-inputs="${esc(id)}" style="padding:0 10px 4px"><div class="small muted">Loading the events passed in…</div></div>` : ""}
       ${(window.__oeExtra?.related_n?.[id] || 0) > rel.length ? `<div class="small muted" style="padding:4px 10px">showing the ${rel.length} most confident of ${window.__oeExtra.related_n[id]} related events</div>` : ""}
       ${tuneHtml(id) ? `<div style="padding:4px 10px">${tuneHtml(id)}</div>` : ""}
       ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding" }[e.type]] || [e.type, ""];
@@ -262,7 +265,7 @@
     pop.innerHTML = `<div class="rel-head"><b>AI classification</b> ${aiFlare({ model: c.model, via: "event classification", at: c.at ? new Date(c.at * 1000).toISOString() : "" })}
         <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body"><div><span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span></div>
-        ${S.corr?.clef_ev?.[id] ? `<div style="margin-top:4px">${clefEvHtml(S.corr.clef_ev[id])}</div>` : ""}
+        ${c.owner ? `<div style="margin-top:4px">${ownerHtml(c)}</div>` : ""}
         <p>${reasonHtml(c.reason, c.sources)}</p>
         ${sourcesHtml(c.sources)}
         <div class="rel-inputs" data-inputs="${esc(id)}"><div class="small muted">Loading the events passed in…</div></div>

@@ -401,30 +401,30 @@ class ReviewLimits(_Base):
 
 # ---------------------------------------------------------------- clef.py: decision model settings
 class ClefSettings(_Base):
-    """Decision-model stage settings: on/off and the related / suspicious thresholds."""
+    """Decision-model stage settings: on/off and the related threshold (it decides links only)."""
 
     def test_defaults(self):
-        """The decision model is on by default with both thresholds at 0.5.
+        """The decision model is on by default with the related threshold at 0.5; there is no event (suspicious) threshold.
         REQ: SET-30"""
         c = clef.config()
-        self.assertEqual((c["enabled"], c["related_min"], c["suspicious_min"], c["by"]), (True, 0.5, 0.5, None))
+        self.assertEqual((c["enabled"], c["related_min"], c["by"]), (True, 0.5, None))
+        self.assertNotIn("suspicious_min", c)
 
     def test_valid_values_persist_and_stamp(self):
         """On/off and thresholds are stored (rounded to 2 decimals) with the user; a partial save keeps the other fields.
         REQ: SET-30"""
-        c = clef.set_config("admin8", enabled=False, related_min=0.333, suspicious_min="0.8")
-        self.assertEqual((c["enabled"], c["related_min"], c["suspicious_min"], c["by"]), (False, 0.33, 0.8, "admin8"))
-        c = clef.set_config("admin9", related_min=0.95)
-        self.assertEqual((c["enabled"], c["related_min"], c["suspicious_min"], c["by"]), (False, 0.95, 0.8, "admin9"))
+        c = clef.set_config("admin8", enabled=False, related_min=0.333)
+        self.assertEqual((c["enabled"], c["related_min"], c["by"]), (False, 0.33, "admin8"))
+        c = clef.set_config("admin9", related_min="0.95")
+        self.assertEqual((c["enabled"], c["related_min"], c["by"]), (False, 0.95, "admin9"))
         self.assertTrue(clef.set_config("admin9", enabled=True)["enabled"])
-        self.assertEqual(clef.set_config("u", suspicious_min=0.05)["suspicious_min"], 0.05)
 
     def test_out_of_range_rejected(self):
         """Thresholds outside 0.05-0.95 or not numbers are refused and nothing changes.
         REQ: SET-30"""
         clef.set_config("u", related_min=0.6)
-        for kw in ({"related_min": 0.04}, {"related_min": 0.96}, {"suspicious_min": 0}, {"suspicious_min": 1},
-                   {"related_min": "half"}, {"related_min": float("nan")}, {"enabled": False, "suspicious_min": 2}):
+        for kw in ({"related_min": 0.04}, {"related_min": 0.96}, {"related_min": 0}, {"related_min": 1},
+                   {"related_min": "half"}, {"related_min": float("nan")}, {"enabled": False, "related_min": 2}):
             with self.assertRaises((ValueError, TypeError), msg=kw):
                 clef.set_config("evil", **kw)
         c = clef.config()
@@ -433,9 +433,10 @@ class ClefSettings(_Base):
     def test_hand_edited_thresholds_clamped(self):
         """Stored thresholds outside the range are clamped to 0.05-0.95 by the config the pipeline reads; garbage gives 0.5.
         REQ: SET-30"""
-        corr_llm._save_config({"clef": {"related_min": 3, "suspicious_min": -1}})
-        c = clef.config()
-        self.assertEqual((c["related_min"], c["suspicious_min"]), (0.95, 0.05))
+        corr_llm._save_config({"clef": {"related_min": 3}})
+        self.assertEqual(clef.config()["related_min"], 0.95)
+        corr_llm._save_config({"clef": {"related_min": -1}})
+        self.assertEqual(clef.config()["related_min"], 0.05)
         corr_llm._save_config({"clef": {"related_min": "x"}})
         self.assertEqual(clef.config()["related_min"], 0.5)
 
@@ -451,15 +452,6 @@ class ClefSettings(_Base):
         V = corr_llm.verdicts([corr_llm.pair("ids|ra", "vuln|rb"), corr_llm.pair("ids|ra", "vuln|rc")])
         self.assertTrue(V[corr_llm.pair("ids|ra", "vuln|rb")]["related"])
         self.assertFalse(V[corr_llm.pair("ids|ra", "vuln|rc")]["related"])
-
-    def test_suspicious_min_decides_label(self):
-        """The suspicious threshold decides when an event is labelled suspicious instead of benign / expected.
-        REQ: SET-31"""
-        clef.set_config("u", suspicious_min=0.5)
-        self.assertEqual(clef.label(0.6, 0.1), "suspicious")
-        clef.set_config("u", suspicious_min=0.7)
-        self.assertEqual(clef.label(0.6, 0.1), "benign")
-        self.assertEqual(clef.label(0.6, 0.9), "expected")
 
     def test_enabled_switch_is_read_by_the_pipeline(self):
         """The on/off switch is what the review pass reads before using the decision model.

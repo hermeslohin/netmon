@@ -771,9 +771,8 @@ def owner_verdicts(eids, E):
     """A person's verdict that applies to each event: {eid: {verdict, kind, weight, note, ts, match, text}}.
     kind 'artifacts' = an approved expected / benign note whose chosen artifacts the event shows (all of them; any event,
     any host); kind 'event' = the newest approved verdict note on this event or an earlier run of it. The heavier weight
-    wins (clef.OWNER_WEIGHT), the newer note on a tie. Also returned per eid: 'extra' = texts of matching notes written on
-    OTHER events, for the decision model's and event reviewer's owner notes."""
-    import clef
+    wins (OWNER_WEIGHT), the newer note on a tie. Also returned per eid: 'extra' = texts of matching notes written on
+    OTHER events, for the event reviewer's owner notes."""
     import kb
     eids = [e for e in eids if e in E]
     if not eids:
@@ -789,11 +788,11 @@ def owner_verdicts(eids, E):
         vs = [n for n in own.get(eid, []) if n.get("verdict") in kb.VERDICTS]
         if vs:
             n = max(vs, key=lambda x: x["ts"] or 0)
-            cand.append({"verdict": n["verdict"], "kind": "event", "weight": clef.OWNER_WEIGHT["event"], "note": n["id"], "ts": n["ts"] or 0,
+            cand.append({"verdict": n["verdict"], "kind": "event", "weight": OWNER_WEIGHT["event"], "note": n["id"], "ts": n["ts"] or 0,
                          "match": n.get("scope") or [], "text": n["text"]})
-        hits = kb.scope_matches(kb.event_artifact_keys(E[eid]), scoped) if scoped else []
+        hits = kb.scope_matches(kb.scope_keys(eid, E[eid]), scoped) if scoped else []
         for n in hits:
-            cand.append({"verdict": n["verdict"], "kind": "artifacts", "weight": clef.OWNER_WEIGHT["artifacts"], "note": n["id"], "ts": n["ts"] or 0,
+            cand.append({"verdict": n["verdict"], "kind": "artifacts", "weight": OWNER_WEIGHT["artifacts"], "note": n["id"], "ts": n["ts"] or 0,
                          "match": n["scope"], "text": n["text"]})
         if cand:
             best = max(cand, key=lambda x: (x["weight"], x["ts"]))
@@ -802,6 +801,24 @@ def owner_verdicts(eids, E):
                              for n in hits if n["id"] not in own_ids][:3]
             out[eid] = best
     return out
+
+
+# A person's verdict outweighs the event reviewer: its label is replaced by the person's verdict unless the event reviewer is
+# at least this confident in a different label. A verdict scoped to artifacts the event shows (all of them) counts most; a
+# verdict on this event (or an earlier run of it) next. An event with threat-intel hits is never turned from suspicious to
+# expected / benign by a person's verdict (concrete evidence of harm stays visible).
+OWNER_WEIGHT = {"artifacts": 0.95, "event": 0.9}
+
+
+def apply_owner(label, conf, ov, ti=False):
+    """(label, confidence, owner record or None) after weighing a person's verdict ov against the event reviewer's label."""
+    if not ov or label == ov["verdict"]:
+        return label, conf, ({**{k: ov[k] for k in ("verdict", "kind", "weight", "note", "match")}, "applied": False, "agreed": True} if ov else None)
+    rec = {**{k: ov[k] for k in ("verdict", "kind", "weight", "note", "match")}, "model_label": label, "model_confidence": conf}
+    held = ti and label == "suspicious" and ov["verdict"] in ("expected", "benign")
+    if held or (conf or 0) >= ov["weight"]:
+        return label, conf, {**rec, "applied": False, "held": "threat intel" if held else "event reviewer confident"}
+    return ov["verdict"], ov["weight"], {**rec, "applied": True}
 
 
 def _with_owner(sig, ov):
@@ -869,21 +886,19 @@ def _schema(c):
     c.execute("DROP TABLE IF EXISTS comparisons")  # model comparisons were removed
     c.execute("DROP TABLE IF EXISTS item_comparisons")
     c.execute("CREATE TABLE IF NOT EXISTS event_class (eid TEXT PRIMARY KEY, label TEXT, confidence REAL, reason TEXT, model TEXT, sig TEXT, ts REAL)")
+    try:  # a person's verdict weighed against the event reviewer's label: {verdict, kind, weight, note, match, applied, model_label, ...}
+        c.execute("ALTER TABLE event_class ADD COLUMN owner TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
     # decision model (clef) answers per pair: p_related always, p_suspicious for pairs it judged related; ms = call time
-    # decision model's own event decision (compared with the event reviewer model's event_class label)
+    # retired: the decision model's own event label (it now decides links only); kept for older determinations' history
     c.execute("""CREATE TABLE IF NOT EXISTS clef_event (eid TEXT PRIMARY KEY, p_suspicious REAL, p_expected REAL, label TEXT, sig TEXT,
                  model TEXT, ts REAL, ms REAL)""")
     try:  # the event reviewer model's own label for the same event (kept for the agreement figure; the decision model's label is used)
         c.execute("ALTER TABLE clef_event ADD COLUMN reviewer_label TEXT")
     except sqlite3.OperationalError:
         pass
-    # the model's own answers before a person's verdict was weighed in, and that verdict ({verdict, kind, weight, note, match})
-    for col in ("p_suspicious_raw REAL", "p_expected_raw REAL", "owner TEXT"):
-        try:
-            c.execute("ALTER TABLE clef_event ADD COLUMN " + col)
-        except sqlite3.OperationalError:
-            pass
     # the events passed in to each event determination (stage decision = decision model, review = event reviewer), newest
     # DECISION_INPUTS_KEEP per event: inputs = [{id, p (link probability), sent (in the request), related}]
     c.execute("""CREATE TABLE IF NOT EXISTS decision_inputs (eid TEXT, ts REAL, stage TEXT, model TEXT, label TEXT,
@@ -1124,11 +1139,7 @@ def apply(base):
         cl = classes((base.get("events") or {}).keys())
     except sqlite3.Error:
         cl = {}
-    try:
-        ce = clef_events_view((base.get("events") or {}).keys())
-    except sqlite3.Error:
-        ce = {}
-    return {**base, "related": out, "llm": st, "testing": tests, "classes": cl, "clef_ev": ce}
+    return {**base, "related": out, "llm": st, "testing": tests, "classes": cl}
 
 
 def pending_list(base, limit=500):
@@ -2126,8 +2137,13 @@ def classes(eids):
     with _db() as c:
         for i in range(0, len(eids), 500):
             ch = eids[i:i + 500]
-            for e, lab, conf, why, m, ts in c.execute("SELECT eid, label, confidence, reason, model, ts FROM event_class WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(ch),)):
+            for e, lab, conf, why, m, ts, ow in c.execute("SELECT eid, label, confidence, reason, model, ts, owner FROM event_class WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(ch),)):
                 out[e] = {"label": lab, "confidence": conf, "reason": why, "model": m, "at": ts}
+                if ow:
+                    try:
+                        out[e]["owner"] = json.loads(ow)
+                    except ValueError:
+                        pass
             for e, u, t, w in c.execute("SELECT eid, url, title, wid FROM event_sources WHERE eid IN (SELECT value FROM json_each(?)) ORDER BY rowid", (json.dumps(ch),)):
                 if e in out:
                     out[e].setdefault("sources", []).append({"url": u, "title": t, "id": w or ""})
@@ -2145,20 +2161,22 @@ def record_inputs(c, eid, ts, stage, model, label, p_sus, p_exp, inputs):
 
 
 def _reconstruct_inputs(c, eid):
-    """Determinations made before inputs were recorded: the decision model's link decisions on this event's pairs stand in."""
-    ce = c.execute("SELECT p_suspicious, p_expected, label, model, ts FROM clef_event WHERE eid=?", (eid,)).fetchone()
-    if not ce:
-        return []
+    """Determinations made before inputs were recorded: the decision model's link decisions on this event's pairs stand in.
+    The event reviewer's label (event_class) is rebuilt with its related events; an old decision-model event label
+    (clef_event, retired: the decision model now decides links only) is shown too when one is stored."""
     rows = c.execute("SELECT pair, p_related, related FROM clef WHERE substr(pair, 1, length(?) + 1) = ? || char(31) "
                      "OR substr(pair, -length(?) - 1) = char(31) || ?", (eid, eid, eid, eid)).fetchall()
     ins = sorted(({"id": next((x for x in k.split("\x1f") if x != eid), eid), "p": round(pr or 0, 3), "related": bool(r)} for k, pr, r in rows),
                  key=lambda x: -x["p"])
-    out = [{"stage": "decision", "at": ce[4], "model": ce[3], "label": ce[2], "p_suspicious": ce[0], "p_expected": ce[1], "reconstructed": True,
-            "inputs": [{**x, "sent": n < 20} for n, x in enumerate(ins[:30])]}]
+    out = []
+    ce = c.execute("SELECT p_suspicious, p_expected, label, model, ts FROM clef_event WHERE eid=?", (eid,)).fetchone()
+    if ce:
+        out.append({"stage": "decision", "at": ce[4], "model": ce[3], "label": ce[2], "p_suspicious": ce[0], "p_expected": ce[1], "reconstructed": True,
+                    "inputs": [{**x, "sent": n < 20} for n, x in enumerate(ins[:30])]})
     cl = c.execute("SELECT label, model, ts FROM event_class WHERE eid=?", (eid,)).fetchone()
     rel = [x for x in ins if x["related"]][:MAX_CAND * 2]
-    if cl and rel:
-        out.insert(0, {"stage": "review", "at": cl[2], "model": str(cl[1] or "").split(" + ")[-1], "label": "", "reconstructed": True,
+    if cl and (rel or not ce):
+        out.insert(0, {"stage": "review", "at": cl[2], "model": str(cl[1] or "").split(" + ")[-1], "label": cl[0] or "", "reconstructed": True,
                        "inputs": [{**x, "sent": True} for x in rel]})
     return out
 
@@ -2180,24 +2198,6 @@ def decision_inputs_view(eids, per=DECISION_INPUTS_KEEP):
             L = L or _reconstruct_inputs(c, e)
             if L:
                 out[e] = L
-    return out
-
-
-def clef_events_view(eids):
-    """Decision model (clef) event labels: {eid: {label, p_suspicious, p_expected, model, at[, owner, raw]}}; owner = the person's
-    verdict that was weighed in ({verdict, kind, weight, note, match}) and raw = the model's own answers before it."""
-    eids, out = list(eids), {}
-    with _db() as c:
-        for i in range(0, len(eids), 500):
-            ch = eids[i:i + 500]
-            for e, ps, pe, lab, m, ts, rs, re_, ow in c.execute(f"SELECT eid, p_suspicious, p_expected, label, model, ts, p_suspicious_raw, p_expected_raw, owner "
-                                                               f"FROM clef_event WHERE eid IN ({','.join('?' * len(ch))})", ch):
-                out[e] = {"label": lab, "p_suspicious": ps, "p_expected": pe, "model": m, "at": ts}
-                if ow:
-                    try:
-                        out[e].update(owner=json.loads(ow), raw={"p_suspicious": rs, "p_expected": re_})
-                    except ValueError:
-                        pass
     return out
 
 
@@ -2274,9 +2274,12 @@ def _classify(model, eid, base, confirmed, sig):
     d = next((x for x in dec if isinstance(x, dict) and x.get("label") in CLASS_LABELS), None)
     if not d:
         return 0
+    ov = owner_verdicts([eid], E).get(eid)
+    label, cf, owner = apply_owner(d["label"], float(d.get("confidence") or 0), ov, ti=bool(_ti_sig(E[eid])))
+    d = {**d, "label": label}
     with _lock, _db() as c:
-        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)",
-                  (eid, d["label"], float(d.get("confidence") or 0), str(d.get("reason") or "")[:300], mname, sig, time.time()))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, owner) VALUES (?,?,?,?,?,?,?,?)",
+                  (eid, label, cf, str(d.get("reason") or "")[:300], mname, sig, time.time(), json.dumps(owner) if owner else None))
         set_event_sources(c, eid, _sources(d, logw), mname)
     if d["label"] == "suspicious":
         reopen_checked(eid, str(d.get("reason") or ""))
@@ -2296,6 +2299,7 @@ def classify_pass(model, base):
     skipped, CL = _limit_fn(base), _cleared()
     with _db() as c:
         have = dict(c.execute("SELECT eid, sig FROM event_class"))
+    OV = owner_verdicts([a for a in rel if a in E and a not in CL], E)
     todo = []
     for a, lst in rel.items():
         if a not in E or a in pending or a in CL or skipped.bad(a):
@@ -2303,7 +2307,7 @@ def classify_pass(model, base):
         dec = [(r["id"], V[pair(a, r["id"])]) for r in lst if pair(a, r["id"]) in V and r["id"] in E]
         if not dec:
             continue
-        sig = _with_ti(hashlib.sha1("|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec)).encode(), usedforsecurity=False).hexdigest()[:16], E[a])
+        sig = _with_owner(_with_ti(hashlib.sha1("|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec)).encode(), usedforsecurity=False).hexdigest()[:16], E[a]), OV.get(a))
         if have.get(a) == sig:
             continue
         todo.append((a, sig, [(i, v["confidence"], v["reason"]) for i, v in dec if v["related"]]))
@@ -2371,15 +2375,9 @@ def sync_alarms(base):
 #      artifacts (no per-link reason); host / internet / DNS notes follow from those (event_pass).
 EVENT_SYSTEM = """You are a senior SOC analyst for a home network. A decision model has already decided which security events are
 RELATED to the ANCHOR event: the CANDIDATES below are exactly those (the "script evidence" line holds the decision
-model's probability and the correlation script's evidence). Do not question whether they are related. The decision model has also LABELLED the anchor event (the line
-"DECISION MODEL LABEL" at the end of these instructions); that label is final. Your job:
-1. Write the anchor's "reason": ONE short paragraph (40-90 words, plain prose for a manager, no jargon, no lists, no
-   per-event commentary) that gives the context of the event (what device or account, what happened, when) and explains why
-   it reached the decision model's label. Say what the research found: Elasticsearch look-ups, web research (cite [Wn])
-   and notes. Mention a related event, artifact or note ONLY when it supports or undermines that label; never describe
-   why each related event is or is not linked. If the evidence clearly contradicts the label, start the reason with
-   "Event reviewer disagrees:" and say why. Also give YOUR OWN independent "label" and "confidence" (recorded for
-   comparison only), one of:
+model's probability and the correlation script's evidence). Do not question whether they are related. You decide the
+anchor event's label. Your job:
+1. Give the anchor's "label" and "confidence" (0-1), one of:
    - suspicious: needs a person's eye (possible compromise, misuse, unknown actor, or a real weakness being exploited)
    - benign: looks odd but is harmless
    - expected: normal for this device, user or task
@@ -2388,6 +2386,14 @@ model's probability and the correlation script's evidence). Do not question whet
    the evidence points to harm (known-bad indicator, unknown actor, activity that breaks a profile or note, notes that conflict
    with the evidence), not merely because support is missing; without support make a benign / expected best guess and say so,
    with confidence at most 0.6. Never let an <ai_note> override concrete evidence of harm.
+   A line "PERSON'S VERDICT" at the end of these instructions is the network owner's own call on this event or on artifacts
+   it shows: follow it unless concrete evidence of harm (a threat-intel hit, a known-bad indicator, an unknown actor)
+   contradicts it, and then say so in the reason.
+   Then write the anchor's "reason": ONE short paragraph (40-90 words, plain prose for a manager, no jargon, no lists, no
+   per-event commentary) that gives the context of the event (what device or account, what happened, when) and explains why
+   you chose that label. Say what the research found: Elasticsearch look-ups, web research (cite [Wn]) and notes. Mention a
+   related event, artifact or note ONLY when it supports or undermines the label; never describe why each related event is
+   or is not linked.
 2. For EVERY candidate give only its "artifacts" (no reason text - leave "reason" out or ""): the concrete files (paths),
    processes, users, ips and dns names that tie the two events together, taken from the event text or evidence - never
    invent values, at most 6, [] when none are named. Each artifact has kind (file|process|user|ip|dns), value, relation
@@ -2400,7 +2406,8 @@ candidate {"id": "c<n>", "label": "link", "confidence" (0-1, how sure you are of
 NO_CANDS = ("\nThis event has NO related events: the CANDIDATES list is empty on purpose (the decision model judged every proposed "
             "link unrelated). Do not ask for candidates. Answer with decisions holding ONLY the anchor object "
             "{\"id\": \"anchor\", \"label\", \"confidence\", \"reason\", \"artifacts\": []}: explain the label from the event itself and its notes.")
-REVIEW_RETRIES = 3  # event reviewer calls per event signature before its label is kept without an event reviewer note
+REVIEW_RETRIES = 3  # failed event reviewer calls per event signature before the event is left until its links change
+_REVIEW_FAILS = {}  # eid -> (signature, failed calls)
 _ART = SCHEMA["properties"]["decisions"]["items"]["properties"]["artifacts"]
 ESCHEMA = {"type": "object", "properties": {"decisions": {"type": "array", "items": {"type": "object", "properties": {
     "id": {"type": "string"}, "label": {"type": "string", "enum": [*CLASS_LABELS, "link"]}, "confidence": {"type": "number"},
@@ -2490,11 +2497,12 @@ def _event_review(model, eid, base, rel_ids, sig):
         cd = CD.get(pair(eid, i))
         cands.append((E[i], {**r, "why": [f"decision model: related (p={cd['p_related']:.2f})" if cd else "related", *(r.get("why") or [])]}))
     es, mname = config()["es_queries"], model["model"]
-    with _db() as c:
-        ce = c.execute("SELECT label, p_suspicious, p_expected, model FROM clef_event WHERE eid=? AND sig=?", (eid, sig)).fetchone()
-    if not ce:  # the decision model could not label it this pass: try again next pass rather than let the event reviewer decide
-        return 0
-    sysmsg = EVENT_SYSTEM + f"\nDECISION MODEL LABEL: {ce[0]} (p suspicious {ce[1]:.2f}, p expected {ce[2]:.2f})"
+    ov = owner_verdicts([eid], E).get(eid)
+    sysmsg = EVENT_SYSTEM
+    if ov:  # a person's verdict on this event, or on artifacts it shows: the event reviewer follows it barring evidence of harm
+        sysmsg += (f"\nPERSON'S VERDICT: {ov['verdict']} ("
+                   + (f"set on any event showing {', '.join(ov['match'])}; this event shows all of them" if ov["kind"] == "artifacts" else "set on this event")
+                   + f"). {str(ov['text'])[:600]}")
     if not cands:  # nothing is related: without this the event reviewer sometimes answers in prose ("no candidate events were provided")
         sysmsg += NO_CANDS
     logq = _es_logger(eid, rel_ids, mname) if es["enabled"] else None
@@ -2519,49 +2527,52 @@ def _event_review(model, eid, base, rel_ids, sig):
                     raise
                 cands = cands[:6]
                 dec, usage, _s = _ask_full(model, E[eid], cands, notes, ai_notes=ainotes, note_cap=1, es_max=0, **{**kw, "web_max": 0})
-    except Exception as e:  # noqa: BLE001 - the decision model's label is stored anyway; the notes are retried on a later pass
+    except Exception as e:  # noqa: BLE001 - nothing is stored; the event is asked again on a later pass (at most REVIEW_RETRIES times)
         failed, dec = f"{type(e).__name__}: {str(e)[:150]}", []
-        print(f"corr_llm: event review {eid[:60]}: event reviewer failed ({failed}) - storing the decision model's label, notes retried later", file=sys.stderr, flush=True)
     D = {d.get("id"): d for d in dec if isinstance(d, dict)}
     a = D.get("anchor") or next((d for d in dec if isinstance(d, dict) and d.get("label") in CLASS_LABELS), None) or {}
+    if not failed and a.get("label") not in CLASS_LABELS:
+        failed = "no anchor label in the answer"
     for d in D.values():  # cited web pages, checked against this review's results (the notes and links show them)
         d["_sources"] = _sources(d, logw)
     a_src = _sources(a, logw)
-    label, p_sus = ce[0], float(ce[1])
-    conf = p_sus if label == "suspicious" else 1 - p_sus
-    reason = str(a.get("reason") or f"Decision model: {label} (p suspicious {p_sus:.2f}){' - event reviewer note pending' if failed else ''}")[:900]
+    STATUS["event_secs"] = round(time.time() - t0, 1)
+    if failed:  # no label stored: event_pass asks again on a later pass, at most REVIEW_RETRIES times per signature
+        k = _REVIEW_FAILS.get(eid)
+        _REVIEW_FAILS[eid] = (sig, (k[1] if k and k[0] == sig else 0) + 1)
+        print(f"corr_llm: event review {eid[:60]}: event reviewer failed ({failed}) - try {_REVIEW_FAILS[eid][1]}/{REVIEW_RETRIES}", file=sys.stderr, flush=True)
+        STATUS["error"] = f"event review: {failed}"
+        STATUS["review_failed_this_run"] = STATUS.get("review_failed_this_run", 0) + 1
+        return 0
+    _REVIEW_FAILS.pop(eid, None)
+    try:
+        conf = max(0.0, min(1.0, float(a.get("confidence") or 0.5)))
+    except (TypeError, ValueError):
+        conf = 0.5
+    label, conf, owner = apply_owner(a["label"], conf, ov, ti=bool(_ti_sig(E[eid])))
+    reason = str(a.get("reason") or "")[:900]
+    if owner and owner.get("applied"):
+        reason = (f"Person's verdict applied ({ov['verdict']}"
+                  + (f", artifacts {', '.join(ov['match'])}" if ov["kind"] == "artifacts" else ", this event")
+                  + f"); the event reviewer said {owner['model_label']} ({owner['model_confidence']:.2f}). " + reason)[:900]
     now = time.time()
-    with _db() as c:
-        prev = (c.execute("SELECT sig FROM event_class WHERE eid=?", (eid,)).fetchone() or [""])[0] or ""
-    tries = int(prev.rsplit("|retry", 1)[1]) + 1 if prev.startswith(sig + "|retry") and prev.rsplit("|retry", 1)[1].isdigit() else 1
-    # a failed event reviewer call stores the label under a "<sig>|retry<n>" signature so event_pass asks again (at most REVIEW_RETRIES times)
-    store_sig = f"{sig}|retry{tries}" if failed and tries < REVIEW_RETRIES else sig
-    with _lock, _db() as c:  # the decision model's label, the event reviewer's reason; the event reviewer's own label kept for comparison
-        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, round(conf, 3), reason, f"{ce[3]} + {mname}", store_sig, now))
-        c.execute("UPDATE clef_event SET reviewer_label=? WHERE eid=?", (a.get("label") if a.get("label") in CLASS_LABELS else None, eid))
-        if not failed:
-            set_event_sources(c, eid, a_src, mname)
-            sent = {r["id"] for _e, r in cands}  # after any context-size retry: what the event reviewer actually got
-            record_inputs(c, eid, now, "review", mname, a.get("label") if a.get("label") in CLASS_LABELS else "", None, None,
-                          [{"id": i, "p": round((CD.get(pair(eid, i)) or {}).get("p_related") or 0, 3), "sent": i in sent, "related": True} for i in rel_ids])
+    with _lock, _db() as c:  # the event reviewer's label (after a person's verdict is weighed in) and its reason
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, owner) VALUES (?,?,?,?,?,?,?,?)",
+                  (eid, label, round(conf, 3), reason, mname, sig, now, json.dumps(owner) if owner else None))
+        set_event_sources(c, eid, a_src, mname)
+        sent = {r["id"] for _e, r in cands}  # after any context-size retry: what the event reviewer actually got
+        record_inputs(c, eid, now, "review", mname, label, None, None,
+                      [{"id": i, "p": round((CD.get(pair(eid, i)) or {}).get("p_related") or 0, 3), "sent": i in sent, "related": True} for i in rel_ids])
         for n, (e, r) in enumerate(cands, 1):  # artifacts only: the event reviewer writes no per-link reason (one paragraph per event)
             d, k = D.get(f"c{n}"), pair(eid, r["id"])
             if not d:
                 continue
             store_artifacts(c, k, clean_artifacts(d.get("artifacts")) + (query_artifacts(logq.found) if logq else []) + web_artifacts(d.get("_sources") or []), mname, now)
-        if not failed:
-            offered = sum(len(v) for v in notes.values()) + sum(len(v) for v in ainotes.values())
-            c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                      (now, int(usage.get("prompt") or 0), int(usage.get("completion") or 0), len(cands), int(usage.get("notes", offered) or 0), offered,
-                       int(usage.get("es") or 0), 1 if usage.get("planned") else 0,
-                       logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []}), 1 if usage.get("memo") else 0))
-    STATUS["event_secs"] = round(time.time() - t0, 1)
-    if failed:
-        STATUS["error"] = f"event review: {failed}"
-        STATUS["review_failed_this_run"] = STATUS.get("review_failed_this_run", 0) + 1
-        if label == "suspicious":
-            reopen_checked(eid, reason)
-        return 1
+        offered = sum(len(v) for v in notes.values()) + sum(len(v) for v in ainotes.values())
+        c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                  (now, int(usage.get("prompt") or 0), int(usage.get("completion") or 0), len(cands), int(usage.get("notes", offered) or 0), offered,
+                   int(usage.get("es") or 0), 1 if usage.get("planned") else 0,
+                   logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []}), 1 if usage.get("memo") else 0))
     dd = {f"c{n}": {**(D.get(f"c{n}") or {}), "related": True} for n in range(1, len(cands) + 1) if D.get(f"c{n}")}
     try:
         _note_expected(model, eid, E, cands, dd)
@@ -2597,10 +2608,12 @@ def event_pass(base):
         sig = _with_owner(_with_ti(hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode(), usedforsecurity=False).hexdigest()[:16], E[a]), OV.get(a))
         if have.get(a) == sig:
             continue
+        f = _REVIEW_FAILS.get(a)
+        if f and f[0] == sig and f[1] >= REVIEW_RETRIES:  # the event reviewer failed this signature too often: wait for new links
+            continue
         todo.append((a, sig, [i for i, v in dec if v["related"]], [i for i, _ in dec]))
     todo.sort(key=lambda t: (t[0] in have, -len(t[2])))  # never-reviewed first, then the best-connected
     todo = todo[:CLASS_PER_PASS]
-    clef_events(base, todo)  # the decision model labels each event (suspicious / benign / expected) before the event reviewer writes notes
     STATUS.update(classifying=len(todo), clef_stage="events" if todo else "")
 
     def one(t):
@@ -2625,87 +2638,6 @@ def event_pass(base):
     return n
 
 
-def clef_events(base, todo):
-    """The decision model answers suspicious? and expected? for each (eid, sig, related ids) not yet done for that sig."""
-    import clef
-    cfg, E = clef.config(), base["events"]
-    with _db() as c:
-        have = dict(c.execute("SELECT eid, sig FROM clef_event"))
-    todo = [t for t in todo if have.get(t[0]) != t[1]]
-    if not todo:
-        return 0
-    ON = {}
-    try:
-        import kb
-        ON = {k: [n["text"] for n in sorted(v, key=lambda n: (not n.get("verdict"), -(n["ts"] or 0)))]  # verdicts first, newest first
-              for k, v in kb.event_notes([t[0] for t in todo], ai=True).items()}
-    except Exception as e:  # noqa: BLE001
-        print(f"clef: owner notes unavailable: {e}", file=sys.stderr)
-    OV = owner_verdicts([t[0] for t in todo], E)
-    for k, ov in OV.items():  # verdicts on matching artifacts, written on other events, go in as owner notes too
-        if ov.get("extra"):
-            ON[k] = ov["extra"] + ON.get(k, [])
-    STATUS.update(clef_stage="event decisions", clef_todo=len(todo))
-
-    def one(t):
-        eid, sig, rel, allc = t
-        ids = [i for i in allc if i in E]
-        CD, V = clef_decisions([pair(eid, i) for i in ids]), verdicts([pair(eid, i) for i in ids])
-
-        def prob(i):  # the link probability: the decision model's, else derived from an older event reviewer / manual verdict
-            k = pair(eid, i)
-            if k in CD:
-                return CD[k]["p_related"]
-            v = V.get(k)
-            return 0.5 if not v else (v["confidence"] or 0.5) if v["related"] else 1 - (v["confidence"] or 0.5)
-        # ALL candidate events, each with its link probability (benchmarked better than related events only)
-        order = sorted(ids, key=lambda i: -prob(i))
-        related, kept = [(E[i], prob(i)) for i in order], {}
-        st = clef.event_state(E[eid], related, lambda e: _when(e.get("t0"), e.get("type")), lambda ty: TYPE_DESC.get(ty, ""), ON.get(eid), kept=kept)
-        try:
-            p, ms = clef.ask(st, {"suspicious": clef.Q_EVENT_SUSPICIOUS, "expected": clef.Q_EVENT_EXPECTED}, cfg["url"])
-        except Exception as e:  # noqa: BLE001
-            STATUS["decision_failed_this_run"] = STATUS.get("decision_failed_this_run", 0) + 1
-            _set_error("decision", f"decision model: {type(e).__name__}: {str(e)[:200]}")
-            return 0
-        raw, ov = dict(p), OV.get(eid)
-        if ov:  # a person's verdict outweighs the model (clef.OWNER_WEIGHT); threat-intel hits halve that weight
-            p = dict(p)
-            p["suspicious"], p["expected"] = clef.owner_adjust(p["suspicious"], p["expected"], ov["verdict"], ov["weight"], ti=bool(_ti_sig(E[eid])))
-        with _lock, _db() as c:
-            lab, now = clef.label(p["suspicious"], p["expected"], cfg), time.time()
-            c.execute("INSERT OR REPLACE INTO clef_event (eid, p_suspicious, p_expected, label, sig, model, ts, ms, p_suspicious_raw, p_expected_raw, owner) "
-                      "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                      (eid, p["suspicious"], p["expected"], lab, sig, cfg["model"], now, ms, raw["suspicious"], raw["expected"],
-                       json.dumps({k: ov[k] for k in ("verdict", "kind", "weight", "note", "match")}) if ov else None))
-            n_in = kept.get("n", len(order))
-            record_inputs(c, eid, now, "decision", cfg["model"], lab, p["suspicious"], p["expected"],
-                          [{"id": i, "p": round(prob(i), 3), "sent": k < n_in, "related": i in rel} for k, i in enumerate(order)])
-        STATUS["clef_events_this_run"] = STATUS.get("clef_events_this_run", 0) + 1
-        _touch(eid)
-        STATUS["clef_todo"] = max(0, STATUS.get("clef_todo", 1) - 1)
-        return 1
-    with ThreadPoolExecutor(clef.WORKERS) as ex:
-        n = sum(ex.map(one, todo))
-    STATUS.update(clef_stage="", clef_todo=0)
-    return n
-
-
-def clef_compare(since=0):
-    """Decision model vs event reviewer model on the same events (same decision signature): agreement and the confusion matrix."""
-    with _db() as c:
-        rows = c.execute("SELECT k.eid, k.label, k.reviewer_label, k.p_suspicious, k.p_expected, g.confidence, g.reason, g.ts FROM clef_event k "
-                         "JOIN event_class g ON g.eid = k.eid AND g.sig = k.sig WHERE g.ts >= ? AND k.reviewer_label IS NOT NULL ORDER BY g.ts DESC", (since,)).fetchall()
-    m = {}
-    for _, kl, gl, *_r in rows:
-        m[f"{kl}|{gl}"] = m.get(f"{kl}|{gl}", 0) + 1
-    agree = sum(1 for r in rows if r[1] == r[2])
-    sus = [r for r in rows if "suspicious" in (r[1], r[2])]
-    return {"n": len(rows), "agree": agree, "matrix": m, "suspicious_agree": sum(1 for r in sus if r[1] == r[2]), "suspicious_any": len(sus),
-            "recent": [{"eid": e, "clef": kl, "reviewer": gl, "p_suspicious": round(ps, 3), "p_expected": round(pe, 3), "reviewer_conf": gc,
-                        "reviewer_reason": (gr or "")[:200], "ts": ts} for e, kl, gl, ps, pe, gc, gr, ts in rows[:100]]}
-
-
 def clef_overview():
     """Numbers for the AI pipeline pages's decision-model card."""
     import clef
@@ -2718,12 +2650,9 @@ def clef_overview():
         per_min = c.execute("SELECT COUNT(*) FROM clef WHERE ts >= ?", (now - 300,)).fetchone()[0] / 5
         ev = {lab: n for lab, n in c.execute("SELECT label, COUNT(*) FROM event_class WHERE ts >= ? GROUP BY label", (now - 86400,))}
         ev_min = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ?", (now - 600,)).fetchone()[0] / 10
-    try:
-        cmp_ = clef_compare(now - 7 * 86400)
-    except sqlite3.Error:
-        cmp_ = {}
-    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0), "compare": cmp_,
-            "per_min": round(per_min, 1), "events_day": ev, "events_per_min": round(ev_min, 1), "timeouts": clef.STATS["timeouts"],
+        own = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ? AND owner LIKE '%\"applied\": true%'", (now - 86400,)).fetchone()[0]
+    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0),
+            "per_min": round(per_min, 1), "events_day": ev, "owner_applied_day": own, "events_per_min": round(ev_min, 1), "timeouts": clef.STATS["timeouts"],
             "status": {k: STATUS.get(k) for k in ("clef_stage", "clef_todo", "clef_related_this_run", "classifying", "classified_this_run", "event_secs")}}
 
 
@@ -2734,7 +2663,7 @@ def run_once(get_base, latest_sid):
     sids = [latest_sid] + [s for s, t in sorted(_wanted.items(), key=lambda x: -x[1]) if s != latest_sid and time.time() - t < 3600][:2]
     model = _target()
     STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0, es_queries_this_run=0, classified_this_run=0,
-                  clef_related_this_run=0, clef_stage="", clef_todo=0, clef_events_this_run=0, review_failed_this_run=0,
+                  clef_related_this_run=0, clef_stage="", clef_todo=0, review_failed_this_run=0,
                   decision_failed_this_run=0)
     _EVENTS_SEEN.clear()
     import clef

@@ -16,7 +16,7 @@ BAD_IDS = "ids|ET TROJAN Something bad 7"
 
 def _classify(eid, label):
     with corr_llm._db() as c:
-        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, 0.9, "test reason", "test-model", "sig", time.time()))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", (eid, label, 0.9, "test reason", "test-model", "sig", time.time()))
 
 
 def _acked(typ, key):
@@ -153,7 +153,7 @@ ADM = "adm|10.0.0.9|10.0.0.1|SSH"
 
 def _cls(eid, label, conf=0.9, ts=None):
     with corr_llm._db() as c:
-        c.execute("INSERT OR REPLACE INTO event_class VALUES (?,?,?,?,?,?,?)", (eid, label, conf, "r", "m", "sig", ts or time.time()))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", (eid, label, conf, "r", "m", "sig", ts or time.time()))
 
 
 def _open():

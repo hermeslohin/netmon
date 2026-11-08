@@ -40,52 +40,6 @@ class ReviewerParagraphContractTest(unittest.TestCase):
         self.assertNotIn('"reason", "artifacts"}', corr_llm.EFMT)
 
 
-class EventStateKeptTest(unittest.TestCase):
-    """clef.event_state() reports how many related events made it into the decision state."""
-
-    def setUp(self):
-        self.when = lambda e: "2026-01-05 12:00"
-        self.desc = lambda t: ""
-        import intelmatch
-        self._im = (intelmatch, intelmatch.lines)
-        intelmatch.lines = lambda e: []  # no feed files read: the state is built from the events alone
-
-    def tearDown(self):
-        self._im[0].lines = self._im[1]
-
-    def test_kept_counts_all_when_small(self):
-        """A small state keeps every related event (n = all) and is not cut.
-        REQ: FEAT-08"""
-        rel = [(_ev(i), 0.9 - i / 10) for i in range(3)]
-        kept = {}
-        txt = clef.event_state(_ev(99), rel, self.when, self.desc, kept=kept)
-        self.assertEqual(kept["n"], 3)
-        self.assertFalse(kept.get("cut", False))
-        self.assertEqual(len(json.loads(txt)["RELATED EVENTS"]), 3)
-
-    def test_kept_drops_tail_and_caps_at_twenty(self):
-        """A state over STATE_MAX drops related events from the end, and n says how many were sent; at most 20 are ever used.
-        REQ: FEAT-08"""
-        big = [(_ev(i, "y" * 590), 0.5) for i in range(40)]
-        kept = {}
-        txt = clef.event_state(_ev(99), big, self.when, self.desc, kept=kept)
-        self.assertLessEqual(len(txt), clef.STATE_MAX)
-        self.assertLess(kept["n"], 20)
-        self.assertGreaterEqual(kept["n"], 1)
-        self.assertEqual(len(json.loads(txt)["RELATED EVENTS"]), kept["n"])
-        small = [(_ev(i), 0.5) for i in range(30)]
-        k2 = {}
-        clef.event_state(_ev(99), small, self.when, self.desc, kept=k2)
-        self.assertEqual(k2["n"], 20)
-
-    def test_without_kept_unchanged(self):
-        """Callers that pass no kept dict get the same state text.
-        REQ: FEAT-08"""
-        rel = [(_ev(i), 0.4) for i in range(2)]
-        self.assertEqual(clef.event_state(_ev(1), rel, self.when, self.desc),
-                         clef.event_state(_ev(1), rel, self.when, self.desc, kept={}))
-
-
 class EventsProcessedTest(unittest.TestCase):
     """Review log entries count the distinct events processed."""
 

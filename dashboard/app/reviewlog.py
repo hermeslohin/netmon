@@ -35,13 +35,14 @@ def _emit(action, outcome, t0, t1, review, message):
 def correlation_pass(t0, t1, st, done, crashed=None):
     """st = corr_llm.STATUS after the pass. Logged when the pass decided / reviewed something or ended with a problem."""
     err = crashed or st.get("error") or ""
-    links, labelled, reviewed = int(st.get("decided_this_run") or 0), int(st.get("clef_events_this_run") or 0), int(st.get("classified_this_run") or 0)
+    links, reviewed = int(st.get("decided_this_run") or 0), int(st.get("classified_this_run") or 0)
+    labelled = reviewed  # the event reviewer labels every event it reviews
     rfail, dfail = int(st.get("review_failed_this_run") or 0), int(st.get("decision_failed_this_run") or 0)
     events = int(st.get("events_this_run") or 0)  # distinct events touched: link decided, labelled or reviewed
     if not (done or links or reviewed or labelled or err or rfail or dfail):
         return None
     status = "crashed" if crashed else "waiting" if st.get("error_kind") == "decision" else "error" if err else "partial" if (rfail or dfail) else "ok"
-    msg = (f"Correlation review pass {status}: {events} events processed, {links} links decided, {labelled} events labelled, {reviewed} events reviewed"
+    msg = (f"Correlation review pass {status}: {events} events processed, {links} links decided, {reviewed} events labelled by the event reviewer"
            + (f", {rfail} event reviewer failures" if rfail else "") + (f", {dfail} decision-model failures" if dfail else "") + (f" - {str(err)[:200]}" if err else ""))
     return _emit("review.correlation_pass", "success" if status == "ok" else "failure", t0, t1,
                  {"kind": "correlation", "status": status, "events_processed": events, "links_decided": links, "events_labelled": labelled, "events_reviewed": reviewed,

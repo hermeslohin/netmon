@@ -723,7 +723,35 @@ def put(doc):
 _ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict", "scope")
 SCOPE_VERDICTS = ("expected", "benign")  # verdicts a person may extend to other events by choosing the artifacts they apply to
 SCOPE_MAX = 20
-_SCOPE_KINDS = {"ip": "ip", "dns": "dns", "proc": "process", "user": "user", "port": None}
+_SCOPE_KINDS = {"ip": "ip", "dns": "dns", "proc": "process", "user": "user", "port": None, "dev": None, "find": None, "sig": None}
+_SIG = re.compile(r"'((?:ET|ETPRO|GPL|SURICATA) [^']{3,200})'")
+_PORT = re.compile(r"\b(?:port |to port )?(\d{1,5})/(?:tcp|udp)\b", re.I)
+_FIND = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,59}$", re.I)
+
+
+def scope_keys(eid, ev):
+    """Everything a person may scope a verdict to for one event: its artifact keys (IPs, DNS names, processes / files,
+    accounts, ports) plus what its id and label name: dev:<MAC or host> (the device), find:<check or gateway type> (the
+    kind of finding), sig:<IDS signature> and ports written as 443/tcp."""
+    out = set(event_artifact_keys(ev or {}))
+    p, lab = str(eid or "").split("|"), str((ev or {}).get("label") or "")
+    if p[0] in ("f", "hf") and len(p) > 1 and _FIND.match(p[1]):
+        out.add("find:" + p[1].lower())
+    if p[0] in ("f", "hf") and len(p) > 2 and p[2] not in ("", "-"):
+        d = p[2].lower()
+        if _MAC.match(d) or valid_art("dns", d):
+            out.add("dev:" + d)
+    if p[0] == "gw" and len(p) > 2 and _FIND.match(p[2]):
+        out.add("find:" + p[2].lower())
+    if p[0] == "ids" and len(p) > 1 and p[1].strip():
+        out.add("sig:" + p[1].strip()[:200])
+    for m in _SIG.finditer(lab):
+        out.add("sig:" + m.group(1).strip())
+    for m in _PORT.finditer(lab):
+        if 0 < int(m.group(1)) < 65536:
+            out.add("port:" + m.group(1))
+    out.discard("")
+    return out
 VERDICTS = ("expected", "benign", "suspicious")  # the 📝 popover's buttons: a person's call on the event, authoritative for the AI and auto-close
 VERDICT_TAG = "ANALYST VERDICT: "  # prefix of the note text, so every AI prompt that reads notes sees the verdict
 STATUSES = ("pending", "approved", "rejected")
@@ -811,6 +839,18 @@ def clean_scope(keys):
             continue
         if kind == "port":
             if not v.isdigit() or not 0 < int(v) < 65536:
+                continue
+        elif kind == "dev":
+            v = v.lower()
+            if not (_MAC.match(v) or valid_art("dns", v)):
+                continue
+        elif kind == "find":
+            v = v.lower()
+            if not _FIND.match(v):
+                continue
+        elif kind == "sig":
+            v = v[:200]
+            if not v.isprintable():
                 continue
         elif kind == "proc":
             v = _proc_key(v)[5:]  # same base-name form as event_artifact_keys

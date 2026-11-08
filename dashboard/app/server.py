@@ -1266,11 +1266,11 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/llm/clef":  # decision model stage of the correlation review: on/off and yes thresholds
                 import clef
                 try:
-                    res = clef.set_config(user, body.get("enabled"), body.get("related_min"), body.get("suspicious_min"))
+                    res = clef.set_config(user, body.get("enabled"), body.get("related_min"))
                 except (TypeError, ValueError) as e:
                     return self._json({"error": str(e)[:200]}, 400)
                 pass  # logged by the generic POST audit
-                print(f"llm clef: {user} set enabled={res['enabled']} related_min={res['related_min']} suspicious_min={res['suspicious_min']}", file=sys.stderr)
+                print(f"llm clef: {user} set enabled={res['enabled']} related_min={res['related_min']}", file=sys.stderr)
                 return self._json({"ok": True, "clef": res})
             if u.path == "/api/llm/webcache":  # netmon web cache: on/off, days kept, or clear it
                 try:
@@ -1517,7 +1517,8 @@ class H(BaseHTTPRequestHandler):
                     try:  # read from the stored event (its IPs, the artifacts the script read from it, its label), never from the client
                         import eventstore
                         ev = eventstore.artifact_event(eid)
-                        keys = kb.clean_scope(sorted(kb.event_artifact_keys(ev), key=lambda k: (k.split(":")[0] != "ip", k)))
+                        order = ("dev", "find", "sig", "ip", "dns", "proc", "user", "port")
+                        keys = kb.clean_scope(sorted(kb.scope_keys(eid, ev), key=lambda k: (order.index(k.split(":")[0]) if k.split(":")[0] in order else 9, k)))
                     except Exception as e:  # noqa: BLE001 - a malformed event just offers no artifacts
                         print(f"kb: event artifacts failed: {type(e).__name__}: {e}", file=sys.stderr)
                         keys = []
