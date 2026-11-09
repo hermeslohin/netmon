@@ -126,9 +126,8 @@
     if (ip.startsWith("cert:")) {  // one TLS certificate (by SHA-256 fingerprint): its notes, what the snapshot knows about it, and its names
       const sha = ip.slice(5).toLowerCase(), c = (S.snap?.raw?.tls?.certs || []).find((x) => x.sha256 === sha), cn = c ? certCN(c.subject) : "";
       el.innerHTML = `<div class="crumbs"><a href="#/dns">DNS, TLS and IPs</a> › TLS certificate › ${esc(cn || sha.slice(0, 16) + "…")}</div><h1>TLS certificate ${esc(cn)}</h1><div class="sub">Notes on this certificate (SHA-256 <span class="mono">${esc(sha)}</span>). Every event that names a server this certificate was presented for carries it as an artifact, so the event reviewer and event research read these notes when judging it.</div>${srchLine("cert", sha, "this certificate (x509 records and the TLS sessions that presented it)")}`;
-      if (c) el.appendChild(tlsDetail({ cert: c }, S.snap.raw.tls || {}));
+      if (c) { const [t, b] = tlsDetail({ cert: c }, S.snap.raw.tls || {}); el.appendChild(card(t, b)); }
       else el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:6px 0">Not seen in the selected time range: pick a range in which it was seen for subject, issuer and names.</div>`);
-      el.querySelector("#tlsClose")?.remove();
       el.appendChild(kbCard([`art:cert:${sha}`], `art:cert:${sha}`));
       const names = c ? [...new Set([...(c.sni || []), ...(c.san_dns || []).map((d) => d.replace(/^\*\./, ""))])].slice(0, 30) : [];
       if (names.length) el.appendChild(card(`Its names: domain and subdomain notes (${names.length})`, `<div class="small muted" style="margin-bottom:6px">Notes on a name apply to every event about it; a note on a domain also covers its subdomains.</div>` + names.map((d) => `<div><a href="#/netnotes/${encodeURIComponent("dom:" + d)}" class="mono">${esc(d)}</a> <button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}">📝</button>${srch("dns", d)}</div>`).join("")));

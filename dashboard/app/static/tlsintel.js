@@ -10,7 +10,7 @@ const certCN = (dn) => (String(dn || "").split(",").find((p) => p.startsWith("CN
 const certFlags = (c) => (c.flags || []).map((f) => `<span class="badge sev-${CERT_SEV(c, f)}">${esc(f)}</span>`).join(" ") || '<span class="muted small">ok</span>';
 const clientsHtml = (o, n = 4) => sortDesc(o).slice(0, n).map(([ip, k]) => `${ipLink(ip)} <span class="muted small">×${fn(k)}</span>`).join("<br>") + (Object.keys(o || {}).length > n ? `<br><span class="muted small">+${Object.keys(o).length - n} more</span>` : "");
 const ja3Fmt = (h, mal) => `<span class="mono small">${esc(h)}</span>${mal ? ` <span class="badge sev-high" title="${esc(mal)}">SSLBL</span>` : ""}`;
-const TLS = { sel: null, certFlag: "", ja3Rare: false };
+const TLS = { certFlag: "", ja3Rare: false };
 
 // TLS certificates are artifacts (art:cert:<sha256>): 📝 notes like a host / IP / domain, 🔍 search in Elasticsearch
 const certNoteBtn = (sha) => { const n = (window.CERT_NOTES || {})[sha] || 0;
@@ -31,8 +31,6 @@ function tlsSection(el) {
     ["Malicious JA3 (SSLBL)", (T.malicious_ja3 || []).length, (T.malicious_ja3 || []).length ? "bad" : "good"], ["Certificates seen", certs.length],
     ["Certs with serious flags", hiCerts.length, hiCerts.length ? "bad" : "good"], ["Cert validation failures", fn(val.reduce((s, v) => s + v.count, 0)), val.length ? "warn" : "good"],
     ["Legacy TLS sessions", fn(legacy), legacy ? "warn" : "good"]]));
-  const selBox = document.createElement("div"); el.appendChild(selBox);
-  const showSel = () => { selBox.innerHTML = ""; if (TLS.sel) selBox.appendChild(tlsDetail(TLS.sel, T)); };
   // charts
   const iss = {}; certs.forEach((c) => { const k = certCN(c.issuer) || "?"; iss[k] = (iss[k] || 0) + 1; });
   const keys = {}; certs.forEach((c) => { const k = `${(c.key_type || "?").toUpperCase()} ${c.key_length || ""}`; keys[k] = (keys[k] || 0) + 1; });
@@ -62,7 +60,7 @@ function tlsSection(el) {
       { k: "days_left", t: "Days left", num: true, fmt: (v) => (v == null ? "" : v < 0 ? `<b style="color:var(--bad)">${v}</b>` : v < 30 ? `<b style="color:var(--warn)">${v}</b>` : fn(v)) }, { k: "validity_days", t: "Validity (d)", num: true, fmt: fn },
       { k: "clients", t: "Internal clients", fmt: (v) => clientsHtml(v, 3), sort: (c) => Object.keys(c.clients || {}).length }, { k: "count", t: "Seen", num: true, fmt: fn },
       { k: "sha256", t: "Notes · search", fmt: (v) => `${certNoteBtn(v)}${window.artSearchBtn ? artSearchBtn("cert", v) : ""}`, sort: (c) => -((window.CERT_NOTES || {})[c.sha256] || 0) },
-    ], rows, { sort: "flags", dir: 1, limit: 60, urlFilter: { certkey: ["Key type", (c, v) => eqi(`${(c.key_type || "?").toUpperCase()} ${c.key_length || ""}`, v)], expiry: ["Expiry", (c, v) => expBucket(c.days_left) === v], issuer: ["Issuer", (c, v) => eqi(certCN(c.issuer) || "?", v)] }, onclick: (c) => { TLS.sel = { cert: c }; showSel(); selBox.scrollIntoView({ behavior: "smooth" }); } }));
+    ], rows, { sort: "flags", dir: 1, limit: 60, urlFilter: { certkey: ["Key type", (c, v) => eqi(`${(c.key_type || "?").toUpperCase()} ${c.key_length || ""}`, v)], expiry: ["Expiry", (c, v) => expBucket(c.days_left) === v], issuer: ["Issuer", (c, v) => eqi(certCN(c.issuer) || "?", v)] }, onclick: (c) => tlsModal({ cert: c }, T) }));
   };
   el.appendChild(cwrap); drawCerts();
   api("/api/kb/certs").then((d) => { const m = {}; (d.certs || []).forEach((r) => { m[r.sha256] = r.n; });
@@ -81,7 +79,7 @@ function tlsSection(el) {
     jtab.innerHTML = ""; jtab.appendChild(table(null, [
       { k: "ja3", t: "JA3", fmt: (v, r) => ja3Fmt(v, r.malware) }, { k: "count", t: "Conns", num: true, bar: true, fmt: fn }, { k: "clients", t: "Devices", num: true },
       { k: "sources", t: "Used by", fmt: (v) => clientsHtml(v, 3), sort: (r) => Object.keys(r.sources).join() }, { k: "servers", t: "Top server names", cls: "small", fmt: (v) => esc((v || []).slice(0, 4).join(", ")) },
-      { k: "ja4", t: "JA4", cls: "mono small", fmt: (v) => esc((v || [])[0] || "") }, { k: "last", t: "Last seen", fmt: ft }], rows, { sort: "count", limit: 50, onclick: (j) => { TLS.sel = { ja3: j }; showSel(); selBox.scrollIntoView({ behavior: "smooth" }); } }));
+      { k: "ja4", t: "JA4", cls: "mono small", fmt: (v) => esc((v || [])[0] || "") }, { k: "last", t: "Last seen", fmt: ft }], rows, { sort: "count", limit: 50, onclick: (j) => tlsModal({ ja3: j }, T) }));
   };
   el.appendChild(jwrap); drawJa3();
   jwrap.querySelector("#ja3Rare").onchange = (e) => { TLS.ja3Rare = e.target.checked; drawJa3(); };
@@ -89,31 +87,42 @@ function tlsSection(el) {
     card(`JA3S server fingerprints (${T.ja3s.length})`, table(null, [{ k: "ja3s", t: "JA3S", cls: "mono small" }, { k: "count", t: "Sessions", num: true, bar: true, fmt: fn }, { k: "servers", t: "Servers", num: true }, { k: "clients", t: "Clients", num: true },
       { k: "sni", t: "Example server names", cls: "small", fmt: (v) => esc((v || []).slice(0, 3).join(", ")) }, { k: "versions", t: "Ver", cls: "small", fmt: (v) => esc((v || []).join(", ")) }], T.ja3s, { sort: "count", short: true })),
     card("Cipher suites (sessions)", kvTable(T.ciphers, "Cipher", "Sessions"))));
-  showSel();
 }
 V.tls = (el) => { V.dns(el); if (!S._scrolled) setTimeout(() => document.getElementById("tls-section")?.scrollIntoView(), 50); };
 
 function tlsDetail(sel, T) {
   if (sel.cert) {
     const c = sel.cert;
-    return card(`Certificate: ${esc(certCN(c.subject))} <a href="#" class="small" id="tlsClose">close</a>`, `<div class="idgrid">
+    return [`Certificate: ${esc(certCN(c.subject))}`, `<div class="idgrid">
       <span class="k">Flags</span><span>${certFlags(c)}</span><span class="k">Subject</span><span class="mono small">${esc(c.subject)}</span><span class="k">Issuer</span><span class="mono small">${esc(c.issuer)}</span>
       <span class="k">Valid</span><span>${ft(c.not_before * 1000)} → ${ft(c.not_after * 1000)} (${fn(c.validity_days)} days; ${c.days_left} left)</span>
       <span class="k">Key / signature</span><span>${esc((c.key_type || "").toUpperCase())} ${esc(c.key_length)} · ${esc(c.sig_alg)}</span><span class="k">CA cert</span><span>${c.ca ? "yes" : "no"}</span>
       <span class="k">SAN DNS</span><span class="small">${(c.san_dns || []).map((d) => `${esc(d)}${domNoteBtn(d)}`).join(", ") || "—"}</span><span class="k">Matched server names</span><span class="small">${(c.sni || []).map((d) => `${esc(d)}${domNoteBtn(d)}${window.artSearchBtn ? artSearchBtn("dns", d) : ""}`).join(", ") || "—"}</span>
       <span class="k">Internal clients</span><span>${clientsHtml(c.clients, 8) || "—"}</span><span class="k">SHA-256</span><span class="mono small">${esc(c.sha256)} ${certLinks(c.sha256)}</span><span class="k">Serial</span><span class="mono small">${esc(c.serial)}</span>
-      <span class="k">Seen</span><span>${fn(c.count)}× · ${ft(c.first)} → ${ft(c.last)}</span></div>`, "", (e) => e);
+      <span class="k">Seen</span><span>${fn(c.count)}× · ${ft(c.first)} → ${ft(c.last)}</span></div>`];
   }
   const j = sel.ja3, srv = T.ja3s.filter((s) => (s.ja3 || []).includes(j.ja3));
-  return card(`JA3 ${esc(j.ja3)} <a href="#" class="small" id="tlsClose">close</a>`, `<div class="idgrid">
+  return [`JA3 <span class="mono">${esc(j.ja3)}</span>`, `<div class="idgrid">
     <span class="k">Threat intel</span><span>${j.malware ? `<span class="badge sev-high">SSLBL: ${esc(j.malware)}</span>` : "not listed in SSLBL"}</span>
     <span class="k">Connections</span><span>${fn(j.count)} from ${j.clients} device(s) · ${ft(j.first)} → ${ft(j.last)}</span>
     <span class="k">Used by</span><span>${clientsHtml(j.sources, 10)}</span><span class="k">Server names</span><span class="small">${esc((j.servers || []).join(", "))}</span>
     <span class="k">Destinations</span><span class="mono small">${esc((j.dsts || []).join(", "))}</span><span class="k">JA4</span><span class="mono small">${esc((j.ja4 || []).join(", "))}</span>
     <span class="k">Server replies (JA3S)</span><span class="mono small">${esc(srv.map((s) => s.ja3s).join(", ") || "—")}</span></div>
-    <div class="small muted" style="margin-top:6px">Look it up: <a href="https://sslbl.abuse.ch/ja3-fingerprints/${esc(j.ja3)}/" target="_blank" rel="noopener">SSLBL</a> · <a href="#/threatintel?q=${esc(j.ja3)}">threat-intel lookup</a></div>`);
+    <div class="small muted" style="margin-top:6px">Look it up: <a href="https://sslbl.abuse.ch/ja3-fingerprints/${esc(j.ja3)}/" target="_blank" rel="noopener">SSLBL</a> · <a href="#/threatintel?q=${esc(j.ja3)}">threat-intel lookup</a></div>`];
 }
-document.addEventListener("click", (e) => { if (e.target.id === "tlsClose") { e.preventDefault(); TLS.sel = null; rerender(); } });
+// row click on the Certificates / JA3 tables: details in a modal (z-index under the 📝 / 🔍 popovers, like the event-detail modal)
+function tlsModal(sel, T) {
+  document.querySelector(".tls-back")?.remove();
+  const [title, body] = tlsDetail(sel, T);
+  const back = document.createElement("div"); back.className = "modal-back oe-back tls-back";
+  back.innerHTML = `<div class="modal tls-modal" role="dialog" aria-modal="true" aria-label="${sel.cert ? "Certificate" : "JA3"} detail">
+    <div class="tls-mhead"><h3>${title}</h3><button type="button" class="tls-x" title="Close (Esc)" aria-label="Close">✕</button></div>${body}</div>`;
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey, true); removeEventListener("hashchange", close); };
+  const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".rel-pop, .askdlg-scrim, dialog[open]")) close(); };
+  document.addEventListener("keydown", onKey, true); addEventListener("hashchange", close);
+  back.querySelector(".tls-x").onclick = close; backdropClose(back, close);
+  document.body.appendChild(back);
+}
 
 /* ---------------- Threat intel ---------------- */
 const TI = { trend: null, feeds: null, q: "" };

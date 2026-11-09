@@ -679,3 +679,11 @@ tr.muted td { opacity: .6; }
 .kib-btn.art-kib{margin:0 2px;padding:0 5px;font-size:11px;border-radius:10px;background:var(--panel2);border:1px dashed var(--border);opacity:.7;vertical-align:1px}
 .kib-btn.art-kib:hover{opacity:1;border-style:solid;border-color:var(--accent,#58a6ff)}
 .dti-jump{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 12px;font-size:13px}
+
+/* TLS certificate / JA3 detail modal (tlsintel.js tlsModal) */
+.tls-modal{max-width:820px;width:94vw}
+.tls-mhead{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px}
+.tls-mhead h3{flex:1;min-width:0;margin:0;font-size:15px;text-transform:none;letter-spacing:0;color:var(--fg);overflow-wrap:anywhere}
+.tls-x{background:none;border:0;color:var(--muted);font-size:18px;line-height:1;padding:4px 8px;cursor:pointer}
+.tls-modal .idgrid span{overflow-wrap:anywhere}
+@media (max-width:700px){.tls-x{font-size:22px;padding:6px 10px}}
