@@ -516,6 +516,21 @@ def review_entries(hours=24, size=200):
     return [h["_source"] for h in (r.get("hits") or {}).get("hits", [])], ((r.get("hits") or {}).get("total") or {}).get("value", 0)
 
 
+def review_busy(hours=24):
+    """Correlation review busy time (AI pipeline monitoring > Review log): all review.correlation_pass entries in the period,
+    not just the 200 listed - pass count, summed event.duration and median / longest pass, in seconds."""
+    body = {"size": 0, "track_total_hits": True,
+            "query": {"bool": {"filter": [{"term": {"event.dataset": "netmon.review"}}, {"term": {"event.action": "review.correlation_pass"}},
+                                          {"range": {"@timestamp": {"gte": f"now-{int(hours)}h"}}}]}},
+            "aggs": {"busy": {"sum": {"field": "event.duration"}}, "longest": {"max": {"field": "event.duration"}},
+                     "p": {"percentiles": {"field": "event.duration", "percents": [50]}}}}
+    r = _es("POST", f"/{read_pattern()}/_search?{RQ}", body)
+    a = r.get("aggregations") or {}
+    p50 = next(iter(((a.get("p") or {}).get("values") or {}).values()), None)
+    return {"passes": ((r.get("hits") or {}).get("total") or {}).get("value", 0), "busy_s": ((a.get("busy") or {}).get("value") or 0) / 1e9,
+            "p50_s": (p50 or 0) / 1e9 if p50 is not None else None, "max_s": ((a.get("longest") or {}).get("value") or 0) / 1e9}
+
+
 def doc(doc_id):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", doc_id or ""):
         raise ValueError("bad id")

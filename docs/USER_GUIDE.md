@@ -651,12 +651,12 @@ Limits: 40 messages per person per hour, 4,000 characters per message. Answers c
 
 ### AI pipeline
 
-The AI pipeline has two pages. Each is four boxes, one per part (jump links at the top of each page); what used to be separate boxes are titled sections inside them. The monitoring page loads its parts separately: the status figures, the decision model figures, model status and the Decisions list each show a spinner until their own data arrives, so the rest of the page is usable meanwhile.
+The AI pipeline has two pages. Each is four boxes, one per part (jump links at the top of each page); what used to be separate boxes are titled sections inside them. The monitoring page loads its parts separately: the status figures, the decision model figures, and model status each show a spinner until their own data arrives, so the rest of the page is usable meanwhile.
 
 | Part | **More → AI pipeline monitoring** (`#/aireview`) | **More → AI pipeline configuration** (`#/aiconfig`) |
 |---|---|---|
 | **Models** | **Model status**: the model behind each step (decision model, event reviewer, event research, Ask AI chat), its source (server or AI provider and endpoint) and whether it is **up**, **down**, **check** (answers, but the model is missing or not loaded) or **off**. Checked with the server's health or model list, no tokens used, at most once a minute; admins can press **Check now**. Below it, **Time and tokens** (review job, event research and Ask AI chat per day, and every researched event's cost). | **Models**, **AI providers** (admins), **Decision model server** |
-| **Correlation review** | **Decision model** figures, **Event reviewer**, verdict charts, **Decisions** (override here), **Review log** | **Decision model settings** (on/off, related threshold), **Review limits** |
+| **Correlation review** | **Decision model** figures, **Event reviewer**, verdict charts, **Review log** (with **Correlation review busy**: the share of the period the review worker spent in passes, plus median / longest pass) | **Decision model settings** (on/off, related threshold), **Review limits** |
 | **Event review** | **Review job** (runs, Run now / Pause), events per day, the event reviewer's **web searches**, **Host note consolidation** (nightly time, Consolidate now, last runs) | **Review job schedule** (Run every, Run now / Pause, **Review lookback window**), **Event reviewer look-ups**, **Event reviewer context notes**, **Host note consolidation** |
 | **Research review** | **Event research**: spent today against the daily cap, events researched, average cost, tokens, events waiting for a person | **Event research limits** (caps, web access, Elasticsearch) |
 

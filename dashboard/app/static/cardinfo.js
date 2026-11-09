@@ -147,7 +147,7 @@ window.CARD_INFO = {
 },
 "aireview|All verdicts": {
 "source": "Correlation verdict totals from the AI event reviewer and manual overrides stored by the dashboard.",
-"use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check the decisions list. Click a slice to filter the Decisions table to that verdict.",
+"use": "A healthy mix is normal. If almost everything is confirmed or rejected, spot-check links on the Open events page.",
 "what": "Doughnut of all stored link decisions split into Confirmed (related), Rejected (not related) and Set by a person."
 },
 "aireview|Review job": {
@@ -170,11 +170,6 @@ window.CARD_INFO = {
 "source": "Saved in the netmon store and read by the collector when the review job starts (collect.py auto).",
 "use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
 },
-"aireview|Decisions": {
-"source": "Proposed links from correlate.py, judged by the corr_llm.py event reviewer or by event research, plus manual overrides; stored in the netmon store.",
-"use": "Use the Show filters (e.g. low confidence under 70%) to find doubtful calls. Override with ✓ or ✗ or ↻ to ask the model again.",
-"what": "Every link decision, newest first (100 at a time; scroll to the end of the list for older ones): verdict, confidence, the event, what it was linked to and the model's reason. Badges show which were set by a person."
-},
 "aireview|Models": {
 "source": "GET /api/aireview/models: health check of the decision model server, model lists of the local server and AI providers (no tokens), cached one minute.",
 "use": "Every step in use should be up. Down: its server or API did not answer. Check: it answered but the model is missing or not loaded. Off: no model chosen or switched off. Admins can press Check now.",
@@ -182,8 +177,8 @@ window.CARD_INFO = {
 },
 "aireview|Correlation review": {
 "source": "corr_llm.py / clef.py review state and stored verdicts in the netmon store; review log from Elasticsearch (netmon.review).",
-"use": "Check the status and reviews per minute, then the Decisions table: override with ✓ / ✗ or ↻ to ask the model again. Settings are on AI pipeline configuration, Correlation review.",
-"what": "The decision model and event reviewer judging the links the correlation script proposes: figures, verdict charts, every decision and the review log."
+"use": "Check the status and reviews per minute, then the Review log: Correlation review busy is the share of the period the worker spent in passes (near 100% means it cannot keep up). Settings are on AI pipeline configuration, Correlation review.",
+"what": "The decision model and event reviewer judging the links the correlation script proposes: figures, verdict charts and the review log with the share of time the review is busy."
 },
 "aireview|Event review": {
 "source": "Review job state (review.py, enrich.py), usage records, and the look-up logs in the netmon store.",

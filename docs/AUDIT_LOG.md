@@ -29,7 +29,9 @@ Three kinds of entries, told apart by `event.dataset`:
 | `review.correlation_pass` | One correlation-review pass of the background worker that decided links, labelled or reviewed events, or ended with a problem (idle passes are not logged). `netmon.review`: `status` (ok / partial / waiting / error / crashed), `links_decided`, `events_labelled`, `events_reviewed`, `reviewer_failures`, `decision_failures`, `decision_model`, `reviewer_model`, `error`; `event.start` / `event.end` / `event.duration`. |
 | `review.job_run` | Each finished review-job run (review.py): `status` (completed / failed), `trigger`, `daily_run`, `reviewer_model`, `error`. |
 
-Shown on **AI pipeline monitoring → Review log** (counts, last problem per kind, the entries of the last 1 h – 30 days; falls back to
+Shown on **AI pipeline monitoring → Review log** (counts, last problem per kind, **Correlation review busy** = summed
+`event.duration` of all `review.correlation_pass` entries in the period ÷ the period, with the median and longest pass,
+the entries of the last 1 h – 30 days; falls back to
 the dashboard's in-memory copy when Elasticsearch is unreachable).
 
 ### User actions: `netmon.audit`

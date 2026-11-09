@@ -76,6 +76,18 @@ def job_runs(state):
     return n
 
 
+def busy_view(corr, hours, agg=None):
+    """Share of the period the correlation review worker spent in passes. agg = audit.review_busy() (every pass in the
+    period); without it (memory ring / Elasticsearch down) the listed correlation rows are summed instead."""
+    if not agg:
+        secs = sorted(float(r.get("seconds") or 0) for r in corr)
+        agg = {"passes": len(secs), "busy_s": sum(secs), "p50_s": secs[len(secs) // 2] if secs else None, "max_s": secs[-1] if secs else 0}
+    window = max(1, int(hours)) * 3600
+    busy_s = float(agg.get("busy_s") or 0)
+    return {"busy_pct": round(min(100.0, 100.0 * busy_s / window), 1), "busy_s": round(busy_s), "busy_passes": int(agg.get("passes") or 0),
+            "pass_p50_s": None if agg.get("p50_s") is None else round(float(agg["p50_s"])), "pass_max_s": round(float(agg.get("max_s") or 0))}
+
+
 def view(hours=24):
     """Card data: entries from Elasticsearch (else the in-memory ring) plus totals per kind."""
     src, rows, total, err = "elasticsearch", [], 0, ""
@@ -85,6 +97,7 @@ def view(hours=24):
         with _lock:
             r = [d for d in RING if datetime.fromisoformat(d["@timestamp"].replace("Z", "+00:00")).timestamp() >= cut]
         return r, label, len(r)
+    busy = None
     try:
         import integrations
         off = not integrations.audit_send("reviewer")
@@ -96,6 +109,10 @@ def view(hours=24):
         try:
             import audit
             rows, total = audit.review_entries(hours)
+            try:
+                busy = audit.review_busy(hours)
+            except Exception as e:  # noqa: BLE001 - the list still shows; busy falls back to the listed entries
+                print(f"reviewlog: busy time unavailable: {e}", file=sys.stderr)
         except Exception as e:  # noqa: BLE001
             err = str(getattr(e, "reason", e))[:200]
             rows, src, total = ring("memory (Elasticsearch unavailable)")
@@ -117,4 +134,5 @@ def view(hours=24):
     corr = [r for r in out if r["kind"] == "correlation"]
     summ["correlation"].update(links=sum(r["links"] or 0 for r in corr), labelled=sum(r["labelled"] or 0 for r in corr),
                                reviewed=sum(r["reviewed"] or 0 for r in corr), rfail=sum(r["rfail"] or 0 for r in corr))
+    summ["correlation"].update(busy_view(corr, hours, busy))
     return {"source": src, "error": err, "hours": hours, "total": total, "summary": summ, "rows": out[:200]}

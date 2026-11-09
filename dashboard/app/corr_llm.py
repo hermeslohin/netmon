@@ -2835,51 +2835,10 @@ def _verdict_rows(rows, events):
     return out
 
 
-def verdict_page(events, offset=0, limit=100, verdict="", conf="", pair="", scope="", types=()):
-    """One page of the Decisions list, newest first, for infinite scroll (GET /api/aireview/verdicts).
-    Verdict / confidence filters run in SQL; event pair, event type and "this snapshot only" need the event types and
-    the current snapshot, so those filter in Python over the SQL-filtered rows. Returns rows + total matching."""
-    offset, limit = max(0, int(offset)), max(1, min(int(limit), 1000))
-    where, args = [], []
-    if verdict == "confirmed":
-        where.append("related != 0")
-    elif verdict == "rejected":
-        where.append("related = 0")
-    elif verdict == "manual":
-        where.append("substr(model, 1, 7) = 'manual:'")
-    if conf == "low":
-        where.append("COALESCE(confidence, 1) < 0.7")
-    elif conf == "high":
-        where.append("COALESCE(confidence, 0) >= 0.9")
-    w = (" WHERE " + " AND ".join(where)) if where else ""
-    sel = "SELECT pair, related, confidence, reason, model, ts FROM verdicts" + w + " ORDER BY ts DESC"
-    types = set(types or ())
-    with _db() as c:
-        if not (pair or scope == "current" or types):
-            total = c.execute("SELECT COUNT(*) FROM verdicts" + w, args).fetchone()[0]
-            rows = c.execute(sel + " LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
-        else:
-            def typ(e):
-                return (events.get(e) or {}).get("type") or e.split("|")[0]
-            keep = []
-            for r in c.execute(sel, args):
-                a, b = r[0].split("\x1f", 1)
-                if scope == "current" and not (a in events and b in events):
-                    continue
-                ta, tb = typ(a), typ(b)
-                if pair and "-".join(sorted((ta, tb))) != pair:
-                    continue
-                if types and ta not in types and tb not in types:
-                    continue
-                keep.append(r)
-            total, rows = len(keep), keep[offset:offset + limit]
-    return {"rows": _verdict_rows(rows, events), "total": total, "offset": offset, "more": offset + len(rows) < total}
-
-
 def overview(events, applied, with_rows=True, with_clef=True):
     """Everything the AI-review page shows: worker status, queue for the current snapshot, totals, throughput,
-    and (with_rows, the old shape) the newest 3000 stored verdicts. The monitoring page asks for with_rows=False and pages
-    the Decisions list through verdict_page() instead, and loads the decision-model numbers (with_clef=False) separately."""
+    and (with_rows, the old shape) the newest 3000 stored verdicts. The monitoring page asks for with_rows=False (it lists no
+    decisions) and loads the decision-model numbers (with_clef=False) separately."""
     now = time.time()
     NOTDIS = "(model IS NULL OR substr(model, 1, 10) != 'dismissed:')"  # queue-clear markers are not reviews
     with _db() as c:  # aggregates in SQL; only the newest 3000 verdicts are sent as rows (was: every verdict loaded into Python)

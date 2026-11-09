@@ -1,5 +1,4 @@
-"""Unit tests for AI pipeline monitoring paging (corr_llm.verdict_page / overview without rows): the Decisions list loads
-newest-first in pages with server-side filters, and the page's core request carries no verdict rows."""
+"""Unit tests for AI pipeline monitoring: the core request carries no verdict rows (no Decisions list on the page)."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E402
 
 import unittest  # noqa: E402
@@ -7,7 +6,8 @@ import unittest  # noqa: E402
 import corr_llm  # noqa: E402
 
 
-class VerdictPaging(unittest.TestCase):
+class OverviewCore(unittest.TestCase):
+    """The monitoring page's core overview."""
     def setUp(self):
         with corr_llm._db() as c:
             c.execute("DELETE FROM verdicts")
@@ -21,43 +21,27 @@ class VerdictPaging(unittest.TestCase):
         with corr_llm._db() as c:
             c.execute("DELETE FROM verdicts")
 
-    def test_pages_newest_first_without_gaps(self):
-        """REQ: AIR-01"""
-        p1 = corr_llm.verdict_page(self.ev, 0, 10)
-        p2 = corr_llm.verdict_page(self.ev, 10, 10)
-        p3 = corr_llm.verdict_page(self.ev, 20, 10)
-        self.assertEqual(p1["total"], 25)
-        self.assertTrue(p1["more"]); self.assertTrue(p2["more"]); self.assertFalse(p3["more"])
-        ts = [r["ts"] for r in p1["rows"] + p2["rows"] + p3["rows"]]
-        self.assertEqual(ts, sorted(range(1000, 1025), reverse=True))
-        self.assertEqual(p1["rows"][0]["a_label"] if p1["rows"][0]["a"].startswith("ids") else p1["rows"][0]["b_label"], "ids|24")
-
-    def test_filters_apply_on_the_server(self):
-        """REQ: AIR-01"""
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 100, verdict="confirmed")["total"], 13)
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 100, verdict="rejected")["total"], 12)
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 100, verdict="manual")["total"], 5)
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 100, conf="low")["total"], 9)
-        cur = corr_llm.verdict_page(self.ev, 0, 100, scope="current")
-        self.assertEqual(cur["total"], 10)
-        self.assertTrue(all(r["current"] for r in cur["rows"]))
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 100, pair="alert-ids")["total"], 25)
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 100, pair="ids-vuln")["total"], 0)
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 3, types=["ids"])["total"], 25)
-
-    def test_limit_is_clamped(self):
-        """REQ: AIR-01"""
-        self.assertEqual(len(corr_llm.verdict_page(self.ev, -5, 0)["rows"]), 1)
-        self.assertEqual(corr_llm.verdict_page(self.ev, 0, 10**6)["total"], 25)
-
     def test_overview_core_has_no_rows_but_keeps_totals(self):
-        """REQ: AIR-01"""
+        """The core overview has no verdict rows or decision-model numbers but still counts manual verdicts.
+        REQ: AIR-01"""
         ov = corr_llm.overview(self.ev, {}, with_rows=False, with_clef=False)
         self.assertNotIn("verdicts", ov)
         self.assertNotIn("clef", ov)
         self.assertEqual(ov["totals"]["manual"], 5)
         self.assertEqual(ov["totals"]["manual_related"], 3)  # 0, 10, 20
         self.assertEqual(len(corr_llm.overview(self.ev, {}, with_clef=False)["verdicts"]), 25)  # old shape still there
+
+    def test_decisions_list_removed(self):
+        """The Decisions list, its endpoint and its pager are gone.
+        REQ: AIR-01"""
+        self.assertFalse(hasattr(corr_llm, "verdict_page"))
+        app = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dashboard", "app")
+        with open(os.path.join(app, "server.py"), encoding="utf-8") as f:
+            self.assertNotIn("/api/aireview/verdicts", f.read())
+        with open(os.path.join(app, "static", "aireview.js"), encoding="utf-8") as f:
+            js = f.read()
+        self.assertNotIn("decisionsCard", js)
+        self.assertNotIn("/api/aireview/verdicts", js)
 
 
 if __name__ == "__main__":

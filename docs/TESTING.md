@@ -243,7 +243,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 
 | File | Tests | Covers |
 |---|---|---|
-| `tests/unit/test_aireview_paging.py` | 4 | Unit tests for AI pipeline monitoring paging (corr_llm.verdict_page / overview without rows): the Decisions list loads (AIR-01) |
+| `tests/unit/test_aireview_paging.py` | 2 | Unit tests for AI pipeline monitoring: the core request carries no verdict rows (no Decisions list on the page). (AIR-01) |
 | `tests/unit/test_alerts_page.py` | 34 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25, CFG-05) |
 | `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |
@@ -281,7 +281,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |
 | `tests/unit/test_review_noai.py` | 6 | Unit tests for the review / research split: review.py never researches, research.py runs only for a person's click. (OPS-06) |
 | `tests/unit/test_reviewer_output.py` | 5 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-09) |
-| `tests/unit/test_reviewlog.py` | 4 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AUD-04) |
+| `tests/unit/test_reviewlog.py` | 7 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AIR-02, AUD-04) |
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
 | `tests/unit/test_risk_k8s.py` | 4 | Risk: Kubernetes workloads ranked with hosts (risk.k8s_rows). (KUBE-11) |
 | `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |

@@ -77,5 +77,35 @@ class ReviewLogTest(unittest.TestCase):
         self.assertEqual(v["rows"][0]["status"], "waiting")
 
 
+class ReviewBusyTest(unittest.TestCase):
+    """Correlation review busy share on the Review log card."""
+    def test_busy_share_from_aggregation(self):
+        """Busy % = summed pass time / period, with median and longest pass, capped at 100%.
+        REQ: AIR-02"""
+        b = reviewlog.busy_view([], 24, {"passes": 300, "busy_s": 43200, "p50_s": 120.4, "max_s": 500.6})
+        self.assertEqual(b, {"busy_pct": 50.0, "busy_s": 43200, "busy_passes": 300, "pass_p50_s": 120, "pass_max_s": 501})
+        self.assertEqual(reviewlog.busy_view([], 1, {"passes": 1, "busy_s": 9999, "p50_s": 9999, "max_s": 9999})["busy_pct"], 100.0)
+
+    def test_busy_share_from_listed_rows(self):
+        """Without the aggregation (memory ring) the listed correlation passes are summed; no passes = 0%.
+        REQ: AIR-02"""
+        b = reviewlog.busy_view([{"seconds": 1800}, {"seconds": 600}, {"seconds": 1200}], 1)
+        self.assertEqual((b["busy_pct"], b["busy_passes"], b["pass_p50_s"], b["pass_max_s"]), (100.0, 3, 1200, 1800))
+        self.assertEqual(reviewlog.busy_view([{"seconds": 360}], 1)["busy_pct"], 10.0)
+        e = reviewlog.busy_view([], 24)
+        self.assertEqual((e["busy_pct"], e["busy_passes"], e["pass_p50_s"]), (0.0, 0, None))
+
+    def test_view_uses_aggregation(self):
+        """view() puts the Elasticsearch busy aggregation into the correlation summary.
+        REQ: AIR-02"""
+        from unittest import mock
+        import integrations
+        with mock.patch.object(integrations, "audit_send", lambda who: True), \
+                mock.patch.object(audit, "review_entries", return_value=([], 0)), \
+                mock.patch.object(audit, "review_busy", return_value={"passes": 10, "busy_s": 1800, "p50_s": 150, "max_s": 400}):
+            c = reviewlog.view(1)["summary"]["correlation"]
+        self.assertEqual((c["busy_pct"], c["busy_passes"], c["pass_p50_s"], c["pass_max_s"]), (50.0, 10, 150, 400))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -9,14 +9,6 @@
   const TYPE = { alert: "Alert", finding: "Finding", ids: "IDS", admin: "Admin", host: "Endpoint", ti: "Threat intel", vuln: "Vulnerability", gw: "Gateway",
     f: "Finding", adm: "Admin", hf: "Endpoint", iss: "Vulnerability" };
   const ago = (ts) => { if (!ts) return "never"; const s = Date.now() / 1000 - ts; return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " d ago"; };
-  const evCell = (lbl, typ, link) => `<span class="badge sev-info">${esc(TYPE[typ] || typ)}</span>${typ === "alert" ? " " + alertMuteHtml(lbl) : ""} ${link ? `<a href="${esc(link)}">${esc(lbl.length > 110 ? lbl.slice(0, 108) + "…" : lbl)}</a>` : `<span class="muted">${esc(lbl.length > 110 ? lbl.slice(0, 108) + "…" : lbl)}</span>`}`;
-  const FILTERS = {
-    verdict: ["Verdict", (r, v) => (v === "confirmed" ? r.related : v === "rejected" ? !r.related : v === "manual" ? r.manual : true)],
-    type: ["Event type", (r, v) => (TYPE[r.a_type] || r.a_type) === v || (TYPE[r.b_type] || r.b_type) === v],
-    conf: ["Confidence", (r, v) => (v === "low" ? (r.confidence ?? 1) < 0.7 : v === "high" ? (r.confidence ?? 0) >= 0.9 : true)],
-    pair: ["Event pair", (r, v) => pairKey(r.a_type, r.b_type) === v],
-    scope: ["Snapshot", (r, v) => (v === "current" ? r.current : true)],
-  };
 
   const aiColors = (cfg) => { const C = { Confirmed: "#3fb950", Rejected: "#f85149", "Set by a person": "#58a6ff" };
     cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => C[l] || "#8b949e"); return cfg; };
@@ -1106,7 +1098,10 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         const L = await api("/api/aireview/log?hours=" + sel.value), S = L.summary || {}, cr = S.correlation || {}, rj = S.review_job || {};
         src.textContent = "from " + L.source + (L.error ? " — " + L.error : "");
         const lastProb = (x) => x.last_problem ? `${when(x.last_problem.ts)}: ${esc(x.last_problem.error || x.last_problem.message || x.last_problem.status)}` : "none";
-        body.innerHTML = `${kpis([["Correlation passes", `${fn(cr.entries || 0)} · ${fn(cr.problems || 0)} with problems`],
+        const busy = cr.busy_pct == null ? "—" : `<span title="${fn(cr.busy_passes || 0)} passes, ${fn(Math.round((cr.busy_s || 0) / 60))} min busy in this period; median pass ${cr.pass_p50_s == null ? "—" : cr.pass_p50_s + " s"}, longest ${fn(cr.pass_max_s || 0)} s">${cr.busy_pct}%</span>`;
+        body.innerHTML = `${kpis([["Correlation review busy", busy, cr.busy_pct >= 90 ? "bad" : cr.busy_pct >= 70 ? "warn" : "good"],
+            ["Pass time (median / longest)", cr.busy_passes ? `${cr.pass_p50_s ?? "—"} s / ${fn(cr.pass_max_s || 0)} s` : "—"],
+            ["Correlation passes", `${fn(cr.entries || 0)} · ${fn(cr.problems || 0)} with problems`],
             ["Events processed (passes)", fn(cr.events || 0)], ["Events processed (review jobs)", fn(rj.events || 0)],
             ["Links decided", fn(cr.links || 0)], ["Events labelled / reviewed", `${fn(cr.labelled || 0)} / ${fn(cr.reviewed || 0)}`],
             ["Event reviewer failures", fn(cr.rfail || 0)], ["Review-job runs", `${fn(rj.entries || 0)} · ${fn(rj.problems || 0)} failed`]])}
@@ -1303,46 +1298,15 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(costCard(D));
     consolidate(el);
   };
-  // Decisions list: the first page comes with the page load, older ones as the user scrolls (table opts.loadMore ->
-  // GET /api/aireview/verdicts). URL filters (verdict, conf, pair, scope, type) are applied by the server so every page matches;
-  // sorting a column and the Filter box act on the rows loaded so far (scrolling down loads more).
-  let VLOADED = 0;  // rows loaded: a background refresh reloads as many as the user had scrolled to (max 1,000)
-  const verdictQuery = () => { const P = hq(), o = new URLSearchParams();
-    for (const k of ["verdict", "conf", "pair", "scope"]) if (P.get(k)) o.set(k, P.get(k));
-    const t = P.get("type"); if (t) o.set("type", [...new Set([...Object.keys(TYPE).filter((k) => TYPE[k] === t), t])].join(","));
-    return o.toString(); };
-  function decisionsCard(V0, vq) {
-    let total = V0.total, loaded = V0.rows.length; VLOADED = loaded;
-    const lst = card(`Decisions (${fn(total)})`, table(null, [
-      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
-      { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
-      { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
-      { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
-      { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
-      { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
-      { k: "reason", t: "Reason", cls: "small", fmt: (v, r) => `${esc(v)} ${r.manual ? "" : aiFlare({ model: r.model, via: "correlation review", at: new Date(r.ts * 1000).toISOString() })}` },
-      { k: "_a", t: "", fmt: (v, r) => `<span class="ai-acts">${r.related ? `<button data-ai="reject" data-p="${esc(r.pair)}" title="Mark as not related">✗</button>` : `<button data-ai="confirm" data-p="${esc(r.pair)}" title="Mark as related">✓</button>`}<button data-ai="rereview" data-p="${esc(r.pair)}" title="Ask the model again">↻</button></span>` },
-    ], V0.rows, { sort: "ts", urlFilter: FILTERS, total: () => total,
-      loadMore: async () => { const R = await api(`/api/aireview/verdicts?offset=${loaded}&limit=100${vq ? "&" + vq : ""}`);
-        total = R.total; loaded += R.rows.length; VLOADED = loaded; return R.rows; } }));
-    lst.id = "ai-list"; lst.dataset.open = "1";
-    const chips = document.createElement("div"); chips.className = "tbltools small";
-    chips.innerHTML = `<span class="muted">Show:</span> ${[["All", {}], ["Confirmed", { verdict: "confirmed" }], ["Rejected", { verdict: "rejected" }], ["Set by a person", { verdict: "manual" }], ["Low confidence (<70%)", { conf: "low" }], ["This snapshot only", { scope: "current" }]]
-      .map(([l, p]) => `<a href="${esc(hashWith("aireview", { ...p, at: "ai-list" }))}">${esc(l)}</a>`).join(" · ")} <span class="muted">· newest first, older ones load as you scroll</span>`;
-    lst.insertBefore(chips, lst.children[1]);
-    return lst;
-  }
   // AI pipeline monitoring (#/aireview)
   const build = async (el, bg) => {
-    el.innerHTML = `<h1>AI pipeline monitoring</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review, check its decisions and override them. Settings: <a href="#/aiconfig">AI pipeline configuration</a>.</div>`;
+    el.innerHTML = `<h1>AI pipeline monitoring</h1><div class="sub">The correlation script proposes links between events and vulnerabilities. The event reviewer (an AI model) decides whether each link is real. On its schedule the review job collects the logs and the same event reviewer copies matching earlier notes onto new events; everything else waits in the queue. An event is researched only when someone clicks <b>Send to research</b> (the research model's verdicts replace the event reviewer's). Rejected links are hidden from the Related column; confirmed ones show the model's reason. Here you can watch the review and how much of the time it is busy. Settings: <a href="#/aiconfig">AI pipeline configuration</a>.</div>`;
     // Every part loads on its own so the page shows up fast: status/queue/settings (light, no verdict rows), the
-    // decision-model numbers (~1 s health check), the first page of Decisions, and the model health check. All four start
+    // decision-model numbers (~1 s health check) and the model health check. All three start
     // now; a skeleton shows until the first one arrives, then each box fills in when its data lands (spinner until then).
     // A background refresh (route(true), S._noScroll) still swaps the page in one step: build() resolves only once all are in.
-    const keep = !!S._noScroll; if (!keep) VLOADED = 0;
-    const vq = verdictQuery(), quiet = (pr) => (pr.catch(() => {}), pr);
-    const pCore = api("/api/aireview?rows=0&clef=0"), pClef = quiet(api("/api/aireview/clef")), pModels = quiet(api("/api/aireview/models")),
-      pVer = quiet(api(`/api/aireview/verdicts?offset=0&limit=${keep ? Math.min(Math.max(VLOADED, 100), 1000) : 100}${vq ? "&" + vq : ""}`));
+    const quiet = (pr) => (pr.catch(() => {}), pr);
+    const pCore = api("/api/aireview?rows=0&clef=0"), pClef = quiet(api("/api/aireview/clef")), pModels = quiet(api("/api/aireview/models"));
     const sk = document.createElement("div");
     sk.innerHTML = kpis(["Status", "Queue (no note yet)", "Awaiting review", "Confirmed (this snapshot)", "Rejected (this snapshot)", "Reviews / min", "Tokens / min", "Done in"].map((l) => [l, "…"])).replace('class="kpis', 'class="kpis sec-loading-kpis');
     sk.appendChild(waitBox("", "Loading status, queue and settings…"));
@@ -1357,8 +1321,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       ["Queue (no note yet)", (D.review_status || {}).queue ? (D.admin ? `<a href="#/aireview" class="rq-open">${fn(D.review_status.queue.count)}</a>` : fn(D.review_status.queue.count)) + (D.review_status.queue.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode">+${fn(D.review_status.queue.testing)} testing</span>` : "") : "?",
         (D.review_status || {}).queue?.count ? "warn" : "good"],
       ["Awaiting review", `<a href="#/aireview" class="rv-open">${fn(q.pending)}</a>` + (q.testing ? ` <span class="badge sev-unknown" style="font-size:11px" title="held in test mode: listed, never sent">+${fn(q.testing)} testing</span>` : ""), q.pending ? "warn" : "good"],
-      ["Confirmed (this snapshot)", `<a href="#/aireview?verdict=confirmed&scope=current&at=ai-list">${fn(q.confirmed)}</a>`, "good"],
-      ["Rejected (this snapshot)", `<a href="#/aireview?verdict=rejected&scope=current&at=ai-list">${fn(q.rejected)}</a>`, q.rejected ? "bad" : ""],
+      ["Confirmed (this snapshot)", fn(q.confirmed), "good"],
+      ["Rejected (this snapshot)", fn(q.rejected), q.rejected ? "bad" : ""],
       ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Avg notes in / event", `<span title="notes (owner + AI: event, host, account, internet) actually in the prompt per event review (anchor + its candidates), last 24 h, after the per-event limit, de-duplication and the note character budget${T.event_tokens?.day?.notes_offered != null ? `; ${T.event_tokens.day.notes_offered} were offered before trimming` : ""}. All time: ${T.event_tokens?.all?.notes ?? "—"}. Reviews before this change counted the offered notes.">${T.event_tokens?.day?.notes != null ? T.event_tokens.day.notes : "—"}</span>`], ["Web look-ups (24 h)", D.config?.web_search?.enabled || D.web_queries?.last_day ? `<a href="#/aireview?at=ai-web" title="event reviewer web searches / page reads; ${fn(D.web_queries?.reviews_web_day || 0)} of ${fn(D.web_queries?.reviews_day || 0)} event reviews searched the web">${fn(D.web_queries?.last_day || 0)}</a>` : "off"], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     if (st.enabled && st.error) {  // say what the Error badge means, since when, and whether it fixes itself
@@ -1445,10 +1409,8 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(grid("g3", info,
       chartCard("Verdicts per hour (last 24 h)", { type: "bar", data: { labels: D.per_hour.map((_, i) => (i === 23 ? "now" : `-${23 - i}h`)), datasets: [{ data: D.per_hour, backgroundColor: PALETTE[0], borderRadius: 3 }] },
         options: { plugins: { legend: { display: false } }, scales: { x: { ticks: { autoSkip: true, maxTicksLimit: 8 } } } } }),
-      chartCard("All verdicts", aiColors(doughnutCfg({ Confirmed: T.related - (T.manual_related || 0), Rejected: T.rejected - (T.manual - (T.manual_related || 0)), "Set by a person": T.manual },
-        { onClick: (l) => drill("aireview", { verdict: { Confirmed: "confirmed", Rejected: "rejected", "Set by a person": "manual" }[l], at: "ai-list" }) })))));
+      chartCard("All verdicts", aiColors(doughnutCfg({ Confirmed: T.related - (T.manual_related || 0), Rejected: T.rejected - (T.manual - (T.manual_related || 0)), "Set by a person": T.manual })))));
 
-    const lstPh = waitBox("Decisions", "Loading the newest decisions…", "ai-list"); lstPh.dataset.open = "1"; el.appendChild(lstPh);
     el.appendChild(reviewLogCard());
     partHead(el, 2, "mon");
     el.appendChild(rjob);
@@ -1458,14 +1420,6 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(researchStatusCard(D));
     consolidate(el);
 
-    el.addEventListener("click", async (e) => {
-      const b = e.target.closest("[data-ai]"); if (!b) return;
-      b.disabled = true;
-      try { await apiPost("/api/aireview", { action: b.dataset.ai, pair: b.dataset.p }); S.corr = null;
-        const tr = b.closest("tr"); if (tr) tr.style.opacity = 0.45;
-        b.closest(".ai-acts").innerHTML = `<span class="small muted">${b.dataset.ai === "rereview" ? "queued for the model" : "saved"}</span>`; }
-      catch (err) { b.disabled = false; alert(String(err)); }
-    });
     // live refresh while the model is working (only if the user is not in the middle of something: typing,
     // a popover open, or an unsaved edit in one of the Save-gated forms below)
     const midEdit = () => {
@@ -1479,8 +1433,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     if (!S._morphing) flushCharts();  // the boxes above draw now, not after the slower parts below
     window.viewCoreDone?.();  // first load: the app's snapshot download may start now (app.js init)
     await Promise.allSettled([
-      pClef.then((r) => { D.clef = r.clef || {}; swapIn(clefPh, clefCard(D)); }, (e) => failBox(clefPh, e)),
-      pVer.then((r) => swapIn(lstPh, decisionsCard(r, vq)), (e) => failBox(lstPh, e))]);
+      pClef.then((r) => { D.clef = r.clef || {}; swapIn(clefPh, clefCard(D)); }, (e) => failBox(clefPh, e))]);
   };
   // Page entry: build inside a wrapper so a background refresh can swap the whole page in one step.
   V.aireview = async (el) => { const w = document.createElement("div"); el.appendChild(w); await build(w); };
