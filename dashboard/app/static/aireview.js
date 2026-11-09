@@ -1337,8 +1337,6 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
       { k: "related", t: "Verdict", fmt: (v, r) => `<span class="badge ${v ? "sev-good" : "sev-high"}">${v ? "Related" : "Not related"}</span>${r.manual ? ' <span class="badge sev-info">person</span>' : ""}`, sort: (r) => (r.related ? 1 : 0) },
       { k: "confidence", t: "Conf.", num: true, fmt: (v) => (v == null ? "" : Math.round(v * 100) + "%") },
-      { k: "clef", t: "Decision model", cls: "small", sort: (r) => (r.clef ? r.clef.p_related : -1),
-        fmt: (v) => (!v ? "" : `${v.related ? "related" : "not related"} ${Math.round(v.p_related * 100)}%`) },
       { k: "_p", t: "Pair", cls: "small", sort: (r) => pairKey(r.a_type, r.b_type), fmt: (v, r) => `<a href="${esc(hashWith("aireview", { pair: pairKey(r.a_type, r.b_type), at: "ai-list" }))}" title="Show only this event pair">${esc(pairText(r.a_type, r.b_type))}</a>` },
       { k: "a_label", t: "Event", fmt: (v, r) => evCell(v, r.a_type, r.a_link) },
       { k: "b_label", t: "Linked to", fmt: (v, r) => evCell(v, r.b_type, r.b_link) },
