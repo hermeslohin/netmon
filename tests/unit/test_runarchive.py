@@ -61,7 +61,7 @@ class RunSummary(unittest.TestCase):
         self.assertEqual(server.finding_last_seen(), seen_before)
 
     def test_prune_needs_summary_and_ingest(self):
-        """A run keeps its documents until it is summarised, its Fix-list inputs are stored and the event store has
+        """A run keeps its documents until it is summarised, its Fix-list rows are stored and the event store has
         ingested it; the newest runs and the 05 UTC daily runs of the tuning window always stay.
         REQ: OPS-06"""
         ids = ["2026-01-03T0500Z", "2026-01-03T1200Z", "2026-01-04T0500Z", "2026-01-04T1200Z", "2026-01-05T1200Z"]
@@ -77,8 +77,8 @@ class RunSummary(unittest.TestCase):
                          ["2026-01-03T0500Z", "2026-01-03T1200Z", "2026-01-04T1200Z"])  # 01-04 05Z = daily, 01-05 = newest
 
     def test_fix_list_counts_pruned_runs(self):
-        """The Fix list gives the same open issues and occurrence counts after older runs lose their documents
-        (their stored tracker inputs take part), also after a dashboard restart (empty in-memory cache).
+        """The Fix list (SQL over the fix_* tables) gives the same open issues and occurrence counts after older runs
+        lose their documents, also after a dashboard restart (empty in-memory cache).
         REQ: OPS-06"""
         seed(F.SID_OLD)
         seed(F.SID)
@@ -92,6 +92,37 @@ class RunSummary(unittest.TestCase):
         key = lambda it: sorted((i["key"], i["occurrences"], i["status"]) for i in it["open"])
         self.assertEqual(key(after), key(before))
         self.assertEqual(after["snapshots"], before["snapshots"])
+
+
+class FixListTables(unittest.TestCase):
+    def setUp(self):
+        reset()
+
+    def test_fix_list_is_rows_not_json(self):
+        """Each run's issues are rows of fix_item (one column per field), not JSON blobs; run_summary has no JSON
+        Fix-list column, and old blobs are migrated into the tables.
+        REQ: OPS-06"""
+        import fixlist, sqlite3, zlib
+        seed(F.SID)
+        server.issue_tracker()
+        c = fixlist.conn()
+        cols = [r[1] for r in c.execute("PRAGMA table_info(fix_item)")]
+        self.assertEqual(cols[:3], ["sid", "pos", "key"])
+        self.assertIn("evidence", cols)
+        self.assertNotIn("iss", [r[1] for r in c.execute("PRAGMA table_info(run_summary)")])
+        n = c.execute("SELECT COUNT(*) FROM fix_item WHERE sid=?", (F.SID,)).fetchone()[0]
+        self.assertEqual(n, sum(1 for i in server.issue_tracker()["open"] if i["last_snap"] == F.SID))
+        # an old database: run_summary.iss blobs -> tables, column dropped
+        m = fixlist.init(sqlite3.connect(":memory:", isolation_level=None))
+        m.execute("CREATE TABLE run_summary (sid TEXT PRIMARY KEY, generated TEXT, ti TEXT, iss BLOB)")
+        blob = zlib.compress(json.dumps({"gen": "g1", "dev": {"10.0.0.1": "aa"}, "site": "",
+                                         "ev": {"present": ["aa"], "srcs": ["raw"], "full": True, "look": {},
+                                                "cur": {"k|aa": {"key": "k|aa", "dev": "aa", "source": "raw", "severity": "low", "title": "t"}}}}).encode())
+        m.execute("INSERT INTO run_summary VALUES ('2026-01-01T0000Z', 'g1', NULL, ?)", (blob,))
+        self.assertEqual(fixlist.migrate_blobs(m), 1)
+        self.assertEqual(m.execute("SELECT key, severity FROM fix_item").fetchall(), [("k|aa", "low")])
+        self.assertNotIn("iss", [r[1] for r in m.execute("PRAGMA table_info(run_summary)")])
+        self.assertEqual(fixlist.track(m)["open"][0]["status"], "open")
 
 
 class RangeOnlyPage(unittest.TestCase):

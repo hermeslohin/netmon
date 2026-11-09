@@ -94,7 +94,7 @@ runs these background threads:
 | Thread | Module | Job |
 |---|---|---|
 | `eventstore-ingest` | `eventstore.py` | turns each new snapshot into events with stable ids; open until checked off |
-| `eventstore-ingest` (same thread) | `runarchive.py` | folds each review run into `run_summary` (threat-intel counter row, Fix-list tracker inputs) and `finding_seen`, then deletes the run's documents (`data/<stamp>*`) except the newest 8 and the 05 UTC daily runs of the auto-tune window. Review runs are pipeline input only; the browser never loads one |
+| `eventstore-ingest` (same thread) | `runarchive.py` | folds each review run into `run_summary` (threat-intel counter row), the Fix-list tables (`fixlist.py`: `fix_run`, `fix_run_source`, `fix_run_device`, `fix_run_ipmac`, `fix_run_lookup`, `fix_item`; the Fix list is one SQL query over them) and `finding_seen`, then deletes the run's documents (`data/<stamp>*`) except the newest 8 and the 05 UTC daily runs of the auto-tune window. Review runs are pipeline input only; the browser never loads one |
 | `corr-llm` | `corr_llm.py`, `clef.py` | correlation review: decision model per proposed link, then one event pass per event |
 | `webpush` | `pushsvc.py` | sends unpushed rows of the `alerts` table as Web Push (VAPID) |
 | `audit-writer` | `audit.py` | ships user actions and AI conversations to `logs-netmon`; spools locally while Elasticsearch is down |

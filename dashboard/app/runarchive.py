@@ -7,11 +7,11 @@ loads one (every page shows a time range). Once a run has been folded into the t
 runs of the auto-tune window (tuning.py replays them).
 
 Tables (netmon.db):
-  run_summary(sid, generated, ti, iss)  one row per review run: its threat-intel counter row (Threat intel trend) and
-                                         its Fix-list tracker inputs (issues._eval result + the run's ip->mac map)
+  run_summary(sid, generated, ti)       one row per review run: its threat-intel counter row (Threat intel trend)
+  fix_* tables (fixlist.py)             the run's Fix-list rows (issues, devices, sources, ip->mac)
   finding_seen(key, last_seen)          newest run time each finding / host finding was in ('Last seen' column)
 """
-import json, os, re, sys, threading, zlib
+import json, os, re, sys, threading
 
 _ROOT = os.environ.get("NETMON_DIR", "/netmon")
 if os.path.isdir(_ROOT) and _ROOT not in sys.path:
@@ -21,7 +21,7 @@ import store
 KEEP_RECENT = 8  # newest review runs kept as documents (2 h at a 15-minute interval)
 SID_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d{4}Z$")
 DDL = """CREATE TABLE IF NOT EXISTS run_summary (
-  sid TEXT PRIMARY KEY, generated TEXT, ti TEXT, iss BLOB) WITHOUT ROWID;
+  sid TEXT PRIMARY KEY, generated TEXT, ti TEXT) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS finding_seen (key TEXT PRIMARY KEY, last_seen TEXT NOT NULL) WITHOUT ROWID;"""
 _lock = threading.Lock()
 
@@ -64,44 +64,10 @@ def finding_seen():
     return dict(_c().execute("SELECT key, last_seen FROM finding_seen"))
 
 
-# ---- Fix-list tracker inputs (issues._track_incremental cache entries)
-def _enc(entry):
-    ev = dict(entry.get("ev") or {})
-    for k in ("present", "srcs"):
-        if isinstance(ev.get(k), set):
-            ev[k] = sorted(ev[k])
-    return zlib.compress(json.dumps({"gen": entry.get("gen"), "dev": entry.get("dev") or {}, "ev": ev, "site": entry.get("site")},
-                                    default=str, separators=(",", ":")).encode(), 6)
-
-
-def _dec(b):
-    d = json.loads(zlib.decompress(b))
-    ev = d.get("ev") or {}
-    for k in ("present", "srcs"):
-        ev[k] = set(ev.get(k) or [])
-    return {"mt": "stored", "gen": d.get("gen"), "dev": d.get("dev") or {}, "ev": ev if ev.get("cur") is not None else None,
-            "site": d.get("site"), "stored": True}
-
-
-def issue_entries():
-    """{sid: cache entry} of every stored run (ordered by sid)."""
-    return {r[0]: _dec(r[1]) for r in _c().execute("SELECT sid, iss FROM run_summary WHERE iss IS NOT NULL ORDER BY sid")}
-
-
-def save_issue_entries(entries):
-    """entries: {sid: cache entry with ev filled}."""
-    rows = [(sid, e.get("gen"), _enc(e)) for sid, e in entries.items() if e.get("ev") is not None]
-    if not rows:
-        return 0
-    c = _c()
-    with _lock, store.tx(c):
-        c.executemany("INSERT INTO run_summary(sid, generated, iss) VALUES (?,?,?) ON CONFLICT(sid) DO UPDATE SET iss=excluded.iss, "
-                      "generated=COALESCE(run_summary.generated, excluded.generated)", rows)
-    return len(rows)
-
-
 def stored_issue_sids():
-    return {r[0] for r in _c().execute("SELECT sid FROM run_summary WHERE iss IS NOT NULL")}
+    """Runs whose Fix-list rows are stored (fixlist.py)."""
+    import fixlist
+    return {r[0] for r in fixlist.conn().execute("SELECT sid FROM fix_run")}
 
 
 # ---- deleting folded runs
@@ -120,7 +86,7 @@ def keep_set(sids, keep_recent=KEEP_RECENT, daily_days=None):
 
 
 def prunable(sids, ingested_upto, keep_recent=KEEP_RECENT, daily_days=None):
-    """Runs that may lose their documents: folded into every table and already ingested by the event store."""
+    """Runs that may lose their documents: folded into run_summary, the Fix-list tables and the event store."""
     done = summarized() & stored_issue_sids()
     keep = keep_set(sids, keep_recent, daily_days)
     return [s for s in sorted(sids) if s not in keep and s in done and ingested_upto and s <= ingested_upto]

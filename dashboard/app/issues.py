@@ -1,9 +1,10 @@
 """Recurring misconfiguration / security-suggestion tracker.
 
-Every snapshot is run through deterministic checks that emit issues with a
-stable key. Across all snapshots we then compute, per key: how often it was
-seen, first/last seen, and whether it is still open. An issue is *fixed* once
-a newer snapshot that was able to run that check no longer produces it.
+Every review run is put through deterministic checks that emit issues with a
+stable key (this module). The rows are stored and the Fix list - per key: how
+often it was seen, first/last seen, and whether it is still open - is computed
+in SQL by fixlist.py. An issue is *fixed* once a newer run that was able to run
+that check no longer produces it.
 
 Checks depend on data sources ("raw", "analysis", "hosts", "unifi"). If the
 latest snapshot lacks a source (e.g. UniFi API failed) the issue stays open as
@@ -36,7 +37,7 @@ IP2MAC = {}  # filled by track(): ip -> mac learned across all snapshots
 _LOOK = None  # while track() evaluates one snapshot: {ip: IP2MAC value used}, so a cached result knows what it depended on
 # IP2MAC and _LOOK are module state: two threads evaluating at once (a page request and a background job when a new
 # snapshot lands) clobbered each other - one thread's `_LOOK = None` reached the other's result and cached
-# look=None, and every later Fix list / risk call failed until a restart. track()/track_incremental() hold this lock.
+# look=None, and every later Fix list / risk call failed until a restart. Every _eval caller (fixlist.py) holds this lock.
 import threading as _threading
 _TRACK_LOCK = _threading.RLock()
 
@@ -334,105 +335,7 @@ def _site_sig():
 
 
 def track(snaps, min_occ=2):
-    """snaps: ordered, re-iterable (walked twice) (sid, generated, raw, analysis). Returns tracker dict."""
-    with _TRACK_LOCK:
-        return _track(snaps, min_occ)
-
-
-def _track(snaps, min_occ=2):
-    IP2MAC.clear()
-    for _, _, raw, _ in snaps:
-        IP2MAC.update(_devmap(raw))
-    return _aggregate([(sid, gen, _eval(raw, an)) for sid, gen, raw, an in snaps], min_occ)
-
-
-def track_incremental(items, cache, min_occ=2, keep=8):
-    with _TRACK_LOCK:
-        return _track_incremental(items, cache, min_occ, keep)
-
-
-def _track_incremental(items, cache, min_occ=2, keep=8):
-    """track() over [(sid, mtime, load)] where load() -> (generated, raw, analysis) or None, reusing `cache` (a dict the
-    caller keeps): a snapshot is parsed again only when it is new/changed or an IP2MAC value / site setting it used changed.
-    Same result as track(); at most `keep` freshly parsed snapshots are held at once."""
-    site = _site_sig()
-    fresh = {}
-    for sid, mt, load in items:
-        c = cache.get(sid)
-        if c and c["mt"] == mt:
-            continue
-        got = load()
-        if not got or not got[1]:
-            cache.pop(sid, None)
-            continue
-        cache[sid] = {"mt": mt, "gen": got[0], "dev": _devmap(got[1]), "ev": None, "dirty": True}
-        if len(fresh) < keep:
-            fresh[sid] = got
-    live = [sid for sid, _, _ in items if sid in cache]
-    for sid in set(cache) - set(live):
-        cache.pop(sid)
-    IP2MAC.clear()
-    for sid in live:
-        IP2MAC.update(cache[sid]["dev"])
-    loads = {sid: load for sid, _, load in items}
-    rows = []
-    for sid in live:
-        c = cache[sid]
-        ev = c["ev"]
-        if ev is None or not isinstance(ev.get("look"), dict) or c.get("site") != site \
-                or any(IP2MAC.get(ip) != v for ip, v in ev["look"].items()):
-            got = fresh.pop(sid, None) or loads[sid]()
-            if not got or not got[1]:
-                if c.get("stored") and ev is not None:  # a summarized run whose documents are gone: keep its stored result
-                    rows.append((sid, c["gen"], ev))
-                continue
-            ev = c["ev"] = _eval(got[1], got[2])
-            c["site"], c["dirty"] = site, True
-        rows.append((sid, c["gen"], ev))
-    return _aggregate(rows, min_occ)
-
-
-def _aggregate(rows, min_occ):
-    """rows: ordered (sid, generated, _eval result)."""
-    hist = {}
-    per = []
-    present = {}
-    for sid, gen, ev in rows:
-        present[sid] = ev["present"]
-        cur = ev["cur"]
-        per.append((sid, gen, ev["srcs"], cur, ev["full"]))
-        for k, iss in cur.items():
-            h = hist.setdefault(k, {**iss, "first_seen": gen, "first_snap": sid, "occurrences": 0, "seen_in": []})
-            h.update({k2: v for k2, v in iss.items()})  # latest evidence/target wins
-            h["occurrences"] += 1
-            h["seen_in"].append(sid)
-            h["last_seen"], h["last_snap"] = gen, sid
-    latest_sid = per[-1][0] if per else None
-    open_, fixed = [], []
-    for k, h in hist.items():
-        # snapshots after first_seen that could evaluate this check
-        # a short research-run snapshot (lookback < 23 h) can raise an issue but never clear it: a few quiet hours
-        # are not proof that something was fixed
-        able = [p for p in per if h["source"] in p[2] and p[0] >= h["first_snap"] and (p[4] or k in p[3])]
-        h["checked"] = len(able)
-        last_able = able[-1] if able else None
-        if last_able and k not in last_able[3] and h.get("dev") and h["dev"] not in present[last_able[0]]:
-            h["status"] = "open (device not seen)"
-            h["recurring"] = h["occurrences"] >= min_occ
-            open_.append(h)
-        elif last_able and k not in last_able[3]:
-            # fixed: find the first snapshot after last_seen that could check it
-            fixed_at = next((p for p in able if p[0] > h["last_snap"]), last_able)
-            h["status"], h["fixed_at"] = "fixed", fixed_at[1]
-            fixed.append(h)
-        else:
-            h["status"] = "open" if h["last_snap"] == latest_sid else "open (not re-checked)"
-            h["recurring"] = h["occurrences"] >= min_occ
-            open_.append(h)
-    key = lambda x: (SEV_ORDER.get(x["severity"], 9), -x["occurrences"], x["title"])
-    open_.sort(key=key)
-    fixed.sort(key=lambda x: x.get("fixed_at") or "", reverse=True)
-    for h in hist.values():
-        h.pop("seen_in", None)
-    return {"latest": latest_sid, "snapshots": len(per), "min_occurrences": min_occ,
-            "open": open_, "fixed": fixed}
+    """snaps: ordered (sid, generated, raw, analysis). Returns the Fix list, computed by the same SQL as the dashboard
+    (fixlist.track_snaps, a throwaway in-memory database)."""
+    import fixlist
+    return fixlist.track_snaps(snaps, min_occ)

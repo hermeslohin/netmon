@@ -97,6 +97,7 @@ if ROOT not in sys.path:
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
 import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI pipeline pages)
 import runarchive  # noqa: E402  review-run summaries that outlive the run documents
+import fixlist  # noqa: E402  the Fix list in SQL
 import research_cfg  # noqa: E402  /netmon/research_cfg.py: event research model + cost caps (Send to research only)
 import review_cfg  # noqa: E402  /netmon/review_cfg.py: review job schedule, on/off and event modes (store meta table)
 import pushsvc  # noqa: E402  web push for urgent alerts
@@ -839,31 +840,21 @@ def acks_load_all():
 
 
 def issue_tracker():
-    """Fix list. Every review run counts: runs whose documents are gone (runarchive.prune) take part through their stored
-    tracker inputs (run_summary.iss); runs that still have documents are evaluated and their inputs stored."""
+    """Fix list, computed in SQL (fixlist.py) over every review run's stored issues; runs whose documents are gone
+    (runarchive.prune) keep their rows. New or changed runs are evaluated and stored first."""
     snaps = snapshots()
     sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
-    if _issues["sig"] != sig:  # per-run results are cached (issues.track_incremental): a new run parses only itself
+    if _issues["sig"] != sig:
         def loader(sid):
             def load():
                 raw = store.jload(os.path.join(DATA, sid + ".json"))
                 return (raw.get("generated"), raw, store.jload(os.path.join(DATA, sid + ".analysis.json"))) if raw else None
             return load
-        cache = _issues.setdefault("per", {})
-        stored = runarchive.issue_entries() if not _issues.get("loaded") or runarchive.stored_issue_sids() - set(cache) else {}
-        for sid, e in stored.items():
-            if sid not in cache:
-                cache[sid] = e
-        _issues["loaded"] = True
-        have = {sid for sid, _ in sig}
-        items = [(sid, "stored", loader(sid)) for sid in sorted(cache) if cache[sid].get("stored") and sid not in have]
-        items = sorted(items + [(sid, mt, loader(sid)) for sid, mt in sig])
-        _issues["val"] = issues.track_incremental(items, cache)
-        try:
-            dirty = {sid: e for sid, e in cache.items() if e.pop("dirty", False)}
-            runarchive.save_issue_entries(dirty)
-        except Exception as e:  # noqa: BLE001 - the list still works, the run is stored on the next pass
-            print(f"run summary (issues): {e}", file=sys.stderr)
+        if not _issues.get("migrated"):
+            fixlist.migrate_blobs()
+            _issues["migrated"] = True
+        fixlist.sync([(sid, mt, loader(sid)) for sid, mt in sig])
+        _issues["val"] = fixlist.track()
         _issues["sig"] = sig
     tr = with_software_vulns(_issues["val"])
     try:  # segmentation fix-list items a suppress rule covers
