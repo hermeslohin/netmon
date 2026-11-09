@@ -93,46 +93,6 @@ def load(eids):
     return out
 
 
-def for_acks(acks):
-    """Research notes for checked-off items, whether or not their event is still in a snapshot: {"type|key": note}.
-    host / alarm / issue / gateway items map to the note's key directly; baseline findings by their label (kind: detail)."""
-    out, want, fl = {}, {}, {}
-    for typ, m in (acks or {}).items():
-        for key, a in (m or {}).items():
-            sk = {"host": "hf|" + key, "alarm": "alarm|" + key, "issue": "iss|" + key, "gw": key}.get(typ)
-            if sk:
-                want.setdefault(sk, []).append(f"{typ}|{key}")
-            elif typ == "finding" and (a or {}).get("label"):
-                fl[f"{typ}|{key}"] = _NUM.sub("#", str(a["label"]))
-    with _db() as c:
-        cols = "skey, eid, verdict, priority, summary, research, links, model, via, ts, snapshot, label"
-        def note(r, same):
-            return {"verdict": r[2], "priority": r[3], "summary": r[4], "research": r[5], "links": json.loads(r[6] or "[]"),
-                    "model": r[7], "via": r[8], "at": r[9], "snapshot": r[10], "same_event": same, "label": r[11]}
-        ks = list(want)
-        for i in range(0, len(ks), 500):
-            ch = ks[i:i + 500]
-            for r in c.execute(f"SELECT {cols} FROM notes WHERE skey IN ({','.join('?' * len(ch))})", ch):
-                for k in want[r[0]]:
-                    out[k] = note(r, True)
-        if fl:  # labels are normalised once per note (not once per note x checked finding), then matched by kind
-            rows, bykind = [], {}
-            for r in c.execute(f"SELECT {cols} FROM notes WHERE skey LIKE 'f|%' ORDER BY ts DESC"):
-                nl = _NUM.sub("#", str(r[11] or ""))
-                rows.append((nl, r))
-                kd, sep, _ = nl.partition(": ")
-                if sep:
-                    bykind.setdefault(kd, []).append((nl, r))
-            for k, lab in fl.items():
-                kind, sep, detail = lab.partition(": ")
-                cand = bykind.get(kind, ()) if sep else rows  # labels without "kind: " (rare): scan them all, as before
-                for nl, r in cand:  # newest first, as before
-                    if nl == lab or (nl.startswith(kind + ": ") and nl.endswith(" - " + detail)):
-                        out[k] = note(r, False)
-                        break
-    return out
-
-
 def apply(res):
     """Attach notes for the events of a correlation result (new dict; the cached base stays untouched)."""
     if not res or res.get("error"):

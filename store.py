@@ -109,6 +109,8 @@ def connect(path=None):
     for col, decl in (("cleared", "INTEGER NOT NULL DEFAULT 0"), ("cleared_rule", "INTEGER"), ("cleared_at", "REAL"), ("held", "INTEGER NOT NULL DEFAULT 0")):  # alerts a mute rule cleared (kept, hidden from the feed)
         if col not in have:
             c.execute(f"ALTER TABLE alerts ADD COLUMN {col} {decl}")
+    if "by_user" not in {r[1] for r in c.execute("PRAGMA table_info(acks)")}:  # who checked an item off (empty = automatic / before this column)
+        c.execute("ALTER TABLE acks ADD COLUMN by_user TEXT NOT NULL DEFAULT ''")
     c.execute("INSERT OR IGNORE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
     return c
 
@@ -460,35 +462,36 @@ def ti_local_clear(names=None, c=None):
 def acks_load(c=None):
     c = c or _dc()
     out = {"issue": {}, "alarm": {}, "finding": {}, "host": {}}
-    for r in c.execute("SELECT type, key, at, note, label FROM acks"):
-        out.setdefault(r["type"], {})[r["key"]] = {"at": r["at"], "note": r["note"], "label": r["label"]}
+    for r in c.execute("SELECT type, key, at, note, label, by_user FROM acks"):
+        out.setdefault(r["type"], {})[r["key"]] = {"at": r["at"], "note": r["note"], "label": r["label"], "by": r["by_user"]}
     return out
 
 
-def ack_set(typ, key, checked, note="", label="", c=None):
+def ack_set(typ, key, checked, note="", label="", c=None, by=""):
+    """by: the dashboard user who checked it off (empty for automatic check-offs: suppress rules, auto-close)."""
     c = c or _dc()
     with tx(c):
         if checked:
-            c.execute("INSERT INTO acks(type,key,at,note,label) VALUES (?,?,?,?,?) "
-                      "ON CONFLICT(type,key) DO UPDATE SET at=excluded.at, note=excluded.note, "
+            c.execute("INSERT INTO acks(type,key,at,note,label,by_user) VALUES (?,?,?,?,?,?) "
+                      "ON CONFLICT(type,key) DO UPDATE SET at=excluded.at, note=excluded.note, by_user=excluded.by_user, "
                       "label=CASE WHEN excluded.label!='' THEN excluded.label ELSE acks.label END",
-                      (typ, key, now_iso(), (note or "")[:500], (label or "")[:300]))
+                      (typ, key, now_iso(), (note or "")[:500], (label or "")[:300], (by or "")[:60]))
         else:
             c.execute("DELETE FROM acks WHERE type=? AND key=?", (typ, key))
     return acks_load(c)
 
 
-def ack_set_many(items, checked, note="", c=None):
+def ack_set_many(items, checked, note="", c=None, by=""):
     """Bulk check-off/restore in ONE transaction; items: [(type, key, label)]. Returns the full ack map once."""
     c = c or _dc()
     at = now_iso()
     with tx(c):
         for typ, key, label in items:
             if checked:
-                c.execute("INSERT INTO acks(type,key,at,note,label) VALUES (?,?,?,?,?) "
-                          "ON CONFLICT(type,key) DO UPDATE SET at=excluded.at, note=excluded.note, "
+                c.execute("INSERT INTO acks(type,key,at,note,label,by_user) VALUES (?,?,?,?,?,?) "
+                          "ON CONFLICT(type,key) DO UPDATE SET at=excluded.at, note=excluded.note, by_user=excluded.by_user, "
                           "label=CASE WHEN excluded.label!='' THEN excluded.label ELSE acks.label END",
-                          (typ, key, at, (note or "")[:500], (label or "")[:300]))
+                          (typ, key, at, (note or "")[:500], (label or "")[:300], (by or "")[:60]))
             else:
                 c.execute("DELETE FROM acks WHERE type=? AND key=?", (typ, key))
     return acks_load(c)
@@ -1132,7 +1135,7 @@ def migrate(base_dir=None, acks_file=None, c=None, overwrite=False):
     with tx(c):
         for typ, b in a.items():
             for k, v in (b or {}).items():
-                c.execute("INSERT OR REPLACE INTO acks VALUES (?,?,?,?,?)", (typ, k, v.get("at") or now_iso(), v.get("note", ""), v.get("label", "")))
+                c.execute("INSERT OR REPLACE INTO acks(type,key,at,note,label) VALUES (?,?,?,?,?)", (typ, k, v.get("at") or now_iso(), v.get("note", ""), v.get("label", "")))
     done["acks"] = sum(len(b or {}) for b in a.values())
     with tx(c):
         c.execute("INSERT OR REPLACE INTO meta VALUES ('migrated_at', ?)", (now_iso(),))

@@ -234,7 +234,7 @@
   const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
   function openNote(btn) {
     close();
-    const id = btn.dataset.note, n = S.corr?.notes?.[id] || window.__ckNotes?.[id], me = S.corr?.events?.[id] || (n ? { label: n.label || String(id).split("|").slice(1).join(" · ") } : null);
+    const id = btn.dataset.note, n = S.corr?.notes?.[id], me = S.corr?.events?.[id] || (n ? { label: n.label || String(id).split("|").slice(1).join(" · ") } : null);
     if (!n) return;
     const links = (n.links || []).filter((l) => safeUrl(l.url));
     pop = document.createElement("div"); pop.className = "rel-pop note-pop"; pop.setAttribute("role", "dialog");
@@ -311,7 +311,7 @@
     const d = document.createElement("div"); d.className = "modal-back";
     d.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
       <h3>🚫 Suppress this finding</h3>
-      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere and listed under <b>Checked/suppressed</b>, and alerts like it stop appearing. It still goes through correlation, research and review, but the event reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
+      <div class="small muted" style="margin-bottom:8px">Instead of checking it off, suppress it: it is hidden everywhere (the rule is listed under <b>Settings → Configuration → Suppress rules</b>), and alerts like it stop appearing. It still goes through correlation, research and review, but the event reviewer never un-suppresses it. Edit the signature (<span class="mono">*</span> any text, <span class="mono">?</span> one character) and optionally require one artifact of this event or of the events correlated with it.</div>
       <div class="small mono sp-label" style="margin-bottom:6px;opacity:.8">${esc(sg.label)}</div>
       <input class="sp-name" value="${esc(alertName(sg.label))}" style="width:100%;box-sizing:border-box" title="Signature name">
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center"><span class="small">Only when it involves</span>

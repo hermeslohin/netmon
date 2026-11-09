@@ -108,6 +108,19 @@ class HtmlReferencesTest(unittest.TestCase):
             scripts = [urlparse(u).path for k, u in refs(_read(page)) if k == "script"]
             self.assertEqual(len(scripts), len(set(scripts)), page)
 
+    def test_suppress_rules_on_configuration_and_no_checked_page(self):
+        """Suppress rules are listed on Settings -> Configuration; the Checked page and its nav entry are gone.
+        REQ: CFG-06"""
+        app = open(APP_JS, encoding="utf-8").read()
+        cfg = open(os.path.join(STATIC, "config.js"), encoding="utf-8").read()
+        html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+        self.assertIn("window.suppressRulesCard = suppressRulesCard", app)
+        self.assertIn("window.suppressRulesCard()", cfg)
+        self.assertNotIn("V.checked", app)
+        self.assertNotIn("suppressedCard", app)
+        for src in (app, cfg, html):
+            self.assertNotIn("#/checked", src)
+
     def test_modals_survive_touch(self):
         """Dialogs never close on a bare backdrop mousedown (iOS shifts the dialog under the finger) and the suppress
         dialog does not pop the keyboard on touch devices.

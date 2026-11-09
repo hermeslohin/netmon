@@ -154,7 +154,7 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 
 **Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter: for admins and network defenders it marks every alert read for everyone, for a User only for themselves. Admins and defenders also see **Verdict**, **Research**, **Notes** and **Artifact notes** columns; click a row to open the event with its related events. Users see When, Level and Alert.
 
-**Noisy alerts (admins and network defenders).** Use 🚫 **suppress** on an alert (the same dialog as for findings): alerts like it are hidden from the feed and stop appearing, but still go through correlation, research and review. Suppress rules are listed and removed under More → Checked → Suppressed. Alert *mute* rules from earlier versions are still applied (a matching alert is stored already **cleared**: no push or chat message, not unread, not sent to the AI) and are listed in the **Alert mute rules** card on the Alerts page; **show cleared (N)** lists what they cleared and **Remove rule** deletes a rule and brings its alerts back. New mute rules can no longer be created.
+**Noisy alerts (admins and network defenders).** Use 🚫 **suppress** on an alert (the same dialog as for findings): alerts like it are hidden from the feed and stop appearing, but still go through correlation, research and review. Suppress rules are listed and removed under Settings → Configuration → Suppress rules. Alert *mute* rules from earlier versions are still applied (a matching alert is stored already **cleared**: no push or chat message, not unread, not sent to the AI) and are listed in the **Alert mute rules** card on the Alerts page; **show cleared (N)** lists what they cleared and **Remove rule** deletes a rule and brings its alerts back. New mute rules can no longer be created.
 
 ![Urgent alerts page](img/alerts.png)
 
@@ -174,12 +174,12 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 
 When you have looked at an alarm or finding and are satisfied, tick its check box.
 
-- The item disappears from the list and is recorded under **More → Checked** with who checked it and when.
+- The item disappears from the open list (Posture still shows it, greyed, with who checked it off).
 - **show N checked** in a box's title brings checked items back into view.
-- **Unchecking** restores an item, either in its list or on the Checked page.
+- **Unchecking** restores an item in its list.
 - **Carries over:** checking off is remembered across snapshots, so the same finding stays checked when it shows up again.
 - **Nothing ages out.** Accepting (checking off) is the only way an event leaves the **Open events** page; the time range you picked does not hide an unchecked event, however old it is. Posture, by contrast, only shows the selected time range (see [Open events vs Posture](#open-events-vs-posture)).
-- **Gateway events** (Posture → Gateway security) can be checked off and suppressed like findings. They appear on the Checked page as type *Gateway event*. The 30-day threat rows at the bottom of that card can be checked off, but have no correlation event, so the suppress dialog offers only the name, not artifacts.
+- **Gateway events** (Posture → Gateway security) can be checked off and suppressed like findings. The 30-day threat rows at the bottom of that card can be checked off, but have no correlation event, so the suppress dialog offers only the name, not artifacts.
 
 ![Gateway events card with check boxes and suppress buttons](img/posture-gateway-events.png)
 
@@ -189,8 +189,8 @@ The network is split into zones (for example main, IoT, servers, guest). The **n
 
 - **Severity is by port:** *high* = admin/remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker/Kubernetes APIs... the same set as Lateral movement); *medium* = odd ports that are neither admin nor standard; *low* = standard ports (HTTP, HTTPS, DNS, mail, etc.). Lists come from the network policy on More → Settings (`sensitive_ports`, optional `standard_ports`). On **AI pipeline configuration** the three levels are separate categories (Segmentation: high / medium / low), each switched between *review* and *skip* in the event-type matrix of AI pipeline configuration → Review limits.
 - If the flow is expected (for example your laptop managing a server over SSH), click the green **Clear** box on **Posture → Segmentation violations**, or the Clear box on **Lateral movement**.
-- **What clearing does:** the flow is hidden on Posture and shown as allowed on Lateral movement; it stops counting toward host risk and is left out of correlation; and it folds into **show N checked** under Segmentation violations on Posture (the **Cleared segmentation** list is on More → Checked and Lateral movement). (Segmentation violations are not part of the Fix list.)
-- **To bring a flow back:** uncheck it under **show N checked** in Segmentation violations, or in Cleared segmentation (More → Checked, Lateral movement).
+- **What clearing does:** the flow is hidden on Posture and shown as allowed on Lateral movement; it stops counting toward host risk and is left out of correlation; and it folds into **show N checked** under Segmentation violations on Posture (the **Cleared segmentation** list is on Lateral movement). (Segmentation violations are not part of the Fix list.)
+- **To bring a flow back:** uncheck it under **show N checked** in Segmentation violations, or in Cleared segmentation on Lateral movement.
 - For a permanent rule, ask the admin to add an `allow` entry to the network policy on **More → Settings**.
 
 ![Segmentation violation with the green Clear check box](img/posture-segmentation.png)
@@ -223,7 +223,7 @@ Notes carry over to the same finding in later snapshots, and are refreshed when 
 
 AI notes can be wrong. Treat them as a well-informed second opinion, and check the evidence before acting on anything important.
 
-**Notes stay with the item.** A research note is stored on its own and never expires. If a finding has dropped out of the newest snapshots (for example because it was checked off), its ✨ button still appears: the page fetches the saved note by the finding's text. On **More → Checked** every checked item with a note has a ✨ button too (host findings, alarms, issues, gateway events and baseline findings). Only an admin using *Clear notes* on the AI pipeline pages removes notes.
+**Notes stay with the item.** A research note is stored on its own and never expires. If a finding has dropped out of the newest snapshots (for example because it was checked off), its ✨ button still appears: the page fetches the saved note by the finding's text. Only an admin using *Clear notes* on the AI pipeline pages removes notes.
 
 **Times seen (👁).** Next to the Related count each event shows **👁 N×**: the number of snapshots it has appeared in (for an alert, how many times an alert with the same text was raised). Counting started when this feature was added. Hover for the first and last time it was seen.
 
@@ -309,7 +309,7 @@ Both pages list the same kinds of events with the same buttons, but they answer 
 | **Checking off** | Accepting a collapsed row accepts every occurrence and variant in it, so it does not come back next night under different numbers. | Accepts that one row. Check-offs and suppress rules are shared: whatever you accept on either page is accepted on both, and stays accepted in every time range. |
 | **Use it for** | Working the queue down to zero. | Investigating a period: what the network looked like yesterday, last week or during an incident, including things already accepted (**show N checked**). |
 
-In short: **Posture is the history, Open events is the backlog.** Accepting something on Open events means you have looked at it and are satisfied; it then moves to **More → Checked**, where you can undo it.
+In short: **Posture is the history, Open events is the backlog.** Accepting something on Open events means you have looked at it and are satisfied; it then leaves the backlog; uncheck it on Posture to undo it.
 
 ### Open events
 
@@ -325,7 +325,7 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 
   The **Seen** column shows how many times and how many *variants*. Click the row for every occurrence. Checking a grouped row off accepts all of them.
 - **Check off all.** Each card has **✓ Check all N** for what the card currently lists (after the type / severity filters at the top). It asks for confirmation; checked events move to Checked and can be restored there.
-- **Types without their own check-off** (IDS signatures, threat-intel hits, alerts) are stored on the Checked page as type *Other event*.
+- **Types without their own check-off** (IDS signatures, threat-intel hits, alerts) are stored as type *Other event*.
 - **Related events** come from the stored correlation verdicts, so events of any age show their Related count and popup (links, shared artifacts, the event's label) along with their notes, verdicts and classification.
 - **Where it comes from.** Every snapshot's events are saved in the netmon database (table `events`) with their first/last time and how often they were seen, so the page needs no JSON files and survives snapshots aging out.
 
@@ -347,7 +347,7 @@ What happened **in the selected time range** 🕒, listed as reported: each find
 | Inbound hits from listed IPs | Connections into the network from addresses on a threat-intel list. |
 | Outbound TI hits / newly-registered domains | Devices contacting listed IPs or domains, and domains registered in the last 90 days, with their age. |
 | Malicious JA3 / internal scans / detections | TLS client fingerprints known to belong to malware, internal devices scanning others, and other detections. |
-| DNS-tunnel scoring | Domains with many random-looking subdomains (possible data smuggling over DNS). The 🔎 button on each row opens Kibana Discover links for that domain (all lookups, NXDOMAIN, TXT/NULL/ANY, per source device, TLS sessions); it needs `kibana_url` in the site settings. Each row has a check box (keyed by DNS name): check it off to hide it everywhere; "show N checked" or the Checked page brings it back. |
+| DNS-tunnel scoring | Domains with many random-looking subdomains (possible data smuggling over DNS). The 🔎 button on each row opens Kibana Discover links for that domain (all lookups, NXDOMAIN, TXT/NULL/ANY, per source device, TLS sessions); it needs `kibana_url` in the site settings. Each row has a check box (keyed by DNS name): check it off to hide it everywhere; "show N checked" brings it back. |
 | Zeek notices / weird | Protocol oddities and notices from Zeek. |
 | Files | Files transferred over the network and their reputation. |
 | Software inventory from traffic | Software versions seen in network traffic. |
@@ -565,12 +565,6 @@ The AI assistant (see [Ask AI](#ask-ai)).
 
 What the AI is doing and how well, and how it is set up (see [AI pipeline](#ai-pipeline)).
 
-### More → Checked
-
-Everything checked off or cleared, with who did it and when (IDS, threat-intel and alert events checked off on **Open events** show as type *Other event*). Uncheck to restore. Checked items that have a research note show a **✨ verdict** button next to their name. The **🚫 Suppressed** card has a **Matched** column: how many snapshots each suppressed item has matched a rule in (`3×`); items start at `–` and count up from the next snapshot.
-
-![Checked page](img/checked.png)
-
 ### More → Dashboard users
 
 Accounts that can sign in to the dashboard, and their roles (see [section 9](#9-admin-tasks)). Network defenders see this page read-only; Users don't see it. Not to be confused with **Network → Users** above.
@@ -682,8 +676,8 @@ Everyone who can see the pages sees the configuration page; only admins can chan
 | **Clearing queues** (admins) | **Clear event queue** and **Clear review queue** under the top numbers empty what is waiting, after a warning you must confirm. Cleared events do not come back to the queue even if they recur under the same ID (Send to research still works on them); cleared links are marked "not related" without asking the model. Existing notes and verdicts are kept. **Queue (no note yet)** (admins) and **Awaiting review** (admins and defenders) open a list of what is waiting when clicked. |
 | **Send to research** (everyone who sees the event) | Open the 📝 next to any event: below the notes, **🔬 Send to research** researches the event **right away** if the AI has not researched it yet, without waiting for the queue; the review job never researches events, so this is the only way a new event gets a note. The host starts `research.py` for that event (about 1-3 minutes, roughly $0.10 with a cloud model) and the note appears when it finishes. Until then the popover shows "Research started"; if another research is running the click waits and starts as soon as it ends. It ignores queue clears and Never-send rules. Users can do this only for their own devices' events; it is logged with the user's name and counts toward the daily $ cap. At most 200 requests wait at once. |
 | **Event verdict** (📝 on any event, every page) | **⚠️ Suspicious** saves your call at once. **✅ Expected** and **🟢 Benign** only select the verdict: type why in the box, tick under **Applies to** what it covers (💻 the device, 🧭 the kind of finding such as *port-spike*, 🛡️ the IDS signature, and the event's IPs, DNS names, processes / files, accounts and ports), then press **Save**. Any event that shows *all* ticked artifacts, on any device and from any detector, gets your verdict too; tick the device IP as well to keep it to that device, or tick nothing for this event only. Your verdict outweighs the event reviewer's label: it counts as 95 % confidence when the ticked artifacts match and 90 % on the event itself, and replaces the reviewer's label unless the reviewer is at least that confident. A *suspicious* label on an event with threat-intel hits is never turned into expected or benign. The event is reviewed again on the next review pass; its classification shows **👤 <verdict> verdict applied · the event reviewer said X (NN %)**, or why it was not applied (*threat intel* or *event reviewer confident*). The Alerts **Verdict** column shows your verdict first, then the event reviewer's. The AI treats it as authoritative. Expected/Benign move the event (and later repeats of it) to Checked right away; Suspicious brings it back to the findings and auto-close leaves it alone. The latest verdict shows under the buttons and as a badge on the note and on the Notes page. A User account's verdict needs a defender or admin to approve it first. |
-| **Checked events** | Checked events (**More → Checked**) are still reviewed (and can be sent to research). If the event reviewer classifies one as suspicious, it moves back out of Checked into the findings. |
-| **Suppress (🚫)** | Next to the check-off box of an event is a 🚫 button (admin / defender). It suppresses the finding instead of checking it off: pick or edit the signature name and, optionally, one artifact from the event or its correlated events (🌐 IP, 🔗 domain, 👤 user, ⚙️ process, 📄 file, 🔌 port). Matching findings (including gateway events) are hidden and matching alerts stop appearing, listed in the **🚫 Suppressed** card on More → Checked, where a rule can be removed to bring everything back. Suppressed events are still correlated and reviewed, but the event reviewer never un-suppresses them. When you suppress from a card, every other event in the same card that matches the signature (and the artifact, if you picked one) is suppressed too. |
+| **Checked events** | Checked-off events are still reviewed (and can be sent to research). If the event reviewer classifies one as suspicious, it is reopened into the findings. |
+| **Suppress (🚫)** | Next to the check-off box of an event is a 🚫 button (admin / defender). It suppresses the finding instead of checking it off: pick or edit the signature name and, optionally, one artifact from the event or its correlated events (🌐 IP, 🔗 domain, 👤 user, ⚙️ process, 📄 file, 🔌 port). Matching findings (including gateway events) are hidden and matching alerts stop appearing, the rule is listed under **Settings → Configuration → Suppress rules**, where it can be removed to bring everything back. Suppressed events are still correlated and reviewed, but the event reviewer never un-suppresses them. When you suppress from a card, every other event in the same card that matches the signature (and the artifact, if you picked one) is suppressed too. |
 | **Event research limits** (admins) | Caps for event research (Send to research): **$ per research** (default 5), **$ per day** (UTC, default 20), **tokens per research** (input + output, works without prices), **research batches** per run (8 events each, default 10), **searches per event** (web searches allowed per researched event, default 3, 0 = no limit) and a **Web access** switch (off by default: no web search and no sources). A research run stops when it passes a cap, and Send to research is refused once the day's cap is reached. 0 = no limit. The $ caps need prices on the model's provider. The event reviewer, comparisons and Ask AI have their own limits (calls per hour, chat limits). |
 | **Review lookback window** | Admins set how many hours of logs (1-24, default 24) each review job run collects and reviews. A window a little longer than the run interval (the box suggests interval + 1 h) cuts the cost of each run without leaving gaps; a window shorter than the interval leaves hours unreviewed, and the box warns about it. The daily 05:00 UTC run always covers 24 h, and only full-day snapshots go into the device baseline. Between daily runs the newest snapshot on the dashboard covers only the window, and a short run can open a Fix-list item but never mark one fixed. |
 | **Review job** | The scheduled job: collect, analyze, correlate, then the event reviewer copies matching earlier notes; everything else waits in the queue. It never researches events; that happens only on **Send to research**. Whether a run is going on now, the schedule and next run, **Run every [ ] minutes** (admins: 5 to 1440; saves by itself about a second after you stop typing), **Run now** and **Pause** buttons (admins), recent runs (*Daily run (24 h)* or *Review*, *Run now* when started by hand, and how long they took), how many events have notes, and the latest run's summary. The token chart is in its own box below it. |

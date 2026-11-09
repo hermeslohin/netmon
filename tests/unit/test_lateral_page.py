@@ -363,7 +363,7 @@ ctx.ackRowCls = () => () => "";
 ctx.api = async (u) => { ctx.calls.push(u); if (ctx.apiError) throw new Error(ctx.apiError); return JSON.parse(JSON.stringify(data.D)); };
 vm.createContext(ctx);
 vm.runInContext(slice(app, "function hashWith(", "\nfunction hashWithout") + "\n" + slice(app, "const SEG_RE", "const ackRef") + "\n"
-  + slice(app, "function segClearedCard() {", "/* ---------- suppressed findings"), ctx);
+  + slice(app, "function segClearedCard() {", "/* ---------- suppress rules (Settings"), ctx);
 vm.runInContext(fs.readFileSync(latPath, "utf8"), ctx);
 (async () => {
   await vm.runInContext("(async () => {\n" + fs.readFileSync(bodyPath, "utf8") + "\n})()", ctx);

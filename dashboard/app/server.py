@@ -612,10 +612,10 @@ def read_acks():
     return store.acks_load()
 
 
-def write_ack(typ, key, checked, note="", label=""):
-    """Check-off store: {type: {key: {at, note, label}}}. Atomic replace."""
+def write_ack(typ, key, checked, note="", label="", by=""):
+    """Check-off store: {type: {key: {at, note, label, by}}}. Atomic replace."""
     with _ack_lock:
-        return store.ack_set(typ, key, checked, note, label)
+        return store.ack_set(typ, key, checked, note, label, by=by)
 
 
 _issues = {"sig": None, "val": None}
@@ -1612,13 +1612,13 @@ class H(BaseHTTPRequestHandler):
                        for i in body["items"][:20000] if isinstance(i, dict)]
                 its = [i for i in its if i[0] and i[1]]
                 with _ack_lock:
-                    return self._json(store.ack_set_many(its, bool(body.get("checked"))))
+                    return self._json(store.ack_set_many(its, bool(body.get("checked")), by=user or ""))
             if u.path == "/api/acks":
                 typ, key = str(body.get("type", ""))[:40], str(body.get("key", ""))[:600]
                 if not typ or not key:
                     return self._json({"error": "type and key required"}, 400)
                 return self._json(write_ack(typ, key, bool(body.get("checked")), str(body.get("note") or ""),
-                                            str(body.get("label") or "")))
+                                            str(body.get("label") or ""), by=user or ""))
             return self._json({"error": "not found"}, 404)
         except Exception as e:
             print("post error", e, file=sys.stderr)
@@ -1728,12 +1728,6 @@ class H(BaseHTTPRequestHandler):
                     return self._json(enrich.load([e[:600] for e in (q.get("e") or [])[:40]]))
                 except Exception as e:  # noqa: BLE001
                     print(f"notes by event: {e}", file=sys.stderr)
-                    return self._json({})
-            if path == "/api/checked/notes":  # research notes of checked-off items (kept even when the event is gone from the snapshot)
-                try:
-                    return self._json(enrich.for_acks(read_acks()))
-                except Exception as e:  # noqa: BLE001
-                    print(f"checked notes: {e}", file=sys.stderr)
                     return self._json({})
             if path == "/api/llm/providers":
                 if not admin:
@@ -1926,7 +1920,7 @@ class H(BaseHTTPRequestHandler):
                     return self._json({"running": bool(r) and time.time() - float(r.get("started") or 0) < 7200})
                 except Exception:  # noqa: BLE001
                     return self._json({"running": False})
-            if path == "/api/suppress":  # Checked page: suppress rules + what they hid
+            if path == "/api/suppress":  # Configuration page: suppress rules + what they hid
                 import suppress
                 ce, ca = suppress.counts()
                 return self._json({"rules": [{**r, "events": ce.get(r["id"], 0), "alerts": ca.get(r["id"], 0)} for r in store.suppress_list()],

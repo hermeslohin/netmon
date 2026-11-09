@@ -435,7 +435,7 @@ they arrive and are listed in the **Alert mute rules** card on the Alerts page, 
 alerts back.
 
 **Suppress findings.** Suppressing hides a finding like a check-off does, but as a *rule* by signature name, and it is
-listed in its own card on More → Checked. Nothing is bypassed: the event stays in correlation, research and review.
+listed under Settings → Configuration → Suppress rules. Nothing is bypassed: the event stays in correlation, research and review.
 
 - *How:* click the **🚫 button** next to the check-off box of an event (Posture, alarms, endpoint findings, fix list…), or
   **🚫 suppress…** on an alert. Admins and defenders only.
@@ -446,15 +446,15 @@ listed in its own card on More → Checked. Nothing is bypassed: the event stays
   A rule on a correlated artifact also covers findings and alerts correlated with it. Alerts get the same dropdown (🚫 suppress… on the alert).
 - *Effect:* matching events with a check-off list (baseline and endpoint findings, fix-list items, triage alarms, UniFi gateway events `gw|…`, whose check-off key is the event id itself) are checked
   off with the note `suppressed: rule N: …` and leave their lists; matching alerts leave the feed and are not pushed (a new alert is checked against the rules when it arrives; its correlated artifacts are checked on the next correlation pass, a minute or so later).
-- *Checked page:* the **🚫 Suppressed** card lists the rules (with how many findings and alerts each hid; *remove rule* brings
-  everything back) and the suppressed findings (unticking one restores just that finding; the rule stays).
+- *Configuration page:* Settings → Configuration → **Suppress rules** lists the rules (with how many findings and alerts each hid; *remove rule*
+  brings everything back). Suppressed findings themselves are not listed anywhere.
 - *Event reviewer does not override:* suppressed events and alerts are still researched and reviewed (their verdicts and notes are
   kept), but a *suspicious* verdict never un-suppresses them: only removing the rule (or unticking the single finding) does.
   This differs from plain check-offs, which move back to the findings when the event reviewer calls them suspicious.
 - *Storage:* store tables `suppress_rules` and `suppress_log`; API `GET /api/suppress`, `GET /api/suppress/suggest`, and
   `suppress` / `unsuppress` on `POST /api/llm/review-limits`.
 
-**Checked events.** Checked-off events (Alerts, Posture, Fix list, Lateral movement… listed on the Checked page) are
+**Checked events.** Checked-off events (Alerts, Posture, Fix list, Lateral movement…) are
 reviewed and researched like any other event; nothing is skipped because it was cleared. When the event reviewer classifies a
 checked event as *suspicious*, it is un-checked and moves back from Checked into the findings; a later *expected* or
 *benign* classification may auto-close it again (only a person's un-check keeps auto-close off an item for good). An

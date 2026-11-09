@@ -2,7 +2,7 @@
 
 Four options (settings reviewer_expected, reviewer_benign, researcher_expected, researcher_benign): close events the event reviewer LLM classified expected/benign
 (corr_llm event_class), and/or events whose AI research note (enrich.py) has verdict "expected"/"benign". A source calling
-the event suspicious/malicious blocks closing. Events are checked off automatically, i.e. moved to the closed findings on the Checked page, with the note "auto-closed: AI verdict ...".
+the event suspicious/malicious blocks closing. Events are checked off automatically, i.e. moved to the closed findings, with the note "auto-closed: AI verdict ...".
 
 Closed: the snapshot's checklist items - baseline findings (f|...), endpoint/host findings (hf|...), fix-list issues
 (iss|...; segmentation issues map to the shared "seg" flow key) - and every event on the Open events page (any age: IDS

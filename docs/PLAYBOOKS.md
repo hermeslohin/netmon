@@ -461,7 +461,7 @@ Guidelines:
 - Write the *reason* in the note, not just "ok". Future you and the event reviewer both depend on it.
 - Never suppress a whole severity, a whole device or a whole port range because one item was noisy. Match as narrowly as you can (host plus ID, or a family).
 - After tuning, re-check after a few days: the finding should drop, and nothing important should vanish.
-- Review the Checked page and Cleared segmentation occasionally. An exception made two months ago may no longer be true.
+- Review checked-off items on Posture, the suppress rules (Settings → Configuration) and Cleared segmentation occasionally. An exception made two months ago may no longer be true.
 
 ---
 

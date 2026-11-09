@@ -445,7 +445,7 @@ class CheckOffsRangeIndependent(unittest.TestCase):
         reset()
 
     def test_check_off_independent_of_loaded_range(self):
-        """write_ack stores {type: {key: at/note/label}} with no snapshot or range attached; read_acks is the same whatever is loaded.
+        """write_ack stores {type: {key: at/note/label/by}} with no snapshot or range attached; read_acks is the same whatever is loaded.
         REQ: POS-12"""
         seed_posture(F.SID_OLD)
         seed_posture(F.SID)
@@ -459,7 +459,7 @@ class CheckOffsRangeIndependent(unittest.TestCase):
         self.assertEqual(acks[0], acks[1])
         self.assertEqual(acks[1], acks[2])
         b = acks[0]["beacon"][f"{IP['camera']}|{F.EXT['bad']}|443"]
-        self.assertEqual(set(b), {"at", "note", "label"})
+        self.assertEqual(set(b), {"at", "note", "label", "by"})
         self.assertEqual((b["note"], b["label"]), ("update check", "Beacon"))
         out = server.write_ack("dnstunnel", "tunnel.example", False)
         self.assertNotIn("tunnel.example", out.get("dnstunnel", {}))

@@ -1,4 +1,4 @@
-// Settings -> Configuration (#/config): Auto-close ("expected"/"benign" events) and Integrations (Elasticsearch, UniFi API).
+// Settings -> Configuration (#/config): Auto-close ("expected"/"benign" events), Suppress rules and Integrations (Elasticsearch, UniFi API).
 (() => {
   const SRC = {
     reviewer: `the <b>event reviewer LLM</b> (it reviews related events and classifies each finished event as suspicious, benign or expected on the AI pipeline monitoring page; runs often, on lighter evidence)`,
@@ -73,7 +73,7 @@
           Each run collects and analyzes the logs, then the event reviewer (its model is set under AI pipeline configuration > Models) copies matching earlier notes; everything else waits in the queue. Events are researched only when a person clicks <b>Send to research</b>.</div>`;
     const c = card("Auto-close", `<div class="sub" style="margin:0 0 6px">Two AI sources judge an event: the <b>event reviewer LLM</b> (classifies finished correlation reviews as suspicious, benign or expected) and the <b>researcher</b>
       (event research, run when someone clicks <b>Send to research</b>${iv ? `; never on the review schedule (every ${ivTxt(iv)})` : ""}, writes a note with a verdict: malicious, suspicious, needs-review, benign or expected; the “✨” button next to an event).
-      Turn on either or both: the options check off events that the chosen source found “expected” or “benign” (an event either source calls suspicious or malicious is never closed), moving them to <a href="#/checked">Checked (closed findings)</a> with the note <span class="mono">auto-closed: AI verdict …</span> naming the source.
+      Turn on either or both: the options check off events that the chosen source found “expected” or “benign” (an event either source calls suspicious or malicious is never closed), checking them off (closed findings) with the note <span class="mono">auto-closed: AI verdict …</span> naming the source.
       Applies to baseline findings, endpoint findings and fix-list issues. <b>It runs once right after a research note is stored</b> (a Send to research click), and when you press “Run now”. Event reviewer verdicts are picked up on those runs too.
       Items you have already checked off are untouched; if you uncheck an auto-closed item it stays open; if a later review changes the verdict to something
       else (e.g. suspicious) the item reopens on that run. Turning an option off stops new closures — use “Reopen” to restore what was closed.</div>
@@ -320,6 +320,8 @@
     el.append(tri, ints);
     tri.innerHTML = `<h2 style="margin:12px 0 4px">Auto-close</h2>`;
     if (D._err) tri.insertAdjacentHTML("beforeend", `<div class="empty">${esc(String(D._err))}</div>`); else paint(tri, D);
+    const sup = document.createElement("div"); sup.id = "cfg-sup-wrap"; sup.innerHTML = `<h2 style="margin:18px 0 4px">Suppress rules</h2>`;
+    sup.appendChild(window.suppressRulesCard()); tri.after(sup);
     if (I._err) ints.innerHTML = `<div class="empty">${esc(String(I._err))}</div>`; else paintInt(ints, I);
   };
 })();
