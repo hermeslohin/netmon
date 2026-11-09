@@ -5,7 +5,8 @@
   const RANGES = [["1h", "Last hour"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["90d", "Last 90 days"], ["all", "All time"]];
   const PURPOSE = { "llm.chat": "Ask AI chat", "llm.correlation-review": "Correlation review (background)",
     "llm.research-input": "Event research: work list", "llm.research-result": "Event research: results",
-    "llm.research-hostnotes": "Event research: host notes", "llm.review-input": "Review job: work list", "llm.review-copy": "Review job: copied notes" };
+    "llm.research-hostnotes": "Event research: host notes", "llm.review-input": "Review job: work list", "llm.review-copy": "Review job: copied notes",
+    "aireview.websearch": "Event reviewer: web search", "aireview.esquery": "Event reviewer: Elasticsearch look-up" };
   const outBadge = (o) => `<span class="badge ${o === "failure" ? "sev-high" : "sev-low"}">${esc(o || "—")}</span>`;
   const kindBadge = (k) => `<span class="badge ${k === "llm" ? "sev-medium" : "sev-info"}">${esc(KIND[k] || k)}</span>`;
   const when = (t) => { const d = new Date(t); return isNaN(d) ? esc(t) : esc(d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })); };
@@ -15,6 +16,20 @@
 
   function pre(text) { const p = document.createElement("pre"); p.className = "audit-pre"; p.textContent = text; return p; }
   function section(title, node) { const d = document.createElement("div"); d.className = "audit-sec"; const h = document.createElement("h3"); h.textContent = title; d.append(h, node); return d; }
+
+  // one event reviewer web look-up: what it searched / read, why, and the result links (built with DOM nodes, never innerHTML)
+  function webLookup(P, target) {
+    const d = document.createElement("div"), line = (k, v, mono) => { if (v === undefined || v === null || v === "") return;
+      const r = d.appendChild(document.createElement("div")); r.className = "small"; const b = r.appendChild(document.createElement("b")); b.textContent = k + ": ";
+      const s = r.appendChild(document.createElement("span")); if (mono) s.className = "mono"; s.textContent = v; };
+    line(P.kind === "page" ? "Page read" : "Search", P.query, true); line("Why", P.why); line("Event under review", target, true);
+    line("Results", P.error ? "failed: " + P.error : `${P.results ?? 0}${P.cached ? " (answered from the cache)" : ""}`);
+    const ul = document.createElement("ol"); ul.className = "small";
+    (P.urls || []).forEach((u) => { if (!/^https?:\/\//i.test(u.url || "")) return; const li = ul.appendChild(document.createElement("li")), a = li.appendChild(document.createElement("a"));
+      a.href = u.url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.title = u.url; a.textContent = (u.title || u.url).slice(0, 120); });
+    if (ul.children.length) d.append(ul);
+    return d;
+  }
 
   async function showDoc(box, id) {
     box.replaceChildren(); box.insertAdjacentText("beforeend", "Loading…");
@@ -31,6 +46,7 @@
     const dl = document.createElement("div"); dl.className = "audit-facts";
     facts.forEach(([k, v]) => { const a = document.createElement("div"); a.className = "muted small"; a.textContent = k; const b = document.createElement("div"); b.textContent = v; dl.append(a, b); });
     box.append(dl);
+    if (ev.action === "aireview.websearch" && (D.netmon || {}).params) box.append(section("Web look-up", webLookup(D.netmon.params, D.netmon.target)));
     if (L.system_prompt) box.append(section("System prompt (instructions the app gave the model)", pre(L.system_prompt)));
     if (g.prompt) box.append(section(ev.action === "llm.research-input" ? "Data handed to the research model" : ev.action === "llm.review-input" ? "Review job work list" : "Prompt (sent by the app)", pre(g.prompt)));
     if (g.completion) box.append(section(ev.action?.startsWith("llm.research") ? "Returned by the LLM" : "Answer (from the model)", pre(g.completion)));
@@ -100,7 +116,8 @@
       <select name="outcome">${opt("", "Any outcome", F.outcome)}${opt("success", "Success", F.outcome)}${opt("failure", "Failure / denied", F.outcome)}</select>
       <select name="model">${opt("", "All models", F.model)}${withCur(R.models, F.model).filter((b) => b.key).map((b) => opt(b.key, `${b.key} (${b.n})`, F.model)).join("")}</select>
       <input name="q" type="search" placeholder="Search text, prompts, answers…" value="${esc(F.q)}" style="min-width:16em">
-      <button type="submit">Apply</button> <a href="#/audit" class="small">reset</a></form>`);
+      <button type="submit">Apply</button> <a href="#/audit" class="small">reset</a>
+      <a href="#/audit?action=aireview.websearch&range=${esc(F.range || "7d")}" class="small" title="every web search and page read by the event reviewer">event reviewer web searches</a></form>`);
     fc.querySelector("form").onsubmit = (e) => { e.preventDefault(); const d = Object.fromEntries(new FormData(e.target));
       const s = d.startL ? new Date(d.startL) : null, en = d.endL ? new Date(d.endL) : null; delete d.startL; delete d.endL;
       if (d.range) { d.start = ""; d.end = ""; } else { d.start = s && !isNaN(s) ? s.toISOString() : ""; d.end = en && !isNaN(en) ? en.toISOString() : ""; if (!d.start && !d.end) d.range = "24h"; }
@@ -111,7 +128,7 @@
     el.appendChild(fc);
 
     const k = Object.fromEntries(R.kinds.map((b) => [b.key, b.n])), fail = (R.outcomes.find((b) => b.key === "failure") || {}).n || 0;
-    el.insertAdjacentHTML("beforeend", kpis([["Entries", fn(R.total)], ["User actions", fn(k["netmon.audit"] || 0)], ["AI conversations", fn(k["netmon.llm"] || 0)],
+    el.insertAdjacentHTML("beforeend", kpis([["Entries", fn(R.total)], ["Web searches", `<a href="#/audit?action=aireview.websearch&range=${esc(F.range || "24h")}">${fn((R.actions.find((b) => b.key === "aireview.websearch") || {}).n || 0)}</a>`], ["User actions", fn(k["netmon.audit"] || 0)], ["AI conversations", fn(k["netmon.llm"] || 0)],
       ["Failed / denied", fn(fail), fail ? "bad" : ""], ["Users", fn(R.users.length)], ["AI tokens in / out", `${fn(R.tokens.in)} / ${fn(R.tokens.out)}`]]));
 
     if (R.histogram.length > 1) {

@@ -1744,8 +1744,14 @@ def _web_logger(aid, ids, mname, purpose="event-review"):
             c.execute("INSERT INTO web_queries (ts, anchor, candidates, model, kind, query, why, results, urls, seconds, error, purpose, cached) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (time.time(), aid, json.dumps(ids), mname, "search" if item.get("search") else "page", item.get("search") or item.get("url"),
                        item.get("why"), (res or {}).get("results"), json.dumps((res or {}).get("urls") or []), secs, err, purpose, cached))
+        kind, q = ("search", item.get("search")) if item.get("search") else ("page", item.get("url"))
+        urls = [{"url": str(u.get("url") or "")[:500], "title": str(u.get("title") or "")[:200]} for u in ((res or {}).get("urls") or [])[:6] if isinstance(u, dict)]
         audit.action("netmon (event reviewer)", "aireview.websearch", outcome="failure" if err else "success", category="network",
-                     params={**item, "results": (res or {}).get("results"), "error": err}, target=aid, message=f"event reviewer searched the web ({mname})")
+                     params={"kind": kind, "query": q, "why": item.get("why"), "results": (res or {}).get("results"), "urls": urls, "error": err,
+                             "seconds": round(secs, 2) if isinstance(secs, (int, float)) else secs, "cached": bool(cached), "purpose": purpose, "model": mname,
+                             "candidates": list(ids or [])[:20]},
+                     target=aid, message=(f"event reviewer {'searched the web for' if kind == 'search' else 'read the page'} {str(q or '')[:200]}"
+                                          + (f" - failed: {str(err)[:120]}" if err else f" - {(res or {}).get('results') or 0} result(s){' (cached)' if cached else ''}")))
     logw.seen, logw.n = {}, 0
     return logw
 

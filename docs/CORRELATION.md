@@ -598,10 +598,11 @@ times like `2026-11-05 00:00 UTC` -> ISO, unreadable ones dropped for the defaul
 `destination.port`, the ` x357` event count stripped from rule names and web searches). `review_events.es` /
 `.planned` record searches per review; the Event reviewer Elasticsearch box shows the share of reviews that searched.
 
-The AI pipeline pages reports how often it searches: a **Web look-ups (24 h)** KPI, a *Web search* line in the Event
-reviewer box (look-ups in 24 h, % of event reviews that searched), and the **Event reviewer web searches** box
-(look-ups 24 h / 7 d, reviews that searched, reviews citing a page, pages cited, failed look-ups, per-day counts and
-the newest 50 with their result links, cited ones marked).
+The AI pipeline pages report how often it searches: a **Web look-ups (24 h)** KPI and a *Web search* line in the Event
+reviewer box (look-ups in 24 h, % of event reviews that searched). The look-ups themselves are items in the **Audit
+log** (action `aireview.websearch`, user `netmon (event reviewer)`): the 24 h count links there for admins, the Audit
+log has a **Web searches** KPI and an *event reviewer web searches* filter link, and each entry shows the search or page,
+why, the event under review, the result count (or error, or cached) and the result links.
 
 Searching costs time and, with Anthropic or OpenAI reviewers, tokens: each round resends the event, its candidates
 and the earlier results. Most decisions are clear without searching, and the model is told not to search then.

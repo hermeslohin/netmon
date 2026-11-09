@@ -675,27 +675,6 @@
     r.title = "The notes picked for each event are cut off once this many characters are in the request, whatever Notes per event allows (one note is at most 300-400 characters). A request that also has several candidate events shares the budget. More characters = more input tokens and slower reviews; the single-link re-check uses a third of it.";
     return r;
   }
-  // web look-ups by the event reviewer: how often (KPIs), per day, and the newest ones with their result links (cited ones marked)
-  function webCard(D) {
-    const W = D.web_queries || { total: 0, last_day: 0, recent: [], daily: [] }, on = D.config?.web_search?.enabled;
-    const c = card(`Event reviewer web searches (${fn(W.last_day)} in 24 h · ${fn(W.total)} total)`, `${kpis([
-      ["Web look-ups (24 h)", fn(W.last_day || 0), W.last_day ? "good" : ""], ["Web look-ups (7 d)", fn(W.last_week || 0)],
-      ["Event reviews that searched (24 h)", W.reviews_day ? `${fn(W.reviews_web_day || 0)} of ${fn(W.reviews_day)} <span class="small muted">(${W.pct_reviews_web_day ?? 0}%)</span>` : "—"],
-      ["Reviews citing a web page (24 h)", fn(W.reviews_cited_day || 0)], ["Pages cited (current classifications)", fn(W.cited_pages || 0)],
-      ["Failed look-ups (24 h)", fn(W.errors_day || 0), W.errors_day ? "warn" : ""], ["Answered from cache (24 h)", `<span title="the same search or page within 7 days is answered from the cache instead of Firecrawl">${fn(W.cached_day || 0)}</span>`]])}
-      ${W.daily?.length ? `<div class="small muted" style="margin:4px 0">Per day: ${W.daily.map((d) => `${esc(d.day.slice(5))} <b>${fn(d.searches)}</b>${d.errors ? ` (${fn(d.errors)} failed)` : ""}`).join(" · ")}</div>` : ""}
-      ${W.recent.length ? "" : `<div class="small muted">${on ? "The event reviewer has not searched the web yet." : "Off. Turn on <b>Web search · event reviewer</b> in the Event reviewer look-ups box to let the event reviewer look things up on the web."}</div>`}`);
-    c.id = "ai-web";
-    const link = (u) => `<a href="${esc(u.url)}" target="_blank" rel="noopener noreferrer" title="${esc(u.url)}">${esc((u.title || u.url).slice(0, 70))}</a>${u.cited ? ' <span class="badge sev-good" style="font-size:10px" title="the reviewer cited this page in its classification">cited</span>' : ""}`;
-    if (W.recent.length) c.appendChild(table(null, [
-      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
-      { k: "anchor_label", t: "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(String(v).slice(0, 90))}</a>` : esc(String(v).slice(0, 90))) },
-      { k: "query", t: "Search / page", fmt: (v, r) => `${r.kind === "page" ? "📄" : "🔍"} <span class="mono small">${esc(v)}</span>${r.why ? `<div class="small muted">${esc(r.why)}</div>` : ""}` },
-      { k: "results", t: "Results", fmt: (v, r) => (r.error ? `<span class="bad small">${esc(r.error)}</span>` : `<div class="small">${(r.urls || []).map(link).join("<br>") || fn(v || 0)}</div>`) },
-      { k: "model", t: "Model", cls: "small mono" },
-    ], W.recent, { sort: "ts", limit: 20 }));
-    return c;
-  }
   // ---- review limits (admin or network defender): link types and events that are never sent to the event reviewer
   const TYPE_INFO = {
     alert: "Watcher alerts: the 15-minute watcher's urgent notices (new device, host notice, policy breach). The most numerous event type.",
@@ -1455,7 +1434,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
         <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · ${fn(D.es_queries?.last_day || 0)} queries in 24 h${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
-        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>) · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
+        <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>) · ${isAdmin() ? `<a href="#/audit?action=aireview.websearch&range=24h" title="each web look-up is an entry in the Audit log">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a>` : `${fn(D.web_queries?.last_day || 0)} look-ups in 24 h`} · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
         <span class="k">Event research Elasticsearch</span><span>${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h · ${fn(D.es_queries?.research?.total || 0)} total</span>
         <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""}${st.web_queries_this_run ? `, ${fn(st.web_queries_this_run)} web look-ups` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>
@@ -1474,7 +1453,6 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     partHead(el, 2, "mon");
     el.appendChild(rjob);
     el.appendChild(reviewVolumeCard(D));
-    el.appendChild(webCard(D));
     el.appendChild(notesConsolidateCard(D));
     partHead(el, 3, "mon");
     el.appendChild(researchStatusCard(D));
