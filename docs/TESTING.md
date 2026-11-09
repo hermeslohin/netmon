@@ -222,7 +222,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
 | `review.lookback` | AI pipeline configuration > Review job: hours of logs per run | `/api/config/lookback` | CFG-02, SET-64 | 5 | 6 |
 | `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
-| `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 24 | 7 |
+| `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 27 | 7 |
 | `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
 | `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 13 | 6 |
 | `notes.consolidate` | AI pipeline configuration > Nightly note consolidation | `/api/llm/notes-consolidate` | STO-09, SET-66 | 6 | 8 |
@@ -275,7 +275,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_open_events.py` | 44 | Open events page backend (eventstore: upsert, vuln lifecycle, grouping, filters, check-offs, display merges, extras, (OE-01, OE-02, OE-03, OE-04, OE-05, OE-06, OE-07, OE-08, OE-09, OE-10, OE-11, OE-12, OE-13, OE-14, OE-15, OE-16, OE-19) |
 | `tests/unit/test_opencti.py` | 13 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07) |
 | `tests/unit/test_owner_verdict_scope.py` | 10 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
-| `tests/unit/test_posture.py` | 30 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
+| `tests/unit/test_posture.py` | 29 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
 | `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, RISK-03, STO-06, STO-07) |
 | `tests/unit/test_related_view.py` | 1 | Open events page: related events of rows older than the loaded snapshot come from the stored verdicts (STO-10) |
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |
@@ -284,6 +284,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_reviewlog.py` | 7 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AIR-02, AUD-04) |
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
 | `tests/unit/test_risk_k8s.py` | 4 | Risk: Kubernetes workloads ranked with hosts (risk.k8s_rows). (KUBE-11) |
+| `tests/unit/test_runarchive.py` | 7 | Review-run documents are pipeline input only: run summaries (runarchive.py), pruning, the time-range-only page API (DASH-07, OPS-06, POS-01, POS-04) |
 | `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |
 | `tests/unit/test_scoped_notes.py` | 3 | Unit tests for dashboard/app/kb.py wider-scope internet notes: parent-domain notes cover subdomains, CIDR-range notes cover addresses. (STO-13) |
 | `tests/unit/test_server_cache.py` | 2 | Unit tests for the dashboard's in-memory document cache (server.load_json). (DASH-02, OPS-05) |

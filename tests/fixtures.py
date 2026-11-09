@@ -153,3 +153,28 @@ def seed_snapshot(sid=SID, with_analysis=True):
     if with_analysis:
         store.jdump(analysis(sid), os.path.join(data, f"{sid}.analysis.json"))
     return sid
+
+
+def range_id(sid=SID, hours=24):
+    """The time-range id (rYYYYMMDDTHHMMZ-YYYYMMDDTHHMMZ) of the `hours` window ending when review run `sid` was generated."""
+    import datetime as dt
+    end = dt.datetime.strptime(sid, "%Y-%m-%dT%H%MZ")
+    return "r%s-%s" % ((end - dt.timedelta(hours=hours)).strftime("%Y%m%dT%H%MZ"), end.strftime("%Y%m%dT%H%MZ"))
+
+
+def seed_range(sid=SID, hours=24, raw=None, an=None):
+    """Write a collected time range (ranges/<rid>.json + .analysis.json + .meta.json) whose window ends at review run `sid`,
+    holding that run's fixture data (or `raw` / `an`), exactly where the host broker writes it. Returns the range id."""
+    import datetime as dt
+    import os
+    import store
+    rid = range_id(sid, hours)
+    rng = os.path.join(os.environ["STATE_DIR"], "ranges")
+    os.makedirs(rng, exist_ok=True)
+    iso = [dt.datetime.strptime(x, "%Y%m%dT%H%MZ").strftime("%Y-%m-%dT%H:%M:00+00:00") for x in rid[1:].split("-")]
+    raw = raw if raw is not None else raw_snapshot(sid)
+    raw = dict(raw, generated=iso[1], hours=hours, range={"start": iso[0], "end": iso[1]})
+    store.jdump(raw, os.path.join(rng, f"{rid}.json"))
+    store.jdump(an if an is not None else analysis(sid), os.path.join(rng, f"{rid}.analysis.json"))
+    store.jdump({"id": rid, "start": iso[0], "end": iso[1], "generated": iso[1], "hours": hours}, os.path.join(rng, f"{rid}.meta.json"))
+    return rid

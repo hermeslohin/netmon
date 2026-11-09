@@ -1494,17 +1494,17 @@ function busyPill(on, text) {
   if (!b) { b = document.createElement("div"); b.id = "busyPill"; b.setAttribute("role", "status"); document.body.appendChild(b); }
   b.innerHTML = `<i class="spin"></i> ${esc(text || "Updating…")}`;
 }
-// Loading another snapshot / range (or the same one again, ⟳ or after a rule change) keeps the current page on screen
+// Loading another time range (or the same one again, ⟳ or after a rule change) keeps the current page on screen
 // while the data downloads, then updates it in place (rerender): no blank "Loading…" page.
-// Pages that never read the snapshot (S.snap / risk / issues / acks): on first load they render straight away, in parallel with
-// the snapshot download (several seconds), instead of waiting for it. Their own data comes from their own endpoints.
+// Pages that never read the time range data (S.snap / risk / issues / acks): on first load they render straight away, in parallel with
+// the range download, instead of waiting for it. Their own data comes from their own endpoints.
 const SNAP_FREE = new Set(["aireview", "aiconfig"]);
 const curView = () => (location.hash.replace(/^#\/?/, "").split("?")[0] || "").split("/")[0];
 async function loadSnap(id) {
   const soft = !!S.snap && $("#main").childElementCount > 0 && !$("#main > .loading:only-child");
   const early = !S.snap && SNAP_FREE.has(curView()) && $("#main").dataset.view === curView();  // already rendered by init()
-  if (soft) busyPill(true, `Loading ${id.startsWith("r") ? "time range" : "snapshot " + id}…`);
-  else if (!early) $("#main").innerHTML = `<div class="loading">Loading ${id.startsWith("r") ? "time range" : "snapshot " + esc(id)}…</div>`;
+  if (soft) busyPill(true, "Loading time range…");
+  else if (!early) $("#main").innerHTML = `<div class="loading">Loading time range…</div>`;
   let got;
   try { got = await Promise.all([api("/api/snapshot?id=" + encodeURIComponent(id)), api("/api/history"), api("/api/registry"), api("/api/issues").catch(() => null), api("/api/risk?id=" + encodeURIComponent(id)).catch(() => null), api("/api/acks").catch(() => ({}))]); }
   finally { if (soft) busyPill(false); }
@@ -1512,7 +1512,7 @@ async function loadSnap(id) {
   S.acks = acks || {}; S.corr = null; S.lateral = null;
   S.snap = snap; S.reg = reg; S.issues = iss; S.risk = rsk;
   window.sectionsSetup?.(snap);  // a time range still being collected: placeholders + proxies, sections arrive after the first render
-  // the time range: a collected range carries its own; a nightly snapshot covers generated - hours .. generated
+  // the time range: a collected range carries its own
   const gen = Date.parse(snap.raw.generated);
   S.range = snap.range ? { start: snap.range.start, end: snap.range.end } : { start: new Date(gen - (+snap.raw.hours || 24) * 36e5).toISOString(), end: new Date(gen).toISOString() };
   // trend charts: the baseline records inside the range when there are at least two, else all of them
@@ -1521,9 +1521,7 @@ async function loadSnap(id) {
   window.rangeLabel?.();
   const ic = $("#issueCount"); const nrec = (iss?.open || []).filter((x) => x.recurring).length;
   if (ic) { ic.textContent = nrec; ic.style.display = nrec ? "" : "none"; } _hnbi = null; window.sectionsBuildIndex ? window.sectionsBuildIndex() : buildIndex();
-  $("#foot").textContent = snap.range
-    ? `time range ${new Date(snap.range.start).toLocaleString()} – ${new Date(snap.range.end).toLocaleString()} (collected for this range) · alarms and AI triage from nightly report ${snap.base || "—"}`
-    : `snapshot ${snap.id} · generated ${new Date(snap.raw.generated).toLocaleString()} · companions: ${["analysis", "sources"].filter((c) => snap[c]).join(", ") || "none"}`;
+  $("#foot").textContent = `time range ${new Date(S.range.start).toLocaleString()} – ${new Date(S.range.end).toLocaleString()} (collected for this range)`;
   if (soft) rerender(); else if (!(early && $("#main").dataset.view === curView())) route();
   window.sectionsStart?.();
 }
@@ -1546,11 +1544,9 @@ async function init() {
   }
   if (!isAdmin()) document.querySelectorAll('#nav a[data-r="config"]').forEach((a) => (a.textContent = "Configuration (view)"));
   if (!isAdmin()) document.querySelectorAll("#nav a.admin-only").forEach((a) => a.remove());
-  S.snaps = await api("/api/snapshots");
-  // ⟳: newer nightly report available and the newest one was shown -> show the new one; otherwise reload the same range
-  $("#reload").onclick = async () => { const wasLatest = S.snap?.id === S.snaps[S.snaps.length - 1]?.id; S.snaps = await api("/api/snapshots");
-    if (wasLatest) return window.rangeSelectSnapshot(S.snaps[S.snaps.length - 1].id); loadSnap(S.snap.id); };
-  if (!S.snaps.length) { $("#main").innerHTML = `<div class="loading">No snapshots found in netmon/data.</div>`; return; }
+  // ⟳: on the default window (last 24 h) move to the newest pre-collected one; a picked range reloads as it is
+  $("#reload").onclick = async () => { if (window.isDefaultRange?.() || !S.snap) return window.loadDefaultRange(); loadSnap(S.snap.id); };
+  S.snaps = true;  // set once signed in: the page works on time ranges only (there is no review-run list)
   if (SNAP_FREE.has(curView())) {  // render now; start the (CPU-heavy, unused here) snapshot download once the page's own
     // first data is in (window.viewCoreDone, called by the page), else the server's work on both slows the page by ~10x. Max 20 s wait.
     const ready = new Promise((res) => { window.viewCoreDone = res; setTimeout(res, 20000); });

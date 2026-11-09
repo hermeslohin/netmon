@@ -1,6 +1,7 @@
 """E2E: the data behind Security -> Posture through the real server - snapshots and time ranges, suppress rules, check-offs, roles.
 
-One server process for the module, seeded with two nightly snapshots and one collected time range that fill every Posture box.
+One server process for the module, seeded with two review runs (server-side input only: the page API refuses them) and three
+collected time ranges that fill every Posture box: one per review-run window (RID_OLD, RID_DAY) and a 12-hour one (RID).
 No host broker is configured, so anything that would need a new Elasticsearch collection fails cleanly instead of reaching out.
 """
 import os
@@ -14,10 +15,12 @@ import harness  # noqa: E402
 import fixtures as F  # noqa: E402
 
 IP, EXT = F.IPS, F.EXT
-RID = "r20260105T0600Z-20260105T1800Z"  # ends after SID's nightly report -> base SID
+RID = "r20260105T0600Z-20260105T1800Z"  # ends after SID's review run -> base SID
+RID_OLD = "r20260103T1200Z-20260104T1200Z"  # the same 24 h window as review run SID_OLD
+RID_DAY = "r20260104T1200Z-20260105T1200Z"  # the same 24 h window as review run SID
 PW = "posture-test-password-1"
 SRV = None
-SEED = f"RID = {RID!r}\n" + r'''
+SEED = f"RID, RID_OLD, RID_DAY = {RID!r}, {RID_OLD!r}, {RID_DAY!r}\n" + r'''
 import os, fixtures as F, store
 IP, EXT = F.IPS, F.EXT
 data, rng = os.path.join(os.environ["NETMON_DIR"], "data"), os.path.join(os.environ["STATE_DIR"], "ranges")
@@ -47,13 +50,20 @@ for sid in (F.SID_OLD, F.SID):
     raw, an = posture(sid)
     store.jdump(raw, os.path.join(data, sid + ".json"))
     store.jdump(an, os.path.join(data, sid + ".analysis.json"))
-raw, an = posture(F.SID)
-s, e = "2026-01-05T06:00:00+00:00", "2026-01-05T18:00:00+00:00"
-raw.update(generated=e, hours=12, range={"start": s, "end": e})
-an["findings"] = [{"severity": "low", "device": IP["laptop"], "name": "Admin Laptop", "kind": "new-port", "detail": "range-only finding"}]
-store.jdump(raw, os.path.join(rng, "%s.json" % RID))
-store.jdump(an, os.path.join(rng, "%s.analysis.json" % RID))
-store.jdump({"id": RID, "start": s, "end": e, "generated": e, "hours": 12}, os.path.join(rng, "%s.meta.json" % RID))
+
+def seed_range(rid, sid, hours, findings=None):
+    raw, an = posture(sid)
+    s, e = ["%s-%s-%sT%s:%s:00+00:00" % (x[0:4], x[4:6], x[6:8], x[9:11], x[11:13]) for x in rid[1:].split("-")]
+    raw.update(generated=e, hours=hours, range={"start": s, "end": e})
+    if findings is not None:
+        an["findings"] = findings
+    store.jdump(raw, os.path.join(rng, "%s.json" % rid))
+    store.jdump(an, os.path.join(rng, "%s.analysis.json" % rid))
+    store.jdump({"id": rid, "start": s, "end": e, "generated": e, "hours": hours}, os.path.join(rng, "%s.meta.json" % rid))
+
+seed_range(RID_OLD, F.SID_OLD, 24)
+seed_range(RID_DAY, F.SID, 24)
+seed_range(RID, F.SID, 12, [{"severity": "low", "device": IP["laptop"], "name": "Admin Laptop", "kind": "new-port", "detail": "range-only finding"}])
 '''
 
 
@@ -85,14 +95,14 @@ def sigs(snap):
 
 
 class PostureSnapshotApi(unittest.TestCase):
-    """GET /api/snapshot(s) serve what the Posture page renders, for nightly reports and time ranges."""
+    """GET /api/snapshot serves what the Posture page renders, for time ranges only."""
 
-    def test_latest_snapshot_has_every_posture_section(self):
-        """GET /api/snapshot?id=latest returns the newest nightly report with every Posture box's data.
+    def test_time_range_has_every_posture_section(self):
+        """GET /api/snapshot?id=<time range> returns the collected range with every Posture box's data.
         REQ: POS-01, POS-02"""
         c = SRV.login()
-        code, s, _ = c.get("/api/snapshot?id=latest")
-        self.assertEqual((code, s["id"]), (200, F.SID))
+        code, s, _ = c.get("/api/snapshot?id=" + RID_DAY)
+        self.assertEqual((code, s["id"], s["base"]), (200, RID_DAY, F.SID))
         raw, an = s["raw"], s["analysis"]
         self.assertTrue(an["findings"])
         self.assertTrue(all("last_seen" in f for f in an["findings"]))
@@ -107,17 +117,21 @@ class PostureSnapshotApi(unittest.TestCase):
         self.assertEqual(len(raw["internal"]["scans"]), 1)
         self.assertEqual((raw["files"]["pe_count"], raw["files"]["software"][0]["name"]), (1, "OpenSSH"))
 
-    def test_snapshot_list_and_unknown_ids(self):
-        """GET /api/snapshots lists the nightly reports oldest first; unknown, malformed or traversal ids are 404.
+    def test_review_runs_refused_and_unknown_ids(self):
+        """There is no review-run list (/api/snapshots is 404); review-run ids (and 'latest') are refused with 'pick a time range';
+        unknown, malformed or traversal ids are 404.
         REQ: POS-01"""
         c = SRV.login()
-        code, lst, _ = c.get("/api/snapshots")
-        self.assertEqual((code, [x["id"] for x in lst]), (200, [F.SID_OLD, F.SID]))
+        self.assertEqual(c.get("/api/snapshots")[0], 404)
+        for sid in ("latest", F.SID, F.SID_OLD):
+            code, r, _ = c.get("/api/snapshot?id=" + sid)
+            self.assertEqual(code, 404, sid)
+            self.assertIn("pick a time range", r["error"], sid)
         for sid in ("2026-02-01T1200Z", "..%2Fstate%2Fusers", "r20260101T0000Z-20260101T0100Z", ""):
             self.assertEqual(c.get("/api/snapshot?id=" + sid)[0], 404, sid)
 
-    def test_time_range_follows_nightly_report(self):
-        """A collected time range returns its own findings and names the nightly report its alarms and triage come from.
+    def test_time_range_names_its_base_review_run(self):
+        """A collected time range returns its own findings and names the review run (base) whose correlation it uses.
         REQ: POS-05, POS-06"""
         code, s, _ = SRV.login().get("/api/snapshot?id=" + RID)
         self.assertEqual((code, s["id"], s["base"]), (200, RID, F.SID))
@@ -134,23 +148,23 @@ class PostureSnapshotApi(unittest.TestCase):
         self.assertEqual(c.get(f"/api/section?id={F.SID}&name=beacons")[0], 404)
 
     def test_range_request(self):
-        """POST /api/range: a nightly window loads that report; any other window needs the host broker (400 here, none configured).
+        """POST /api/range: every window, even one matching a review run, needs the host broker (400 here, none configured).
         REQ: POS-04"""
         c = SRV.login()
-        code, r, _ = c.post("/api/range", {"start": "2026-01-03T12:05:00Z", "end": "2026-01-04T12:05:00Z"})
-        self.assertEqual((code, r), (200, {"id": F.SID_OLD, "status": "done", "snapshot": True}))
-        code, r, _ = c.post("/api/range", {"start": "2026-01-03T00:00:00Z", "end": "2026-01-03T06:00:00Z"})
-        self.assertEqual(code, 400)
-        self.assertIn("broker", r["error"])
+        for body in ({"start": "2026-01-03T12:05:00Z", "end": "2026-01-04T12:05:00Z"}, {"start": "2026-01-03T00:00:00Z", "end": "2026-01-03T06:00:00Z"}):
+            code, r, _ = c.post("/api/range", body)
+            self.assertEqual(code, 400, body)
+            self.assertIn("broker", r["error"], body)
+            self.assertNotIn("snapshot", r, body)
         code, r, _ = c.post("/api/range", {"start": "2026-01-03T06:00:00Z", "end": "2026-01-03T00:00:00Z"})
         self.assertEqual((code, r["error"]), (400, "the end must be after the start"))
 
 
 class PostureSuppressApi(unittest.TestCase):
-    """Suppress rules posted from Posture hide rows in every snapshot and range until removed."""
+    """Suppress rules posted from Posture hide rows in every time range until removed."""
 
     def test_seg_suppress_hides_everywhere_then_restores(self):
-        """A segmentation suppress rule hides the flow in every nightly report and range; removing it brings the flow back.
+        """A segmentation suppress rule hides the flow in every time range; removing it brings the flow back.
         REQ: POS-07, POS-10"""
         c = SRV.login()
         flow = (IP["dmz"], IP["server"], 22)
@@ -158,7 +172,7 @@ class PostureSuppressApi(unittest.TestCase):
         self.assertEqual(code, 200, r)
         rid = r["seg_rules"][-1]["id"]
         try:
-            for sid in (F.SID_OLD, F.SID, RID):
+            for sid in (RID_OLD, RID_DAY, RID):
                 s = c.get("/api/snapshot?id=" + sid)[1]
                 self.assertNotIn(flow, flows(s), sid)
                 self.assertIn((IP["camera"], IP["laptop"], 8080), flows(s), sid)
@@ -166,24 +180,24 @@ class PostureSuppressApi(unittest.TestCase):
         finally:
             code, r, _ = c.post("/api/llm/review-limits", {"unseg_suppress": rid})
         self.assertEqual((code, r["seg_rules"]), (200, []))
-        self.assertIn(flow, flows(c.get("/api/snapshot?id=" + F.SID)[1]))
+        self.assertIn(flow, flows(c.get("/api/snapshot?id=" + RID_DAY)[1]))
 
     def test_ids_suppress_hides_everywhere_then_restores(self):
-        """An IDS suppress rule (glob) hides the signature and its count in every snapshot and range; removing it restores them.
+        """An IDS suppress rule (glob) hides the signature and its count in every time range; removing it restores them.
         REQ: POS-09, POS-10"""
         c = SRV.login()
         code, r, _ = as_("pos-defender").post("/api/llm/review-limits", {"ids_suppress": {"sig": "ET SCAN *"}})
         self.assertEqual(code, 200, r)
         rid = r["ids_rules"][-1]["id"]
         try:
-            for sid in (F.SID_OLD, F.SID, RID):
+            for sid in (RID_OLD, RID_DAY, RID):
                 s = c.get("/api/snapshot?id=" + sid)[1]
                 self.assertEqual(sigs(s), {"ET INFO Test Signature"}, sid)
                 self.assertEqual(s["raw"]["alerts"]["total"], 3, sid)
             self.assertEqual([x["sig"] for x in c.get("/api/suppress")[1]["ids_rules"]], ["ET SCAN *"])
         finally:
             c.post("/api/llm/review-limits", {"unids_suppress": rid})
-        self.assertEqual(c.get("/api/snapshot?id=" + F.SID)[1]["raw"]["alerts"]["total"], 8)
+        self.assertEqual(c.get("/api/snapshot?id=" + RID_DAY)[1]["raw"]["alerts"]["total"], 8)
 
     def test_bad_suppress_rules_rejected(self):
         """Suppress rules that are empty or would hide everything are refused with 400 and nothing is stored.
@@ -202,14 +216,14 @@ class PostureCheckOffApi(unittest.TestCase):
     """Check-offs made on Posture are shared by every time range."""
 
     def test_check_off_persists_across_ranges(self):
-        """A check-off stays checked whichever nightly report or range is loaded, and the row stays in the data for 'show N checked'.
+        """A check-off stays checked whichever time range is loaded, and the row stays in the data for 'show N checked'.
         REQ: POS-12"""
         c = SRV.login()
         key = f"{IP['camera']}|{EXT['bad']}|443"
         code, acks, _ = c.post("/api/acks", {"type": "beacon", "key": key, "checked": True, "label": "Beacon"})
         self.assertEqual(code, 200)
         try:
-            for sid in (F.SID_OLD, RID, F.SID):
+            for sid in (RID_OLD, RID, RID_DAY):
                 s = c.get("/api/snapshot?id=" + sid)[1]
                 self.assertEqual(len(s["raw"]["beacons"]["candidates"]), 1, sid)
                 self.assertIn(key, c.get("/api/acks")[1]["beacon"], sid)
@@ -219,7 +233,7 @@ class PostureCheckOffApi(unittest.TestCase):
         self.assertNotIn(key, c.get("/api/acks")[1].get("beacon", {}))
 
     def test_cleared_segmentation_shared(self):
-        """Clearing a segmentation flow (ack type 'seg', bulk form) is visible to every account and does not filter the snapshot.
+        """Clearing a segmentation flow (ack type 'seg', bulk form) is visible to every account and does not filter the time range.
         REQ: POS-11, POS-12"""
         a, d = SRV.login(), as_("pos-defender")
         key = f"{F.mac(4)}|{IP['server']}|22"
@@ -241,10 +255,10 @@ class PostureRoles(unittest.TestCase):
     """Who may read Posture data and change check-offs or suppress rules."""
 
     def test_user_role_cannot_read_or_change_posture(self):
-        """A User gets 403 for snapshots, sections, check-offs and suppress rules, and nothing is changed.
+        """A User gets 403 for time ranges, sections, check-offs and suppress rules, and nothing is changed.
         REQ: POS-19"""
         u = as_("pos-user")
-        for p in ("/api/snapshot?id=latest", "/api/snapshots", f"/api/section?id={RID}&name=beacons", "/api/acks", "/api/suppress"):
+        for p in (f"/api/snapshot?id={RID}", f"/api/section?id={RID}&name=beacons", "/api/acks", "/api/suppress"):
             self.assertEqual(u.get(p)[0], 403, p)
         for p, b in (("/api/acks", {"type": "beacon", "key": "x|y|1", "checked": True}),
                      ("/api/llm/review-limits", {"seg_suppress": {"src": IP["dmz"]}}),

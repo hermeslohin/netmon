@@ -74,6 +74,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 | `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `data/unifi_cache` |
 | `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |
 | `review.py` (review job) | child of the scheduler | grid set on AI pipeline configuration (5 min–24 h, anchored 05:00 UTC) or **Run now** | Elasticsearch, UniFi cache, earlier notes | snapshot, `review_job.json`, copied notes |
+| `range_warm.py` | child of the scheduler | every 15-minute slot, 1 min in | host broker functions (collect.py --section, analyze.py --readonly) | the dashboard's default window (last 24 h) as a time range; newest 3 kept (`state/range_warm`) |
 | `research.py` (event research) | started by the host broker | only **Send to research** | event, web, optional Elasticsearch | event note (`enrich.db`), host notes (`kb.db`), `logs/` |
 | `kube_images.py` | child of the scheduler | daily 04:00 UTC (only with a Kubernetes cluster configured) or **Scan now** | Kubernetes API (read-only), image registries, Trivy in Docker | `docs` table `k8s/images_scan` |
 | `weekly_rebuild.sh` | child of the scheduler | Sunday 03:00 UTC | — | new dashboard image, security scan results |
@@ -93,6 +94,7 @@ runs these background threads:
 | Thread | Module | Job |
 |---|---|---|
 | `eventstore-ingest` | `eventstore.py` | turns each new snapshot into events with stable ids; open until checked off |
+| `eventstore-ingest` (same thread) | `runarchive.py` | folds each review run into `run_summary` (threat-intel counter row, Fix-list tracker inputs) and `finding_seen`, then deletes the run's documents (`data/<stamp>*`) except the newest 8 and the 05 UTC daily runs of the auto-tune window. Review runs are pipeline input only; the browser never loads one |
 | `corr-llm` | `corr_llm.py`, `clef.py` | correlation review: decision model per proposed link, then one event pass per event |
 | `webpush` | `pushsvc.py` | sends unpushed rows of the `alerts` table as Web Push (VAPID) |
 | `audit-writer` | `audit.py` | ships user actions and AI conversations to `logs-netmon`; spools locally while Elasticsearch is down |

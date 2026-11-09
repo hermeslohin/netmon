@@ -12,12 +12,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import _env  # noqa: E402,F401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
+import fixtures  # noqa: E402
 
 SRV = None
 PW = "role-test-password-1"
 SEED = """
 import fixtures, store
 fixtures.seed_snapshot()
+fixtures.seed_range()
 store.alerts_add([fixtures.alert("kid phone contacted a threat-listed IP", key="t|kid", targets=["host:kidphone"]),
                   fixtures.alert("lab server brute force", key="t|lab", targets=["host:labserver"])], source="unifi")
 import corr_llm, time
@@ -61,7 +63,7 @@ class RoleMatrix(unittest.TestCase):
         """A User gets 403 on every data API outside USER_GET, and 200 on the allowed ones.
         REQ: AC-03, AC-06"""
         u = as_("e2e-user")
-        for p in ("/api/snapshots", "/api/snapshot?id=latest", "/api/risk", "/api/correlate", "/api/users", "/api/audit",
+        for p in ("/api/range/default", "/api/snapshot?id=" + fixtures.range_id(), "/api/risk", "/api/correlate", "/api/users", "/api/audit",
                   "/api/config/cfg", "/api/kb/all", "/api/events/open", "/api/mitre", "/api/lateral"):
             self.assertEqual(u.get(p)[0], 403, p)
         for p in ("/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/prefs", "/api/my", "/api/tuning"):
@@ -82,10 +84,10 @@ class RoleMatrix(unittest.TestCase):
         self.assertEqual(as_("e2e-user").get("/")[0], 200)
 
     def test_defender_reads_everything(self):
-        """A Network defender can read the data, users and settings views.
+        """A Network defender can read the data (time ranges), users and settings views.
         REQ: AC-04"""
         d = as_("e2e-defender")
-        for p in ("/api/snapshots", "/api/risk", "/api/correlate", "/api/users", "/api/config/cfg", "/api/kb/all"):
+        for p in ("/api/range/default", "/api/snapshot?id=" + fixtures.range_id(), "/api/risk", "/api/correlate", "/api/users", "/api/config/cfg", "/api/kb/all"):
             self.assertEqual(d.get(p)[0], 200, p)
 
     def test_defender_cannot_change_settings(self):

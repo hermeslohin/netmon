@@ -189,18 +189,20 @@ def _rstatus(rid, **kw):
 
 
 def _prune():
+    """Keep the RANGE_KEEP newest ranges people picked; the pre-collected default ranges (range_warm.py) are its own business."""
+    warm = set((store.doc_get("state/range_warm", {}) or {}).get("ids") or [])
     files = sorted(store.jglob(RANGES, "r*.json"), key=store.jmtime)
     ids = []
     for f in files:
         b = os.path.basename(f).split(".")[0]
-        if b not in ids:
+        if b not in ids and b not in warm:
             ids.append(b)
     for b in ids[:-RANGE_KEEP]:
         for f in store.jglob(RANGES, b + ".*"):
             store.jdelete(f)
 
 
-def range_start(b):
+def range_start(b, warm=False):
     import datetime as dt
     s, e = _utc(b.get("start")), _utc(b.get("end"))
     now = dt.datetime.now(dt.timezone.utc).replace(second=0, microsecond=0)
@@ -222,7 +224,8 @@ def range_start(b):
     mp = os.path.join(RANGES, rid + ".meta.json")
     store.jdump(meta, mp)
     _rstatus(rid, status="sections", start=s.isoformat(), end=e.isoformat(), error="")
-    _prune()
+    if not warm:
+        _prune()
     return {"id": rid, "status": "sections"}
 
 

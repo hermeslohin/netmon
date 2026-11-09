@@ -33,6 +33,7 @@ JOBS = {
     "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
     "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],
+    "rangewarm": [PY, os.path.join(NM, "range_warm.py")],  # the dashboard's default window (last 24 h), pre-collected every slot
     "k8simages": [PY, os.path.join(NM, "kube_images.py")],  # daily: container image updates + CVEs (Trivy) for every Kubernetes cluster
     "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
@@ -102,6 +103,10 @@ def tick(now=None):
     if s.get("watch") != q:
         if start("watch", why="(15-min slot)"):
             s["watch"] = q
+    # default dashboard window (last 24 h): pre-collected once per 15-minute slot, 1 minute in (Logstash has caught up)
+    rq = int((now - 60) // 900)
+    if s.get("rangewarm") != rq and start("rangewarm", why="(15-min slot)"):
+        s["rangewarm"] = rq
     # OpenCTI sync: once per 15-minute slot, 5 minutes in (off the watcher's start); opencti.py decides what is due
     oq = int((now - 300) // 900)
     if s.get("opencti") != oq and _opencti_wanted() and start("opencti", why="(15-min slot)"):

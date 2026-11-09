@@ -1,6 +1,7 @@
 """E2E: the real dashboard server over HTTPS - transport, sign-in, sessions, pages, the JSON API and check-offs.
 
-One server process is started for the whole module (setUpModule) with a synthetic snapshot seeded into its store.
+One server process is started for the whole module (setUpModule) with two synthetic review runs (server-side input) and the
+24-hour time ranges ending at each seeded into its store.
 """
 import json
 import os
@@ -18,7 +19,9 @@ import harness  # noqa: E402
 import fixtures  # noqa: E402
 
 SRV = None
-SEED = "import fixtures; fixtures.seed_snapshot(fixtures.SID_OLD); fixtures.seed_snapshot(fixtures.SID)"
+SEED = ("import fixtures\nfor sid in (fixtures.SID_OLD, fixtures.SID):\n"
+        "    fixtures.seed_snapshot(sid)\n    fixtures.seed_range(sid)\n")
+RID = fixtures.range_id(fixtures.SID)
 
 
 def setUpModule():
@@ -102,8 +105,8 @@ class TransportSecurity(unittest.TestCase):
     def test_api_responses_not_cached(self):
         """API responses are Cache-Control: no-store (no data left in shared caches).
         REQ: SEC-01, DASH-02"""
-        _, _, h = SRV.login().get("/api/snapshots")
-        self.assertEqual(h.get("cache-control"), "no-store")
+        code, _, h = SRV.login().get("/api/snapshot?id=" + RID)
+        self.assertEqual((code, h.get("cache-control")), (200, "no-store"))
 
 
 class SignIn(unittest.TestCase):
@@ -113,7 +116,7 @@ class SignIn(unittest.TestCase):
         """Without a session, /api/* returns 401 JSON and pages redirect to /login.
         REQ: AC-01"""
         c = SRV.client()
-        code, body, _ = c.get("/api/snapshots")
+        code, body, _ = c.get("/api/snapshot?id=" + RID)
         self.assertEqual((code, body.get("error")), (401, "login required"))
         code, _, h = c.get("/")
         self.assertEqual(code, 302)
@@ -238,36 +241,37 @@ class Pages(unittest.TestCase):
         """Large responses are gzip-compressed when the client accepts it.
         REQ: DASH-01"""
         c = SRV.login()
-        _, _, h = c.get("/api/snapshot?id=latest", headers={"Accept-Encoding": "gzip"}, raw=True)
+        _, _, h = c.get("/api/snapshot?id=" + RID, headers={"Accept-Encoding": "gzip"}, raw=True)
         self.assertEqual(h.get("content-encoding"), "gzip")
 
 
 class Api(unittest.TestCase):
-    """Data views served from the stored snapshots (local LLM off)."""
+    """Data views served from the stored time ranges and review runs (local LLM off)."""
 
     @classmethod
     def setUpClass(cls):
         cls.c = SRV.login()
 
-    def test_snapshots_listed_in_order_with_companions(self):
-        """/api/snapshots lists both seeded snapshots oldest first, each with its analysis companion.
-        REQ: DASH-02, STO-01"""
-        code, body, _ = self.c.get("/api/snapshots")
-        self.assertEqual(code, 200)
-        self.assertEqual([s["id"] for s in body], [fixtures.SID_OLD, fixtures.SID])
-        self.assertTrue(all("analysis" in s["has"] for s in body))
+    def test_review_run_list_gone(self):
+        """There is no review-run list for the browser: /api/snapshots is a 404.
+        REQ: DASH-02"""
+        self.assertEqual(self.c.get("/api/snapshots")[0], 404)
 
-    def test_latest_snapshot_round_trips_raw_data(self):
-        """/api/snapshot?id=latest returns the newest snapshot with the devices written by the pipeline.
+    def test_time_range_round_trips_raw_data(self):
+        """/api/snapshot?id=<time range> returns the stored range with its analysis and the devices written by the collector,
+        and names the review run it takes its base from.
         REQ: DASH-02, STO-01"""
-        code, body, _ = self.c.get("/api/snapshot?id=latest")
+        code, body, _ = self.c.get("/api/snapshot?id=" + RID)
         self.assertEqual(code, 200)
-        self.assertEqual(body["id"], fixtures.SID)
+        self.assertEqual((body["id"], body["base"]), (RID, fixtures.SID))
         self.assertEqual(set(body["raw"]["devices"]), set(fixtures.IPS.values()))
+        self.assertTrue(body["analysis"]["findings"])
 
     def test_unknown_snapshot_404(self):
-        """A snapshot id that does not exist is a 404, not an error page.
+        """An unknown, review-run, 'latest' or traversal id is a 404, not an error page.
         REQ: DASH-02"""
+        for sid in ("latest", fixtures.SID, fixtures.range_id(fixtures.SID, 6)):
+            self.assertEqual(self.c.get("/api/snapshot?id=" + sid)[0], 404, sid)
         self.assertEqual(self.c.get("/api/snapshot?id=2020-01-01T0000Z")[0], 404)
         self.assertEqual(self.c.get("/api/snapshot?id=../../etc/passwd")[0], 404)
 

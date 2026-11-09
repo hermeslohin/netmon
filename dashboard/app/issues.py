@@ -365,7 +365,7 @@ def _track_incremental(items, cache, min_occ=2, keep=8):
         if not got or not got[1]:
             cache.pop(sid, None)
             continue
-        cache[sid] = {"mt": mt, "gen": got[0], "dev": _devmap(got[1]), "ev": None}
+        cache[sid] = {"mt": mt, "gen": got[0], "dev": _devmap(got[1]), "ev": None, "dirty": True}
         if len(fresh) < keep:
             fresh[sid] = got
     live = [sid for sid, _, _ in items if sid in cache]
@@ -383,9 +383,11 @@ def _track_incremental(items, cache, min_occ=2, keep=8):
                 or any(IP2MAC.get(ip) != v for ip, v in ev["look"].items()):
             got = fresh.pop(sid, None) or loads[sid]()
             if not got or not got[1]:
+                if c.get("stored") and ev is not None:  # a summarized run whose documents are gone: keep its stored result
+                    rows.append((sid, c["gen"], ev))
                 continue
             ev = c["ev"] = _eval(got[1], got[2])
-            c["site"] = site
+            c["site"], c["dirty"] = site, True
         rows.append((sid, c["gen"], ev))
     return _aggregate(rows, min_occ)
 

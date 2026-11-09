@@ -16,7 +16,7 @@ const TLS = { sel: null, certFlag: "", ja3Rare: false };
 function tlsSection(el) {
   const T = S.snap.raw.tls || {};
   el.insertAdjacentHTML("beforeend", `<h1 id="tls-section" style="margin-top:28px;padding-top:14px;border-top:1px solid var(--border)">TLS: JA3 fingerprints &amp; certificates</h1><div class="sub">JA3 = TLS <b>client</b> fingerprint (which app/library opened the connection). JA3S = <b>server</b> response fingerprint. Certificates are every x509 cert Zeek saw in this window, matched to the internal clients that requested those names (SNI).</div>`);
-  if (!T.ja3) { el.insertAdjacentHTML("beforeend", `<div class="card"><div class="empty">This snapshot predates JA3/certificate collection. Pick a newer snapshot — every nightly report from now on includes it.</div></div>`); return; }
+  if (!T.ja3) { el.insertAdjacentHTML("beforeend", `<div class="card"><div class="empty">This time range has no JA3/certificate data. Pick a newer time range.</div></div>`); return; }
   const certs = T.certs || [], val = T.validation || [];
   const hiCerts = certs.filter((c) => c.flags.some((f) => CERT_SEV(c, f) === "high"));
   const legacy = entries(T.versions).filter(([k]) => !/TLSv1[23]|DTLSv12/.test(k)).reduce((s, [, v]) => s + v, 0);

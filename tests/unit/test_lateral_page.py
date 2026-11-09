@@ -559,7 +559,7 @@ out({text: txt(chk), tables: walk(chk, (x) => x.isTable).map((t) => t.rows.lengt
         self.assertEqual(out["tables"], [1])
 
     def test_admin_section_empty_and_not_collected(self):
-        """No sessions shows 'No admin sessions in this time range.'; a snapshot without admin collection explains that instead.
+        """No sessions shows 'No admin sessions in this time range.'; a time range collected without admin collection explains that instead.
         REQ: LAT-38"""
         body = """const el = new El("div"); await V.lateral(el); out(txt(el));"""
         d = page_data()
@@ -567,7 +567,7 @@ out({text: txt(chk), tables: walk(chk, (x) => x.isTable).map((t) => t.rows.lengt
         self.assertIn("No admin sessions in this time range.", self.run_js(body, d))
         d["D"]["admin_collected"] = False
         t = self.run_js(body, d)
-        self.assertIn("taken before admin-access collection was added", t)
+        self.assertIn("collected before admin-access collection was added", t)
         self.assertNotIn("No admin sessions in this time range.", t)
 
     def test_cleared_segmentation_card(self):

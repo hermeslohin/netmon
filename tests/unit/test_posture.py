@@ -165,7 +165,7 @@ class PostureSnapshotLoad(unittest.TestCase):
 
 
 class TimeRangeSemantics(unittest.TestCase):
-    """Nightly windows vs arbitrary time ranges and which nightly report a range follows."""
+    """Time range requests and which review run a time range takes its base from."""
 
     def setUp(self):
         reset()
@@ -204,17 +204,8 @@ class TimeRangeSemantics(unittest.TestCase):
         self.assertIsNone(server.snap_window(F.SID_OLD))
         self.assertIsNone(server.snap_window("2026-02-01T1200Z"))
 
-    def test_range_matching_nightly_window_uses_snapshot(self):
-        """A start/end within 10 minutes of a nightly window loads that snapshot without asking the host broker.
-        REQ: POS-04"""
-        seed_posture()
-        self.stub_broker(exc=AssertionError("broker must not be called"))
-        res, code = server.range_request({"start": "2026-01-04T12:09:00Z", "end": "2026-01-05T11:51:00+00:00"})
-        self.assertEqual((code, res), (200, {"id": F.SID, "status": "done", "snapshot": True}))
-        self.assertEqual(self.calls, [])
-
     def test_arbitrary_range_goes_to_broker(self):
-        """Any other window is handed to the host broker (/range) with UTC ISO times and its answer returned.
+        """Every window is handed to the host broker (/range) with UTC ISO times and its answer returned.
         REQ: POS-04"""
         seed_posture()
         self.stub_broker(result={"id": RID, "status": "sections"})
@@ -248,7 +239,7 @@ class TimeRangeSemantics(unittest.TestCase):
         self.assertEqual(server.base_snapshot(None), F.SID_OLD)
 
     def test_range_snapshot_follows_nightly_report(self):
-        """A collected range shows its own findings; base (AI triage / alarms) and sources come from the nightly report by its end.
+        """A collected time range shows its own findings; its base (the review run whose correlation it uses) is the one by its end; no review-run companions ride along.
         REQ: POS-05, POS-06"""
         seed_posture(F.SID_OLD)
         seed_posture(F.SID)
@@ -259,7 +250,7 @@ class TimeRangeSemantics(unittest.TestCase):
         r = server.snapshot(RID)
         self.assertEqual((r["id"], r["base"], r["range"]["end"]), (RID, F.SID, "2026-01-05T18:00:00+00:00"))
         self.assertEqual([f["detail"] for f in r["analysis"]["findings"]], ["range-only finding"])
-        self.assertEqual(r["sources"], {"src": "from SID"})
+        self.assertNotIn("sources", r)
         self.assertEqual(server.snapshot(RID_GAP)["base"], F.SID_OLD)
         self.assertEqual(server.snapshot(RID_EARLY)["base"], F.SID_OLD)
         self.assertEqual(server.resolve_sid(RID), F.SID)

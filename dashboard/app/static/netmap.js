@@ -124,7 +124,7 @@ function nmRender(box, zones) {
 
   // trunk + buses + uplinks
   const trunkX = 30;
-  if (!rows.length) txt(gN, "No zones or internal hosts yet: add zones in Settings (network policy) or wait for the first snapshot.", { "text-anchor": "middle", x: gx, y: gy + 70, fill: "#8b949e", "font-size": 13 });
+  if (!rows.length) txt(gN, "No zones or internal hosts yet: add zones in Settings (network policy) or wait for the first time range to be collected.", { "text-anchor": "middle", x: gx, y: gy + 70, fill: "#8b949e", "font-size": 13 });
   const lastBus = rows.length ? rows[rows.length - 1].bus : gy + 26;  // no zones (fresh install, range still loading): gateway only
   if (rows.length) gL.appendChild(svgEl("path", { d: `M${gx},${gy + 26} V${rows[0].bus}`, stroke: "#58a6ff", "stroke-width": 2.5, fill: "none" }));
   if (rows.length > 1) gL.appendChild(svgEl("path", { d: `M${gx},${rows[0].bus} H${trunkX} V${lastBus}`, stroke: "#58a6ff", "stroke-width": 2.5, fill: "none" }));

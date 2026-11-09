@@ -1,8 +1,8 @@
 """E2E: the data behind Network -> Network map and Network -> Traffic map through the real server - snapshot internal
 flows / zone matrix / UniFi summary, registry zones and names, history trend, time-range sections, static scripts, roles.
 
-One server process for the class, seeded with two nightly snapshots, a collected time range, the zone policy, the device
-registry and two history records. No host broker and no UniFi key, so nothing reaches out.
+One server process for the class, seeded with two review runs (server-side input), the 24-hour time ranges ending at each
+(RID_OLD, RID_DAY), a 12-hour collected time range (RID), the zone policy, the device registry and two history records. No host broker and no UniFi key, so nothing reaches out.
 """
 import os
 import sys
@@ -16,6 +16,7 @@ import fixtures as F  # noqa: E402
 
 IP, EXT = F.IPS, F.EXT
 RID = "r20260105T0600Z-20260105T1800Z"
+RID_OLD, RID_DAY = F.range_id(F.SID_OLD), F.range_id(F.SID)
 PW = "network-test-password-1"
 MATRIX = {"user -> servers": {"conns": 100, "bytes": 5000, "ports": {"22/tcp": 60, "443/tcp": 40}},
           "iot -> user": {"conns": 25, "bytes": 10, "ports": {"80/tcp": 25}}}
@@ -39,6 +40,7 @@ def net_raw(sid, conns):
 for sid, n in ((F.SID_OLD, 30), (F.SID, 60)):
     store.jdump(net_raw(sid, n), os.path.join(data, sid + ".json"))
     store.jdump(F.analysis(sid), os.path.join(data, sid + ".analysis.json"))
+    F.seed_range(sid, raw=net_raw(sid, n))
 s, e = "2026-01-05T06:00:00+00:00", "2026-01-05T18:00:00+00:00"
 raw = net_raw(F.SID, 7)
 raw.update(generated=e, hours=12, range={"start": s, "end": e})
@@ -72,11 +74,11 @@ class NetworkPagesE2E(unittest.TestCase):
         cls.srv.__exit__(None, None, None)
 
     def test_snapshot_network_data(self):
-        """/api/snapshot?id=latest returns the newest snapshot's internal flows, zone matrix and UniFi summary unchanged.
+        """/api/snapshot?id=<time range> returns the range's internal flows, zone matrix and UniFi summary unchanged.
         REQ: NET-24, NET-03, NET-20"""
-        code, body, _ = self.admin.get("/api/snapshot?id=latest")
+        code, body, _ = self.admin.get("/api/snapshot?id=" + RID_DAY)
         self.assertEqual(code, 200)
-        self.assertEqual(body["id"], F.SID)
+        self.assertEqual(body["id"], RID_DAY)
         raw = body["raw"]
         self.assertEqual(raw["internal"]["matrix"], MATRIX)
         self.assertEqual([(f["src"], f["dst"], f["conns"], f["src_zone"]) for f in raw["internal"]["flows"]],
@@ -84,7 +86,7 @@ class NetworkPagesE2E(unittest.TestCase):
         self.assertEqual(raw["unifi"]["clients"]["by_network"], {"Main": 2, "IoT": 1})
         self.assertEqual(raw["unifi"]["health"]["isp"], "Example ISP")
         self.assertIn(IP["laptop"], raw["inventory_ips"])
-        old = self.admin.get("/api/snapshot?id=" + F.SID_OLD)[1]["raw"]["internal"]["flows"][0]["conns"]
+        old = self.admin.get("/api/snapshot?id=" + RID_OLD)[1]["raw"]["internal"]["flows"][0]["conns"]
         self.assertEqual(old, 30)
 
     def test_range_sections(self):
@@ -131,7 +133,7 @@ class NetworkPagesE2E(unittest.TestCase):
     def test_roles(self):
         """A User gets 403 on every API the Network pages load; a Network defender and an admin can read them.
         REQ: NET-23"""
-        paths = ("/api/snapshot?id=latest", "/api/registry", "/api/history", f"/api/section?id={RID}&name=internal", "/api/risk", "/api/issues")
+        paths = (f"/api/snapshot?id={RID_DAY}", "/api/registry", "/api/history", f"/api/section?id={RID}&name=internal", "/api/risk", "/api/issues")
         u, d = self.srv.login("e2e-user", PW), self.srv.login("e2e-defender", PW)
         for p in paths:
             self.assertEqual(u.get(p)[0], 403, p)

@@ -83,7 +83,7 @@ class DeployedContainer(unittest.TestCase):
         self.assertEqual((code, body), (200, b"ok"))
         self.assertEqual(h.get("x-frame-options"), "DENY")
         self.assertEqual(get("/login")[0], 200)
-        self.assertEqual(get("/api/snapshots")[0], 401)
+        self.assertEqual(get("/api/range/default")[0], 401)
 
 
 if __name__ == "__main__":

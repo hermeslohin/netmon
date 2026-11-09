@@ -251,7 +251,7 @@ function lmAdminCard(D, a) {
 function lmAdminSection(el, D) {
   const A = D.admin || [];
   el.appendChild(Object.assign(document.createElement("div"), { className: "sec-head", id: "admin", innerHTML: `<h2>Admin access</h2><div class="sub">Every SSH, RDP, PsExec / SMB admin share, WMI / RPC, WinRM / PowerShell remoting, VNC, Docker, Kubernetes and remote-support session between internal hosts, successful and failed. Evidence is combined from the network sensor (Zeek), endpoint login logs and the commands run on endpoints. Failed logins and refused connections raise the risk.</div>` }));
-  if (!D.admin_collected) { el.appendChild(card("", `<div class="empty">This snapshot was taken before admin-access collection was added. It appears from the next snapshot on.</div>`)); return; }
+  if (!D.admin_collected) { el.appendChild(card("", `<div class="empty">This time range was collected before admin-access collection was added. Pick a newer time range.</div>`)); return; }
   const sum = (k) => A.reduce((s, a) => s + (a[k] || 0), 0);
   el.insertAdjacentHTML("beforeend", kpis([["Admin sessions", A.length], ["Successful logins", fn(sum("auth_ok")), "good"], ["Failed logins", fn(sum("auth_fail")), sum("auth_fail") ? "bad" : "good"],
     ["Refused connections", fn(sum("conn_failed")), sum("conn_failed") ? "warn" : ""], ["High-risk sessions", A.filter((a) => a.level === "high").length, A.some((a) => a.level === "high") ? "bad" : "good"],

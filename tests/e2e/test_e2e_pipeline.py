@@ -113,16 +113,23 @@ store.jdump(r, "data/" + fixtures.SID + ".json")
         self.assertIn("integrity: ok", self.runs[-1].stdout)
 
     def test_dashboard_serves_pipeline_output(self):
-        """The dashboard started on the pipeline's store serves the analysis and its risk view.
+        """The dashboard started on the pipeline's store serves the analysis (as the 24-hour time range ending at the run,
+        collected from the pipeline's own output) and its risk view; the review run itself is not served to the page.
         REQ: DASH-02, RISK-02"""
+        rid = self.sb.py(f"""
+import fixtures, store
+raw, an = store.doc_get('data/{fixtures.SID}'), store.doc_get('data/{fixtures.SID}.analysis')
+print(fixtures.seed_range(fixtures.SID, raw=raw, an=an))
+""").strip()
         env = {k: v for k, v in self.sb.env.items() if k in ("NETMON_DB",)}
         srv = harness.Server()
         srv.env.update(env, STATE_DIR=self.sb.state)
         srv.state = self.sb.state
         with srv:
             c = srv.login()
-            snap = c.get("/api/snapshot?id=latest")[1]
-            self.assertEqual(snap["id"], fixtures.SID)
+            self.assertEqual(c.get("/api/snapshot?id=" + fixtures.SID)[0], 404)
+            snap = c.get("/api/snapshot?id=" + rid)[1]
+            self.assertEqual((snap["id"], snap["base"]), (rid, fixtures.SID))
             kinds = {f["kind"] for f in snap["analysis"]["findings"]}
             self.assertIn("upload-spike", kinds)
             self.assertEqual(c.get("/api/risk")[0], 200)

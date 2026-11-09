@@ -96,6 +96,7 @@ if ROOT not in sys.path:
     sys.path.append(ROOT)
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
 import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI pipeline pages)
+import runarchive  # noqa: E402  review-run summaries that outlive the run documents
 import research_cfg  # noqa: E402  /netmon/research_cfg.py: event research model + cost caps (Send to research only)
 import review_cfg  # noqa: E402  /netmon/review_cfg.py: review job schedule, on/off and event modes (store meta table)
 import pushsvc  # noqa: E402  web push for urgent alerts
@@ -245,15 +246,11 @@ def range_skeleton(rid):
     if not m:
         return None
     base = base_snapshot(m["generated"])
-    b = snapshot(base) if base else None
     raw = {"generated": m["generated"], "hours": m["hours"], "range": {"start": m["start"], "end": m["end"]}}
     for keys in SECTION_KEYS.values():
         for k in keys:
             raw[k] = json.loads(json.dumps(SECTION_DEFAULTS.get(k, {})))
-    res = {"id": rid, "raw": raw, "analysis": {}, "range": raw["range"], "base": base, "pending": SECTION_NAMES, "section_keys": SECTION_KEYS}
-    for c in ("sources",):
-        res[c] = (b or {}).get(c)
-    return res
+    return {"id": rid, "raw": raw, "analysis": {}, "range": raw["range"], "base": base, "pending": SECTION_NAMES, "section_keys": SECTION_KEYS}
 
 
 def range_section(rid, name):
@@ -277,12 +274,8 @@ def range_snapshot(rid):
     an = load_json(os.path.join(RANGES, rid + ".analysis.json"))
     if raw is None or an is None:
         return None
-    base = base_snapshot(raw.get("generated"))
-    b = snapshot(base) if base else None
-    res = {"id": rid, "raw": raw, "analysis": an, "range": raw.get("range"), "base": base}
-    for c in ("sources",):
-        res[c] = (b or {}).get(c)
-    return res
+    # base: the review run whose correlation map the range's events come from (server-side only; its documents are not loaded here)
+    return {"id": rid, "raw": raw, "analysis": an, "range": raw.get("range"), "base": base_snapshot(raw.get("generated"))}
 
 
 def resolve_sid(sid):
@@ -294,29 +287,32 @@ def resolve_sid(sid):
 
 
 _fseen = {"sig": None, "val": {}}
+_rsync = {"sig": None}
+
+
+def runs_sync():
+    """Fold every review run that still has documents into the run_summary / finding_seen tables (runarchive.py).
+    Only new runs are read; the browser never loads a run, these tables are what outlives its documents."""
+    snaps = snapshots()
+    sig = tuple(s["id"] for s in snaps)
+    if _rsync["sig"] == sig:
+        return
+    done = runarchive.summarized()
+    for s in snaps:
+        if s["id"] in done:
+            continue
+        raw = store.jload(os.path.join(DATA, s["id"] + ".json")) or {}
+        if raw:  # parsed one at a time, outside the doc cache
+            runarchive.summarize(s["id"], raw, store.jload(os.path.join(DATA, s["id"] + ".analysis.json")) or {})
+    _rsync["sig"] = sig
 
 
 def finding_last_seen():
-    """{finding key: generated time of the newest nightly snapshot that contained it} (baseline 'f|kind|dev|detail', host 'hf|key')."""
-    snaps = snapshots()
-    sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
+    """{finding key: generated time of the newest review run that contained it} (baseline 'f|kind|dev|detail', host 'hf|key')."""
+    runs_sync()
+    sig = _rsync["sig"]
     if _fseen["sig"] != sig:
-        old = _fseen["sig"] or ()
-        if old and sig[:len(old)] == old:  # only newer snapshots appended: apply just those (the last write wins anyway)
-            seen, todo = dict(_fseen["val"]), snaps[len(old):]
-        else:
-            seen, todo = {}, snaps
-        for s in todo:  # oldest -> newest, so the last write wins; parsed one at a time, outside the doc cache
-            raw = store.jload(os.path.join(DATA, s["id"] + ".json")) or {}
-            an = store.jload(os.path.join(DATA, s["id"] + ".analysis.json")) or {}
-            gen = raw.get("generated")
-            if not gen:
-                continue
-            for f in an.get("findings") or []:
-                seen["f|%s|%s|%s" % (f.get("kind"), f.get("device") or "", f.get("detail") or "")] = gen
-            for f in (raw.get("hosts") or {}).get("findings") or []:
-                seen["hf|" + str(f.get("key"))] = gen
-        _fseen["sig"], _fseen["val"] = sig, seen
+        _fseen["sig"], _fseen["val"] = sig, runarchive.finding_seen()
     return _fseen["val"]
 
 
@@ -636,9 +632,30 @@ def snap_window(sid):
         return None
 
 
+DEFAULT_RANGE_H = 24
+
+
+def default_range(now=None):
+    """The window the page opens with: the last 24 h ending on a 15-minute boundary. The scheduler pre-collects that
+    window every slot (host_broker.py warm), so the newest finished one is used; a slot still being collected falls
+    back to the one before it (at most 30 minutes old)."""
+    import datetime as dt
+    now = now or time.time()
+    end0 = int(now // 900) * 900
+    for end in (end0, end0 - 900, end0 - 1800):
+        e = dt.datetime.fromtimestamp(end, dt.timezone.utc)
+        s = e - dt.timedelta(hours=DEFAULT_RANGE_H)
+        rid = "r" + s.strftime("%Y%m%dT%H%MZ") + "-" + e.strftime("%Y%m%dT%H%MZ")
+        st = range_status(rid) or {}
+        if st.get("status") == "done":
+            return {"start": s.isoformat(), "end": e.isoformat(), "id": rid, "ready": True}
+    e = dt.datetime.fromtimestamp(end0, dt.timezone.utc)
+    return {"start": (e - dt.timedelta(hours=DEFAULT_RANGE_H)).isoformat(), "end": e.isoformat(), "ready": False}
+
+
 def range_request(body):
-    """{start, end} -> (response, code). A window that matches a nightly snapshot (±10 min) just uses it; anything
-    else is collected by the host broker into /state/ranges (the container has no Elasticsearch key)."""
+    """{start, end} -> (response, code). Every window is a time range collected by the host broker into /state/ranges
+    (the container has no Elasticsearch key); review-run documents are never sent to the browser."""
     import datetime as dt
     try:
         s = dt.datetime.fromisoformat(str(body.get("start") or "").replace("Z", "+00:00"))
@@ -649,11 +666,6 @@ def range_request(body):
         return {"error": "start and end must be ISO times with a UTC offset"}, 400
     if e <= s:
         return {"error": "the end must be after the start"}, 400
-    tol = dt.timedelta(minutes=10)
-    for x in reversed(snapshots()):
-        w = snap_window(x["id"])
-        if w and abs(w[0] - s) <= tol and abs(w[1] - e) <= tol:
-            return {"id": x["id"], "status": "done", "snapshot": True}, 200
     try:
         r = corr_llm.broker("/range", {"start": s.isoformat(), "end": e.isoformat()}, timeout=30)
     except Exception as ex:  # noqa: BLE001 - broker down / validation error
@@ -827,15 +839,31 @@ def acks_load_all():
 
 
 def issue_tracker():
+    """Fix list. Every review run counts: runs whose documents are gone (runarchive.prune) take part through their stored
+    tracker inputs (run_summary.iss); runs that still have documents are evaluated and their inputs stored."""
     snaps = snapshots()
     sig = tuple((s["id"], store.jmtime(os.path.join(DATA, s["id"] + ".json"))) for s in snaps)
-    if _issues["sig"] != sig:  # per-snapshot results are cached (issues.track_incremental): a new snapshot parses only itself
+    if _issues["sig"] != sig:  # per-run results are cached (issues.track_incremental): a new run parses only itself
         def loader(sid):
             def load():
                 raw = store.jload(os.path.join(DATA, sid + ".json"))
                 return (raw.get("generated"), raw, store.jload(os.path.join(DATA, sid + ".analysis.json"))) if raw else None
             return load
-        _issues["val"] = issues.track_incremental([(sid, mt, loader(sid)) for sid, mt in sig], _issues.setdefault("per", {}))
+        cache = _issues.setdefault("per", {})
+        stored = runarchive.issue_entries() if not _issues.get("loaded") or runarchive.stored_issue_sids() - set(cache) else {}
+        for sid, e in stored.items():
+            if sid not in cache:
+                cache[sid] = e
+        _issues["loaded"] = True
+        have = {sid for sid, _ in sig}
+        items = [(sid, "stored", loader(sid)) for sid in sorted(cache) if cache[sid].get("stored") and sid not in have]
+        items = sorted(items + [(sid, mt, loader(sid)) for sid, mt in sig])
+        _issues["val"] = issues.track_incremental(items, cache)
+        try:
+            dirty = {sid: e for sid, e in cache.items() if e.pop("dirty", False)}
+            runarchive.save_issue_entries(dirty)
+        except Exception as e:  # noqa: BLE001 - the list still works, the run is stored on the next pass
+            print(f"run summary (issues): {e}", file=sys.stderr)
         _issues["sig"] = sig
     tr = with_software_vulns(_issues["val"])
     try:  # segmentation fix-list items a suppress rule covers
@@ -1682,16 +1710,15 @@ class H(BaseHTTPRequestHandler):
                 except Exception as e:  # noqa: BLE001 - ES down / no key: the page says so
                     # 200, not 502: behind the Cloudflare tunnel a 502 body is replaced by Cloudflare's own HTML page
                     return self._json({"error": f"audit log unavailable: {str(getattr(e, 'reason', e))[:200]}", "status": audit.status()})
-            if path == "/api/snapshots":
-                return self._json(snapshots())
+            if path == "/api/range/default":  # the window the page opens with: the last 24 h, pre-collected every 15 min
+                return self._json(default_range())
             if path == "/api/range/status":
                 st = range_status((q.get("id") or [""])[0])
                 return self._json(st) if st else self._json({"error": "not found"}, 404)
-            if path == "/api/snapshot":
+            if path == "/api/snapshot":  # a time range (review-run documents stay on the server)
                 sid = (q.get("id") or [""])[0]
-                if sid == "latest":
-                    s = snapshots()
-                    sid = s[-1]["id"] if s else ""
+                if not RANGE_RE.match(sid):
+                    return self._json({"error": "pick a time range: review runs are not loaded by the page"}, 404)
                 res = snapshot(sid) or range_skeleton(sid)
                 return self._json(res) if res else self._json({"error": "not found"}, 404)
             if path == "/api/section":  # one piece of a time range (the page loads them two at a time, top to bottom)
@@ -1758,10 +1785,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(tintel.feed_status())
             if path == "/api/ti/lookup":
                 return self._json(tintel.lookup((q.get("q") or [""])[0][:300]))
-            if path == "/api/ti/trend":  # one snapshot at a time, uncached: all of them together exceed the container's memory
-                return self._json(tintel.trend_cached([x["id"] for x in snapshots()],
-                                                      lambda sid: store.doc_mtime(store.doc_name(os.path.join(DATA, sid + ".json"))),
-                                                      lambda sid: store.doc_get(store.doc_name(os.path.join(DATA, sid + ".json")), None)))
+            if path == "/api/ti/trend":  # one counter row per review run, kept in run_summary after the run's documents are gone
+                runs_sync()
+                return self._json(runarchive.ti_rows())
             if path in ("/api/k8s/map", "/api/k8s/cis", "/api/k8s/clusters", "/api/k8s/images", "/api/k8s/image"):  # read-only k8s API accounts via the host broker
                 g = lambda k, d="": (q.get(k) or [d])[0]  # noqa: E731
                 run = g("run") == "1" and role in ("admin", "defender")
@@ -2081,13 +2107,13 @@ def main():
         print(f"correlation review: local LLM at {corr_llm.URL} ({'on' if corr_llm.ENABLED else 'off'})", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"correlation review disabled: {e}", file=sys.stderr)
-    def _ingest():  # backfill the stored events from every snapshot (oldest first), then keep the newest current
+    def _ingest():  # backfill the stored events from every review run (oldest first), keep the newest current, then fold + prune runs
         import eventstore
         done = False
         while True:
             try:
                 ss = snapshots()
-                if not done:  # resume where the last run left off (marker in the docs table): a restart must not re-walk every snapshot
+                if not done:  # resume where the last run left off (marker in the docs table): a restart must not re-walk every run
                     mark = (store.doc_get("state/ingest_backfill", {}) or {}).get("sid") or ""
                     for sn in ss:
                         if sn["id"] <= mark and sn is not ss[-1]:
@@ -2097,8 +2123,18 @@ def main():
                     done = True
                 elif ss:
                     correlation(ss[-1]["id"])
+                    store.doc_put("state/ingest_backfill", {"sid": ss[-1]["id"]})
             except Exception as e:  # noqa: BLE001
                 print(f"eventstore ingest: {e}", file=sys.stderr)
+            try:  # review runs are pipeline input only: once folded into the tables their documents go (runarchive.py)
+                runs_sync()
+                issue_tracker()
+                mark = (store.doc_get("state/ingest_backfill", {}) or {}).get("sid") or ""
+                gone = runarchive.prune([x["id"] for x in snapshots()], mark, data_dir=DATA)
+                if gone:
+                    print(f"review runs: deleted the documents of {len(gone)} folded run(s), {gone[0]} .. {gone[-1]}", file=sys.stderr)
+            except Exception as e:  # noqa: BLE001
+                print(f"review run prune: {e}", file=sys.stderr)
             try:  # apply new AI verdicts (event reviewer classifications arrive continuously, not only with the review job)
                 if True:  # always: people's Expected / Benign verdicts also close later repeats, whatever the switches say
                     inp = autoclose_inputs()

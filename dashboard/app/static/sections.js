@@ -27,7 +27,7 @@
     let el = document.getElementById("secProg");
     if (!S.pending?.size) { el?.remove(); return; }
     if (!el) { el = document.createElement("div"); el.id = "secProg"; document.body.appendChild(el); }
-    el.innerHTML = `<i></i> Loading data from Elasticsearch… ${total - S.pending.size}/${total}`;
+    el.innerHTML = `<i></i> Loading time range… ${total - S.pending.size}/${total}`;
   }
 
   function next() {

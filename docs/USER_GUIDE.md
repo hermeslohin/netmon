@@ -64,14 +64,15 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Devices ▾** | Hosts (everything on the network), Endpoints (computers running the Elastic Agent) and Notes (what the AI and people have written about devices and events). |
 | **More ▾** | Ask AI, AI pipeline monitoring, AI pipeline configuration, Checked, Dashboard users, Configuration, Settings (policy and site values, as tables) and Audit log (admins). |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
-| **🕒 Time range** | The start and end of the time you are looking at (your local time). The newest nightly report's 24 hours are shown by default. Click it to set a **Start** and **End** date and time, use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**), or pick a **Nightly report window**. See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (and moves to a newer report if you were on the newest). |
+| **🕒 Time range** | The start and end of the time you are looking at (your local time). The last 24 hours are shown by default. Click it to set a **Start** and **End** date and time, or use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**). See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (on the default window it moves to the newest last-24-hours). |
 
 ### Choosing a time range
 
 Every page except Alerts shows the selected time range: Overview, Posture's findings, Threat intel, ATT&CK, Risk,
 Network map, **Lateral movement**, DNS & TLS, Traffic map, Users, **Devices (including New devices)** and Endpoints.
 
-- **A nightly report window** (or a start/end within 10 minutes of one) loads instantly.
+- **The last 24 hours** (the default when you open the dashboard) is collected in the background every 15 minutes, so it
+  loads at once. It is at most 30 minutes old; ⟳ moves it to the newest one.
 - **Any other range** is collected for exactly that time from Security Onion and UniFi. It takes about 20 seconds to a
   couple of minutes, depending on the length; the page shows the progress. Ranges are kept on the dashboard, so opening
   the same range again is instant (the last 30 are kept).
@@ -82,9 +83,10 @@ Network map, **Lateral movement**, DNS & TLS, Traffic map, Users, **Devices (inc
   are compared with the device's normal day, so a 3-day range isn't flagged just for being longer. "Went silent" is only
   checked for ranges of 24 hours or more.
 - **Trend charts** show the daily baseline records inside the range (or all of them when fewer than two fall inside).
-- **Some things stay per report.** The Alerts page, research notes, correlation, AI verdicts come
-  from the latest nightly report that ended by the end of the range, or the oldest report if none had (named in the footer). They are written by the review job, not
-  recomputed for arbitrary ranges.
+- **Review runs are not loaded by the page.** The review job's runs feed the pipeline (Open events, the Fix list,
+  correlation, research notes, AI verdicts, the threat-intel trend), which keeps what it needs in the database. The page
+  itself only ever loads time ranges. Correlation and AI verdicts shown for a range come from the review run that ended by
+  the end of the range.
 - A range never changes the baseline or the device registry.
 - The range stays selected while you move between pages and when you reload the browser tab.
 
@@ -778,7 +780,7 @@ The latest review job run failed. The error is shown in the box. The next schedu
 
 | Term | Meaning |
 |---|---|
-| **Snapshot** | One collection run covering the lookback window (24 hours by default). A new one is made on every review job run. |
+| **Review run** | One collection run of the review job covering the lookback window (24 hours by default). It feeds the pipeline only: once its events, Fix-list inputs and counters are stored in the database, its data is deleted (the newest 8 runs and the daily 05:00 UTC runs of the last 14 days are kept). The page never loads it. |
 | **Baseline** | What is normal for each device, learned from about one snapshot a day over the last 30 days. |
 | **Finding** | Something a rule flagged: a *baseline* finding (network behaviour) or a *host* finding (on the computer itself). |
 | **IDS / Suricata** | Intrusion detection: rules that match known attack or suspicious traffic patterns. Severity 1 is highest. |

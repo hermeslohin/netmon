@@ -26,7 +26,7 @@ function epDrill(kind, el) {
   const D = S.snap.raw.hosts?.details?.[kind];
   const wrap = document.createElement("div"); wrap.id = "ep-drill";
   const close = `<a href="#/endpoints" class="small" style="margin-left:10px">close</a>`;
-  if (!D) { wrap.appendChild(card(`${EP_KINDS[kind]} ${close}`, `<div class="empty">This snapshot has only the summary. Event-level detail is collected with every nightly report from now on — pick a newer snapshot.</div>`)); el.appendChild(wrap); return; }
+  if (!D) { wrap.appendChild(card(`${EP_KINDS[kind]} ${close}`, `<div class="empty">This time range has only the summary. Event-level detail is collected for every time range from now on — pick a newer snapshot.</div>`)); el.appendChild(wrap); return; }
   if (D.error) { wrap.appendChild(card(`${EP_KINDS[kind]} ${close}`, `<pre>${esc(D.error)}</pre>`)); el.appendChild(wrap); return; }
   const hostsAll = kind === "defend" ? D.hosts.map((h) => h.host) : Object.keys(D.hosts || {});
   const win = `${(D.minutes / 60).toFixed(0)}h${D.end ? ` ending ${ft(D.end)}` : ""}`;
