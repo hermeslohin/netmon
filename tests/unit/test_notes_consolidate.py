@@ -1,4 +1,4 @@
-"""Unit tests for dashboard/app/notes_consolidate.py: nightly merge of AI-written host notes (AI review > Host note consolidation)."""
+"""Unit tests for dashboard/app/notes_consolidate.py: nightly merge of AI-written host notes (AI pipeline monitoring > Host note consolidation)."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E402
 
 import datetime as dt  # noqa: E402

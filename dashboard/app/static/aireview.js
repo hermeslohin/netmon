@@ -1244,9 +1244,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   const PART = [["ai-p-models", "Models"], ["ai-p-correlation", "Correlation review"], ["ai-p-event", "Event review"], ["ai-p-research", "Research review"]];
   const PART_SUB = {
     mon: ["The model behind each step, where it is served and whether it is up, and the time and tokens they use.", "Links between events proposed by the correlation script and the decision model's verdict on each; override them here.",
-      "The review job and the event reviewer: runs, events reviewed per day, its web look-ups.", "Events researched with Send to research: spend and tokens."],
+      "The review job and the event reviewer: runs, events reviewed per day, its web look-ups, and the nightly host note consolidation.", "Events researched with Send to research: spend and tokens."],
     cfg: ["Which model each step uses and where it comes from: AI providers (cloud or local) and the decision model server.", "The decision model's thresholds and which links are sent for review.",
-      "When the review job runs, what it looks back on, which look-ups and notes the event reviewer gets, and the nightly note consolidation.", "The research model's cost caps and its web / Elasticsearch access."]};
+      "When the review job runs, what it looks back on, and which look-ups and notes the event reviewer gets.", "The research model's cost caps and its web / Elasticsearch access."]};
   const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
   // Each part is ONE box: everything from a part heading to the next goes into a single card, and the boxes inside it
   // become plain titled sections (.ai-sub, h3; ids kept so ?at= links and live updates still find them).
@@ -1294,7 +1294,6 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(reviewScheduleCard(D));
     el.appendChild(lookupsCard(D));
     el.appendChild(notesContextCard(D));
-    el.appendChild(notesConsolidateCard(D));
     partHead(el, 3, "cfg");
     el.appendChild(costCard(D));
     consolidate(el);
@@ -1450,6 +1449,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     el.appendChild(rjob);
     el.appendChild(reviewVolumeCard(D));
     el.appendChild(webCard(D));
+    el.appendChild(notesConsolidateCard(D));
     partHead(el, 3, "mon");
     el.appendChild(researchStatusCard(D));
     consolidate(el);

@@ -140,7 +140,7 @@ window.CARD_INFO = {
 "use": "Enter your current password and the new one twice. Your other signed-in browsers and phones are signed out, this one stays signed in. A long passphrase is strongest.",
 "what": "Self-service form to change your own dashboard password."
 },
-"aiconfig|Host note consolidation": {
+"aireview|Host note consolidation": {
 "source": "Host notes in the knowledge base (kb.db host_notes) written by the event reviewer and by event research; the merge is done by the event reviewer model (notes_consolidate.py, run by the dashboard at the set time).",
 "use": "Leave it on so hosts do not pile up hundreds of near-duplicate notes. Use Consolidate now after a burst of new notes. Many rejected merges mean the model is dropping identifiers; failed requests usually mean LM Studio was busy or down.",
 "what": "Nightly merge of overlapping AI-written host notes. KPIs: all host notes, the AI notes it may merge, hosts with changed notes waiting for a pass, and the last run's notes before and after. Person-written and reviewed notes are never changed."
@@ -208,7 +208,7 @@ window.CARD_INFO = {
 "aiconfig|Event review": {
 "source": "Review job settings (review_cfg.py, lookback.py) and AI configuration (corr_llm.py) in the netmon store.",
 "use": "Run every saves automatically (5 to 1440 minutes). Lower look-up and note numbers make reviews faster and cheaper.",
-"what": "Settings for the review job and event reviewer: schedule and lookback window, Elasticsearch / web look-ups, context notes and nightly note consolidation."
+"what": "Settings for the review job and event reviewer: schedule and lookback window, Elasticsearch / web look-ups, and context notes."
 },
 "aiconfig|Research review": {
 "source": "Event research settings (research_cfg.py) in the netmon store.",
