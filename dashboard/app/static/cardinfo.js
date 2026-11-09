@@ -158,7 +158,7 @@ window.CARD_INFO = {
 "aireview|Time and tokens: review job, event research and Ask AI chat": {
 "source": "Token counts reported by the AI provider for every call: review runs (review.py), event research (research.py, per researched event) and Ask AI chat turns (chat.py, chat.db). Cost is estimated from the prices entered for the model under AI providers; local models cost $0.",
 "use": "Watch for days that take much longer or use far more tokens than usual. Cache re-reads are hidden by default; click their legend entry to show them. Picking another research model in the Models box previews its cost.",
-"what": "Stacked bars of the tokens per day used by the review job, event research and Ask AI chat (new input, cache writes, output; grey when the provider gave no cache split) with time and estimated cost as lines (hover a day for the split), plus a list of each researched event with its tokens and cost."
+"what": "Stacked bars of the tokens per day used by the review job, event research and Ask AI chat (new input, cache writes, output; grey when the provider gave no cache split) with time and estimated cost as lines (hover a day for the split). Each researched event is listed under Research review, Event research."
 },
 "aiconfig|Event research limits": {
 "source": "Event research settings in the netmon store (research_cfg.py), enforced by research.py before every model call.",
@@ -218,7 +218,7 @@ window.CARD_INFO = {
 "aireview|Event research": {
 "source": "Event research settings and spend (research_cfg.py) and the research runs recorded by the review job state.",
 "use": "Watch spend against the daily cap and how many events wait for a person. Change the caps and web access on AI pipeline configuration, Research review.",
-"what": "Events researched with Send to research: money spent today, events researched, average cost and tokens per event, and the events still waiting for a person."
+"what": "Events researched with Send to research: money spent today, events researched, average cost and tokens per event, the events still waiting for a person, and a list of each researched event with its model, tokens and cost."
 },
 "aiconfig|Review job schedule": {
 "source": "Review job settings in the netmon store (review_cfg.py) and the lookback window (lookback.py).",

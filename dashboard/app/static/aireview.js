@@ -57,8 +57,7 @@
     const RV = ((J && J.usage) || []).map((u) => ({ ...u, review: true })), U = (J && J.research_usage) || [], CU = (J && J.chat_usage) || [], AL = [...RV, ...U, ...CU];
     let uc = null;
     USAGE = null;
-    const RE = (J && J.researched) || [];
-    if (AL.length || RE.length) {  // time + token use per day (review job, event research, chat) and every researched event
+    if (AL.length) {  // time + token use per day (review job, event research, chat); the researched-events list lives in Research review
       const dayKey = (t) => { const d = new Date(t * 1000); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
       const days = []; const byDay = {};
       for (const u of AL) { const k = dayKey(u.at); let d = byDay[k]; if (!d) { d = byDay[k] = { at: u.at, runs: [], reviews: [], chat: [], all: [] }; days.push(d); } (u.chat ? d.chat : u.review ? d.reviews : d.runs).push(u); d.all.push(u); }
@@ -118,18 +117,6 @@
         const mix = tot ? { fresh: S.reduce((a, u) => a + u.fresh, 0) / tot, cache_write: S.reduce((a, u) => a + u.cache_write, 0) / tot, cache_read: reads / tot } : null;
         USAGE = { U, D: days, mix, canvas: chart.querySelector("canvas"), pv, preview: null, ds: cfg.data.datasets[cfg.data.datasets.length - 1] };
       }
-      // every researched event: what it cost. A batch of events shares one conversation, so its tokens and cost are split evenly.
-      const evc = document.createElement("div"); evc.style.marginTop = "12px";
-      evc.innerHTML = `<h3 style="margin:0 0 4px">Researched events</h3>`;
-      evc.appendChild(RE.length ? table(null, [
-        { k: "at", t: "When", fmt: (v) => esc(clock(v)), sort: (r) => r.at || 0 },
-        { k: "label", t: "Event", fmt: (v, r) => `<span class="badge sev-info">${esc(TYPE[r.type] || r.type || "")}</span> ${esc(v || r.id || "")}`, sort: (r) => r.label || "" },
-        { k: "model", t: "Model", cls: "small" },
-        { k: "total", t: "Tokens", num: true, fmt: (v, r) => `${fn(v || 0)}${r.cache_read ? ` <span class="muted small" title="cache re-reads, billed at a fraction of the input price">(+${fn(r.cache_read)} cached)</span>` : ""}`, sort: (r) => r.total || 0 },
-        { k: "cost_usd", t: "Cost", num: true, fmt: (v) => (v == null ? '<span class="muted" title="no price entered for this model">n/a</span>' : "$" + v.toFixed(v < 0.1 ? 3 : 2)), sort: (r) => r.cost_usd ?? -1 },
-        { k: "batch", t: "Shared with", num: true, fmt: (v) => (v > 1 ? `${v - 1} other${v > 2 ? "s" : ""}` : "-"), sort: (r) => r.batch || 1 },
-      ], RE, { sort: "at", limit: 25 }) : Object.assign(document.createElement("div"), { className: "small muted", textContent: "No events researched yet since this was added. Each event researched with Send to research is listed here with its tokens and cost." }));
-      chart.appendChild(evc);
     }
     const runs = (J && J.runs) || [];
     c.querySelector(".cl-runs").appendChild(runs.length ? table(null, [
@@ -503,8 +490,22 @@
         ["Researched (7 d)", fn(RE.filter((r) => (r.at || 0) > wk).length)], ["Avg cost / event", costs.length ? usd(costs.reduce((a, v) => a + v, 0) / costs.length) : "—"],
         ["Tokens (7 d)", fn(tok)], ["Waiting for a person", fn((D.review_status || {}).queue?.count || 0), (D.review_status || {}).queue?.count ? "warn" : "good"],
         ["Web access", R.web_research ? "on" : "off"], ["Elasticsearch", R.es_search !== false ? "on" : "off"]])}
-      <div class="small muted" style="margin-top:6px">Each researched event with its tokens and cost is listed in <a href="#/aireview?at=ai-usage">Time and tokens</a>.</div>`);
+      <div class="small muted" style="margin-top:6px">Daily token and cost totals: <a href="#/aireview?at=ai-usage">Time and tokens</a>.</div>`);
     c.id = "ai-research-status";
+    if (!D.research?.error) {
+      // every researched event: what it cost. A batch of events shares one conversation, so its tokens and cost are split evenly.
+      const evc = document.createElement("div"); evc.style.marginTop = "12px";  // moved here from Time and tokens (user request)
+      evc.innerHTML = `<h3 style="margin:0 0 4px">Researched events</h3>`;
+      evc.appendChild(RE.length ? table(null, [
+        { k: "at", t: "When", fmt: (v) => esc(clock(v)), sort: (r) => r.at || 0 },
+        { k: "label", t: "Event", fmt: (v, r) => `<span class="badge sev-info">${esc(TYPE[r.type] || r.type || "")}</span> ${esc(v || r.id || "")}`, sort: (r) => r.label || "" },
+        { k: "model", t: "Model", cls: "small" },
+        { k: "total", t: "Tokens", num: true, fmt: (v, r) => `${fn(v || 0)}${r.cache_read ? ` <span class="muted small" title="cache re-reads, billed at a fraction of the input price">(+${fn(r.cache_read)} cached)</span>` : ""}`, sort: (r) => r.total || 0 },
+        { k: "cost_usd", t: "Cost", num: true, fmt: (v) => (v == null ? '<span class="muted" title="no price entered for this model">n/a</span>' : "$" + v.toFixed(v < 0.1 ? 3 : 2)), sort: (r) => r.cost_usd ?? -1 },
+        { k: "batch", t: "Shared with", num: true, fmt: (v) => (v > 1 ? `${v - 1} other${v > 2 ? "s" : ""}` : "-"), sort: (r) => r.batch || 1 },
+      ], RE, { sort: "at", limit: 25 }) : Object.assign(document.createElement("div"), { className: "small muted", textContent: "No events researched yet since this was added. Each event researched with Send to research is listed here with its tokens and cost." }));
+      c.appendChild(evc);
+    }
     return c;
   }
   // Nightly host note consolidation (notes_consolidate.py): settings, Consolidate now, last runs
