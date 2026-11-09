@@ -54,6 +54,18 @@ class ScopeStore(unittest.TestCase):
         self.assertEqual(kb.clean_scope(["dev:" + F.mac(1).upper(), "find:Port-Spike", "find:bad value!", "dev:not a host"]),
                          ["dev:" + F.mac(1), "find:port-spike"])
 
+    def test_scope_keys_always_offer_the_events_host(self):
+        """The host an event is about is always offered, including a bare host name (Mac), and the host finding and its
+        pushed alert give the same device key so one verdict covers both.
+        REQ: STO-14
+        """
+        hf = kb.scope_keys("hf|agent-off|Mac", {"label": "Elastic Agent on Mac not checking in"})
+        al = kb.scope_keys("alert|1", {"label": "Host ALERT: Elastic Agent on Mac not checking in", "item": {"key": "host|agent-off|Mac"}})
+        self.assertTrue({"dev:mac", "find:agent-off"} <= hf)
+        self.assertTrue({"dev:mac", "find:agent-off"} <= al)
+        self.assertIn("dev:nas.example.lan", kb.scope_keys("iss|agent|nas.example.lan", {}))
+        self.assertEqual(kb.clean_scope(["dev:Mac", "dev:12345", "dev:-x"]), ["dev:mac"])
+
     def test_match_needs_every_artifact(self):
         """A scoped verdict applies only to events showing all of its artifacts.
         REQ: STO-14

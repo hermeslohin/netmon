@@ -792,6 +792,24 @@ _SCOPE_KINDS = {"ip": "ip", "dns": "dns", "proc": "process", "user": "user", "po
 _SIG = re.compile(r"'((?:ET|ETPRO|GPL|SURICATA) [^']{3,200})'")
 _PORT = re.compile(r"\b(?:port |to port )?(\d{1,5})/(?:tcp|udp)\b", re.I)
 _FIND = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,59}$", re.I)
+_HOSTLABEL = re.compile(r"^(?![0-9]+$)[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?$", re.I)  # a bare host name (Mac, minecraft)
+
+
+def _dev_ok(d):
+    """A device id a verdict may be scoped to: a MAC, a FQDN (Mac.localdomain) or a bare host name (Mac)."""
+    return bool(_MAC.match(d) or valid_art("dns", d) or _HOSTLABEL.match(d))
+
+
+def _event_host(eid, ev):
+    """(kind, host) the event is about, as the card shows it: hf|kind|host, iss|agent|host, or an alert whose
+    item key is host|kind|host. ("", "") when the event names no host."""
+    p = str(eid or "").split("|")
+    if p[0] in ("hf", "iss") and len(p) > 2:
+        return p[1], p[2]
+    k = str(((ev or {}).get("item") or {}).get("key") or (ev or {}).get("key") or "").split("|")
+    if p[0] == "alert" and k[0] == "host" and len(k) > 2:
+        return k[1], k[2]
+    return "", ""
 
 
 def scope_keys(eid, ev):
@@ -802,10 +820,15 @@ def scope_keys(eid, ev):
     p, lab = str(eid or "").split("|"), str((ev or {}).get("label") or "")
     if p[0] in ("f", "hf") and len(p) > 1 and _FIND.match(p[1]):
         out.add("find:" + p[1].lower())
-    if p[0] in ("f", "hf") and len(p) > 2 and p[2] not in ("", "-"):
+    if p[0] == "f" and len(p) > 2 and p[2] not in ("", "-"):
         d = p[2].lower()
-        if _MAC.match(d) or valid_art("dns", d):
+        if _dev_ok(d):
             out.add("dev:" + d)
+    hk, h = _event_host(eid, ev)  # the host the event is about is always offered
+    if h.strip().lower() not in ("", "-") and _dev_ok(h.strip().lower()):
+        out.add("dev:" + h.strip().lower())
+        if p[0] == "alert" and _FIND.match(hk):
+            out.add("find:" + hk.lower())
     if p[0] == "gw" and len(p) > 2 and _FIND.match(p[2]):
         out.add("find:" + p[2].lower())
     if p[0] == "ids" and len(p) > 1 and p[1].strip():
@@ -907,7 +930,7 @@ def clean_scope(keys):
                 continue
         elif kind == "dev":
             v = v.lower()
-            if not (_MAC.match(v) or valid_art("dns", v)):
+            if not _dev_ok(v):
                 continue
         elif kind == "find":
             v = v.lower()

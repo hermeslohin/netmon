@@ -397,7 +397,7 @@ def artifact_event(eid):
     except ValueError:
         dd = {}
     return {"label": r["label"] or "", "host_ips": dd.get("host_ips") or [], "dst_ips": dd.get("dst_ips") or [], "ips": dd.get("ips") or [],
-            "arts": dd.get("arts") or []}
+            "arts": dd.get("arts") or [], "item": {"key": (dd.get("item") or {}).get("key") or ""}}
 
 
 def _ev_view(eids):
