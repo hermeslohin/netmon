@@ -97,7 +97,7 @@ The **Audit log** has its own From / To fields (see [More → Audit log](#more--
 Every page is made of boxes (cards).
 
 - **ⓘ About this box:** the small *i* next to each box title explains what the box shows, where its data comes from and how to use it. Click it again, press Esc or click elsewhere to close it.
-- **Collapse or expand:** click a box's title. The first three boxes on a page start open.
+- **Collapse or expand:** click a box's title. The first three boxes on a page start open. Boxes of the same width sitting side by side in one row (such as a row of small charts) open and close together.
 - **Rearrange:** drag a box by its ⠿ grip.
 - **Resize:** drag a box's bottom-right corner (on phones, height only).
 - **Remembered:** your layout is saved per page in this browser. **Original order and sizes** at the bottom of a page puts it back.

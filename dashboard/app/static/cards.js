@@ -259,8 +259,19 @@
     if (all?.dataset.cc === "reset") { delete layout[view()]; saveLayout(); delete sizes[view()]; saveSizes(); typeof rerender === "function" ? rerender() : location.reload(); return; }
     if (all) { boxes().forEach((c) => set(c, all.dataset.cc === "close", true)); return; }
     const h = e.target.closest(".cc-h"); if (!h || e.target.closest("a, button, input, select, label, summary, textarea, .cc-grip")) return;
-    const c = h.parentElement; set(c, !c.classList.contains("collapsed"), true);
+    const c = h.parentElement, to = !c.classList.contains("collapsed");
+    rowMates(c).forEach((x) => set(x, to, true));
   });
+  // Boxes sitting side by side in one row at the same width open/close together (a row of 4 small charts expands as
+  // one), so the row stays even. A stacked layout (phones) or a box resized to a different width toggles alone.
+  function rowMates(c) {
+    const p = c.parentElement, r = c.getBoundingClientRect();
+    if (c.classList.contains("span") || !r.width) return [c];
+    const m = [...p.children].filter((x) => x.dataset.cc && x.querySelector(":scope > h2") && !x.classList.contains("span")
+      && !x.classList.contains("cc-dragging") && (() => { const q = x.getBoundingClientRect();
+        return Math.abs(q.top - r.top) < 4 && Math.abs(q.width - r.width) < 4; })());
+    return m.length > 1 ? m : [c];
+  }
   main.addEventListener("keydown", (e) => { const h = e.target.closest?.(".cc-h"); if (h && (e.key === "Enter" || e.key === " ") && e.target === h) { e.preventDefault(); h.click(); } });
   let q = false; new MutationObserver(() => { if (q) return; q = true; requestAnimationFrame(() => { q = false; enhance(); }); }).observe(main, { childList: true, subtree: true });
   enhance();
