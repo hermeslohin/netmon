@@ -1,6 +1,6 @@
 // Pivot links: a 🔎 button on Security rows (baseline findings, IDS signatures, host findings, beacons, triage alarms,
 // gateway events) that opens a popover of deep links into Kibana Discover - and, for gateway events, the UniFi web app.
-// Base URLs come from /api/site (the site settings (Settings → Settings (policy & site)): kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
+// Base URLs come from /api/site (the site settings (Settings → Policy and Site): kibana_url, kibana_data_view, unifi_web_url, unifi_paths); never hard-coded.
 const PIV = new Map(), PIV_K = new Map();
 function pivotBtn(kind, item) {
   if (!SITE.kibana_url && !(kind === "gateway" && SITE.unifi_web_url)) return "";

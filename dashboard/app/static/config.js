@@ -246,7 +246,7 @@
     const E = D.elasticsearch, U = D.unifi;
     const ixRows = Object.keys(E.index_defaults).map((k) => fld("es-ix-" + k, E.index_labels[k], E.indices[k], E.index_defaults[k], `Default <span class="mono">${esc(E.index_defaults[k])}</span>. Comma-separated patterns and <span class="mono">*</span> are allowed.`)).join("");
     const ce = intCard("elasticsearch", "Elasticsearch (Security Onion)", "Read-only API key with <span class=\"mono\">read</span> + <span class=\"mono\">view_index_metadata</span> on the indices below. TLS certificates are not verified (Security Onion uses its own CA).",
-      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (the site settings (Settings → Settings (policy & site))): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
+      fld("elasticsearch-url", "URL", E.url, E.url_fallback || "https://so-manager:9200", `Default (the site settings (Settings → Policy and Site)): <span class="mono">${esc(E.url_fallback || "not set")}</span>`)
       + fld("elasticsearch-key", "API key", "", E.key_set ? E.key_hint : "base64 id:key from Kibana › Stack Management › API keys", keyHelp(E), "password")
       + `<div class="small" style="margin-top:12px"><b>Indices to search</b></div>` + ixRows, E);
     const cu = intCard("unifi", "UniFi API", "Site Manager API key from <span class=\"mono\">unifi.ui.com › API</span>. netmon reads clients, devices and events through the console connector (read-only).",
