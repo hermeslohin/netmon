@@ -45,6 +45,20 @@ def max_per_subject():
         return max(1, min(v, PER_SUBJECT_LIMIT))
     except (OSError, ValueError, TypeError, AttributeError):
         return MAX_PER_SUBJECT
+
+
+EXPIRE_DAYS_DEFAULT, EXPIRE_DAYS_LIMIT = 30, 3650  # unused host notes are deleted after this many days (0 = never); AI pipeline configuration > Models, Note expiry
+TOUCH_EVERY = 600  # a note read again within this many seconds is not re-stamped (saves writes on every review)
+
+
+def expire_days():
+    """Days a host note lives without being used (admin setting llm_config.json context_notes.expire_days; 0 = never expires)."""
+    try:
+        v = ((store.jload(os.path.join(os.environ.get("STATE_DIR", "/state"), "llm_config.json"), {}) or {}).get("context_notes") or {}).get("expire_days")
+        v = EXPIRE_DAYS_DEFAULT if v is None or v == "" else int(v)
+        return max(0, min(v, EXPIRE_DAYS_LIMIT))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return EXPIRE_DAYS_DEFAULT
 _MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 _IP = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 _DOM = re.compile(r"^(?:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
@@ -67,6 +81,9 @@ def _db():
     for col, decl in (("status", "TEXT NOT NULL DEFAULT ''"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL")):  # '' = not reviewed, approved = authoritative, rejected = kept but never sent to the AI
         if col not in hh:
             c.execute(f"ALTER TABLE host_notes ADD COLUMN {col} {decl}")
+    if "last_used" not in hh:  # last time an AI read the note for an event / host, or a person edited or reviewed it (expiry clock)
+        c.execute("ALTER TABLE host_notes ADD COLUMN last_used REAL")
+        c.execute("UPDATE host_notes SET last_used=? WHERE last_used IS NULL", (time.time(),))  # notes written before expiry existed get a full period
     have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
     for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL"),
                       ("verdict", "TEXT NOT NULL DEFAULT ''"),  # verdict: a person's expected / benign / suspicious call (authoritative)
@@ -253,7 +270,7 @@ def art_score(note_arts, ev_arts):
     return sum(ART_WEIGHT.get(h.split(":", 1)[0], 1) for h in hit), hit
 
 
-def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12):
+def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12, use=True):
     """Host notes (any subject) that carry at least one of the event's artifacts: [(score, matched, note)], best first.
     Notes scoring under MIN_ART_SCORE (a shared port only) are left out.
     A note on another host matches only on an IP or DNS name: a process, file, account or port of one host says nothing about another."""
@@ -277,7 +294,11 @@ def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12):
         if n.get("status") != "rejected" and sc >= MIN_ART_SCORE and not str(n["text"]).startswith("[profile:"):  # generated per-host profiles list many peers: they stay with their own host
             out.append((sc, hit, n))
     out.sort(key=lambda t: (-t[0], -float(t[2].get("updated") or 0)))
-    return out[:limit]
+    out = out[:limit]
+    if use:  # matched to an event for an AI by its artifacts: used (dashboard views pass use=False)
+        touch([n["id"] for _sc, _hit, n in out])
+    _expiry([n for _sc, _hit, n in out])
+    return out
 
 
 # ---------------------------------------------------------------- subjects
@@ -512,7 +533,45 @@ def subjects_for_ip(ip, reg=None):
 
 
 # ---------------------------------------------------------------- host notes
-_COLS = ("id", "subject", "label", "category", "text", "author", "model", "via", "ts", "updated", "status", "reviewed_by", "reviewed_at")
+_COLS = ("id", "subject", "label", "category", "text", "author", "model", "via", "ts", "updated", "status", "reviewed_by", "reviewed_at", "last_used")
+
+
+def _expiry(notes, days=None):
+    """Adds n["expires"] (epoch the note is deleted unless used again; None when expiry is off) to each note dict."""
+    days = expire_days() if days is None else days
+    for n in notes:
+        base = n.get("last_used") or n.get("updated") or n.get("ts")
+        n["expires"] = float(base) + days * 86400 if days and base else None
+    return notes
+
+
+def touch(ids, now=None):
+    """Mark notes as used (resets their expiry clock). Called where notes are handed to an AI for a specific event / host."""
+    ids = sorted({int(i) for i in ids if i is not None})
+    if not ids:
+        return 0
+    now = time.time() if now is None else now
+    try:
+        with _db() as c:
+            return c.execute(f"UPDATE host_notes SET last_used=? WHERE id IN ({','.join('?' * len(ids))}) AND coalesce(last_used, 0) < ?",
+                             [now, *ids, now - TOUCH_EVERY]).rowcount
+    except sqlite3.Error as e:  # a busy database must never break a review
+        print(f"kb touch: {e}", file=sys.stderr)
+        return 0
+
+
+def purge_expired(now=None):
+    """Delete host notes not used for expire_days() days -> [(id, subject)] deleted. Expiry off (0 days): nothing."""
+    days = expire_days()
+    if not days:
+        return []
+    cut = (time.time() if now is None else now) - days * 86400
+    with _db() as c:
+        gone = c.execute("SELECT id, subject FROM host_notes WHERE coalesce(last_used, updated, ts, 0) < ?", (cut,)).fetchall()
+        for nid, _s in gone:
+            c.execute("DELETE FROM note_artifacts WHERE note_id=?", (nid,))
+            c.execute("DELETE FROM host_notes WHERE id=?", (nid,))
+    return gone
 
 
 def host_notes(subjects=None, q="", ai=False):
@@ -535,7 +594,13 @@ def host_notes(subjects=None, q="", ai=False):
     if q:
         ql = q.lower()
         out = [n for n in out if ql in (n["subject"] + " " + (n["label"] or "") + " " + n["text"]).lower()]
-    return out
+    if ai and subjects is not None and out:  # handed to an AI for these hosts: the notes were used (full listings / dumps do not count)
+        now = time.time()
+        if touch([n["id"] for n in out], now):
+            for n in out:
+                if float(n.get("last_used") or 0) < now - TOUCH_EVERY:
+                    n["last_used"] = now
+    return _expiry(out)
 
 
 def add_host_note(subject_spec, text, category="other", author="", model="", via="", note_id=None, reg=None):
@@ -554,16 +619,16 @@ def add_host_note(subject_spec, text, category="other", author="", model="", via
                 raise ValueError(f"note {note_id} not found")
             if author == "ai" and r[1] in ("approved", "rejected"):
                 raise ValueError(f"note {note_id} was {r[1]} by a person: the AI may not change it")
-            c.execute("UPDATE host_notes SET subject=?, label=?, category=?, text=?, author=?, model=?, via=?, updated=?, status=CASE WHEN ?='ai' THEN status ELSE '' END WHERE id=?",
-                      (subj, label, cat, text, author, model, via, now, author, int(note_id)))
+            c.execute("UPDATE host_notes SET subject=?, label=?, category=?, text=?, author=?, model=?, via=?, updated=?, last_used=?, status=CASE WHEN ?='ai' THEN status ELSE '' END WHERE id=?",
+                      (subj, label, cat, text, author, model, via, now, now, author, int(note_id)))
             _index(c, int(note_id), subj, text)
             return int(note_id)
         n = c.execute("SELECT count(*) FROM host_notes WHERE subject=?", (subj,)).fetchone()[0]
         cap = max_per_subject()
         if n >= cap:
             raise ValueError(f"{subj} already has {n} notes (limit {cap}) - update or delete old ones instead of adding")
-        cur = c.execute("INSERT INTO host_notes (subject, label, category, text, author, model, via, ts, updated) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (subj, label, cat, text, author, model, via, now, now))
+        cur = c.execute("INSERT INTO host_notes (subject, label, category, text, author, model, via, ts, updated, last_used) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (subj, label, cat, text, author, model, via, now, now, now))
         _index(c, cur.lastrowid, subj, text)
         return cur.lastrowid
 
@@ -574,8 +639,8 @@ def review_host_note(note_id, decision, by):
     if st is None:
         raise ValueError("decision must be approve, reject or clear")
     with _db() as c:
-        return c.execute("UPDATE host_notes SET status=?, reviewed_by=?, reviewed_at=? WHERE id=?",
-                         (st, str(by)[:60] if st else None, time.time() if st else None, int(note_id))).rowcount
+        return c.execute("UPDATE host_notes SET status=?, reviewed_by=?, reviewed_at=?, last_used=? WHERE id=?",
+                         (st, str(by)[:60] if st else None, time.time() if st else None, time.time(), int(note_id))).rowcount
 
 
 _RTAG = re.compile(r"\[reviewer:(?:file|process|user|ip|dns):[^\]]{1,200}\]")

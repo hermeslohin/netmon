@@ -230,7 +230,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `llm.providers` | AI pipeline configuration > AI providers (added APIs, local server) | `/api/llm/providers` | SET-32, SET-33, SET-34, SET-65 | 8 | 4 |
 | `llm.clef` | AI pipeline configuration > Decision model settings (on/off, thresholds) | `/api/llm/clef` | SET-30, SET-31, SET-66 | 6 | 8 |
 | `llm.clef_server` | AI pipeline configuration > Decision model server | `/api/llm/clef-server` | SET-35 | 3 | 0 |
-| `llm.notes` | AI pipeline configuration > Event reviewer context notes | `/api/llm/notes` | SET-20, SET-21, SET-66 | 5 | 8 |
+| `llm.notes` | AI pipeline configuration > Event reviewer context notes | `/api/llm/notes` | SET-20, SET-21, SET-16, SET-66 | 7 | 8 |
 | `llm.review_limits` | AI pipeline configuration > Review limits | `/api/llm/review-limits` | STO-05, SET-26, SET-27, SET-28, SET-29, SET-66, SET-69 | 23 | 15 |
 | `llm.esqueries` | AI pipeline configuration > Event reviewer look-ups: Elasticsearch | `/api/llm/esqueries` | SET-25, SET-66 | 3 | 8 |
 | `llm.websearch` | AI pipeline configuration > Event reviewer look-ups: web search | `/api/llm/websearch` | SET-25, SET-66 | 3 | 8 |
@@ -261,6 +261,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix-list tracker (issues.track_incremental) is evaluated by request threads and background jobs at (OPS-05) |
 | `tests/unit/test_k8s.py` | 16 | Unit tests for k8s.py (Kubernetes security monitoring from Security Onion data). (KUBE-01, KUBE-02, KUBE-03, KUBE-04, KUBE-12) |
+| `tests/unit/test_kb_expiry.py` | 5 | Unused host notes expire after the configured number of days. (SET-16, STO-15) |
 | `tests/unit/test_kb_pod.py` | 5 |  (KUBE-12) |
 | `tests/unit/test_kube_api.py` | 12 | Unit tests for the read-only Kubernetes API integration, the CIS benchmark and the map (kube_api / kube_cis / kube_map). (KUBE-05, KUBE-06, KUBE-07) |
 | `tests/unit/test_kube_images.py` | 6 | Kubernetes multi-cluster filter, events into Open events, and container image updates/CVEs (k8s.py, kube_images.py). (KUBE-08, KUBE-09, KUBE-10) |

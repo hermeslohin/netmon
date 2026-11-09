@@ -107,8 +107,14 @@ def kb_per_subject():
         return 40
 
 
-def set_notes_limit(mx, user, chars=None, per_subject=None):
-    """Set notes per event and / or the total note characters per prompt (each optional, the other is kept)."""
+def kb_expire_days():
+    """Days an unused host note is kept (0 = never expires); see kb.expire_days()."""
+    import kb
+    return kb.expire_days()
+
+
+def set_notes_limit(mx, user, chars=None, per_subject=None, expire_days=None):
+    """Set notes per event, the total note characters per prompt, notes per host / user and / or the unused-note expiry in days (each optional, the others are kept)."""
     c = _raw_config()
     cur = dict(c.get("context_notes") or {})
     if mx is not None:
@@ -126,7 +132,13 @@ def set_notes_limit(mx, user, chars=None, per_subject=None):
         if not 1 <= per_subject <= 500:
             raise ValueError("notes per host / user must be 1-500")
         cur["per_subject"] = per_subject
-    if mx is None and chars is None and per_subject is None:
+    if expire_days is not None:
+        import kb
+        expire_days = int(expire_days)
+        if not 0 <= expire_days <= kb.EXPIRE_DAYS_LIMIT:
+            raise ValueError(f"note expiry must be 0-{kb.EXPIRE_DAYS_LIMIT} days (0 = never)")
+        cur["expire_days"] = expire_days
+    if mx is None and chars is None and per_subject is None and expire_days is None:
         raise ValueError("nothing to set")
     cur.update(by=user, at=time.time())
     c["context_notes"] = cur
@@ -152,7 +164,8 @@ def config():
             "web_search": _web_cfg(c),
             "lookup_plan": {"enabled": (c.get("lookup_plan") or {}).get("enabled", True) is not False, "by": (c.get("lookup_plan") or {}).get("by"),
                             "at": (c.get("lookup_plan") or {}).get("at")},
-            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "per_subject": kb_per_subject(), "per_subject_default": 40, "per_subject_limit": 500, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
+            "context_notes": {"max": notes_limit(), "limit": NOTES_LIMIT, "default": NOTES_DEFAULT, "chars": notes_chars(), "chars_min": CHARS_MIN, "chars_limit": CHARS_LIMIT, "chars_default": NOTE_BUDGET, "per_subject": kb_per_subject(), "per_subject_default": 40, "per_subject_limit": 500,
+                              "expire_days": kb_expire_days(), "expire_days_default": 30, "expire_days_limit": 3650, "by": (c.get("context_notes") or {}).get("by"), "at": (c.get("context_notes") or {}).get("at")}}
 
 
 # ---------------------------------------------------------------- review limits (admin): what is never sent to the event reviewer

@@ -469,7 +469,7 @@
     const c = card("Event reviewer context notes", `<div class="small muted">Earlier notes on the hosts and internet addresses of an event are added to each event review (and to event research). Fewer = faster and fewer tokens; more = more context.</div>`);
     c.id = "ai-notes-context";
     const b = c.appendChild(document.createElement("div")); b.className = "llm-grid"; b.style.marginTop = "8px";
-    b.append(notesLimitRow(D), notesCharsRow(D), notesPerSubjectRow(D));
+    b.append(notesLimitRow(D), notesCharsRow(D), notesPerSubjectRow(D), notesExpiryRow(D));
     return c;
   }
   // Monitoring > Models: each model role, where it is served and whether it answers now (GET /api/aireview/models, no tokens)
@@ -622,6 +622,32 @@
       catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
     };
     r.title = "How many notes the AI jobs and people can store for one host, user or domain. Once a subject is full, new notes are refused until old ones are updated or deleted. Existing notes are never removed when you lower this. This is the storage cap; 'Notes per event' above is how many the event reviewer reads.";
+    return r;
+  }
+  // Days an unused host note is kept before it is deleted (admin; 0 = never)
+  function notesExpiryRow(D) {
+    const cfg = D.config?.context_notes || {}, hi = cfg.expire_days_limit || 3650, def = cfg.expire_days_default || 30;
+    const r = document.createElement("div"); r.className = "llm-row";
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Note expiry" }));
+    const lab = r.appendChild(document.createElement("label")); lab.className = "small";
+    lab.append("delete a host note when it has not been used for ");
+    const num = lab.appendChild(Object.assign(document.createElement("input"), { type: "number", min: 0, max: hi, step: 1, value: cfg.expire_days ?? def }));
+    num.style.width = "5em"; num.setAttribute("aria-label", "Days an unused host note is kept");
+    lab.append(" days (0 = never)");
+    const btn = r.appendChild(Object.assign(document.createElement("button"), { type: "button", textContent: "Save" })); btn.disabled = true;
+    const msg = r.appendChild(Object.assign(document.createElement("span"), { className: "small muted" }));
+    const show = (c) => (c.expire_days ? `now: ${c.expire_days} days` : "now: never expire") + ` (default ${def}, 0-${hi})` + (c.by ? ` (${c.by})` : "");
+    msg.textContent = D.admin ? show(cfg) : show(cfg) + " · only an admin can change this";
+    num.disabled = !D.admin;
+    autoApply(btn, [num]);
+    btn.onclick = async () => {
+      const v = Math.round(+num.value);
+      if (!(num.value !== "" && v >= 0 && v <= hi)) { msg.textContent = `Enter 0-${hi} days.`; return; }
+      btn.disabled = true; msg.textContent = "saving…";
+      try { const r2 = await apiPost("/api/llm/notes", { expire_days: v }); Object.assign(cfg, r2.context_notes || {}); msg.textContent = "saved · " + show(cfg); }
+      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
+    };
+    r.title = "Every host, internet, DNS and pod note carries the date it was created and the date it was last used. A note is used when an AI job reads it for an event or host it involves (event reviewer, event research, review job), or when a person edits, accepts or rejects it; each use restarts its clock. A note that goes unused for this many days is deleted (checked hourly). Each note shows how long it has left. 0 turns expiry off.";
     return r;
   }
   // Total characters of notes in one review prompt (below Notes per event)

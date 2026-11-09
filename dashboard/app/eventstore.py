@@ -525,13 +525,14 @@ def alert_view(alerts, related=True, art_limit=6):
                 ev = EV.get(a["eid"]) or {}
                 keys = kb.event_artifact_keys({"label": f"{a.get('text') or ''} {ev.get('label') or ''}", "ips": [t for t in a.get("targets") or [] if isinstance(t, str)],
                                                "host_ips": ev.get("host_ips"), "dst_ips": ev.get("dst_ips"), "arts": ev.get("arts")})
-                hits = kb.notes_by_artifacts(keys, limit=art_limit)
+                hits = kb.notes_by_artifacts(keys, limit=art_limit, use=False)  # a person viewing alerts does not count as using the notes
                 if hits:  # one copy of each note (art_note_text), alerts reference it by id with the artifacts that matched
                     an[a["eid"]] = [{"id": n["id"], "matched": hit} for _sc, hit, n in hits]
                     for _sc, _hit, n in hits:
                         at.setdefault(str(n["id"]), {"id": n["id"], "subject": n["subject"], "category": n.get("category") or "",
                                                      "text": str(n.get("text") or "")[:700], "author": n.get("author") or "", "model": n.get("model") or "",
-                                                     "via": n.get("via") or "", "status": n.get("status") or "", "updated": n.get("updated")})
+                                                     "via": n.get("via") or "", "status": n.get("status") or "", "updated": n.get("updated"),
+                                                     "ts": n.get("ts"), "last_used": n.get("last_used"), "expires": n.get("expires")})
         except Exception as e:  # noqa: BLE001
             print(f"alert_view artifact notes: {e}", file=sys.stderr)
     X["art_notes"], X["art_note_text"] = an, at

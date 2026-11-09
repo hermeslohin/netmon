@@ -36,6 +36,16 @@
     dev: ["💻", "device (MAC or host)"], find: ["🧭", "kind of finding"], sig: ["🛡️", "IDS signature"] };
   const artChips = (n) => { const a = (n.artifacts || []).slice(0, 12); return a.length ? `<div class="note-chips" title="Artifacts in this note. The event reviewer matches an event's artifacts against these to choose which notes to read.">${a.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
     return `<span class="art-chip" title="${esc(nm)}">${ic} <code>${esc(k.slice(i + 1))}</code></span>`; }).join("")}</div>` : ""; };
+  // expiry: an unused note is deleted after the days set in AI pipeline configuration > Note expiry; each use restarts the clock
+  const expTxt = (n) => {
+    const made = n.ts ? `Created ${when(n.ts)}` : "";
+    if (!n.expires) return made ? `<span class="muted small" title="${esc(made + (n.last_used ? " · last used " + when(n.last_used) : "") + " · expiry is off")}">∞</span>` : "";
+    const left = (n.expires * 1000 - Date.now()) / 86400000, d = Math.max(0, Math.ceil(left));
+    const txt = left <= 1 ? "expires today" : `${d} d left`, cls = d <= 3 ? "sev-high" : d <= 7 ? "sev-medium" : "";
+    const tip = `${made}${n.last_used ? " · last used " + when(n.last_used) : ""} · deleted ${when(n.expires)} unless an AI reads it for an event or host first, or someone edits / accepts it (each use restarts the clock)`;
+    return `<span class="badge kb-exp ${cls}" title="${esc(tip)}">⌛ ${txt}</span>`;
+  };
+  window.kbExpiry = expTxt;
   const by = (n) => (n.author === "ai" ? aiFlare({ model: n.model, via: n.via || "AI host notes", at: n.updated ? new Date(n.updated * 1000).toISOString() : "" })
     : `<span class="kb-user" title="Written by a person">👤 ${esc(String(n.author || "").replace(/^user:/, ""))}</span>`);
 
@@ -52,7 +62,7 @@
       const ns = d.notes || [];
       c.querySelector(".kb-n").textContent = ns.length ? `(${ns.length})` : "";
       list.innerHTML = ns.length ? ns.map((n) => `<div class="kb-note${n.status === "rejected" ? " kb-st-rejected" : ""}"><div class="kb-meta"><span class="badge">${esc(n.category)}</span> ${by(n)} ${hnBadge(n)}${hnBtns(n)}
-          <span class="muted small">${esc(when(n.updated))}${subjects.length > 1 && n.subject !== primary ? " · " + esc(n.subject) : ""}</span>
+          <span class="muted small" title="${esc(n.ts ? "Created " + when(n.ts) : "")}">${esc(when(n.updated))}${subjects.length > 1 && n.subject !== primary ? " · " + esc(n.subject) : ""}</span> ${expTxt(n)}
           <button type="button" class="kb-del" data-id="${esc(n.id)}" title="Delete this note" aria-label="Delete note">✕</button></div>
           <div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`).join("")
         : `<div class="empty">No notes yet. The AI adds notes as it learns about this device; you can add your own below.</div>`;
@@ -96,7 +106,8 @@
       el.appendChild(pc);
     }
     el.appendChild(card(`Host notes (${hn.length})`, hn.length ? table(null, [{ k: "subject", t: "Device / host", fmt: (v, n) => subjLink(v, n.label) }, { k: "category", t: "Category", fmt: (v) => `<span class="badge">${esc(v)}</span>` },
-      { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` }, { k: "author", t: "By", fmt: (v, n) => by(n) }, { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }],
+      { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` }, { k: "author", t: "By", fmt: (v, n) => by(n) }, { k: "ts", t: "Created", fmt: (v) => esc(when(v)) }, { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) },
+      { k: "expires", t: "Expires", fmt: (v, n) => expTxt(n) }],
       hn, { sort: "updated" }) : `<div class="empty">No host notes yet. The AI writes them when it researches an event (Send to research) or reviews correlations; you can add notes on any host or endpoint page.</div>`));
     el.appendChild(card(`Event notes (${en.length})`, en.length ? table(null, [{ k: "label", t: "Event", fmt: (v, n) => esc(v || n.eid) }, { k: "text", t: "Note", fmt: (v, n) => `<div class="kb-text-v">${esc(v)}</div>${artChips(n)}` },
       { k: "verdict", t: "Verdict", fmt: (v, n) => vBadge(n) },
@@ -284,7 +295,7 @@
     epop.innerHTML = `<div class="rel-head"><b>Notes on ${esc(what)}</b> <span class="muted small mono">${esc(v)}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body"><div class="loading inline">Loading notes…</div></div>`;
     epop.querySelector(".rel-x").onclick = eclose;
-    const noteHtml = (n, scope) => `<div class="kb-note${n.status === "rejected" ? " kb-st-rejected" : ""}"><div class="kb-meta">${by(n)} ${hnBadge(n)}${hnBtns(n)} <span class="muted small">${esc(when(n.updated))}</span>
+    const noteHtml = (n, scope) => `<div class="kb-note${n.status === "rejected" ? " kb-st-rejected" : ""}"><div class="kb-meta">${by(n)} ${hnBadge(n)}${hnBtns(n)} <span class="muted small" title="${esc(n.ts ? "Created " + when(n.ts) : "")}">${esc(when(n.updated))}</span> ${expTxt(n)}
           ${scope ? `<a class="badge" href="${covLink(n.subject)}" title="Written on a wider scope; applies to ${esc(v)} too">${isDns ? "*." : ""}${esc(scope)}</a>` : ""}
           <button type="button" class="kb-del" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button></div><div class="kb-text-v">${esc(n.text)}</div>${artChips(n)}</div>`;
     Promise.all([api("/api/kb/host?s=" + encodeURIComponent(subj)),

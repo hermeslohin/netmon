@@ -272,6 +272,7 @@ Pending notes are listed under **Event notes awaiting approval** on **Devices �
 **Limits and housekeeping**
 
 - Each host, account or domain holds at most a set number of notes (40 by default; admins change it with **Notes per host / user** on the AI pipeline pages). When a subject is full, the AI has to update or delete old notes before adding new ones.
+- Unused notes expire. Every host, internet, DNS and pod note carries the date it was created and the date it was last used, and shows a ⌛ badge with the days it has left (hover for the dates). A note counts as used when an AI job reads it for an event or host it involves (event reviewer, event research, review job), or when someone edits, accepts or rejects it; each use restarts its clock. Opening a page or listing notes does not. A note unused for the set number of days (30 by default) is deleted (checked hourly). Admins change the days with **Note expiry** on the AI pipeline pages; 0 turns expiry off. Notes that existed before expiry was added got a full period from the day it was switched on.
 - Nightly **host note consolidation** (AI pipeline configuration) merges overlapping, unreviewed AI notes. Notes written by people, accepted and rejected notes, and correlation profiles are never changed by it.
 - Every add, delete, accept, reject and approve is logged with the user's name in the **Audit log**.
 - The Notes page and Internet notes tables count the accepted (✓) and rejected (✕) notes per device, IP or domain.

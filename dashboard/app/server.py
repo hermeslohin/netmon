@@ -1311,10 +1311,10 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "notes_consolidate": notes_consolidate.view()})
             if u.path == "/api/llm/notes":  # most host / user notes the event reviewer gets per event
                 try:
-                    res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"), body.get("per_subject"))
+                    res = corr_llm.set_notes_limit(body.get("max"), user, body.get("chars"), body.get("per_subject"), body.get("expire_days"))
                 except (TypeError, ValueError) as e:
                     return self._json({"error": str(e)[:200]}, 400)
-                print(f"llm notes: {user} set max notes per event={res['max']}, note characters={res['chars']}", file=sys.stderr)
+                print(f"llm notes: {user} set max notes per event={res['max']}, note characters={res['chars']}, per subject={res['per_subject']}, expire days={res['expire_days']}", file=sys.stderr)
                 return self._json({"ok": True, "context_notes": res})
             if u.path == "/api/llm/review":  # review job: on/off, event modes, run now (admin)
                 if body.get("action") == "run":
@@ -2119,12 +2119,22 @@ def main():
             time.sleep(300)
     threading.Thread(target=_ingest, daemon=True, name="eventstore-ingest").start()
 
-    def _notes_nightly():  # host note consolidation at the time set on AI review (notes_consolidate.py)
+    def _notes_nightly():  # host note consolidation at the time set on AI review (notes_consolidate.py) + hourly expiry of unused host notes
+        last_purge = 0.0
         while True:
             try:
                 notes_consolidate.tick()
             except Exception as e:  # noqa: BLE001
                 print(f"notes consolidation timer: {e}", file=sys.stderr)
+            if time.time() - last_purge >= 3600:
+                last_purge = time.time()
+                try:
+                    gone = kb.purge_expired()
+                    if gone:
+                        print(f"kb: deleted {len(gone)} host note(s) unused for {kb.expire_days()} days: "
+                              + ", ".join(f"{i} ({str(s_)[:40]})" for i, s_ in gone[:20]), file=sys.stderr)
+                except Exception as e:  # noqa: BLE001
+                    print(f"host note expiry: {e}", file=sys.stderr)
             time.sleep(60)
     threading.Thread(target=_notes_nightly, daemon=True, name="notes-consolidate-timer").start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)

@@ -46,7 +46,7 @@ SETTINGS = {
                       ["llm_providers.save", "llm_providers.save_local"], ["SET-32", "SET-33", "SET-34", "SET-65"]),
     "llm.clef": ("AI pipeline configuration > Decision model settings (on/off, thresholds)", ["/api/llm/clef"], ["clef.set_config"], ["SET-30", "SET-31", "SET-66"]),
     "llm.clef_server": ("AI pipeline configuration > Decision model server", ["/api/llm/clef-server"], ["clef_server.save"], ["SET-35"]),
-    "llm.notes": ("AI pipeline configuration > Event reviewer context notes", ["/api/llm/notes"], ["corr_llm.set_notes_limit"], ["SET-20", "SET-21", "SET-66"]),
+    "llm.notes": ("AI pipeline configuration > Event reviewer context notes", ["/api/llm/notes"], ["corr_llm.set_notes_limit"], ["SET-20", "SET-21", "SET-16", "SET-66"]),
     "llm.review_limits": ("AI pipeline configuration > Review limits", ["/api/llm/review-limits"], ["corr_llm.set_limits"], ["STO-05", "SET-26", "SET-27", "SET-28", "SET-29", "SET-66", "SET-69"]),
     "llm.esqueries": ("AI pipeline configuration > Event reviewer look-ups: Elasticsearch", ["/api/llm/esqueries"], ["corr_llm.set_es_queries"], ["SET-25", "SET-66"]),
     "llm.websearch": ("AI pipeline configuration > Event reviewer look-ups: web search", ["/api/llm/websearch"], ["corr_llm.set_web_search"], ["SET-25", "SET-66"]),
