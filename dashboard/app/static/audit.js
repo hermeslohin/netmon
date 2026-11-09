@@ -22,7 +22,8 @@
     const d = document.createElement("div"), line = (k, v, mono) => { if (v === undefined || v === null || v === "") return;
       const r = d.appendChild(document.createElement("div")); r.className = "small"; const b = r.appendChild(document.createElement("b")); b.textContent = k + ": ";
       const s = r.appendChild(document.createElement("span")); if (mono) s.className = "mono"; s.textContent = v; };
-    line(P.kind === "page" ? "Page read" : "Search", P.query, true); line("Why", P.why); line("Event under review", target, true);
+    const kind = P.kind || (P.url && !P.search ? "page" : "search");  // entries written before 2026-11-09 carry search / url instead of kind / query
+    line(kind === "page" ? "Page read" : "Search", P.query ?? P.search ?? P.url, true); line("Why", P.why); line("Event under review", target, true);
     line("Results", P.error ? "failed: " + P.error : `${P.results ?? 0}${P.cached ? " (answered from the cache)" : ""}`);
     const ul = document.createElement("ol"); ul.className = "small";
     (P.urls || []).forEach((u) => { if (!/^https?:\/\//i.test(u.url || "")) return; const li = ul.appendChild(document.createElement("li")), a = li.appendChild(document.createElement("a"));
