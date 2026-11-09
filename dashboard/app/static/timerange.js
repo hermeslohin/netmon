@@ -60,6 +60,7 @@
     xbox.onclick = (e) => { e.target.closest(".rg-del")?.closest(".rp-x").remove(); };
     window.rangeXFill = xfill;
     box.querySelector("#rgApply").onclick = async () => {
+      if (box.classList.contains("rg-busy")) return;  // a load is already running
       const extra = [];
       for (const row of xbox.querySelectorAll(".rp-x")) {
         const [a, b] = [...row.querySelectorAll("input")].map((i) => new Date(i.value));
@@ -87,6 +88,7 @@
       msg(""); xfill();
     }
     window.closeRangePop = () => open(false);
+    window.openRangePop = () => { pop.hidden = false; btn.setAttribute("aria-expanded", "true"); place(); };  // keep the typed values
   }
 
   function showLabel() { const l = document.getElementById("rangeLbl"); if (l && S.range) l.innerHTML = label(S.range) + (S.extra?.length ? ` <span class="badge sev-info">+${S.extra.length}</span>` : ""); }
@@ -99,23 +101,33 @@
 
   // Load a time range: nightly snapshot when it matches, else collect it on the host and wait.
   async function applyRange(r, snapId) {
-    const m = window.rangeMsg || (() => {});
+    const box = document.getElementById("rangeBox"), lbl = document.getElementById("rangeLbl"), main = $("#main");
+    const prevLbl = lbl?.innerHTML;
+    // instant feedback on Apply: close the panel, show the new range with a spinner and dim the page while it loads
+    window.closeRangePop?.();
+    box?.classList.add("rg-busy"); box?.querySelector("#rangeBtn")?.setAttribute("aria-busy", "true");
+    if (lbl) lbl.innerHTML = label(r) + ` <span class="rg-spin" aria-label="loading">⏳</span>`;
+    main?.classList.add("rg-loading");
+    const done = () => { box?.classList.remove("rg-busy"); box?.querySelector("#rangeBtn")?.removeAttribute("aria-busy"); main?.classList.remove("rg-loading"); };
+    const fail = (t) => { done(); if (lbl && prevLbl != null) lbl.innerHTML = prevLbl; window.openRangePop?.(); setTimeout(() => (window.rangeMsg || (() => {}))(t, true), 0); return false; };
+    try { return await applyRange0(r, snapId, fail); } catch (e) { return fail(String(e.message || e)); } finally { done(); }
+  }
+  async function applyRange0(r, snapId, fail) {
     let R;
-    try { R = await apiPost("/api/range", r); } catch (e) { m(String(e.message || e), true); return false; }
+    try { R = await apiPost("/api/range", r); } catch (e) { return fail(String(e.message || e)); }
     if (R.status !== "done" && R.status !== "sections") {  // "sections": the page loads the pieces itself, one by one
-      m("Collecting this time range…");
+      $("#main").classList.remove("rg-loading");
       $("#main").innerHTML = `<div class="loading">Collecting ${label(r)} from Security Onion and UniFi… <span id="rgProg"></span></div>`;
       for (let i = 0; i < 400; i++) {
         await new Promise((ok) => setTimeout(ok, 3000));
         let st; try { st = await api("/api/range/status?id=" + encodeURIComponent(R.id)); } catch (_) { continue; }
         const p = document.getElementById("rgProg"); if (p) p.textContent = st.step ? `(${st.step})` : "";
         if (st.status === "done") break;
-        if (st.status === "failed") { m("Collecting failed: " + (st.error || ""), true); $("#main").innerHTML = `<div class="card"><h2>Time range failed</h2><pre>${esc(st.error || "")}</pre></div>`; return false; }
+        if (st.status === "failed") { fail("Collecting failed: " + (st.error || "")); $("#main").innerHTML = `<div class="card"><h2>Time range failed</h2><pre>${esc(st.error || "")}</pre></div>`; return false; }
       }
     }
     S.range = R.snapshot && snapId ? rangeOfSnap(snapId) : r;
     sessionStorage.setItem(KEY, JSON.stringify({ ...S.range, id: R.id }));
-    window.closeRangePop?.();
     await loadSnap(R.id);
     return true;
   }

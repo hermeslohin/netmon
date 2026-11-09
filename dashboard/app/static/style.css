@@ -669,3 +669,10 @@ tr.muted td { opacity: .6; }
 .why-flair.why-sup{color:#e0a040;border-color:#e0a04066}
 .why-flair.why-person{color:var(--good);border-color:var(--good)}
 .acked td .why-flair{opacity:1}
+
+/* time picker Apply: instant feedback while the range loads */
+#main.rg-loading { opacity: .45; pointer-events: none; transition: opacity .12s; }
+#rangeBox.rg-busy #rangeBtn { cursor: progress; }
+.rg-spin { display: inline-block; animation: rgspin 1s linear infinite; }
+@keyframes rgspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rg-spin { animation: none; } }

@@ -649,30 +649,6 @@
     r.title = "The notes picked for each event are cut off once this many characters are in the request, whatever Notes per event allows (one note is at most 300-400 characters). A request that also has several candidate events shares the budget. More characters = more input tokens and slower reviews; the single-link re-check uses a third of it.";
     return r;
   }
-  // Elasticsearch searches of one AI: the event reviewer (structured requests; correlation + review job) or event research (raw query DSL)
-  function esCard(D, who) {
-    const R = who === "research", E = (R ? D.es_queries?.research : D.es_queries) || { total: 0, last_day: 0, recent: [] };
-    const on = R ? true : D.config?.es_queries?.enabled;
-    const fq = (q) => { if (!q || typeof q !== "object") return `<span class="mono small">${esc(String(q || ""))}</span>`;
-      if (q.index) return `<span class="mono">${esc(q.index)}</span><pre class="mono small" style="margin:2px 0;white-space:pre-wrap;max-width:60em">${esc(JSON.stringify(q.body || {}, null, 1).slice(0, 1500))}</pre>`;
-      const m = Object.entries(q.match || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(" ");
-      return `<span class="mono">${esc(q.source || "?")}</span> ${esc(m)}${q.text ? ` "${esc(q.text)}"` : ""}${q.group_by ? ` <span class="muted">top ${esc(q.group_by)}</span>` : ""}` +
-        `${q.start ? ` <span class="muted small">${esc(String(q.start).slice(5, 16))}→${esc(String(q.end || "").slice(5, 16))}</span>` : ""}${q.why ? `<div class="small muted">${esc(q.why)}</div>` : ""}`; };
-    const title = R ? "Event research Elasticsearch queries" : "Event reviewer Elasticsearch queries";
-    const c = card(`${title} (${fn(E.last_day)} in 24 h · ${fn(E.total)} total)`, E.recent.length ? "" :
-      `<div class="small muted">${R ? "Event research has not searched Elasticsearch yet (it can run es_search when someone clicks Send to research)." : on ? "The event reviewer has not searched Elasticsearch yet." : "Off. Turn on <b>Elasticsearch searches</b> in the Event reviewer look-ups box to let the event reviewer search the logs for more context."}</div>`);
-    c.id = R ? "ai-es-research" : "ai-es";
-    if (!R && E.reviews_day) c.querySelector(".card-title, h3, h2")?.insertAdjacentHTML("afterend", kpis([["Event reviews that searched (24 h)", `${fn(E.reviews_es_day || 0)} of ${fn(E.reviews_day)} <span class="small muted">(${E.pct_reviews_es_day ?? 0}%)</span>`, E.reviews_es_day ? "good" : ""],
-      ["Searches / review that searched", E.reviews_es_day ? (E.last_day / E.reviews_es_day).toFixed(1) : "—"], ["Reviews with look-ups-first (24 h)", fn(E.planned_day || 0)], ["Re-reviews reusing earlier look-ups (24 h)", `<span title="an event reviewed again within 6 h gets its earlier search results instead of searching again">${fn(E.memo_day || 0)}</span>`]]));
-    if (E.recent.length) c.appendChild(table(null, [
-      { k: "ts", t: "When", fmt: (v) => esc(ago(v)), sort: (r) => r.ts },
-      { k: "anchor_label", t: R ? "Run" : "Event under review", fmt: (v, r) => (r.anchor_link ? `<a href="${esc(r.anchor_link)}">${esc(v)}</a>` : esc(v)) },
-      { k: "query", t: "Query", fmt: (v) => fq(v) },
-      { k: "total", t: "Hits", num: true, fmt: (v, r) => (r.error ? `<span class="bad small">${esc(r.error)}</span>` : fn(v)) },
-      { k: "model", t: "Model", cls: "small mono" },
-    ], E.recent, { sort: "ts", limit: 20 }));
-    return c;
-  }
   // web look-ups by the event reviewer: how often (KPIs), per day, and the newest ones with their result links (cited ones marked)
   function webCard(D) {
     const W = D.web_queries || { total: 0, last_day: 0, recent: [], daily: [] }, on = D.config?.web_search?.enabled;
@@ -1268,7 +1244,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   const PART = [["ai-p-models", "Models"], ["ai-p-correlation", "Correlation review"], ["ai-p-event", "Event review"], ["ai-p-research", "Research review"]];
   const PART_SUB = {
     mon: ["The model behind each step, where it is served and whether it is up, and the time and tokens they use.", "Links between events proposed by the correlation script and the decision model's verdict on each; override them here.",
-      "The review job and the event reviewer: runs, events reviewed per day, its Elasticsearch and web look-ups.", "Events researched with Send to research: spend, tokens and its Elasticsearch searches."],
+      "The review job and the event reviewer: runs, events reviewed per day, its web look-ups.", "Events researched with Send to research: spend and tokens."],
     cfg: ["Which model each step uses and where it comes from: AI providers (cloud or local) and the decision model server.", "The decision model's thresholds and which links are sent for review.",
       "When the review job runs, what it looks back on, which look-ups and notes the event reviewer gets, and the nightly note consolidation.", "The research model's cost caps and its web / Elasticsearch access."]};
   const partHead = (el, i, mode) => { const [id, t] = PART[i]; el.appendChild(secHead(id, t, PART_SUB[mode][i])); };
@@ -1453,9 +1429,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
         <span class="k">Model</span><span class="mono">${esc(st.model || "auto (loaded model)")}</span><span class="k">Provider</span><span>${esc(PROV[st.provider || D.config?.correlation?.provider] || "Local server")} · <a href="#/aiconfig?at=ai-models">change</a></span>
         <span class="k">Endpoint</span><span class="mono">${esc(D.url)}</span>
         <span class="k">Settings</span><span>${D.workers} parallel · reasoning ${esc(D.reasoning)}</span>
-        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · <a href="#/aireview?at=ai-es">${fn(D.es_queries?.last_day || 0)} queries in 24 h</a>${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
+        <span class="k">Elasticsearch</span><span>${D.config?.es_queries?.enabled ? `may search, up to ${D.config.es_queries.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>)${D.config?.lookup_plan?.enabled !== false ? " · look-ups first" : ""} · ${fn(D.es_queries?.last_day || 0)} queries in 24 h${D.es_queries?.reviews_day ? ` · ${D.es_queries.pct_reviews_es_day ?? 0}% of reviews` : ""}` : `no searches · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
         <span class="k">Web search</span><span>${D.config?.web_search?.enabled ? `may search${D.config.web_search.provider ? ` (${esc(D.config.web_search.provider)})` : ""}, up to ${D.config.web_search.max} per event (<a href="#/aiconfig?at=ai-lookups">change</a>) · <a href="#/aireview?at=ai-web">${fn(D.web_queries?.last_day || 0)} look-ups in 24 h</a> · ${D.web_queries?.pct_reviews_web_day ?? 0}% of reviews` : `off · <a href="#/aiconfig?at=ai-lookups">change</a>`}</span>
-        <span class="k">Event research Elasticsearch</span><span><a href="#/aireview?at=ai-es-research">${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h</a> · ${fn(D.es_queries?.research?.total || 0)} total</span>
+        <span class="k">Event research Elasticsearch</span><span>${fn(D.es_queries?.research?.last_day || 0)} queries in 24 h · ${fn(D.es_queries?.research?.total || 0)} total</span>
         <span class="k">Activity</span><span>${st.busy ? `<b>reviewing now</b> · ${fn(st.decided_this_run)} decided${st.es_queries_this_run ? `, ${fn(st.es_queries_this_run)} searches` : ""}${st.web_queries_this_run ? `, ${fn(st.web_queries_this_run)} web look-ups` : ""} this pass` : st.last_run ? `last pass finished ${esc(ago(st.last_run))}` : "starting (first pass begins ~15 s after the dashboard starts)"}</span>
         <span class="k">Snapshot</span><span class="mono">${esc(D.snapshot)}</span>
         ${st.error ? `<span class="k">Last error</span><span class="bad">${esc(st.error)}</span>` : ""}
@@ -1473,11 +1449,9 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     partHead(el, 2, "mon");
     el.appendChild(rjob);
     el.appendChild(reviewVolumeCard(D));
-    el.appendChild(esCard(D, "reviewer"));
     el.appendChild(webCard(D));
     partHead(el, 3, "mon");
     el.appendChild(researchStatusCard(D));
-    el.appendChild(esCard(D, "research"));
     consolidate(el);
 
     el.addEventListener("click", async (e) => {

@@ -657,15 +657,13 @@ The AI pipeline has two pages. Each is four boxes, one per part (jump links at t
 | **Models** | **Model status**: the model behind each step (decision model, event reviewer, event research, Ask AI chat), its source (server or AI provider and endpoint) and whether it is **up**, **down**, **check** (answers, but the model is missing or not loaded) or **off**. Checked with the server's health or model list, no tokens used, at most once a minute; admins can press **Check now**. Below it, **Time and tokens** (review job, event research and Ask AI chat per day, and every researched event's cost). | **Models**, **AI providers** (admins), **Decision model server** |
 | **Correlation review** | **Decision model** figures, **Event reviewer**, verdict charts, **Decisions** (override here), **Review log** | **Decision model settings** (on/off, related threshold), **Review limits** |
 | **Event review** | **Review job** (runs, Run now / Pause), events per day, the event reviewer's **Elasticsearch** and **web searches** | **Review job schedule** (Run every, Run now / Pause, **Review lookback window**), **Event reviewer look-ups**, **Event reviewer context notes**, **Host note consolidation** |
-| **Research review** | **Event research**: spent today against the daily cap, events researched, average cost, tokens, events waiting for a person; its Elasticsearch searches | **Event research limits** (caps, web access, Elasticsearch) |
+| **Research review** | **Event research**: spent today against the daily cap, events researched, average cost, tokens, events waiting for a person | **Event research limits** (caps, web access, Elasticsearch) |
 
 Everyone who can see the pages sees the configuration page; only admins can change it (review limits: admins and network defenders). The boxes:
 
 ![Models card on AI pipeline configuration](img/aireview-models.png)
 
 ![Review limits: classify events, time window, event-type matrix](img/aireview-limits.png)
-
-![Elasticsearch queries boxes](img/aireview-es.png)
 
 | Box | What it shows |
 |---|---|
@@ -683,7 +681,6 @@ Everyone who can see the pages sees the configuration page; only admins can chan
 | **Review job** | The scheduled job: collect, analyze, correlate, then the event reviewer copies matching earlier notes; everything else waits in the queue. It never researches events; that happens only on **Send to research**. Whether a run is going on now, the schedule and next run, **Run every [ ] minutes** (admins: 5 to 1440; saves by itself about a second after you stop typing), **Run now** and **Pause** buttons (admins), recent runs (*Daily run (24 h)* or *Review*, *Run now* when started by hand, and how long they took), how many events have notes, and the latest run's summary. The token chart is in its own box below it. |
 | **Time and tokens: review job, event research and Ask AI chat** | Time plus the tokens of each review run, each researched event and each **Ask AI** message (all counted in the same daily bars and totals; a dotted yellow line shows the chat's share of the estimated cost, and the tooltip splits review runs, researched events and chat turns; chat history starts when this was added), split into new input, cache writes and output. Cache re-reads (the conversation re-sent on every API call; ~95% of the raw input count but billed at ~10% of the input price) are hidden by default; click their legend entry to show them. The header shows the average tokens per minute (total run tokens divided by total run minutes, with and without cache re-reads). The header and tooltip give an estimated cost from the prices entered on the provider. |
 | **Event reviewer** | The event reviewer's model, its queue and its throughput: reviews and tokens per minute, and the **average tokens in and out per event review** (last 24 hours; hover for the all-time figure). |
-| **Elasticsearch queries** | The searches the event reviewer (and, in a second box, event research) ran, with when, the event or run, the query, hit count and model. Shown once either has searched. |
 | **Verdicts per hour / All verdicts** | How many links were confirmed or rejected. |
 | **Decisions** | Every link decision with its reason and model, newest first. The first 100 load with the page and older ones load as you scroll to the end of the list. Filters from the charts (verdict, confidence, event types, this snapshot) are applied on the server; sorting and the Filter box act on the rows loaded so far. You can override a decision (✓ confirm, ✗ reject), or ask for a new review (↻). Manual decisions always win and are never overwritten. |
 
