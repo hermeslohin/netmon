@@ -1049,11 +1049,33 @@ V.issues = (el) => {
     ["New / seen once", watch.length], ["Fixed", I.fixed.length, "good"], ["Checked off", RA.done.length + WA.done.length]]));
   el.appendChild(grid("g3", chartCard("Recurring by severity", doughnutCfg(by(rec, (x) => x.severity), { onClick: (l) => drill("issues", { severity: l }) })), chartCard("Recurring by category", doughnutCfg(by(rec, (x) => x.category), { onClick: (l) => drill("issues", { category: l }) })),
     chartCard("Open vs fixed", { type: "bar", data: { labels: ["recurring", "new", "fixed"], datasets: [{ data: [rec.length, watch.length, I.fixed.length], backgroundColor: [PALETTE[2], PALETTE[0], PALETTE[1]], borderRadius: 3 }] }, options: { plugins: { legend: { display: false } }, ...clickable((i) => drill("issues", { at: ["iss-rec", "iss-new", "iss-fixed"][i] })) } }, "", "short")));
+  const trend = document.createElement("div"); el.appendChild(trend);  // filled when /api/vulnhist answers (the page does not wait)
+  vulnTrendFixlistCard().then((c) => { if (trend.isConnected) { trend.replaceWith(c); flushCharts(); } });
   const uf = { urlFilter: ISSUE_FILTERS };
   el.appendChild(card(`Recurring: fix these (${rec.length})${RA.toggle}`, issueTable(RA.show, uf))).id = "iss-rec";
   el.appendChild(card(`New / seen once (${watch.length}) <span class="muted small">— these move to the list above if they show up again</span>${WA.toggle}`, issueTable(WA.show, { short: true, ...uf }))).id = "iss-new";
   el.appendChild(card(`Fixed (${I.fixed.length})`, issueTable(I.fixed, { fixed: true, short: true, sort: "fixed_at", dir: -1, ...uf }))).id = "iss-fixed";
 };
+
+/* ----- vulnerability counts over time (vulnhist.py, GET /api/vulnhist; recorded daily 06:00 UTC by the scheduler) ----- */
+// lines: [[metric, label, color, {dash, hidden}]]; src[i] === "backfill" draws that day's segment dashed (rebuilt from stored runs)
+function vulnTrendCfg(H, group, lines) {
+  const G = (group ? H[group] : H.series) || {}, src = H.src || [];
+  const back = (ctx) => (src[ctx.p1DataIndex] === "backfill" ? [5, 4] : undefined);
+  return { type: "line", data: { labels: (H.days || []).map((d) => d.slice(5)), datasets: lines.filter(([m]) => G[m]).map(([m, label, color, o = {}]) => ({
+    label, data: G[m], borderColor: color, backgroundColor: color, tension: 0.25, pointRadius: (H.days || []).length > 60 ? 0 : 2, spanGaps: false,
+    borderWidth: m === "total" || m === "fail" ? 2.5 : 1.5, hidden: !!o.hidden, segment: { borderDash: (ctx) => back(ctx) || o.dash } })) },
+    options: { interaction: { mode: "index", intersect: false }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+      plugins: { tooltip: { callbacks: { title: (it) => (H.days?.[it[0].dataIndex] || "") + (src[it[0]?.dataIndex] === "backfill" ? " (rebuilt from stored review runs)" : "") } } } } };
+}
+const VULN_SEV_LINES = [["total", "Total open", PALETTE[0]], ["critical", "Critical", "#ff4d4d"], ["high", "High", "#f0883e"], ["medium", "Medium", PALETTE[2]], ["low", "Low", PALETTE[5]], ["info", "Info", PALETTE[14], { hidden: true }]];
+async function vulnTrendFixlistCard() {
+  let H; try { H = await api("/api/vulnhist?kind=fixlist"); } catch (e) { return card("Open items over time", `<div class="muted">${esc(String(e.message || e))}</div>`); }
+  if (!(H.days || []).length) return card("Open items over time", `<div class="muted">No daily counts yet: the scheduler records them every day at 06:00 UTC.</div>`);
+  const c = chartCard("Open items over time", vulnTrendCfg(H, "", VULN_SEV_LINES));
+  c.insertAdjacentHTML("beforeend", `<div class="muted small">Open Fix list items per day by severity (the same list as below, including netmon's own software scan findings). Recorded once a day at 06:00 UTC; dashed parts were rebuilt from the stored review runs, from before daily recording began. Click a legend entry to hide a line.</div>`);
+  return c;
+}
 
 /* ----- Users ----- */
 V.users = async (el) => {

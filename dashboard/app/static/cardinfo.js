@@ -1,5 +1,20 @@
 // Generated: info texts for the (i) button on each dashboard box (cardinfo_ui.js). Key: "view|normalised title".
 window.CARD_INFO = {
+"issues|Open items over time": {
+"source": "vulnhist.py: the scheduler records the open Fix list items by severity every day at 06:00 UTC (table vuln_hist). Days before that were rebuilt once from the stored review runs (dashed).",
+"use": "Watch the total and the high line trend down as you fix things. Click a legend entry to hide a line; hover for the day's numbers.",
+"what": "Open Fix list items per day, by severity."
+},
+"k8s|CIS benchmark over time": {
+"source": "vulnhist.py: daily at 06:00 UTC from each cluster's newest CIS benchmark run (kube_cis.py). Earlier failed-check counts were rebuilt from stored review runs (dashed). All clusters are summed unless a cluster is picked.",
+"use": "Failed should go down as you fix or accept checks. Passed and Accepted are hidden; click the legend to show them.",
+"what": "CIS Kubernetes benchmark results per day."
+},
+"k8s|Container image CVEs over time": {
+"source": "vulnhist.py: daily at 06:00 UTC from the 04:00 Trivy scan of every running container image (kube_images.py). Distinct CVE ids per cluster, summed over clusters unless one is picked.",
+"use": "Critical and high should go down as images are updated. 'Fix available' counts CVEs whose package already has a fixed version.",
+"what": "CVEs in the running container images per day, by severity."
+},
 "k8s|Container images: updates and CVEs": {
 "source": "kube_images.py: every image running in the configured clusters (read-only Kubernetes API), its registry's tag list (anonymous pull token) and Trivy CVE scans of the running digest and the newest tag. Daily at 04:00 UTC and on Scan now.",
 "use": "Sort by 'Fixed by updating' to see which updates remove the most serious CVEs. 'Fix by rebuild' counts critical/high CVEs whose package has a fix even when no newer tag exists. Click an image for its CVE list with NVD links. Critical CVEs fixed by an update become findings.",

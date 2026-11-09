@@ -98,6 +98,7 @@ import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
 import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI pipeline pages)
 import runarchive  # noqa: E402  review-run summaries that outlive the run documents
 import fixlist  # noqa: E402  the Fix list in SQL
+import vulnhist  # noqa: E402  /netmon/vulnhist.py: daily vulnerability counts (Fix list + Kubernetes line charts)
 import research_cfg  # noqa: E402  /netmon/research_cfg.py: event research model + cost caps (Send to research only)
 import review_cfg  # noqa: E402  /netmon/review_cfg.py: review job schedule, on/off and event modes (store meta table)
 import pushsvc  # noqa: E402  web push for urgent alerts
@@ -1803,6 +1804,14 @@ class H(BaseHTTPRequestHandler):
                 return self._json(history())
             if path == "/api/issues":
                 return self._json(issue_tracker())
+            if path == "/api/vulnhist":  # ?kind=fixlist|k8s&cluster=&days= : daily counts written by the scheduler (vulnhist.py)
+                g = lambda k, d="": (q.get(k) or [d])[0]  # noqa: E731
+                kind = "k8s" if g("kind") == "k8s" else "fixlist"
+                try:
+                    days = max(1, min(int(g("days", "365") or 365), 3650))
+                except ValueError:
+                    days = 365
+                return self._json(vulnhist.series(kind, g("cluster")[:40], days))
             if path in ("/api/risk", "/api/lateral"):
                 sid = (q.get("id") or ["latest"])[0]
                 if sid == "latest":

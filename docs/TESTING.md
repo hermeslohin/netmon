@@ -296,6 +296,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |
 | `tests/unit/test_unifi_cache.py` | 2 | Unit tests for the UniFi on-disk cache (unifi.py): controller credentials are redacted, files are owner-only. (SEC-06) |
+| `tests/unit/test_vulnhist.py` | 4 | vulnhist.py: daily vulnerability counts (Fix list, CIS, image CVEs) and the series the line charts read. (KUBE-13) |
 | `tests/unit/test_websearch_audit.py` | 2 |  (AUD-06) |
 | `tests/unit/test_webtools.py` | 6 | Unit tests for the web search integration: integrations.py (web section) and webtools.py Firecrawl (cloud / self-hosted). (WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06) |
 

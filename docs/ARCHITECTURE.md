@@ -70,6 +70,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 | Component | Runs as | Trigger | Reads | Writes |
 |---|---|---|---|---|
 | `scheduler.py` | systemd user unit `netmon-scheduler` | always on | `review_cfg`, job state | starts jobs, `logs/<job>.log` |
+| `vulnhist.py record` | child of the scheduler | daily from 06:00 UTC | Fix list (dashboard issue tracker), saved CIS runs, image scan doc | SQLite table `vuln_hist` (Fix list / Kubernetes line charts) |
 | `watch.py` (watcher) | child of the scheduler | every 15 min | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
 | `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `data/unifi_cache` |
 | `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |

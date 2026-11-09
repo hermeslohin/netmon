@@ -391,6 +391,7 @@ Misconfigurations and security suggestions from all snapshots, such as SSH passw
 - **Recurring:** an item becomes recurring once it shows up in 2 or more snapshots.
 - **New / seen once:** an item seen only once stays here and moves up to Recurring if it comes back.
 - **Fixed:** items that stopped appearing move here automatically.
+- **Open items over time:** a line chart of the open items per day, total and by severity (critical, high, medium, low; info is hidden until you click it in the legend). The scheduler records the day's numbers once a day at 06:00 UTC. Days from before daily recording began were rebuilt from the stored review runs and are drawn dashed.
 
 ![Fix list page](img/fix-list.png)
 
@@ -488,6 +489,7 @@ Security monitoring of the Kubernetes cluster, built **only from Security Onion 
 - **API server security:** what the API server counted in the window: 401/403 responses, pod **exec / attach / port-forward** (interactive access into containers), writes to RBAC objects, secrets, webhooks and nodes, throttling and 5xx. These are request counters, not audit logs, so they show the kind of request and its result but not who sent it.
 - **Kubernetes warning events:** warning events (BackOff, Unhealthy, FailedMount, Evicted…), with security-relevant ones (forbidden, PodSecurity, admission denials, image pull problems) marked *sec*.
 - **Security Onion alerts on nodes and pods:** Suricata and detection-rule alerts whose source, destination or host is a node or pod.
+- **CIS benchmark over time** and **Container image CVEs over time:** line charts with one point per day, for all clusters added together or for the cluster picked at the top. The CIS chart shows failed and warn checks (passed and accepted are in the legend, hidden by default). The CVE chart shows distinct CVEs in the running images (critical, high, total, and those with a fixed package version; medium and low are hidden by default). The numbers are recorded every day at 06:00 UTC, after the 04:00 image scan. CIS failures before daily recording began were rebuilt from stored review runs and are dashed; CVE history starts with the first daily record.
 - **Pods, Container images, Nodes:** inventory with security hits, restarts and log volume per pod; images with mutable-tag warnings (`:latest` or no tag); nodes with Elastic Agent health.
 
 Click a pod (or a signal row) to **pivot into the pod**. The pod page shows its node and IP, security hits, warning events, Security Onion alerts and a log-volume chart (stdout and stderr). It also has a log viewer that you can filter by text, container and stream, with an **Older lines** link. The filters are kept in the address, so a filtered view can be bookmarked. The **Pivot** box links to Kibana (all logs of the pod, stderr only, network logs of the pod IP, Kubernetes events), the node's endpoint page and the pod IP as a network device.

@@ -71,6 +71,21 @@ async function k8sClusterBar(onchange) {
 }
 const k8sClTag = (c) => (c && (K8S._cl?.L || []).length > 1 ? ` <span class="badge" title="cluster">${esc(c)}</span>` : "");
 
+// CIS failures and image CVEs per day (vulnhist.py via /api/vulnhist?kind=k8s; all clusters summed unless one is picked)
+async function k8sTrendCards(cluster) {
+  let H; try { H = await api("/api/vulnhist?" + new URLSearchParams({ kind: "k8s", cluster: cluster || "" })); } catch (e) { return card("CIS benchmark over time", `<div class="muted">${esc(String(e.message || e))}</div>`); }
+  const scope = cluster ? `cluster ${esc(cluster)}` : `all clusters${(H.clusters || []).length ? ` (${esc(H.clusters.join(", "))})` : ""}`;
+  const empty = (what) => `<div class="muted">No ${what} counts yet: the scheduler records them every day at 06:00 UTC.</div>`;
+  const has = (g) => Object.values(H[g] || {}).some((a) => a.some((v) => v != null));
+  const cis = has("cis") ? chartCard("CIS benchmark over time", vulnTrendCfg(H, "cis", [["fail", "Failed", PALETTE[3]], ["warn", "Review (warn)", PALETTE[2]], ["pass", "Passed", PALETTE[1], { hidden: true }], ["accepted", "Accepted", PALETTE[14], { hidden: true }]]))
+    : card("CIS benchmark over time", empty("CIS"));
+  cis.insertAdjacentHTML("beforeend", `<div class="muted small">CIS Kubernetes benchmark checks per day, ${scope}. Recorded daily at 06:00 UTC from the newest benchmark run; dashed parts (failed checks only) were rebuilt from stored review runs.</div>`);
+  const cve = has("cve") ? chartCard("Container image CVEs over time", vulnTrendCfg(H, "cve", [["total", "Total", PALETTE[0]], ["critical", "Critical", "#ff4d4d"], ["high", "High", "#f0883e"], ["medium", "Medium", PALETTE[2], { hidden: true }], ["low", "Low", PALETTE[5], { hidden: true }], ["fixable", "Fix available", PALETTE[1], { dash: [2, 3] }]]))
+    : card("Container image CVEs over time", empty("CVE"));
+  cve.insertAdjacentHTML("beforeend", `<div class="muted small">Distinct CVE ids in the running container images per day (Trivy scan at 04:00 UTC), ${scope}. "Fix available" = CVEs whose package has a fixed version. Medium and low are hidden: click the legend to show them.</div>`);
+  return grid("g2", cis, cve);
+}
+
 // CIS Kubernetes benchmark (kube_cis.py through the read-only Kubernetes API account) - one box per cluster
 async function k8sCisCard(run, cluster) {
   let C;
@@ -165,6 +180,7 @@ V.k8s = async (el) => {
     : card("Kubernetes findings", `<div class="muted">No Kubernetes findings in this window.</div>`));
 
   if (K8S.cluster && !(D.inventory?.nodes || []).length) el.appendChild(card("No Security Onion data for this cluster", `<div class="muted">None of ${esc(K8S.cluster)}'s nodes ship Kubernetes logs or metrics to Security Onion: install the Elastic Agent Kubernetes integration in it. The CIS benchmark and image checks below use the Kubernetes API and work without it.</div>`));
+  el.appendChild(await k8sTrendCards(K8S.cluster));
   for (const cl of (K8S.cluster ? [K8S.cluster] : await k8sClusterList())) el.appendChild(await k8sCisCard(false, cl));
   if (!(await k8sClusterList()).length) el.appendChild(await k8sCisCard(false, ""));
   el.appendChild(k8sBox("Security Onion data coverage", table(null, [{ k: "dataset", t: "Data set" }, { k: "state", t: "State", fmt: k8sState },

@@ -7,6 +7,7 @@
 Event research (research.py) is never scheduled: the host broker starts it when a person clicks Send to research.
   weekly         Sunday 03:00 UTC            weekly_rebuild.sh (dashboard image rebuild + security scan)
   k8simages      daily 04:00 UTC             kube_images.py (Kubernetes image updates + CVEs; only with a cluster configured)
+  vulnhist       daily from 06:00 UTC        vulnhist.py record (vulnerability counts over time: Fix list, CIS, image CVEs)
 Jobs never overlap with themselves; a slot missed while the host was down is not made up, except the review job,
 which starts late within its own slot. Output of each job goes to logs/<job>.log (rotated at 5 MB).
 
@@ -35,6 +36,7 @@ JOBS = {
     "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],
     "rangewarm": [PY, os.path.join(NM, "range_warm.py")],  # the dashboard's default window (last 24 h), pre-collected every slot
     "k8simages": [PY, os.path.join(NM, "kube_images.py")],  # daily: container image updates + CVEs (Trivy) for every Kubernetes cluster
+    "vulnhist": [PY, os.path.join(NM, "vulnhist.py"), "record"],  # daily: vulnerability counts for the Fix list / Kubernetes line charts
     "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
 running = {}
@@ -119,6 +121,9 @@ def tick(now=None):
     dy = t.strftime("%Y-%m-%d")
     if t.hour == 4 and s.get("k8simages") != dy and _kube_wanted() and start("k8simages", why="(daily 04 UTC)"):
         s["k8simages"] = dy
+    # vulnerability counts over time (Fix list + Kubernetes charts): once a day from 06:00 UTC, after the 04:00 image scan
+    if t.hour >= 6 and s.get("vulnhist") != dy and start("vulnhist", why="(daily 06 UTC)"):
+        s["vulnhist"] = dy
     # weekly rebuild: Sunday 03:00-03:59 UTC, once per week
     wk = t.strftime("%G-W%V")
     if t.weekday() == 6 and t.hour == 3 and s.get("weekly") != wk:
