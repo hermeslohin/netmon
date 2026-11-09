@@ -458,7 +458,8 @@ listed under Settings → Configuration → Suppress rules. Nothing is bypassed:
 reviewed and researched like any other event; nothing is skipped because it was cleared. When the event reviewer classifies a
 checked event as *suspicious*, it is un-checked and moves back from Checked into the findings; a later *expected* or
 *benign* classification may auto-close it again (only a person's un-check keeps auto-close off an item for good). An
-event a person marked **Expected** or **Benign** (📝 verdict buttons) is never reopened by the AI.
+event a person marked **Expected** or **Benign** (📝 verdict buttons) is never reopened by the AI. Which later
+events count as repeats of a closed one is listed in *Closed events and repeats* below.
 
 **People's verdicts.** The 📝 notes popover on every event has **✅ Expected / 🟢 Benign / ⚠️ Suspicious** buttons.
 **⚠️ Suspicious** saves at once. **✅ Expected** and **🟢 Benign** only select the verdict: an **Applies to** list then
@@ -997,10 +998,47 @@ event reviewer (7.2) as an `<ai_note>` *research verdict …* on that event's ne
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |
 | `NETMON_LLM`, `_URL`, `_MODEL`, `_REASONING`, `_WORKERS`, `NETMON_REVIEW_HOST_NOTES` | see section 3 | `dashboard/.env` |
 
+## Closed events and repeats: what counts as the same event
+
+There is no fuzzy matching. Closing an event (a check-off by a person, an auto-close or a suppress rule) stores an
+**ack** under a key derived from the event id (`eventstore.ack_refs()` → `corr_llm._ack_keys()`). An event that
+arrives later is "the same" only when it produces the same key; then it stays closed. A different key is a new open
+event. On Open events, repeats of one condition are also shown as one row through the group key `eventstore.gkey()`
+(app.js `grpRef()` / `evNorm()` mirror it).
+
+| Event | Identity (what must match) | A repeat after closing |
+|---|---|---|
+| Baseline finding `f\|<kind>\|<device>\|<detail>` | kind + device + detail. Group key `grp\|f\|<kind>\|<device>\|<detail>` with volatile numbers (counts, MB, ratios, intervals) replaced by `#`; IPs, ports (`port N`, `N/tcp`) and MACs are kept | Closed **on Open events**: the group ack covers every repeat that differs only in numbers. Closed **on Posture**: the ack (`finding`, fnv of device\|kind\|detail) covers the exact detail only. A new IP, port or MAC is a new event either way |
+| Segmentation finding | the flow `<source MAC or IP>\|<dest>\|<port>` (ack type `seg`), not the detail text | stays closed (see *Clearing segmentation findings*) |
+| Endpoint finding `hf\|<key>` | the finding key from the host collector: kind, host and kind-specific parts (e.g. process + remote side for network findings) | stays closed while the key is the same; a new remote IP or name is a new key (Open events merges those *variants* into one row for display, but each keeps its own ack) |
+| IDS `ids\|<signature>` | the signature name only | stays closed, on any host |
+| Admin session `adm\|<src>\|<dst>\|<protocol>` | source, destination, protocol (ack type `admin`) | stays closed |
+| Threat intel `ti\|in\|<ip>`, `ti\|out\|<ip>`, `ti\|dom\|<domain>` | direction + listed IP or domain | stays closed |
+| Fix-list item `iss\|<issue key>` | the issue key | stays closed; also resolved automatically once the scan stops listing it |
+| Gateway event `gw\|<time>\|<type>\|<src>\|<dst>` | includes the event time | **never**: every occurrence is new (use a 🚫 suppress rule for a recurring type) |
+| Watcher alert `alert\|<id>` | the alert row id | **never**: every alert is new (use a 🚫 suppress rule) |
+
+What can bring a closed event back:
+
+1. **Expiry** (auto-close `expire_days`): an AI closure older than that whose group (`gkey`) repeats is reopened
+   (`expired`) and closes again only on a newer verdict. A person's closure never expires.
+2. **Event reviewer says suspicious**: `corr_llm.reopen_checked()` un-checks it, except when a person marked it
+   Expected/Benign or a suppress rule closed it.
+3. **Host hold**: a suspicious event on the same host (MAC, host name or host IP) in the last `HOLD_HOURS` reopens AI
+   closures of that host's events active in the window.
+4. **A person un-checks** an auto-closed item: auto-close never closes it again (log state `reopened`).
+
+A person's **Expected / Benign** verdict also closes later repeats with the same group key, and a *scoped* verdict
+closes any event showing all ticked artifacts, whatever the auto-close switches say.
+
+Research notes carry over on a looser key (`enrich.skey()`): findings with digits masked, gateway events per
+`gwfam|<type>|<dst>`, watcher alerts per family (first three parts of the alert key). A new event can therefore show
+an earlier note even though it is not closed.
+
 ## Event ids (for links and the API)
 
 `alert|<id>` · `f|<kind>|<device>|<detail>` · `ids|<signature>` · `adm|<src>|<dst>|<protocol>` · `hf|<key>` ·
-`ti|in|<ip>` · `ti|out|<ip>` · `ti|dom|<domain>` · `iss|<issue key>`
+`ti|in|<ip>` · `ti|out|<ip>` · `ti|dom|<domain>` · `iss|<issue key>` · `gw|<time>|<type>|<src>|<dst>`
 
 ## AI provenance flares
 
