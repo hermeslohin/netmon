@@ -103,12 +103,12 @@ _A_PORT = re.compile(r"(?:\bports?\s+(\d{1,5})\b|(?<=[\d\]]):(\d{2,5})\b|\b(\d{1
 _A_DNS = re.compile(r"\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})\b", re.I)
 _A_PATH = re.compile(r"(?<![\w.])(/(?:[\w.+@-]+/)*[\w.+@-]+)")
 _A_PROC = re.compile(r"\b(?:process|binary|executable|daemon|service|command)\s+[`'\"]?([\w.+-]{2,40})\b", re.I)
-_A_TAG = re.compile(r"\[reviewer:(file|process|user|ip|dns):([^\]]{1,200})\]")
+_A_TAG = re.compile(r"\[reviewer:(file|process|user|ip|dns|cert):([^\]]{1,200})\]")
 _A_STOP_PROC = {"is", "as", "was", "that", "which", "and", "the", "for", "from", "with", "this", "runs", "ran", "named", "called", "on", "in", "to", "of", "or", "by", "at", "an", "a"}
 _A_FILE_EXT = {"py", "sh", "so", "txt", "log", "conf", "cfg", "json", "yml", "yaml", "md", "html", "js", "css", "png", "jpg", "pdf", "zip", "gz", "tar", "xml", "ini", "db", "exe", "dll", "sys", "bin", "deb", "rpm", "pem", "crt", "key", "service", "local", "lan", "home", "internal", "arpa"}
-ART_WEIGHT = {"ip": 3, "dns": 3, "proc": 3, "user": 2, "port": 1}  # a port alone never selects a note (needs >= MIN_ART_SCORE)
+ART_WEIGHT = {"ip": 3, "dns": 3, "cert": 3, "proc": 3, "user": 2, "port": 1}  # a port alone never selects a note (needs >= MIN_ART_SCORE)
 MIN_ART_SCORE = 2
-SHARED_ARTS = ("ip", "dns")  # artifacts that mean the same thing on every host; proc / user / port keys are host-local
+SHARED_ARTS = ("ip", "dns", "cert")  # (cert = a TLS certificate by its SHA-256 fingerprint) artifacts that mean the same thing on every host; proc / user / port keys are host-local
 
 
 _V_DNS = re.compile(r"^(?=.{4,253}$)(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$", re.I)
@@ -148,10 +148,13 @@ def valid_art(kind, value):
       file    not a port, protocol (SSH, DNS), address, device name or a phrase
       user    a single account name, not an address or a device name
       hash    an md5 / sha1 / sha256 / sha512 hex digest
+      cert    a TLS certificate: its SHA-256 fingerprint (64 hex, as Zeek's x509 hash.sha256)
     Anything else is dropped, never re-filed under a guessed kind."""
     v = str(value or "").strip()
     if not v or len(v) > 300 or "\n" in v:
         return False
+    if kind == "cert":
+        return bool(re.fullmatch(r"[0-9a-fA-F]{64}", v)) and len(set(v.lower())) > 4
     if kind == "hash":
         return bool(re.fullmatch(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64}|[0-9a-fA-F]{128}", v)) and len(set(v.lower())) > 4
     if kind == "file" and _V_FNAME.match(v) and not _IP.match(v):
@@ -199,6 +202,8 @@ def artifact_keys(text="", subject="", kinds=None):
             out.add(_proc_key(val))
         elif kind == "user" and val:
             out.add("user:" + val.lower())
+        elif kind == "cert" and val:
+            out.add("cert:" + val.lower())
     for kind, val in _A_TAG.findall(text):
         if valid_art(kind, val):  # a malformed tag ([reviewer:ip:25565]) must not link the note to anything
             out |= artifact_keys(subject=f"art:{kind}:{val}")
@@ -243,6 +248,8 @@ def event_artifact_keys(ev):
             out.add("dns:" + val.lower().strip("."))
         elif kind == "ip":
             out.add("ip:" + val)
+        elif kind == "cert":
+            out.add("cert:" + val.lower())
     out |= artifact_keys(ev.get("label") or "")
     out.discard("")
     return out
@@ -277,8 +284,16 @@ def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12, use=True):
     ev_arts = sorted(ev_arts)[:200]
     if not ev_arts:
         return []
+    # a note filed on a domain (dom:<d> / art:dns:<d>) covers all its subdomains: dns:a.b.example.com also reaches the notes
+    # on b.example.com and example.com - but only notes ABOUT that domain, never a note that merely mentions it in its text
+    parents = {}
+    for k in ev_arts:
+        if k.startswith("dns:"):
+            for d in dns_suffixes(k[4:])[1:]:
+                parents.setdefault("dns:" + d, k)
+    q_arts = sorted(set(ev_arts) | set(parents))[:400]
     with _db() as c:
-        ids = [r[0] for r in c.execute(f"SELECT DISTINCT note_id FROM note_artifacts WHERE art IN ({','.join('?' * len(ev_arts))})", ev_arts)]
+        ids = [r[0] for r in c.execute(f"SELECT DISTINCT note_id FROM note_artifacts WHERE art IN ({','.join('?' * len(q_arts))})", q_arts)]
     ids = [i for i in ids if i not in set(exclude_ids)]
     if not ids:
         return []
@@ -291,6 +306,10 @@ def notes_by_artifacts(ev_arts, exclude_ids=(), limit=12, use=True):
         if not str(n["subject"]).startswith("art:"):  # a note on ANOTHER host: its processes, files, accounts and ports are that host's own,
             mine = [k for k in mine if k.split(":", 1)[0] in SHARED_ARTS]  # so only a shared IP / DNS name links it to this event
         sc, hit = art_score(mine, ev_arts)
+        subj = str(n["subject"])
+        own = "dns:" + subj[4:] if subj.startswith("dom:") else "dns:" + subj[8:] if subj.startswith("art:dns:") else ""
+        if own in parents and own not in hit:  # a parent-domain note: covers the event's subdomain
+            sc, hit = sc + ART_WEIGHT["dns"], hit + [own]
         if n.get("status") != "rejected" and sc >= MIN_ART_SCORE and not str(n["text"]).startswith("[profile:"):  # generated per-host profiles list many peers: they stay with their own host
             out.append((sc, hit, n))
     out.sort(key=lambda t: (-t[0], -float(t[2].get("updated") or 0)))
@@ -409,7 +428,7 @@ def pod_note_counts():
         return {r[0]: r[1] for r in c.execute("SELECT subject, COUNT(*) FROM host_notes WHERE subject LIKE 'pod:%' AND COALESCE(status,'') != 'rejected' GROUP BY subject")}
 
 
-ART_KINDS = ("file", "process", "user", "ip", "dns", "hash")
+ART_KINDS = ("file", "process", "user", "ip", "dns", "hash", "cert")
 
 
 def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
@@ -431,7 +450,7 @@ def resolve(ip=None, mac=None, host=None, dom=None, subject=None, reg=None):
             ak, _, av = v.partition(":")
             av = av.strip()
             if ak in ART_KINDS and av and len(av) <= 300 and "\n" not in av and valid_art(ak, av):
-                av = av.lower() if ak in ("ip", "dns") else av
+                av = av.lower() if ak in ("ip", "dns", "cert") else av
                 return f"art:{ak}:{av}", f"{ak} {av}"
         if k == "pod":  # the object that creates pods: pod:<cluster>/<namespace>/<kind>/<name>; notes apply to all its pods
             parts = v.strip().lower().split("/")
@@ -571,7 +590,28 @@ def purge_expired(now=None):
         for nid, _s in gone:
             c.execute("DELETE FROM note_artifacts WHERE note_id=?", (nid,))
             c.execute("DELETE FROM host_notes WHERE id=?", (nid,))
+        if gone:  # an IP / range / domain / certificate / artifact whose last note timed out is gone too: nothing about it is kept
+            if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='consolidate_subjects'").fetchone():
+                c.execute("DELETE FROM consolidate_subjects WHERE subject NOT IN (SELECT subject FROM host_notes)")
+    _purged["t"] = time.time()
     return gone
+
+
+_purged = {"t": 0.0}
+
+
+def purge_due(every=60):
+    """purge_expired() at most once a minute: the DNS, TLS and IPs lists call it so an entry whose last note just timed out
+    disappears at once instead of waiting for the hourly sweep."""
+    if time.time() - _purged["t"] >= every:
+        try:
+            gone = purge_expired()
+            if gone:
+                print(f"kb: deleted {len(gone)} timed-out note(s); entries left without notes are gone: "
+                      + ", ".join(str(s_)[:40] for _i, s_ in gone[:10]), file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 - a read must not fail on the sweep
+            _purged["t"] = time.time()
+            print(f"host note expiry: {e}", file=sys.stderr)
 
 
 def host_notes(subjects=None, q="", ai=False):
@@ -643,7 +683,7 @@ def review_host_note(note_id, decision, by):
                          (st, str(by)[:60] if st else None, time.time() if st else None, time.time(), int(note_id))).rowcount
 
 
-_RTAG = re.compile(r"\[reviewer:(?:file|process|user|ip|dns):[^\]]{1,200}\]")
+_RTAG = re.compile(r"\[reviewer:(?:file|process|user|ip|dns|cert):[^\]]{1,200}\]")
 
 
 def tagged_slot(notes, tag, decision=""):
@@ -692,7 +732,8 @@ def external_ips(ev):
 
 def internet_notes(q=""):
     """Notes about external IPs (subject ip:<public ip> or art:ip:<public ip>) and CIDR ranges (net:<cidr>), grouped per
-    IP / range: [{ip, notes: [...], n, updated, range}]."""
+    IP / range: [{ip, notes: [...], n, updated, range}]. An IP / range whose notes all timed out is not listed (it is deleted)."""
+    purge_due()
     by = {}
     for n in host_notes(q=q):
         s = str(n["subject"])
@@ -747,6 +788,7 @@ def dns_notes_for(names, limit=6, ai=True):
 
 def dns_notes(q=""):
     """Every domain with notes (subject dom:<d> or art:dns:<d>), grouped per domain: [{domain, parent, notes, n, updated}]."""
+    purge_due()
     by = {}
     for n in host_notes(q=q):
         s = str(n["subject"])
@@ -756,6 +798,23 @@ def dns_notes(q=""):
     out = [{"domain": d, "n": len(ns), "updated": max(float(x.get("updated") or 0) for x in ns), "notes": ns,
             "parent": (dns_suffixes(d)[1] if len(dns_suffixes(d)) > 1 else "")} for d, ns in by.items()]
     return sorted(out, key=lambda r: -r["updated"])
+
+
+def cert_notes(q=""):
+    """Every TLS certificate with notes (subject art:cert:<sha256>), grouped per certificate: [{sha256, notes, n, updated}]."""
+    purge_due()
+    by = {}
+    for n in host_notes(q=q):
+        s = str(n["subject"])
+        if s.startswith("art:cert:"):
+            by.setdefault(s[9:], []).append(n)
+    out = [{"sha256": k, "n": len(ns), "updated": max(float(x.get("updated") or 0) for x in ns), "notes": ns} for k, ns in by.items()]
+    return sorted(out, key=lambda r: -r["updated"])
+
+
+def cert_names(ev):
+    """TLS certificate fingerprints an event carries (its cert artifacts)."""
+    return [str(a[1]).lower() for a in (ev.get("arts") or []) if a and a[0] == "cert" and valid_art("cert", a[1])]
 
 
 def put(doc):
@@ -788,7 +847,7 @@ def put(doc):
 _ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict", "scope")
 SCOPE_VERDICTS = ("expected", "benign")  # verdicts a person may extend to other events by choosing the artifacts they apply to
 SCOPE_MAX = 20
-_SCOPE_KINDS = {"ip": "ip", "dns": "dns", "proc": "process", "user": "user", "port": None, "dev": None, "find": None, "sig": None}
+_SCOPE_KINDS = {"ip": "ip", "dns": "dns", "cert": "cert", "proc": "process", "user": "user", "port": None, "dev": None, "find": None, "sig": None}
 _SIG = re.compile(r"'((?:ET|ETPRO|GPL|SURICATA) [^']{3,200})'")
 _PORT = re.compile(r"\b(?:port |to port )?(\d{1,5})/(?:tcp|udp)\b", re.I)
 _FIND = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,59}$", re.I)
@@ -946,7 +1005,7 @@ def clean_scope(keys):
                 continue
         elif not valid_art(_SCOPE_KINDS[kind], v):
             continue
-        if kind in ("dns", "user"):
+        if kind in ("dns", "user", "cert"):
             v = v.lower().strip(".")
         k = f"{kind}:{v}"
         if k not in out:

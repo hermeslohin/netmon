@@ -115,12 +115,28 @@
       en, { sort: "ts" }) : `<div class="empty">No event notes yet. Click 📝 next to any event's Related count to add one.</div>`));
   };
 
-  /* ---------- Network > Internet notes: every external IP that has notes ---------- */
+  /* ---------- Network > DNS, TLS and IPs: notes on external IPs / ranges, domains / subdomains and TLS certificates ---------- */
+  // #/netnotes/<ip | cidr | dom:<name> | cert:<sha256>> = one entry's notes; bare #/netnotes = the notes part of the DNS, TLS and IPs page
+  const srch = (k, v) => (window.artSearchBtn ? artSearchBtn(k, v) : "");
+  const srchLine = (k, v, what) => { const u = window.artSearchUrl?.(k, v);
+    return u ? `<div class="small" style="margin:4px 0 10px"><button type="button" class="kib-btn art-kib" data-kib="${esc(u)}">🔍 Search ${esc(what)} in Elasticsearch</button> <span class="muted">Kibana Discover, last 7 days</span></div>` : ""; };
   V.netnotes = async (el, arg) => {
     const ip = decodeURIComponent(arg || "");
+    if (!ip) { V.dns(el); if (!S._scrolled) setTimeout(() => document.getElementById("notes-section")?.scrollIntoView(), 600); return; }  // old link: the notes part of DNS, TLS and IPs
+    if (ip.startsWith("cert:")) {  // one TLS certificate (by SHA-256 fingerprint): its notes, what the snapshot knows about it, and its names
+      const sha = ip.slice(5).toLowerCase(), c = (S.snap?.raw?.tls?.certs || []).find((x) => x.sha256 === sha), cn = c ? certCN(c.subject) : "";
+      el.innerHTML = `<div class="crumbs"><a href="#/dns">DNS, TLS and IPs</a> › TLS certificate › ${esc(cn || sha.slice(0, 16) + "…")}</div><h1>TLS certificate ${esc(cn)}</h1><div class="sub">Notes on this certificate (SHA-256 <span class="mono">${esc(sha)}</span>). Every event that names a server this certificate was presented for carries it as an artifact, so the event reviewer and event research read these notes when judging it.</div>${srchLine("cert", sha, "this certificate (x509 records and the TLS sessions that presented it)")}`;
+      if (c) el.appendChild(tlsDetail({ cert: c }, S.snap.raw.tls || {}));
+      else el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:6px 0">Not seen in the selected time range: pick a range in which it was seen for subject, issuer and names.</div>`);
+      el.querySelector("#tlsClose")?.remove();
+      el.appendChild(kbCard([`art:cert:${sha}`], `art:cert:${sha}`));
+      const names = c ? [...new Set([...(c.sni || []), ...(c.san_dns || []).map((d) => d.replace(/^\*\./, ""))])].slice(0, 30) : [];
+      if (names.length) el.appendChild(card(`Its names: domain and subdomain notes (${names.length})`, `<div class="small muted" style="margin-bottom:6px">Notes on a name apply to every event about it; a note on a domain also covers its subdomains.</div>` + names.map((d) => `<div><a href="#/netnotes/${encodeURIComponent("dom:" + d)}" class="mono">${esc(d)}</a> <button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}">📝</button>${srch("dns", d)}</div>`).join("")));
+      return;
+    }
     if (ip.startsWith("dom:")) {  // one domain / subdomain: its notes, the parent domains' notes that cover it, and subdomains with their own notes
       const dom = ip.slice(4), parts = dom.split("."), parents = parts.slice(1, -1).map((_, i) => parts.slice(i + 1).join("."));
-      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › DNS › ${esc(dom)}</div><h1>${esc(dom)}</h1><div class="sub">DNS notes for this name. A note on a domain also covers its subdomains; a note on a subdomain only covers that name and the names below it. The event reviewer and event research read them when judging DNS activity.</div>`;
+      el.innerHTML = `<div class="crumbs"><a href="#/dns">DNS, TLS and IPs</a> › DNS › ${esc(dom)}</div><h1>${esc(dom)}</h1><div class="sub">DNS notes for this name. A note on a domain also covers its subdomains; a note on a subdomain only covers that name and the names below it. The event reviewer and event research read them when judging DNS activity.</div>${srchLine("dns", dom, dom + " and its subdomains")}`;
       el.appendChild(kbCard([`dom:${dom}`, `art:dns:${dom}`], `dom:${dom}`));
       if (parents.length) { el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:10px 0 4px">Notes on parent domains that also apply: ${parents.map((p) => `<a href="#/netnotes/${encodeURIComponent("dom:" + p)}">${esc(p)}</a>`).join(", ")}</div>`);
         el.appendChild(kbCard(parents.flatMap((p) => [`dom:${p}`, `art:dns:${p}`]), `dom:${parents[0]}`)); }
@@ -132,12 +148,12 @@
       return;
     }
     if (ip && ip.includes("/")) {  // a CIDR range: its notes cover every address in it
-      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this address range. They cover every address in ${esc(ip)}: the event reviewer and event research read them for each of those addresses.</div>`;
+      el.innerHTML = `<div class="crumbs"><a href="#/dns">DNS, TLS and IPs</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this address range. They cover every address in ${esc(ip)}: the event reviewer and event research read them for each of those addresses.</div>${srchLine("net", ip, ip)}`;
       el.appendChild(kbCard([`net:${ip}`], `net:${ip}`));
       return;
     }
     if (ip) {
-      el.innerHTML = `<div class="crumbs"><a href="#/netnotes">Internet notes</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this external address. The event reviewer and event research read them when judging whether traffic to it is benign or expected.</div>`;
+      el.innerHTML = `<div class="crumbs"><a href="#/dns">DNS, TLS and IPs</a> › ${esc(ip)}</div><h1>${esc(ip)}</h1><div class="sub">Notes about this external address. The event reviewer and event research read them when judging whether traffic to it is benign or expected.</div>${srchLine("ip", ip, ip)}`;
       el.appendChild(kbCard([`ip:${ip}`, `art:ip:${ip}`], `ip:${ip}`));
       api("/api/kb/covering?ip=" + encodeURIComponent(ip)).then((d) => { const rs = [...new Set((d.covering || []).map((r) => r.scope))];
         if (!rs.length) return;
@@ -145,15 +161,20 @@
         el.appendChild(kbCard(rs.map((p) => `net:${p}`), `net:${rs[0]}`)); }).catch(() => {});
       return;
     }
-    el.innerHTML = `<h1>Internet notes</h1><div class="sub">Every external (public) IP address and DNS name that has a note: what it is, who runs it and why this network talks to it. The event reviewer and event research write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected.</div>`;
+  };
+  // The notes part of Network > DNS, TLS and IPs: external IPs / ranges, domains / subdomains and TLS certificates with notes.
+  // An entry is listed only while it has a note: when its last note times out (unused for the expiry days) the entry is deleted.
+  window.netNotesSections = async (el) => {
+    const redraw = () => { el.innerHTML = ""; window.netNotesSections(el); };
+    el.insertAdjacentHTML("beforeend", `<h1 id="notes-section" style="margin-top:28px;padding-top:14px;border-top:1px solid var(--border)">Notes: IPs, domains and TLS certificates</h1><div class="sub">Every external (public) IP address, DNS name and TLS certificate that has a note: what it is, who runs it and why this network talks to it. The event reviewer and event research write them as they find out, people can add or delete them, and both read them when deciding whether activity is benign or expected. Events show the notes on the IPs, domains (including parent-domain notes) and certificates they carry. 🔍 searches an entry in Elasticsearch. An entry whose notes have all timed out is deleted.</div>`);
     const d = await api("/api/kb/internet"), rows = d.ips || [];
     el.insertAdjacentHTML("beforeend", kpis([["IPs with notes", rows.filter((r) => !r.range).length], ["CIDR ranges", rows.filter((r) => r.range).length], ["Notes", rows.reduce((a, r) => a + r.n, 0)], ["By AI", rows.filter((r) => r.notes.some((n) => n.author === "ai")).length], ["With a person's note", rows.filter((r) => r.notes.some((n) => n.author !== "ai")).length]]));
     el.appendChild(card("Add a note about an external IP or CIDR range (covers every address in it)", `<form class="kb-form" id="inForm"><input class="kb-ip mono" placeholder="8.8.8.8 or 203.0.113.0/24" aria-label="External IP or CIDR range" size="22"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this address, who runs it, why do we talk to it?"></textarea><button type="submit">Add note</button></form>`));
     el.querySelector("#inForm").addEventListener("submit", (e) => { e.preventDefault();
       const f = e.target, i = f.querySelector(".kb-ip").value.trim(), t = f.querySelector(".kb-text").value.trim(); if (!i || !t) return;
-      apiPost("/api/kb/host", { action: "add", subject: (i.includes("/") ? "net:" : "ip:") + i, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
+      apiPost("/api/kb/host", { action: "add", subject: (i.includes("/") ? "net:" : "ip:") + i, category: f.querySelector(".kb-cat").value, text: t }).then(redraw, (er) => alert(er.message)); });
     el.appendChild(card(`External IPs and ranges (${rows.length})`, rows.length ? table(null, [
-      { k: "ip", t: "IP / range", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent(v)}"><b class="mono">${esc(v)}</b></a>` },
+      { k: "ip", t: "IP / range", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent(v)}"><b class="mono">${esc(v)}</b></a> ${srch(v.includes("/") ? "net" : "ip", v)}` },
       { k: "n", t: "Notes", num: true },
       { k: "notes", t: "Latest note", fmt: (v) => `<div class="kb-text-v small">${esc(String(v[0]?.text || "").replace(/^\[\w+:[^\]]*\]\s*/, "").slice(0, 260))}</div>`, sort: (r) => r.n },
       { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "" , sort: (r) => r.notes[0]?.author || "" },
@@ -167,15 +188,26 @@
     el.appendChild(card("Add a DNS note", `<form class="kb-form" id="dnsForm"><input class="kb-dom mono" placeholder="example.com, *.example.com or sub.example.com" aria-label="Domain or subdomain" size="30"><select class="kb-cat" aria-label="Category">${CATS.map((x) => `<option${x === "other" ? " selected" : ""}>${x}</option>`).join("")}</select><textarea class="kb-text" rows="2" maxlength="2000" placeholder="What is this DNS name, who queries it and how often, is it normal? A note on a domain also covers its subdomains; a note on a subdomain covers only that name."></textarea><button type="submit">Add note</button></form><div class="small muted">The event reviewer and the research job read these when judging DNS activity, and add their own as they find recurring patterns (✨).</div>`));
     el.querySelector("#dnsForm").addEventListener("submit", (e) => { e.preventDefault();
       const f = e.target, d = f.querySelector(".kb-dom").value.trim().toLowerCase().replace(/\.$/, "").replace(/^\*\./, ""), t = f.querySelector(".kb-text").value.trim(); if (!d || !t) return;
-      apiPost("/api/kb/host", { action: "add", subject: "dom:" + d, category: f.querySelector(".kb-cat").value, text: t }).then(() => V.netnotes(el), (er) => alert(er.message)); });
+      apiPost("/api/kb/host", { action: "add", subject: "dom:" + d, category: f.querySelector(".kb-cat").value, text: t }).then(redraw, (er) => alert(er.message)); });
     el.appendChild(card(`Domains and subdomains (${drows.length})`, drows.length ? table(null, [
-      { k: "domain", t: "Domain", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent("dom:" + v)}"><b class="mono">${esc(v)}</b></a>` },
+      { k: "domain", t: "Domain", fmt: (v) => `<a href="#/netnotes/${encodeURIComponent("dom:" + v)}"><b class="mono">${esc(v)}</b></a> ${srch("dns", v)}` },
       { k: "n", t: "Notes", num: true },
       { k: "notes", t: "Latest note", fmt: (v) => `<div class="kb-text-v small">${esc(String(v[0]?.text || "").replace(/^\[[^\]]*\]\s*/, "").slice(0, 260))}</div>`, sort: (r) => r.n },
       { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "", sort: (r) => r.notes[0]?.author || "" },
       { k: "notes", t: "Review", fmt: (v) => { const a = v.filter((n) => n.status === "approved").length, r = v.filter((n) => n.status === "rejected").length; return (a ? `<span class="badge sev-info">✓ ${a}</span> ` : "") + (r ? `<span class="badge sev-high">✕ ${r}</span>` : ""); }, sort: (r) => r.notes.filter((n) => n.status).length },
       { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], drows, { sort: "updated", filter: true, onclick: (r) => go("netnotes/" + encodeURIComponent("dom:" + r.domain)) })
       : `<div class="empty">No DNS notes yet. The event reviewer and event research add them when they see a recurring domain; you can add one above.</div>`));
+    // ---- TLS certificates (artifacts by SHA-256 fingerprint); add one with 📝 in the Certificates table above or on a certificate's page
+    const cd = await api("/api/kb/certs").catch(() => ({ certs: [] })), crows = cd.certs || [], CS = S.snap?.raw?.tls?.certs || [];
+    const cinfo = (sha) => CS.find((x) => x.sha256 === sha);
+    el.insertAdjacentHTML("beforeend", `<h2 style="margin:18px 0 6px">TLS certificate notes</h2>`);
+    el.appendChild(card(`TLS certificates (${crows.length})`, crows.length ? table(null, [
+      { k: "sha256", t: "Certificate", fmt: (v) => { const c = cinfo(v); return `<a href="#/netnotes/${encodeURIComponent("cert:" + v)}"><b>${esc(c ? certCN(c.subject) : "")}</b> <span class="mono small">${esc(v.slice(0, 16))}…</span></a> ${srch("cert", v)}${c ? `<div class="small muted">${esc((c.sni || []).slice(0, 3).join(", "))}</div>` : ""}`; } },
+      { k: "n", t: "Notes", num: true },
+      { k: "notes", t: "Latest note", fmt: (v) => `<div class="kb-text-v small">${esc(String(v[0]?.text || "").replace(/^\[[^\]]*\]\s*/, "").slice(0, 260))}</div>`, sort: (r) => r.n },
+      { k: "notes", t: "By", fmt: (v) => v[0] ? by(v[0]) : "", sort: (r) => r.notes[0]?.author || "" },
+      { k: "updated", t: "Updated", fmt: (v) => esc(when(v)) }], crows, { sort: "updated", filter: true, onclick: (r) => go("netnotes/" + encodeURIComponent("cert:" + r.sha256)) })
+      : `<div class="empty">No TLS certificate has a note yet. Click 📝 on a certificate in the Certificates table above (or on an event's cert artifact) to add one.</div>`));
   };
 
   /* ---------- event notes popover (📝) ---------- */
@@ -273,7 +305,8 @@
   /* ---------- external IP / domain notes popover (📝 inline wherever linkifyIps shows one) ---------- */
   let epop = null;
   const eclose = () => { epop?.remove(); epop = null; };
-  const extInfo = (btn) => (btn.dataset.extart ? { v: btn.dataset.extart.replace(/^[^:]*:/, ""), subj: "art:" + btn.dataset.extart, what: btn.dataset.extart.split(":")[0] + " artifact" }
+  const extInfo = (btn) => (btn.dataset.extart?.startsWith("cert:") ? { v: btn.dataset.extart.slice(5).toLowerCase(), subj: "art:" + btn.dataset.extart.toLowerCase(), what: "TLS certificate" }
+    : btn.dataset.extart ? { v: btn.dataset.extart.replace(/^[^:]*:/, ""), subj: "art:" + btn.dataset.extart, what: btn.dataset.extart.split(":")[0] + " artifact" }
     : btn.dataset.extip ? { v: btn.dataset.extip, subj: "ip:" + btn.dataset.extip, what: "external IP" }
     : { v: btn.dataset.extdom, subj: "dom:" + btn.dataset.extdom, what: "domain" });
   // where a new note goes: this exact name / address, or a wider scope that covers it (a parent domain = all its subdomains,
@@ -284,6 +317,10 @@
       const p = v.toLowerCase().replace(/^\*\./, "").split("."), parents = p.slice(1, -1).map((_, i) => p.slice(i + 1).join("."));
       return [{ s: subj, t: `${v} (this name)` }, ...parents.map((d) => ({ s: "dom:" + d, t: `*.${d} (all of ${d} and its subdomains)` }))];
     }
+    if (what === "TLS certificate") {  // the certificate itself, or one of the names it was presented for / carries (domain + subdomain notes)
+      const c = (S.snap?.raw?.tls?.certs || []).find((x) => x.sha256 === v), names = c ? [...new Set([...(c.sni || []), ...(c.san_dns || [])].map((d) => d.toLowerCase()))].slice(0, 12) : [];
+      return [{ s: subj, t: `this certificate${c ? " (" + certCN(c.subject) + ")" : ""}` }, ...names.map((d) => d.startsWith("*.") ? { s: "dom:" + d.slice(2), t: `${d} (all of ${d.slice(2)} and its subdomains)` } : { s: "dom:" + d, t: `${d} (this name)` })];
+    }
     if (v4(v)) { const o = v.split(".");
       return [{ s: subj, t: `${v} (this address)` }, { s: `net:${o.slice(0, 3).join(".")}.0/24`, t: `${o.slice(0, 3).join(".")}.0/24 (256 addresses)` },
         { s: `net:${o.slice(0, 2).join(".")}.0.0/16`, t: `${o.slice(0, 2).join(".")}.0.0/16 (65,536 addresses)` }, { s: "custom", t: "Other CIDR range…" }]; }
@@ -292,7 +329,9 @@
   const covLink = (sub) => `#/netnotes/${encodeURIComponent(sub.startsWith("dom:") || sub.startsWith("art:dns:") ? "dom:" + sub.replace(/^(dom|art:dns):/, "") : sub.replace(/^(net|ip|art:ip):/, ""))}`;
   function erender(btn) {
     const { v, subj, what } = extInfo(btn), isDns = what.startsWith("dns") || what === "domain", isIp = !isDns && v4(v), sc = scopes(v, subj, what);
-    epop.innerHTML = `<div class="rel-head"><b>Notes on ${esc(what)}</b> <span class="muted small mono">${esc(v)}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
+    const sk = btn.dataset.extip ? "ip" : btn.dataset.extdom ? "dns" : String(btn.dataset.extart || "").split(":")[0];
+    const page = what === "TLS certificate" ? ` <a class="small" href="#/netnotes/${encodeURIComponent("cert:" + v)}">page</a>` : "";
+    epop.innerHTML = `<div class="rel-head"><b>Notes on ${esc(what)}</b> <span class="muted small mono">${esc(what === "TLS certificate" ? v.slice(0, 16) + "…" : v)}</span>${srch(sk, v)}${page}<button type="button" class="rel-x" aria-label="Close">✕</button></div>
       <div class="note-body"><div class="loading inline">Loading notes…</div></div>`;
     epop.querySelector(".rel-x").onclick = eclose;
     const noteHtml = (n, scope) => `<div class="kb-note${n.status === "rejected" ? " kb-st-rejected" : ""}"><div class="kb-meta">${by(n)} ${hnBadge(n)}${hnBtns(n)} <span class="muted small" title="${esc(n.ts ? "Created " + when(n.ts) : "")}">${esc(when(n.updated))}</span> ${expTxt(n)}

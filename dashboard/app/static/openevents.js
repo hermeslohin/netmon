@@ -181,6 +181,8 @@
     return k === "ip" ? `<button type="button" class="extnote-btn" data-extip="${esc(v)}" title="Notes on ${esc(v)}">📝</button>`
       : k === "dom" ? `<button type="button" class="extnote-btn" data-extdom="${esc(v)}" title="Notes on ${esc(v)}">📝</button>`
       : k === "art" ? `<button type="button" class="extnote-btn" data-extart="${esc(v)}" title="Notes on this artifact">📝</button>` : ""; };
+  const subjSearch = (s) => { const [k, ...r] = String(s || "").split(":"), v = r.join(":"); if (!window.artSearchBtn) return "";
+    return k === "ip" ? artSearchBtn("ip", v) : k === "net" ? artSearchBtn("net", v) : k === "dom" ? artSearchBtn("dns", v) : k === "art" ? artSearchBtn(r[0], r.slice(1).join(":")) : ""; };
   function researchHtml(eid, X) {
     const n = X.notes?.[eid], un = X.unotes?.[eid] || S.corr?.unotes?.[eid] || [], an = X.art_notes?.[eid] || [], AT = X.art_note_text || {};
     let h = "";
@@ -207,10 +209,10 @@
     } else if (X.art_notes) h += `<div class="small muted" style="margin:4px 0">🔎 No web research on this event yet.</div>`;
     if (un.length) h += `<details class="oe-det oe-sub" open><summary>${un.length} note${un.length === 1 ? "" : "s"} by people</summary>${un.map((u) => `<div class="kb-note"><div class="kb-meta">${window.kbVBadge ? kbVBadge(u) : ""}${window.kbStBadge ? kbStBadge(u) : ""}<b>${esc(u.author || "")}</b> <span class="muted small">${esc(when(u.ts * 1000))}</span></div><div class="small" style="white-space:pre-wrap">${esc(u.text || "")}</div></div>`).join("")}</details>`;
     if (X.art_notes) h += `<details class="oe-det oe-sub"${an.length ? " open" : ""}><summary>${an.length} note${an.length === 1 ? "" : "s"} on this event's artifacts</summary>${an.length ? an.map((r) => { const t = AT[r.id] || r;
-      return `<div class="kb-note"><div class="kb-meta"><span class="mono small">${esc(t.subject || "")}</span> ${subjBtn(t.subject)} ${t.status === "approved" ? `<span class="badge sev-info" title="Accepted: authoritative for the AI">✓ accepted</span>` : t.status === "rejected" ? `<span class="badge sev-high">✕ rejected</span>` : ""}
+      return `<div class="kb-note"><div class="kb-meta"><span class="mono small">${esc(t.subject || "")}</span> ${subjBtn(t.subject)}${subjSearch(t.subject)} ${t.status === "approved" ? `<span class="badge sev-info" title="Accepted: authoritative for the AI">✓ accepted</span>` : t.status === "rejected" ? `<span class="badge sev-high">✕ rejected</span>` : ""}
         ${t.author === "ai" || t.model ? aiFlare({ model: t.model, via: t.via || "event reviewer" }) : `<b>${esc(t.author || "")}</b>`} <span class="muted small">${esc(t.category || "")}${t.updated ? " · " + esc(when(t.updated * 1000)) : ""}</span> ${window.kbExpiry ? kbExpiry(t) : ""}</div>
         <div class="small" style="white-space:pre-wrap">${linkifyIps(t.text || "")}</div>${(r.matched || []).length ? `<div class="small muted">matched: ${r.matched.map((m) => `<code>${esc(m)}</code>`).join(" ")}</div>` : ""}</div>`; }).join("")
-      : `<div class="small muted">No notes on its IPs, domains, processes or accounts yet. Click 📝 next to an artifact to add one.</div>`}</details>`;
+      : `<div class="small muted">No notes on its IPs, domains, TLS certificates, processes or accounts yet. Click 📝 next to an artifact to add one.</div>`}</details>`;
     return h ? `<div class="oe-extra">${h}</div>` : "";
   }
 

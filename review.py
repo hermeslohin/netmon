@@ -29,7 +29,7 @@ BATCH_MAX = 8  # items per event reviewer call
 
 def compact(x):
     """What the event reviewer needs to match an event with a prior note: no host-note dump, short prior texts."""
-    keep = {k: x[k] for k in ("id", "type", "sev", "label", "when", "repeats", "user_notes", "dns_notes") if x.get(k) not in (None, "", [], {})}
+    keep = {k: x[k] for k in ("id", "type", "sev", "label", "when", "repeats", "user_notes", "dns_notes", "cert_notes") if x.get(k) not in (None, "", [], {})}
     for k in ("evidence", "detail", "summary"):
         if x.get(k):
             keep[k] = str(x[k])[:600]

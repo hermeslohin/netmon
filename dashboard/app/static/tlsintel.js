@@ -12,7 +12,14 @@ const clientsHtml = (o, n = 4) => sortDesc(o).slice(0, n).map(([ip, k]) => `${ip
 const ja3Fmt = (h, mal) => `<span class="mono small">${esc(h)}</span>${mal ? ` <span class="badge sev-high" title="${esc(mal)}">SSLBL</span>` : ""}`;
 const TLS = { sel: null, certFlag: "", ja3Rare: false };
 
-// Rendered inside the DNS & TLS view (V.dns); #/tls deep-links there and scrolls to this section.
+// TLS certificates are artifacts (art:cert:<sha256>): 📝 notes like a host / IP / domain, 🔍 search in Elasticsearch
+const certNoteBtn = (sha) => { const n = (window.CERT_NOTES || {})[sha] || 0;
+  return `<button type="button" class="extnote-btn${n ? " has" : ""}" data-extart="cert:${esc(sha)}" title="Notes on this TLS certificate (the event reviewer and research read them)">📝${n ? " " + n : ""}</button>`; };
+const domNoteBtn = (name) => { const d = String(name || "").toLowerCase().replace(/^\*\./, "");
+  return /^[a-z0-9_.-]+\.[a-z]{2,}$/.test(d) ? `<button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}${String(name).startsWith("*.") ? " and its subdomains" : ""}">📝</button>` : ""; };
+const certLinks = (sha) => `${certNoteBtn(sha)}${window.artSearchBtn ? artSearchBtn("cert", sha) : ""} <a class="small" href="#/netnotes/${encodeURIComponent("cert:" + sha)}">notes page</a>`;
+
+// Rendered inside the DNS, TLS and IPs view (V.dns); #/tls deep-links there and scrolls to this section.
 function tlsSection(el) {
   const T = S.snap.raw.tls || {};
   el.insertAdjacentHTML("beforeend", `<h1 id="tls-section" style="margin-top:28px;padding-top:14px;border-top:1px solid var(--border)">TLS: JA3 fingerprints &amp; certificates</h1><div class="sub">JA3 = TLS <b>client</b> fingerprint (which app/library opened the connection). JA3S = <b>server</b> response fingerprint. Certificates are every x509 cert Zeek saw in this window, matched to the internal clients that requested those names (SNI).</div>`);
@@ -54,9 +61,12 @@ function tlsSection(el) {
       { k: "key_length", t: "Key", fmt: (v, c) => esc(`${(c.key_type || "").toUpperCase()} ${v || ""}`) }, { k: "sig_alg", t: "Signature", cls: "small" },
       { k: "days_left", t: "Days left", num: true, fmt: (v) => (v == null ? "" : v < 0 ? `<b style="color:var(--bad)">${v}</b>` : v < 30 ? `<b style="color:var(--warn)">${v}</b>` : fn(v)) }, { k: "validity_days", t: "Validity (d)", num: true, fmt: fn },
       { k: "clients", t: "Internal clients", fmt: (v) => clientsHtml(v, 3), sort: (c) => Object.keys(c.clients || {}).length }, { k: "count", t: "Seen", num: true, fmt: fn },
+      { k: "sha256", t: "Notes · search", fmt: (v) => `${certNoteBtn(v)}${window.artSearchBtn ? artSearchBtn("cert", v) : ""}`, sort: (c) => -((window.CERT_NOTES || {})[c.sha256] || 0) },
     ], rows, { sort: "flags", dir: 1, limit: 60, urlFilter: { certkey: ["Key type", (c, v) => eqi(`${(c.key_type || "?").toUpperCase()} ${c.key_length || ""}`, v)], expiry: ["Expiry", (c, v) => expBucket(c.days_left) === v], issuer: ["Issuer", (c, v) => eqi(certCN(c.issuer) || "?", v)] }, onclick: (c) => { TLS.sel = { cert: c }; showSel(); selBox.scrollIntoView({ behavior: "smooth" }); } }));
   };
   el.appendChild(cwrap); drawCerts();
+  api("/api/kb/certs").then((d) => { const m = {}; (d.certs || []).forEach((r) => { m[r.sha256] = r.n; });
+    const ch = JSON.stringify(m) !== JSON.stringify(window.CERT_NOTES || {}); window.CERT_NOTES = m; if (ch && cwrap.isConnected) drawCerts(); }).catch(() => {});
   cwrap.querySelector("#tlsFlag").value = TLS.certFlag;
   cwrap.querySelector("#tlsFlag").onchange = (e) => { TLS.certFlag = e.target.value; drawCerts(); };
   el.appendChild(card(`Certificate validation failures (${val.length})`, table(null, [
@@ -90,8 +100,8 @@ function tlsDetail(sel, T) {
       <span class="k">Flags</span><span>${certFlags(c)}</span><span class="k">Subject</span><span class="mono small">${esc(c.subject)}</span><span class="k">Issuer</span><span class="mono small">${esc(c.issuer)}</span>
       <span class="k">Valid</span><span>${ft(c.not_before * 1000)} → ${ft(c.not_after * 1000)} (${fn(c.validity_days)} days; ${c.days_left} left)</span>
       <span class="k">Key / signature</span><span>${esc((c.key_type || "").toUpperCase())} ${esc(c.key_length)} · ${esc(c.sig_alg)}</span><span class="k">CA cert</span><span>${c.ca ? "yes" : "no"}</span>
-      <span class="k">SAN DNS</span><span class="small">${esc((c.san_dns || []).join(", ") || "—")}</span><span class="k">Matched server names</span><span class="small">${esc((c.sni || []).join(", ") || "—")}</span>
-      <span class="k">Internal clients</span><span>${clientsHtml(c.clients, 8) || "—"}</span><span class="k">SHA-256</span><span class="mono small">${esc(c.sha256)}</span><span class="k">Serial</span><span class="mono small">${esc(c.serial)}</span>
+      <span class="k">SAN DNS</span><span class="small">${(c.san_dns || []).map((d) => `${esc(d)}${domNoteBtn(d)}`).join(", ") || "—"}</span><span class="k">Matched server names</span><span class="small">${(c.sni || []).map((d) => `${esc(d)}${domNoteBtn(d)}${window.artSearchBtn ? artSearchBtn("dns", d) : ""}`).join(", ") || "—"}</span>
+      <span class="k">Internal clients</span><span>${clientsHtml(c.clients, 8) || "—"}</span><span class="k">SHA-256</span><span class="mono small">${esc(c.sha256)} ${certLinks(c.sha256)}</span><span class="k">Serial</span><span class="mono small">${esc(c.serial)}</span>
       <span class="k">Seen</span><span>${fn(c.count)}× · ${ft(c.first)} → ${ft(c.last)}</span></div>`, "", (e) => e);
   }
   const j = sel.ja3, srv = T.ja3s.filter((s) => (s.ja3 || []).includes(j.ja3));

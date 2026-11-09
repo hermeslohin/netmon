@@ -251,6 +251,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
 | `tests/unit/test_autoclose.py` | 13 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
+| `tests/unit/test_cert_dns_notes.py` | 5 | Unit tests for DNS, TLS and IPs notes: TLS certificates are artifacts with notes, domain notes reach events about their (STO-13) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
 | `tests/unit/test_config.py` | 40 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-02, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |

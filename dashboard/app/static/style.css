@@ -676,3 +676,6 @@ tr.muted td { opacity: .6; }
 .rg-spin { display: inline-block; animation: rgspin 1s linear infinite; }
 @keyframes rgspin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rg-spin { animation: none; } }
+.kib-btn.art-kib{margin:0 2px;padding:0 5px;font-size:11px;border-radius:10px;background:var(--panel2);border:1px dashed var(--border);opacity:.7;vertical-align:1px}
+.kib-btn.art-kib:hover{opacity:1;border-style:solid;border-color:var(--accent,#58a6ff)}
+.dti-jump{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 12px;font-size:13px}

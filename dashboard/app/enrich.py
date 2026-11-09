@@ -378,6 +378,10 @@ def _events(sid=None, everything=False, limit=40, hosts=60, idsq_max=40, gw_max=
                   for nm, d, n, _ex in kb.dns_notes_for(kb.dns_names(E.get(x["id"]) or {}), 6)]
             if dn:
                 x["dns_notes"] = dn
+            cn = [{"id": n["id"], "cert": sha, "by": n["author"], "authoritative": n.get("status") == "approved" or str(n["author"]).startswith("user:"), "text": n["text"]}
+                  for sha in kb.cert_names(E.get(x["id"]) or {})[:3] for n in kb.host_notes([f"art:cert:{sha}"], ai=True)]  # notes on the TLS certificates it names
+            if cn:
+                x["cert_notes"] = cn[:6]
         hn_count = sum(1 for v in hn_cache.values() if v)
     except Exception as e:  # noqa: BLE001 - the work list must not depend on the notes store
         print(f"kb notes unavailable: {e}", file=sys.stderr)

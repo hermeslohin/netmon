@@ -1871,6 +1871,7 @@ def _context_notes(tags, E):
             subj = str(n["subject"])
             ext = subj[3:] if subj.startswith("ip:") else subj[7:] if subj.startswith("art:ip:") else ""
             head = (f"internet note [{ext}]" if ext and kb.is_external(ext) else f"pod note [{n['category']}] {subj[4:]}" if subj.startswith("pod:")
+                    else f"tls certificate note [sha256 {subj[9:25]}…]" if subj.startswith("art:cert:")
                     else f"host note [{n['category']}] {n['label'] or subj}")
             (o if _human(n) else a).append(f"{head}{where}: {_TAG.sub('', str(n['text']))[:240]}")
         if o:

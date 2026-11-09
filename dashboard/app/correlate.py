@@ -63,7 +63,8 @@ MAX_ARTS = 14
 
 
 def artifacts_of(text, key="", users=(), extra=(), host_label=""):
-    """Concrete artifacts an event already carries: [kind, value, relation] with kind file|process|user|dns.
+    """Concrete artifacts an event already carries: [kind, value, relation] with kind file|process|user|dns|ip|hash
+    (build() adds cert: the TLS certificate presented for a DNS name the event names).
     Pure text/field extraction (no lookups), so it works the moment the event exists - before correlation or any review."""
     text = text or ""
     out, seen = [], set()
@@ -215,6 +216,26 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
     names.update({mac: names.get(ip, ip) for mac, ip in mac2ip.items()})
     _MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$", re.I)
     ev = {}
+    # TLS certificates by the server names they were presented for (SNI) and the names they carry (CN / SAN): an event that
+    # names one of these gets the certificate as an artifact (kind cert, value = SHA-256 fingerprint), so notes on it reach the event
+    cert_by = {}
+    for c in ((raw.get("tls") or {}).get("certs") or [])[:1500]:
+        sha = str(c.get("sha256") or "").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", sha):
+            continue
+        cn = next((x[3:] for x in str(c.get("subject") or "").split(",") if x.startswith("CN=")), "")
+        for n in [*(c.get("sni") or []), *[x for x in (c.get("san_dns") or []) if "*" not in x], cn]:
+            if n and "." in n and "*" not in n:
+                cert_by.setdefault(str(n).lower().strip("."), []).append((sha, cn or n))
+
+    def cert_arts(arts):
+        out = []
+        for kind, val, _rel in list(arts):
+            if kind == "dns":
+                for sha, cn in cert_by.get(val, [])[:2]:
+                    if sha not in [x[1] for x in out]:
+                        out.append(["cert", sha, f"TLS certificate {cn} presented for {val}"[:90]])
+        return (arts + out[:3])[:MAX_ARTS + 3]
 
     def ents_from_text(text, base=()):
         e = set(base)
@@ -234,7 +255,7 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
                    # host_ips / dst_ips feed the artifacts of a related event; default: internal IPs are hosts, external ones destinations
                    "host": None if host is None else set(host), "dst": None if dst is None else set(dst),
                    # users / processes / files / DNS names read from the event itself, known before any review runs
-                   "arts": artifacts_of(label if text is None else text, akey, users, extra, hlabel), "item": item}
+                   "arts": cert_arts(artifacts_of(label if text is None else text, akey, users, extra, hlabel)), "item": item}
 
     def host_ents(h):
         ip = resolve(h or "")

@@ -98,7 +98,7 @@
   setInterval(() => { if (S.corr?.llm?.pending && !document.hidden && main.querySelector(".rel-btn")) { S.corr._snap = null; ensure(); } }, 120000);
   let pop = null;
   const close = () => { pop?.remove(); pop = null; };
-  const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎", hash: "🧬" };
+  const ART_ICON = { file: "📄", process: "⚙️", user: "👤", ip: "🌐", dns: "🔎", hash: "🧬", cert: "🔒" };
   // an AI Elasticsearch search kept as an artifact: click to open the same search in Kibana Discover
   function queryArtHtml(a) {
     const d = a.query || {}, url = window.kibanaQueryUrl?.(d) || "";
@@ -136,7 +136,7 @@
   }
   function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";
-    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : a.kind === "web" ? webArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind)} artifact (the AI reads them)">📝</button>
+    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : a.kind === "web" ? webArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind === "cert" ? "TLS certificate" : a.kind)} artifact (the AI reads them)">📝</button>${window.artSearchBtn ? artSearchBtn(a.kind, a.value) : ""}
       <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${!a.model ? "" : aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
   }

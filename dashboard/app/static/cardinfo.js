@@ -607,8 +607,13 @@ window.CARD_INFO = {
 },
 "dns|Certificates": {
 "source": "Zeek x509 logs from Security Onion, last 24 h, matched to internal clients through TLS server names (SNI). Flags: expired, expiring under 30 days, not yet valid, self-signed, weak RSA key under 2048, SHA-1 or MD5 signature, validity over 398 days.",
-"use": "Use the Flag menu to show Serious ones (expired, weak, not yet valid). Self-signed certificates on your own devices are common, and long validity is low risk. Click a row for full details.",
+"use": "Use the Flag menu to show Serious ones (expired, weak, not yet valid). Self-signed certificates on your own devices are common, and long validity is low risk. Click a row for full details. 📝 adds a note on the certificate (or on one of its names); 🔍 searches it in Elasticsearch (x509 records and the TLS sessions that presented it).",
 "what": "Inventory of every x509 certificate seen, with risk flags, key, signature, days left, validity length and the internal clients that used it."
+},
+"dns|TLS certificates": {
+"source": "Notes on TLS certificates (subject art:cert:<SHA-256>) from the notes store: written by people with 📝 and by the event reviewer and event research. Subject names come from the Zeek x509 data of the selected time range.",
+"use": "Click a row for the certificate's page: details, notes and its names with their domain notes. 🔍 searches the certificate in Elasticsearch. A certificate whose notes all time out is removed from this list.",
+"what": "Every TLS certificate that has a note. Events that name a server the certificate was presented for carry it as an artifact, so the AI reads these notes when judging them."
 },
 "dns|Certificates by days to expiry": {
 "source": "Zeek x509 logs from Security Onion, last 24 h; days left is calculated from each certificate's not-valid-after date at collection time.",

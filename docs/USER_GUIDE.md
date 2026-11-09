@@ -60,7 +60,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | **Alerts** | Urgent alerts from the 15-minute watcher. The number is your unread count. |
 | **Open events** | Your to-do list: every event nobody has accepted (checked off) yet, of any age. Not time based; repeats of one condition are one row. The number is how many are open; the page lists at most 5000 rows (most severe and newest first). See [Open events vs Posture](#open-events-vs-posture). |
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
-| **Network ▾** | Network map, Lateral movement, DNS & TLS, Traffic map, **Users** (accounts seen in the logs and their usual patterns; the dashboard's own logins are under More → Dashboard users). |
+| **Network ▾** | Network map, Lateral movement, DNS, TLS and IPs, Traffic map, **Users** (accounts seen in the logs and their usual patterns; the dashboard's own logins are under More → Dashboard users). |
 | **Devices ▾** | Hosts (everything on the network), Endpoints (computers running the Elastic Agent) and Notes (what the AI and people have written about devices and events). |
 | **More ▾** | Ask AI, AI pipeline monitoring, AI pipeline configuration, Checked, Dashboard users, Configuration, Settings (policy and site values, as tables) and Audit log (admins). |
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
@@ -69,7 +69,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 ### Choosing a time range
 
 Every page except Alerts shows the selected time range: Overview, Posture's findings, Threat intel, ATT&CK, Risk,
-Network map, **Lateral movement**, DNS & TLS, Traffic map, Users, **Devices (including New devices)** and Endpoints.
+Network map, **Lateral movement**, DNS, TLS and IPs, Traffic map, Users, **Devices (including New devices)** and Endpoints.
 
 - **The last 24 hours** (the default when you open the dashboard) is collected in the background every 15 minutes, so it
   loads at once. It is at most 30 minutes old; ⟳ moves it to the newest one.
@@ -238,7 +238,7 @@ Notes are what netmon knows about your network. The AI reads them before it judg
 | Note | Written by | Where you see it |
 |---|---|---|
 | **Host notes** (a device, endpoint or account) | The event reviewer and event research (✨ AI), and people (👤) | Device and endpoint pages, **Devices → Notes** |
-| **Internet notes** (an external IP or a DNS name) | The same, keyed by IP or by domain | **Network → Internet notes** |
+| **Internet notes** (an external IP or range, a domain or subdomain, or a TLS certificate) | The same, keyed by IP, by domain or by certificate fingerprint | **Network → DNS, TLS and IPs** |
 | **Event notes** (one event) | People, with the 📝 button beside an event's Related count | The 📝 popover, **Devices → Notes** |
 
 **Accepting and rejecting host and Internet notes** (admins and network defenders)
@@ -277,7 +277,7 @@ Pending notes are listed under **Event notes awaiting approval** on **Devices �
 - Unused notes expire. Every host, internet, DNS and pod note carries the date it was created and the date it was last used, and shows a ⌛ badge with the days it has left (hover for the dates). A note counts as used when an AI job reads it for an event or host it involves (event reviewer, event research, review job), or when someone edits, accepts or rejects it; each use restarts its clock. Opening a page or listing notes does not. A note unused for the set number of days (30 by default) is deleted (checked hourly). Admins change the days with **Note expiry** on the AI pipeline pages; 0 turns expiry off. Notes that existed before expiry was added got a full period from the day it was switched on.
 - Nightly **host note consolidation** (AI pipeline configuration) merges overlapping, unreviewed AI notes. Notes written by people, accepted and rejected notes, and correlation profiles are never changed by it.
 - Every add, delete, accept, reject and approve is logged with the user's name in the **Audit log**.
-- The Notes page and Internet notes tables count the accepted (✓) and rejected (✕) notes per device, IP or domain.
+- The Notes page and the DNS, TLS and IPs notes tables count the accepted (✓) and rejected (✕) notes per device, IP or domain.
 
 See [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for exactly which role may do what.
 
@@ -415,12 +415,6 @@ Host-to-host connections inside the network, compared against the zone policy.
 
 **Several time periods.** In the time picker at the top, press **+ Add period** under *Also include these periods* (up to 8 in total) and Apply. The graph, tables, charts and admin-session lists on this page then combine all periods: connection and login counts are added up and each link keeps its worst risk. A custom range, or any extra period, is queried straight from Security Onion's Elasticsearch (internal connections, admin logins, segmentation violations), so the page does not wait for the full range to be collected. Other pages show the main range only.
 
-### Network → DNS & TLS
-
-- **DNS:** queries and failures by device, top domains, query types, resolvers and TLDs.
-- **TLS:** versions in use, certificates with problems, and client and server fingerprints (JA3, JA3S, JA4).
-- **Devices using legacy TLS or bad certificates** are listed at the end.
-
 ### Network → Traffic map
 
 - **Traffic:** top talkers, internet upload by device (top 15), top countries and ASNs with full **All ASNs** / **All countries** tables, protocols.
@@ -439,12 +433,19 @@ The accounts seen in your logs (endpoint logins, failed attempts, sudo, admin se
 - **Account page:** the same tiles (successful, failed, sudo, hosts, sources, each filtering the *Where and how* table), the pattern and active hours, which host it is used on, from where and by which method or command, and the events in the latest report that name it.
 - The correlation also writes these profiles as notes: a per-host account profile and frequent-IP profiles. They appear on the **Notes** page and are read by the event reviewer.
 
-### Network → Internet notes
+### Network → DNS, TLS and IPs
 
-What is known about the outside world, in two parts. The event reviewer and event research write these notes as they learn, people can add or delete them, and both read them when judging whether activity is benign or expected.
+One page for DNS, TLS and what is known about the outside world (it replaces *DNS & TLS* and *Internet notes*; old `#/netnotes` and `#/tls` links still work). Links at the top jump to each part.
 
-- **External IPs:** every public address that has a note (owner, service, why this network talks to it).
-- **DNS notes:** frequent or noteworthy DNS patterns by **domain or subdomain**. Add one with *Add a DNS note*. A note on `example.com` covers all its subdomains; a note on `cdn.example.com` covers only that name and the names below it, and the more specific note is shown to the AI first. A domain's page also lists the parent-domain notes that apply and any subdomains with their own notes. The event reviewer adds a DNS note when it judges a DNS artifact and has something durable to say (what it is, who runs it, which devices query it, why it is normal or a concern).
+- **DNS:** queries and failures by device, top domains, query types, resolvers and TLDs.
+- **TLS:** versions in use, certificates with problems, and client and server fingerprints (JA3, JA3S, JA4). **Devices using legacy TLS or bad certificates** are listed after it.
+- **Notes: IPs, domains and TLS certificates.** The event reviewer and event research write these notes as they learn, people can add or delete them, and both read them when judging whether activity is benign or expected.
+  - **External IPs:** every public address or CIDR range that has a note (owner, service, why this network talks to it).
+  - **DNS notes:** by **domain or subdomain**. Add one with *Add a DNS note*, or with 📝 next to any name (an event's artifact, a certificate's names). A note on `example.com` covers all its subdomains; a note on `cdn.example.com` covers only that name and the names below it, and the more specific note is shown to the AI first. A domain's page also lists the parent-domain notes that apply and any subdomains with their own notes.
+  - **TLS certificate notes:** a certificate is an artifact like an IP or a domain, keyed by its SHA-256 fingerprint. Add a note with 📝 in the **Certificates** table, on a certificate's detail, or on a 🔒 cert artifact of an event. The 📝 popover also lets you file the note on one of the certificate's names (or `*.domain` for the domain and every subdomain). A certificate's page (`#/netnotes/cert:<sha256>`) shows its details, its notes and its names with their domain notes.
+- **In events:** every event that names a server a certificate was presented for (by SNI or the names in the certificate) carries that certificate as a 🔒 artifact. An event's *notes on this event's artifacts* list the notes on its IPs, domains (a parent-domain note reaches events about its subdomains), certificates, processes and accounts, and the event reviewer and event research get the same notes.
+- **🔍 Search in Elasticsearch:** next to every IP, domain and certificate (in the notes tables, on entry pages, in the 📝 popover and on event artifacts) and on the event's artifact notes. It opens Kibana Discover over the last 7 days: an IP as source or destination; a domain in DNS queries, TLS server names, HTTP hosts and certificate names, **including all its subdomains**; a certificate by `hash.sha256` (Zeek x509 records and the TLS sessions that presented it) plus the server names it was seen for. Needs the Kibana URL in Settings → Site.
+- **Timed-out entries are deleted.** Notes nobody (and no AI) used for the expiry days are deleted; when an IP, range, domain or certificate loses its last note that way, the entry is gone from these lists at once (checked whenever the page loads, and hourly).
 
 **Accept or reject (admins and network defenders).** Every note on host, endpoint, Internet IP and DNS pages has buttons:
 
@@ -560,7 +561,7 @@ From a pod or container, **Logs, security hits and alerts** opens its pod page w
 
 ### Devices → Notes
 
-The notes knowledge base. (Notes about external IPs and DNS names are on **Network → Internet notes**, below.) **Event notes awaiting approval** lists notes written by User-role accounts, with Approve and Reject (the AI never reads a note until it is approved). **Host notes** are what the AI and people have written about each device (role, what is normal, decisions), by category. The event reviewer also writes **expected behavior** host notes (category *behavior*) when it is confident that a related link is normal, for example a scheduled backup between two hosts. **Event notes** are notes on single events. AI runs read these notes before judging a device or an event; notes written by people count as authoritative. Host notes also appear on the device and endpoint pages.
+The notes knowledge base. (Notes about external IPs, DNS names and TLS certificates are on **Network → DNS, TLS and IPs**, above.) **Event notes awaiting approval** lists notes written by User-role accounts, with Approve and Reject (the AI never reads a note until it is approved). **Host notes** are what the AI and people have written about each device (role, what is normal, decisions), by category. The event reviewer also writes **expected behavior** host notes (category *behavior*) when it is confident that a related link is normal, for example a scheduled backup between two hosts. **Event notes** are notes on single events. AI runs read these notes before judging a device or an event; notes written by people count as authoritative. Host notes also appear on the device and endpoint pages.
 
 ### More → Ask AI
 

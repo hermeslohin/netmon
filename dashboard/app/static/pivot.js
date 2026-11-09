@@ -163,4 +163,27 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
     return `${base}app/discover#/?_g=${encodeURIComponent(g)}&_a=${encodeURIComponent(a)}`;
   };
   window.__pivotLinks = (kind, item) => (B[kind] || B.alarm)(item);  // for tests
+  // Search an artifact in Elasticsearch (Kibana Discover): IPs, domains (the name and every subdomain under it), TLS
+  // certificates (SHA-256 fingerprint: Zeek x509 records + the TLS sessions that presented it), processes, accounts, hashes.
+  const wild = (f, d) => `${f}:${q(d)} or ${f}:*.${String(d).replace(/[^a-z0-9.-]/gi, "")}`;
+  window.artKql = (kind, v) => {
+    v = String(v || "").trim(); if (!v) return "";
+    if (kind === "ip" || kind === "net") return v.includes("/") ? `source.ip:${q(v)} or destination.ip:${q(v)}` : either(v);
+    if (kind === "dns" || kind === "dom") { const d = v.toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
+      return ["dns.query.name", "ssl.server_name", "http.virtual_host", "x509.san_dns"].map((f) => wild(f, d)).join(" or "); }
+    if (kind === "cert") { const c = (S.snap?.raw?.tls?.certs || []).find((x) => x.sha256 === v.toLowerCase());
+      return `hash.sha256:${q(v.toLowerCase())}${(c?.sni || []).length ? ` or ssl.server_name:(${c.sni.slice(0, 10).map(q).join(" or ")})` : ""}`; }
+    if (kind === "process") return v.includes("/") ? `process.executable:${q(v)}` : `process.name:${q(v)} or process.executable:*${v.replace(/[^\w.+-]/g, "")}`;
+    if (kind === "file") return `file.path:${q(v)} or file.name:${q(v)}`;
+    if (kind === "user") return `user.name:${q(v)}`;
+    if (kind === "hash") return `hash.sha256:${q(v)} or hash.sha1:${q(v)} or hash.md5:${q(v)} or file.hash.sha256:${q(v)}`;
+    return "";
+  };
+  window.artSearchUrl = (kind, v, days = 7) => {
+    const kql = window.artKql(kind, v); if (!SITE.kibana_url || !kql) return "";
+    return kb(kql, [Date.now() - days * 864e5, Date.now()], kind === "dns" || kind === "dom" ? COLS.dns.concat("ssl.server_name") : kind === "cert" ? ["event.dataset", "source.ip", "destination.ip", "ssl.server_name", "x509.certificate.subject"] : undefined);
+  };
+  // 🔍 button (opened by the .kib-btn capture handler in related.js, so it works inside clickable rows)
+  window.artSearchBtn = (kind, v, days = 7) => { const u = window.artSearchUrl(kind, v, days);
+    return u ? `<button type="button" class="kib-btn art-kib" data-kib="${esc(u)}" title="Search ${esc(String(v))} in Elasticsearch (Kibana Discover, last ${days} days)">🔍</button>` : ""; };
 })();

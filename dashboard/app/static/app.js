@@ -344,7 +344,7 @@ function kvTable(obj, keyTitle, valTitle, valFmt = fn, keyFmt = esc, opts = {}) 
 // become its own flex item and get stretched to the full card width (align-items:stretch) instead of flowing inline.
 // Cards on pages that follow the header time picker get a clock in the title; cards that show everything open / current
 // (and the cross-snapshot history charts) do not.
-const TIME_VIEWS = new Set(["overview", "devices", "device", "endpoints", "endpoint", "security", "traffic", "dns", "tls", "attack", "lateral", "netmap", "threatintel"]);
+const TIME_VIEWS = new Set(["overview", "devices", "device", "endpoints", "endpoint", "security", "traffic", "dns", "tls", "netnotes", "attack", "lateral", "netmap", "threatintel"]);
 const NOT_TIMED = /snapshots?\b|Per-host trend|over time|^Open issues|^Scoring model|^Add user|^Accounts/i;
 const CLOCK = `<span class="clk" title="Filtered by the time range chosen in the header" aria-label="Time filtered">🕒</span>`;
 function timedCard(title) { return !!title && TIME_VIEWS.has(document.getElementById("main")?.dataset.view) && !NOT_TIMED.test(String(title).replace(/<[^>]*>/g, "")); }
@@ -1273,7 +1273,8 @@ V.traffic = (el) => {
 /* ----- DNS & TLS ----- */
 V.dns = (el) => {
   const raw = S.snap.raw, devs = raw.devices || {};
-  el.innerHTML = `<h1>DNS &amp; TLS</h1>`;
+  el.innerHTML = `<h1>DNS, TLS and IPs</h1><div class="dti-jump"><a href="#" data-jump="dns-section">DNS</a><a href="#" data-jump="tls-section">TLS &amp; certificates</a><a href="#" data-jump="notes-section">Notes on IPs, domains &amp; certificates</a></div><span id="dns-section"></span>`;
+  el.querySelectorAll("[data-jump]").forEach((a) => a.onclick = (e) => { e.preventDefault(); document.getElementById(a.dataset.jump)?.scrollIntoView({ behavior: "smooth" }); });
   const agg = (f) => { const o = {}; for (const d of Object.values(devs)) for (const [k, v] of entries(d.dns?.[f])) o[k] = (o[k] || 0) + v; return o; };
   const dom = agg("top_domains"), nx = agg("nx_domains"), qt = agg("qtypes"), res = agg("resolvers"), tld = agg("tlds");
   const rows = S.idx.rows.filter((r) => r.dnsq);
@@ -1287,6 +1288,8 @@ V.dns = (el) => {
   tlsSection(el);
   el.appendChild(grid("g2", card(`JA4 client fingerprints (${fn(Object.keys(ja4).length)} distinct)`, kvTable(ja4, "JA4", "Conns", fn, (k) => `<span class="mono small">${esc(k)}</span>`)),
     card("Devices using legacy TLS or bad certs", table(null, [{ k: "ip", t: "Device", fmt: (v) => ipLink(v) }, { k: "legacy", t: "Legacy conns", num: true }, { k: "bad", t: "Bad certs", num: true }], legacy, { search: false }))));
+  const nb = document.createElement("div"); el.appendChild(nb);  // notes on external IPs / ranges, domains / subdomains and TLS certificates (kbnotes.js)
+  window.netNotesSections?.(nb)?.catch?.((e) => { nb.innerHTML = `<div class="empty">Notes unavailable: ${esc(e.message)}</div>`; });
 };
 
 /* ----- UniFi ----- */
@@ -1463,7 +1466,7 @@ async function route(keep) {
   let [view, ...rest] = (location.hash.replace(/^#\/?/, "").split("?")[0] || (isUserRole() ? "my" : "overview")).split("/");
   if (isUserRole() && !USER_VIEWS.has(view)) { view = "my"; rest = []; }
   const arg = decodeURIComponent(rest.join("/"));
-  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "k8spod" && a.dataset.r === "k8s") || (view === "tls" && a.dataset.r === "dns")));
+  document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === view || (view === "device" && a.dataset.r === "devices") || (view === "endpoint" && a.dataset.r === "endpoints") || (view === "k8spod" && a.dataset.r === "k8s") || ((view === "tls" || view === "netnotes") && a.dataset.r === "dns")));
   document.querySelectorAll("#nav .ngroup").forEach((g) => { g.classList.toggle("active", !!g.querySelector("a.active")); g.classList.remove("open"); });
   const el = $("#main");
   const morph = !!keep && el.childElementCount > 0 && el.dataset.view === view && view !== "chat";  // chat keeps live stream state: plain render

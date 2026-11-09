@@ -1930,6 +1930,8 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"domains": kb.dns_notes((q.get("q") or [""])[0])})
             if path == "/api/kb/internet":  # Network > Internet notes: every external IP that has notes
                 return self._json({"ips": kb.internet_notes((q.get("q") or [""])[0])})
+            if path == "/api/kb/certs":  # DNS, TLS and IPs: every TLS certificate (art:cert:<sha256>) that has notes
+                return self._json({"certs": kb.cert_notes((q.get("q") or [""])[0])})
             if path == "/api/research/running":  # header microscope: is an event being researched right now
                 try:
                     r = research_cfg.status().get("running") or {}
