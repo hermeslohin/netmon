@@ -430,7 +430,7 @@ class ExtrasTest(_Fresh):
         """
         enrich, kb = self.mods
         enrich.load = lambda ids: {BEACON_1: {"verdict": "old"}, BEACON_2: {"verdict": "new"}}
-        corr_llm.classes = lambda ids: {BEACON_1: {"label": "benign"}}
+        corr_llm.classes = lambda ids, pending=False: {BEACON_1: {"label": "benign"}}
         kb.event_notes = lambda ids: {}
         rows = [{"eid": BEACON_2, "members": [BEACON_1, BEACON_2], "n": 3, "first_seen": "a", "last_seen": "b"}]
         X = eventstore.extras(rows)
@@ -471,7 +471,7 @@ class ExtrasTest(_Fresh):
         """
         enrich, kb = self.mods
         enrich.load = lambda ids: {}
-        corr_llm.classes = lambda ids: {IDS: {"label": "expected"}}
+        corr_llm.classes = lambda ids, pending=False: {IDS: {"label": "expected"}}
         kb.event_notes = lambda ids: {}
         eventstore.upsert({IDS: ev("ids", "x", t1=1)}, "s1")
         self.assertEqual(eventstore.open_events()["extra"]["classes"], {IDS: {"label": "expected"}})

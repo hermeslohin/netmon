@@ -180,10 +180,15 @@ window.CARD_INFO = {
 "use": "Set a $ cap per research a bit above the usual cost and a daily cap as a backstop. The token cap works even when no price is entered.",
 "what": "Cost and size limits of event research, which runs only when someone clicks Send to research: $ per research run, $ per day, tokens per run, batches, web searches per event and web access."
 },
-"aiconfig|Review lookback window": {
-"what": "How many hours of logs each run of the review job collects and reviews. The daily 05:00 UTC run always covers 24 hours.",
-"source": "Saved in the netmon store and read by the collector when the review job starts (collect.py auto).",
-"use": "Set it a little longer than the run interval to cut cost per run without gaps. Shorter than the interval leaves hours unreviewed.",
+"aiconfig|Event window": {
+"what": "One setting for the correlation window (events only link when at most this far apart), the review job's coverage (each run collects everything since the previous run plus one window; it runs at least once per window) and the settle wait before the event reviewer labels a correlated group. The daily 05:00 UTC run always covers 24 hours.",
+"source": "More > Settings > Site > event_window_minutes (SQLite cfg table), read live by the correlation, the worker and the collector (lookback.py).",
+"use": "Default 10 minutes. Longer links events across longer spans but labels arrive later; events show Pending review until their group settles.",
+},
+"aireview|Pending review": {
+"what": "Events pending review: events whose correlated group has not settled yet (newest event less than one event window + 5 min old, or a link still undecided). The event reviewer labels each group once when it settles.",
+"source": "corr_llm.db review_pending (rewritten every worker pass) and review_events (calls, events labelled, settle-to-label delay).",
+"use": "Red means a settled group has waited more than a minute: check the event reviewer model is up. The delay should stay under about a minute.",
 },
 "aireview|Models": {
 "source": "GET /api/aireview/models: health check of the decision model server, model lists of the local server and AI providers (no tokens), cached one minute.",

@@ -224,7 +224,7 @@ class TestArrivalWindow(unittest.TestCase):
         self.assertEqual(self.span(window.since(20))[0], start)
 
     def test_review_overlap_keeps_lookback(self):
-        """overlap=True (review job): from = min(bookmark, to - lookback), so its usual lookback overlap stays.
+        """overlap=True (review job): from = min(bookmark - back, to - lookback), so its usual lookback overlap stays.
         REQ: CFG-05"""
         window.arrival("review", 120, overlap=True, now=1_800_000_000)
         window.commit()
@@ -284,65 +284,6 @@ class TestArrivalWindow(unittest.TestCase):
         self.assertEqual(st["suricata"], {"n": 5, "late": 5, "p50_s": 7200.0, "p99_s": 9000.0, "max_s": 9100.0, "newest_event": "2026-11-06T23:00:00Z"})
         window.save_lag(st)
         self.assertEqual(window.load_lag()["sources"]["suricata"]["late"], 5)
-
-
-class TestLookback(unittest.TestCase):
-    """lookback: research job lookback hours."""
-
-    def setUp(self):
-        _env.fresh_db()
-        _clean_meta()
-
-    def tearDown(self):
-        _clean_meta()
-        _env.fresh_db()
-
-    def test_default(self):
-        """Without a stored setting the lookback is 24 h with limits 1-24 and no author.
-        REQ: CFG-02
-        """
-        g = lookback.get()
-        self.assertEqual(g, {"hours": 24, "by": None, "at": None, "default": 24, "min": 1, "max": 24, "daily_hour": 5})
-
-    def test_put_valid_values(self):
-        """put() accepts whole numbers 1-24 as int or (padded) string and records author and time.
-        REQ: CFG-02
-        """
-        self.assertEqual(lookback.put(6, "admin")["hours"], 6)
-        g = lookback.put(" 12 ", "x" * 100)
-        self.assertEqual(g["hours"], 12)
-        self.assertEqual(g["by"], "x" * 64)
-        self.assertAlmostEqual(g["at"], time.time(), delta=5)
-        self.assertEqual(lookback.put("1", "a")["hours"], 1)
-        self.assertEqual(lookback.put(24, "a")["hours"], 24)
-
-    def test_put_rejects_invalid(self):
-        """put() rejects out-of-range, negative, fractional, boolean, None and non-numeric values and leaves the setting.
-        REQ: CFG-02
-        """
-        lookback.put(8, "a")
-        for bad in (0, 25, -1, "-3", "1.5", 1.5, True, None, "abc", "", [4]):
-            with self.assertRaises(ValueError, msg=repr(bad)):
-                lookback.put(bad, "a")
-        self.assertEqual(lookback.get()["hours"], 8)
-
-    def test_corrupt_stored_value_falls_back(self):
-        """A stored value that is out of range, not an int, or not valid JSON reads back as the default.
-        REQ: CFG-02
-        """
-        for raw in ({"hours": 99}, {"hours": "6"}, {"hours": 6.0}, "{not json"):
-            _meta_raw(lookback.KEY, raw)
-            self.assertEqual(lookback.get()["hours"], 24, raw)
-
-    def test_for_run(self):
-        """The 05 UTC daily run always uses 24 h; other hours use the setting and say whether it is configured.
-        REQ: CFG-02, OPS-03
-        """
-        self.assertEqual(lookback.for_run(10), (24, "default"))
-        lookback.put(4, "a")
-        self.assertEqual(lookback.for_run(5), (24, "daily run: always 24 h"))
-        self.assertEqual(lookback.for_run(10), (4, "configured on the AI review page"))
-        self.assertIn(lookback.for_run()[0], (4, 24))
 
 
 class TestReviewCfg(unittest.TestCase):
@@ -427,7 +368,9 @@ class TestReviewCfg(unittest.TestCase):
         self.assertEqual(vc.slot(at5, 60) + 1, vc.slot(at5 + 3600, 60))
         self.assertEqual(vc.slot_start(vc.slot(at5 + 100, 60), 60), at5)
         vc.put({"interval_minutes": 240}, "a")
-        self.assertEqual(vc.next_run(at5 + 1), at5 + 4 * 3600)
+        with mock.patch("lookback.minutes", return_value=120):  # the scheduler runs at least once per event window
+            self.assertEqual(vc.next_run(at5 + 1), at5 + 2 * 3600)
+        self.assertEqual(vc.next_run(at5 + 1), at5 + 10 * 60)  # default event window: 10 min
         vc.put({"enabled": False}, "a")
         self.assertIsNone(vc.next_run(at5))
 

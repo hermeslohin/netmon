@@ -27,11 +27,11 @@ SETTINGS = {
     "cfg.policy": ("Settings > Network policy (zones, roles, device classes, ports, thresholds)", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-44", "SET-45", "SET-46", "SET-47", "SET-49", "SET-50", "SET-67"]),
     "cfg.host_policy": ("Settings > Host policy", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48", "SET-49"]),
     "cfg.known_benign": ("Settings > Known benign", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),
-    "cfg.site": ("Settings > Site", ["/api/config/cfg"], [], ["STO-02", "CFG-01", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),
+    "cfg.site": ("Settings > Site", ["/api/config/cfg"], [], ["STO-02", "CFG-01", "EVW-01", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),
     "cfg.tune": ("Settings > Auto-tune thresholds (recommend, accept)", ["/api/config/tune-apply"], [], ["SET-51", "SET-52", "SET-67"]),
     "cfg.discover": ("Settings > Network policy > Discover from UniFi", ["/api/config/discover"], [], ["SET-53", "SET-54", "SET-55"]),
     # ---- review job / research / auto-close ----
-    "review.lookback": ("AI pipeline configuration > Review job: hours of logs per run", ["/api/config/lookback"], ["lookback.put"], ["CFG-02", "SET-64"]),
+    "review.lookback": ("More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait)", ["/api/config/cfg"], ["lookback.put"], ["EVW-01", "EVW-02", "EVW-03", "EVW-04", "SET-64"]),
     "review.schedule": ("AI pipeline configuration > Review job schedule", ["/api/config/review-schedule"], ["review_cfg.put"], ["CFG-01", "SET-64"]),
     "review.job": ("AI pipeline configuration > Review job: on/off, event modes", ["/api/llm/review"], ["review_cfg.put"], ["CFG-01", "OPS-06", "SET-64"]),
     "research.limits": ("AI pipeline configuration > Research job limits (model, cost caps, web)", ["/api/llm/research"], ["research_cfg.put"], ["CFG-01", "SET-64"]),

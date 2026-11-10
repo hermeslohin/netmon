@@ -3,7 +3,10 @@
 
 Settings live in the netmon store's meta table (key "review_job"), so the dashboard container (AI pipeline pages) and the
 host scheduler read the same values:
-  interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily 24 h run)
+  interval_minutes      5 .. 1440; runs sit on a grid anchored at 05:00 UTC (the daily 24 h run). the scheduler uses
+                        interval_effective = min(interval, event window) (lookback.py, never under 5 min) so new events
+                        reach the correlation before their group settles. Coverage has no gaps whatever the interval: collect.py reads
+                        from its arrival bookmark minus one window (window.arrival back=).
   enabled               the scheduler skips the job when off
   modes                 per event category what the job does with an event that has no note yet:
                           "review" - the event reviewer model (AI pipeline configuration > Models) compares it with
@@ -87,6 +90,7 @@ def get():
         except (TypeError, ValueError):
             out[k] = DEFAULTS[k]
     out["enabled"] = bool(out["enabled"])
+    out["interval_effective"] = effective(out["interval_minutes"])
     modes = dict(DEFAULT_MODES if not v else LEGACY_MODES)  # a deployment that already has settings keeps its behaviour
     if isinstance(v.get("severities"), list) and not isinstance(v.get("modes"), dict):  # settings saved before modes existed
         for s_ in SEVERITIES:
@@ -138,10 +142,20 @@ def put(fields, user):
     return get()
 
 
+def effective(interval):
+    """The interval the scheduler really uses: at most one event window (lookback.py), never under the 5-minute floor, so
+    new events reach the correlation before their correlated group settles."""
+    try:
+        import lookback
+        return max(LIMITS["interval_minutes"][0], min(int(interval), lookback.minutes()))
+    except Exception:  # noqa: BLE001 - no store: the configured interval
+        return interval
+
+
 def slot(now=None, interval=None):
     """Index of the schedule slot `now` falls in (grid of `interval` minutes anchored at 05:00 UTC)."""
     now = time.time() if now is None else now
-    interval = interval or get()["interval_minutes"]
+    interval = interval or get()["interval_effective"]
     return int((now - DAILY_HOUR * 3600) // (interval * 60))
 
 
@@ -152,7 +166,7 @@ def slot_start(n, interval):
 def next_run(now=None):
     s = get()
     now = time.time() if now is None else now
-    return slot_start(slot(now, s["interval_minutes"]) + 1, s["interval_minutes"]) if s["enabled"] else None
+    return slot_start(slot(now, s["interval_effective"]) + 1, s["interval_effective"]) if s["enabled"] else None
 
 
 def request(user):

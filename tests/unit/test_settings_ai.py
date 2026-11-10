@@ -265,6 +265,17 @@ BASE = {"events": {"ids|a": _ev("ids", "sig a"), "vuln|b": _ev("vuln", "cve b", 
                               {"id": "vuln|d", "score": 3, "why": ["same host"]}, {"id": "alarm|far", "score": 2, "why": ["same host"]}]}}
 
 
+def _event_window(m):
+    """Set (or with None remove) the event window in the cfg table (lookback.py)."""
+    import store
+    d = store.cfg_load("site")
+    if m is None:
+        d.pop("event_window_minutes", None)
+    else:
+        d["event_window_minutes"] = m
+    store.cfg_save("site", d)
+
+
 def _pending(base=BASE):
     return {(x["a"], x["b"]) if x["a"] < x["b"] else (x["b"], x["a"]) for x in corr_llm.pending_list(base)["items"] if not x["testing"]}
 
@@ -275,6 +286,11 @@ class ReviewLimits(_Base):
     def setUp(self):
         super().setUp()
         corr_llm._save_config({"review_limits": {"pair_default": "review"}})
+        _event_window(120)  # wide enough that alarm|far (2 h away) is a candidate, unless a test narrows it
+
+    def tearDown(self):
+        _event_window(None)
+        super().tearDown()
 
     def test_pair_default_new_vs_existing_deployment(self):
         """A brand-new deployment skips every pair by default, an existing one (with verdicts) keeps reviewing everything.
@@ -289,10 +305,11 @@ class ReviewLimits(_Base):
             self.assertEqual(corr_llm.limits()["pair_default"], "review")
 
     def test_defaults(self):
-        """Without settings nothing is capped, no window, verdicts kept forever and classification off.
-        REQ: SET-26"""
+        """Without settings nothing is capped, the window is the default event window (10 min), verdicts kept forever and classification off.
+        REQ: SET-26, EVW-01"""
+        _event_window(None)
         L = corr_llm.limits()
-        self.assertEqual((L["max_links"], L["window_minutes"], L["discard_days"], L["classify"], L["pair_modes"]), (0, 0, 0, False, {}))
+        self.assertEqual((L["max_links"], L["window_minutes"], L["discard_days"], L["classify"], L["pair_modes"]), (0, 10, 0, False, {}))
 
     def test_pair_mode_skip_holds_links_back(self):
         """A pair type switched to skip is never sent to the event reviewer; switched back to review it is pending again.
@@ -348,21 +365,19 @@ class ReviewLimits(_Base):
         self.assertEqual(len(_pending()), 4)
 
     def test_window_range_and_effect(self):
-        """The time window (0-525600 minutes, 0 = no limit) skips links whose events are further apart.
-        REQ: SET-28"""
+        """The time window is the event window (Settings > Site, read live): links whose events are further apart are skipped;
+        the review limits no longer set their own window.
+        REQ: SET-28, EVW-02"""
         self.assertIn(("alarm|far", "ids|a"), _pending())
-        L = corr_llm.set_limits("u", window={"minutes": 60})
-        self.assertEqual(L["window_minutes"], 60)
+        _event_window(60)
+        self.assertEqual(corr_llm.limits()["window_minutes"], 60)
         self.assertNotIn(("alarm|far", "ids|a"), _pending())
         self.assertIn(("ids|a", "vuln|b"), _pending())
         self.assertEqual(corr_llm.limits_view(BASE)["window_out"], {"links": 1})
-        corr_llm.set_limits("u", window=180)  # a bare number works too
-        self.assertIn(("alarm|far", "ids|a"), _pending())
-        for bad in (-1, corr_llm.WINDOW_MAX_MIN + 1, "soon"):
+        for v in (180, {"minutes": 5}):
             with self.assertRaises(ValueError):
-                corr_llm.set_limits("evil", window=bad)
-        self.assertEqual(corr_llm.limits()["window_minutes"], 180)
-        self.assertEqual(corr_llm.set_limits("u", window=corr_llm.WINDOW_MAX_MIN)["window_minutes"], 525600)
+                corr_llm.set_limits("u", window=v)
+        self.assertEqual(corr_llm.limits()["window_minutes"], 60)
 
     def test_discard_days_and_classify(self):
         """Verdict retention accepts 0-3650 days, classification is an on/off switch; both persist.

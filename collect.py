@@ -31,7 +31,7 @@ if RANGE_START and RANGE_END:  # a dashboard time range: every collector queries
     HOURS = round((_e - _s).total_seconds() / 3600, 3)
 else:
     RANGE_START = RANGE_END = None
-    if sys.argv[1:2] == ["auto"]:  # review job: the lookback window set on the dashboard's AI pipeline pages (lookback.py)
+    if sys.argv[1:2] == ["auto"]:  # review job: the event window set under More > Settings > Site (lookback.py)
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import lookback  # noqa: E402
         HOURS, _why = lookback.for_run()
@@ -68,8 +68,16 @@ def q(index, body):
 ARRIVAL = None
 if not RANGE_END and os.path.basename(sys.argv[0]) == "collect.py":
     # review job / manual run: select by arrival time (event.ingested) so events Logstash delivered late are
-    # collected by a later run instead of never. `auto` keeps a bookmark: (min(bookmark, now - lookback), now - margin].
-    ARRIVAL = window.arrival("review" if LOOKBACK else None, HOURS * 60, overlap=True)
+    # collected by a later run instead of never. `auto` keeps a bookmark: (min(bookmark - event window, now - lookback),
+    # now - margin]: everything since the last run plus one event window before it, so no event falls between runs and a
+    # new event always meets the events it may link to (lookback.py: one window setting for collection, correlation, review).
+    _back = 0
+    if LOOKBACK and HOURS < 24:
+        import lookback  # noqa: E402
+        _back = lookback.minutes() * 60
+    ARRIVAL = window.arrival("review" if LOOKBACK else None, HOURS * 60, overlap=True, back=_back)
+    if _back and ARRIVAL:  # the snapshot's hours = what this run really covered (correlate.py builds its window from it)
+        HOURS = min(max(HOURS, round(ARRIVAL["span_minutes"] / 60, 4)), 23.5)  # < 24: a catch-up run never becomes a baseline day
     print(f"arrival window: {ARRIVAL['from']} .. {ARRIVAL['to']} ({ARRIVAL['span_minutes']} min)", file=sys.stderr)
 RANGE = window.since_h(HOURS)
 INTERNAL = {"term": {"source.ip": NET}}

@@ -91,21 +91,23 @@
   async function paintBar() { const s = document.querySelector("#alSetBar .sb-sum"); if (s) s.innerHTML = await barSummary(); }
 
   // ---- verdicts, research and notes per alert (admin / defender): /api/alerts?extra=1 (alarm feed), ?held=1&v= (detections) ----
-  const VORD = ["suspicious", "expected", "benign", "unreviewed"], VSRC = { person: "a person's verdict", ai: "event reviewer (AI)" };
+  const VORD = ["suspicious", "expected", "benign", "pending", "unreviewed"], VSRC = { person: "a person's verdict", ai: "event reviewer (AI)" };
   const TYPE_OF = { f: "finding", hf: "host", ids: "ids", ti: "ti", adm: "admin", iss: "vuln", gw: "gw", alert: "alert" };
   const X = () => window.__oeExtra || {};
   const mergeExtra = (e) => { const W = window.__oeExtra = window.__oeExtra || {};
     for (const [k, v] of Object.entries(e || {})) W[k] = v && typeof v === "object" && !Array.isArray(v) ? { ...(W[k] || {}), ...v } : v;
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(e?.unotes || {}) }; };
-  const vChip = (a) => a.verdict === "unreviewed" || !a.verdict ? `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`
+  const vChip = (a) => a.verdict === "pending" ? pendBadge(X().classes?.[a.eid] || { pending: {} })
+    : a.verdict === "unreviewed" || !a.verdict ? `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`
     : `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>${a.vsrc === "ai" ? ` <span class="small muted">AI ${Math.round((X().classes?.[a.eid]?.confidence || 0) * 100)}%</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
   // the event reviewer's paragraph (context + why the verdict + what research found), shown in full under the alert for every role
   const revOf = (a) => a.review || X().classes?.[a.eid];
   const revBlock = (a) => { const c = revOf(a), r = String(c?.reason || "");
+    if (c?.label === "pending") return `<div class="ai-rev small">${pendBadge(c)}</div>`;
     if (!r || /^Decision model:/.test(r)) return "";
     const body = window.relUi?.reasonHtml ? window.relUi.reasonHtml(r, c.sources) : esc(r);
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";
-    return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · <span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>` : ""}</span> ${fl} ${body}</div>`; };
+    return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · <span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>` : ""}</span>${c.pending ? " " + pendBadge(c) : ""} ${fl} ${body}</div>`; };
   const alertText = (v, x) => `<span style="${x.read === 0 ? "font-weight:600" : ""}">${linkifyIps(v)}</span>${revBlock(x)}`;
   const researchCell = (a) => { const c = X().classes?.[a.eid], n = X().notes?.[a.eid], src = c?.sources?.length || 0;
     const r = String(c?.reason || "");
@@ -128,7 +130,7 @@
     { k: "_res", t: "Research", fmt: (v, a) => researchCell(a), sort: (a) => (X().notes?.[a.eid] ? 100 : 0) + (X().classes?.[a.eid] ? 50 : 0) + (X().web?.[a.eid] || []).length },
     { k: "_un", t: "Notes", fmt: (v, a) => unoteBtn(a), sort: (a) => (S.corr?.unotes?.[a.eid] || []).length },
     { k: "_an", t: "Artifact notes", num: true, fmt: (v, a) => artCell(a), sort: (a) => (X().art_notes?.[a.eid] || []).length }];
-  const vLabel = { suspicious: "Suspicious", expected: "Expected", benign: "Benign", unreviewed: "Not reviewed" };
+  const vLabel = { suspicious: "Suspicious", expected: "Expected", benign: "Benign", pending: "Pending review", unreviewed: "Not reviewed" };
 
   V.alerts = async (el) => {
     el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Kept 30 days.</div>
@@ -200,7 +202,7 @@
     }
     if (rich && D?.counts) {
       const C = D.counts, tot = (v) => (C.alarms[v] || 0) + (C.detections[v] || 0);
-      const tile = (v) => [`${vLabel[v]}${v === "unreviewed" ? "" : ""}`, `<a href="javascript:void 0" class="vf-kpi" data-v="${v}" title="Show the ${vLabel[v].toLowerCase()} detections">${fn(tot(v))}</a>${C.alarms[v] ? ` <span class="small muted">${fn(C.alarms[v])} alarm${C.alarms[v] === 1 ? "" : "s"}</span>` : ""}`, v === "suspicious" ? "bad" : v === "unreviewed" ? "" : "good"];
+      const tile = (v) => [`${vLabel[v]}${v === "unreviewed" ? "" : ""}`, `<a href="javascript:void 0" class="vf-kpi" data-v="${v}" title="Show the ${vLabel[v].toLowerCase()} detections">${fn(tot(v))}</a>${C.alarms[v] ? ` <span class="small muted">${fn(C.alarms[v])} alarm${C.alarms[v] === 1 ? "" : "s"}</span>` : ""}`, v === "suspicious" ? "bad" : v === "unreviewed" || v === "pending" ? "" : "good"];
       el.insertAdjacentHTML("beforeend", kpis(VORD.map(tile)));
       el.querySelectorAll(".vf-kpi").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v; A.jump = true; rerender(); }));
     }

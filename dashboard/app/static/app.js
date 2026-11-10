@@ -166,6 +166,22 @@ function drill(view, params) { location.hash = hashWith(view, params); }
 function drillHere(params) { const p = hq(); entries(params).forEach(([k, v]) => p.set(k, v)); location.hash = location.hash.split("?")[0] + "?" + p.toString(); }
 const clickable = (fn) => ({ onClick: (e, els) => els.length && fn(els[0].index, els[0].datasetIndex), onHover: (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") });
 
+/* ---------- "Pending review": the event's correlated group has not settled yet (corr_llm.event_pass) ---------- */
+// c = a classes[] entry; c.pending = {settles (epoch), links (a link is still undecided), rereview (it has an older label), n (group size)}
+const pendSettles = (p) => (p?.settles ? new Date(p.settles * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+function pendTitle(p) {
+  const at = pendSettles(p);
+  return `Pending review: the event reviewer labels this event's correlated group${p?.n > 1 ? ` (${p.n} events)` : ""} once, when its newest event is one event window old`
+    + ` (More > Settings > Site > event_window_minutes, plus 5 min for late log arrivals) and no link is still undecided.`
+    + (p?.links ? " Some of its links are still being decided, so it may settle later than shown." : "")
+    + (at ? ` Settles at ${at}.` : "") + (p?.rereview ? " It has an earlier label (shown) and gained new events since." : "");
+}
+function pendBadge(c, short) {
+  const p = c?.pending; if (!p) return "";
+  const at = pendSettles(p);
+  return `<span class="pend-flair" title="${esc(pendTitle(p))}">⏳ Pending review</span>${!short && at ? ` <span class="small muted" title="${esc(pendTitle(p))}">settles at ${esc(at)}${p.links ? " (links deciding)" : ""}</span>` : ""}`;
+}
+
 /* ---------- AI provenance flare: every piece of LLM-written text says which model wrote it ---------- */
 // g = {model, via, at}. Unknown provenance still gets a flare ("AI") so LLM text is never mistaken for raw data.
 function aiFlare(g, fallbackVia = "") {

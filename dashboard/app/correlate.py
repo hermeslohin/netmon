@@ -24,7 +24,17 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
-SLACK_S = 2 * 3600          # alerts this far outside the snapshot window still count
+INGEST_SLACK_S = 300        # Elasticsearch arrivals lag the event time by a few minutes (lookback.INGEST_SLACK_S)
+
+
+def window_s():
+    """The event window in seconds (lookback.py: More > Settings > Site > event_window_minutes, read live): two events
+    farther apart never become a candidate link, and events this far (plus ingest slack) outside the snapshot still count."""
+    try:
+        import lookback
+        return lookback.minutes() * 60
+    except Exception:  # noqa: BLE001 - /netmon not on the path (tests of this module alone): the default window
+        return 600
 TOP = 10                    # related events kept per event
 MIN_SCORE = 1.5
 _IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
@@ -204,10 +214,13 @@ def gw_id(g):
     return f"gw|{g.get('time') or ''}|{g.get('key') or ''}|{g.get('src') or ''}|{g.get('dst') or ''}"
 
 
-def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False, cleared=frozenset(), triage=None):
+def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, latest=False, cleared=frozenset(), triage=None, window=None):
     """raw/analysis = snapshot; alerts = store.alerts_recent(); issues = open fix-list issues; admin = lateral.admin_sessions();
     internal(ip) -> bool; resolve(host name) -> internal IP or ""; techniques(source, text) -> [ATT&CK ids].
-    latest = this is the newest snapshot, so watcher alerts raised after it (up to now) are included too."""
+    latest = this is the newest snapshot, so watcher alerts raised after it (up to now) are included too.
+    window = event window in seconds (default: the live setting, window_s())."""
+    WIN = float(window if window is not None else window_s())
+    SLACK_S = WIN + INGEST_SLACK_S  # alerts this far outside the snapshot window still count
     gen = _ts(raw.get("generated")) or 0
     w0, w1 = gen - 3600 * (raw.get("hours") or 24), gen
     devices = raw.get("devices") or {}
@@ -446,6 +459,8 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
                     why.append("vulnerability on the same host")
             elif x["t0"] is not None and y["t0"] is not None:
                 gap = max(0.0, max(x["t0"], y["t0"]) - min(x["t1"], y["t1"]))  # 0 when the time spans overlap
+                if gap > WIN:  # outside the event window: never a candidate link
+                    continue
                 if gap <= 900:
                     s += 2; why.append("within 15 min" if (x["t1"] - x["t0"] < 7200 and y["t1"] - y["t0"] < 7200) else "same time window")
                 elif gap <= 3600:

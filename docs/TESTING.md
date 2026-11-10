@@ -217,10 +217,10 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `cfg.policy` | Settings > Network policy (zones, roles, device classes, ports, thresholds) | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-49, SET-50, SET-67 | 29 | 3 |
 | `cfg.host_policy` | Settings > Host policy | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48, SET-49 | 20 | 0 |
 | `cfg.known_benign` | Settings > Known benign | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48 | 18 | 0 |
-| `cfg.site` | Settings > Site | `/api/config/cfg` | STO-02, CFG-01, SET-40, SET-41, SET-42, SET-43, SET-48 | 35 | 1 |
+| `cfg.site` | Settings > Site | `/api/config/cfg` | STO-02, CFG-01, EVW-01, SET-40, SET-41, SET-42, SET-43, SET-48 | 41 | 2 |
 | `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67 | 5 | 3 |
 | `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
-| `review.lookback` | AI pipeline configuration > Review job: hours of logs per run | `/api/config/lookback` | CFG-02, SET-64 | 5 | 6 |
+| `review.lookback` | More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait) | `/api/config/cfg` | EVW-01, EVW-02, EVW-03, EVW-04, SET-64 | 14 | 6 |
 | `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
 | `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 29 | 7 |
 | `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
@@ -253,10 +253,11 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_cert_dns_notes.py` | 5 | Unit tests for DNS, TLS and IPs notes: TLS certificates are artifacts with notes, domain notes reach events about their (STO-13) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
-| `tests/unit/test_config.py` | 40 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-02, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
+| `tests/unit/test_config.py` | 35 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
 | `tests/unit/test_correlate.py` | 41 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01) |
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
+| `tests/unit/test_event_window.py` | 14 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, OPS-03) |
 | `tests/unit/test_evtime.py` | 14 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
@@ -290,7 +291,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |
 | `tests/unit/test_scoped_notes.py` | 3 | Unit tests for dashboard/app/kb.py wider-scope internet notes: parent-domain notes cover subdomains, CIDR-range notes cover addresses. (STO-13) |
 | `tests/unit/test_server_cache.py` | 2 | Unit tests for the dashboard's in-memory document cache (server.load_json). (DASH-02, OPS-05) |
-| `tests/unit/test_settings_ai.py` | 43 | Unit tests for every AI-pipeline setting: corr_llm setters (notes, models, look-ups, review limits), the decision-model (SET-20, SET-21, SET-22, SET-23, SET-24, SET-25, SET-26, SET-27, SET-28, SET-29, SET-30, SET-31, SET-32, SET-33, SET-34, SET-35) |
+| `tests/unit/test_settings_ai.py` | 43 | Unit tests for every AI-pipeline setting: corr_llm setters (notes, models, look-ups, review limits), the decision-model (EVW-01, EVW-02, SET-20, SET-21, SET-22, SET-23, SET-24, SET-25, SET-26, SET-27, SET-28, SET-29, SET-30, SET-31, SET-32, SET-33, SET-34, SET-35) |
 | `tests/unit/test_settings_integrations.py` | 40 | Unit tests for the Integrations settings (integrations.py) sections elasticsearch, unifi and audit, plus the audit on/off switches end to end. (SET-01, SET-02, SET-03, SET-04, SET-05, SET-06, SET-07, SET-08, SET-09, SET-10, SET-11, SET-12, SET-13, SET-14, SET-15) |
 | `tests/unit/test_settings_inventory.py` | 5 | Settings coverage guard: every setting found in the code is in tests/settings_inventory.py and covered by a test. (SET-90) |
 | `tests/unit/test_settings_site.py` | 37 | Unit tests for the Settings page documents: settings_docs catalog vs templates, store cfg round trip, server.cfg_validate (SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-48, SET-49, SET-50, SET-51, SET-52, SET-53, SET-54, SET-55) |
@@ -315,6 +316,6 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/e2e/test_e2e_open_events.py` | 10 | E2E: the Open events API of the real dashboard server - list, filters, limits, display merges, check-offs, the event (OE-03, OE-04, OE-05, OE-07, OE-09, OE-11, OE-12, OE-13, OE-14, OE-17, OE-18, OE-19) |
 | `tests/e2e/test_e2e_pipeline.py` | 16 | E2E: the batch pipeline and operator tooling, run as real processes against an isolated store. (AC-05, ANA-01, AUTH-01, AUTH-06, AUTH-07, DASH-02, LLM-02, OPS-01, OPS-03, OPS-04, RISK-02, RISK-03, SEC-04, STO-01) |
 | `tests/e2e/test_e2e_posture.py` | 13 | E2E: the data behind Security -> Posture through the real server - snapshots and time ranges, suppress rules, check-offs, roles. (POS-01, POS-02, POS-04, POS-05, POS-06, POS-07, POS-09, POS-10, POS-11, POS-12, POS-19, POS-20) |
-| `tests/e2e/test_e2e_settings.py` | 39 | E2E: every admin settings endpoint of the real dashboard server over HTTPS. (SET-60, SET-61, SET-62, SET-63, SET-64, SET-65, SET-66, SET-67, SET-68, SET-69, SET-70) |
+| `tests/e2e/test_e2e_settings.py` | 39 | E2E: every admin settings endpoint of the real dashboard server over HTTPS. (EVW-01, SET-60, SET-61, SET-62, SET-63, SET-64, SET-65, SET-66, SET-67, SET-68, SET-69, SET-70) |
 
 <!-- END GENERATED INVENTORY -->

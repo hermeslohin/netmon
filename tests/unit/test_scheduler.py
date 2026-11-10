@@ -7,6 +7,19 @@ from datetime import datetime, timezone  # noqa: E402
 
 import review_cfg as RC  # noqa: E402
 import scheduler  # noqa: E402
+from unittest import mock  # noqa: E402
+
+# these tests are about the grid itself: an event window wider than any interval leaves it uncapped (review_cfg.effective;
+# the cap is tested in test_event_window)
+_WIDE = mock.patch("lookback.minutes", return_value=10 ** 6)
+
+
+def setUpModule():
+    _WIDE.start()
+
+
+def tearDownModule():
+    _WIDE.stop()
 
 
 def ts(*a):

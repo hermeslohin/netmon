@@ -13,7 +13,9 @@ Two kinds of window:
 
       window = (from, to]      to   = now - ARRIVAL_MARGIN_S (newest arrivals may not be searchable yet: refresh 30 s)
                                from = the bookmark (watcher: exactly, no overlap)
-                                      / min(bookmark, to - lookback) (review job: keeps its lookback overlap)
+                                      / min(bookmark - back, to - lookback) (review job: everything since its last
+                                        run plus one event window before it, so a new event meets the events
+                                        of the window before it and nothing falls between two runs)
                                       / to - nominal minutes on the first run; never older than MAX_CATCHUP_H
 
   Windows touch end to end, so every event is selected by exactly one watcher run, however late it arrives - no
@@ -51,16 +53,17 @@ def bookmark(job):
         return None
 
 
-def arrival(job, minutes, overlap=False, now=None):
+def arrival(job, minutes, overlap=False, now=None, back=0):
     """Switch every since() of this process to arrival time. Returns the window {job, from, to, nominal, first}.
-    job None = a manual run: arrival window of `minutes`, no bookmark read or written."""
+    job None = a manual run: arrival window of `minutes`, no bookmark read or written.
+    back = seconds re-read before the bookmark (overlap mode; the review job passes the event window)."""
     to = (time.time() if now is None else now) - ARRIVAL_MARGIN_S
     nominal = max(1.0, float(minutes))
     prev = bookmark(job) if job else None
     if prev is None or prev >= to:
         frm = to - nominal * 60
     else:
-        frm = min(prev, to - nominal * 60) if overlap else prev
+        frm = min(prev - max(0.0, float(back)), to - nominal * 60) if overlap else prev
     frm = max(frm, to - MAX_CATCHUP_H * 3600)
     _ARR.clear()
     _ARR.update(job=job, frm=frm, to=to, nominal=nominal, first=prev is None)

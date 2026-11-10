@@ -143,7 +143,7 @@
   function reviewScheduleCard(D) {
     const C = D.review_status || {}, J = (C.jobs || [])[0];
     const c = card("Review job schedule", C.error ? `<div class="bad">Status unavailable: ${esc(C.error)}</div>` : !J ? `<div class="small muted">Review job status unavailable.</div>` : `
-      <div class="small muted" style="margin-bottom:8px">When the review job runs. Each run collects and analyzes the logs of the lookback window; the event reviewer then copies matching earlier notes.
+      <div class="small muted" style="margin-bottom:8px">When the review job runs. Each run collects and analyzes the logs that arrived since the previous run plus one event window; events are labelled continuously by the event reviewer as their correlated groups settle (Decision model card).
         Its runs and results are on <a href="#/aireview?at=ai-review-job">AI pipeline monitoring > Event review</a>.</div>
       <div class="idgrid">
         <span class="k">Schedule</span><span>${esc(every(null, J.interval_minutes))}, on a grid anchored at 05:00 UTC · next run ${J.enabled ? `${esc(until(J.next_run))} (${esc(clock(J.next_run))})` : "paused"}
@@ -714,11 +714,10 @@
       <div class="rl-class" style="margin:10px 0 4px"><label><input type="checkbox" class="rl-cls"> <b>Classify events</b></label>
         <span class="small muted">When on, once every correlation of an event has been reviewed the AI decides whether the event is <b>suspicious</b>, <b>benign</b> or <b>expected</b> and adds that flair to the event (Related column). Re-done when its links change; up to ${20} events per round, using the event reviewer model.</span>
         <div class="small rl-clsinfo" style="margin-top:3px"></div></div>
-      <div class="rl-win" style="margin:10px 0 4px"><b>Time window for the event reviewer</b>
-        only correlate events within <input type="number" class="rl-wmax" min="0" step="any" style="width:6em"> minutes before or after each other
-        <button type="button" class="rl-wsave">Save</button>
-        <span class="small rl-wmsg"></span>
-        <span class="small muted">0 = no limit. A link is never considered (no model call, no classification) when its two events are further apart than this; events without a time, such as open vulnerabilities, always count. Links that already have a verdict are kept.</span>
+      <div class="rl-win" style="margin:10px 0 4px"><b>Time window</b>
+        events are only correlated within <b class="rl-wmax"></b> minutes of each other: the <b>event window</b>, set under
+        <a href="#/settings/site?at=event_window_minutes">More &gt; Settings &gt; Site &gt; event_window_minutes</a>. The same setting is the review job's coverage and the event reviewer's settle wait.
+        Events without a time, such as open vulnerabilities, always count. Links that already have a verdict are kept.
         <div class="small rl-winfo" style="margin-top:3px"></div></div>
       <div class="rl-disc" style="margin:10px 0 4px"><b>Discard old verdicts</b>
         not seen for more than <input type="number" class="rl-dmax" min="0" step="any" style="width:6em"> days
@@ -752,13 +751,9 @@
         await post({ classify: cls.checked });
       } catch (e) { msg.textContent = "error: " + e.message; }
     };
-    const wmax = c.querySelector(".rl-wmax"), wsv = c.querySelector(".rl-wsave"), wo = Lm.window_out || {};
-    wmax.value = Lm.window_minutes || 0; wmax.disabled = wsv.disabled = !D.can_limit;
-    c.querySelector(".rl-winfo").textContent = Lm.window_minutes ? `Now outside the window: ${fn(wo.links || 0)} candidate links.` : "No window set: events of any age gap are correlated.";
-    wsv.onclick = async () => { const wm = c.querySelector(".rl-wmsg"); wm.textContent = "saving…";
-      try { await apiPost("/api/llm/review-limits", { window: { minutes: +wmax.value || 0 } }); wm.textContent = "saved"; refresh(); }
-      catch (e) { wm.textContent = "error: " + e.message; } };
-    autoApply(wsv, [wmax]);
+    const wo = Lm.window_out || {};
+    c.querySelector(".rl-wmax").textContent = fn(Lm.window_minutes || 0);
+    c.querySelector(".rl-winfo").textContent = `Now outside the window: ${fn(wo.links || 0)} candidate links.`;
     const dmax = c.querySelector(".rl-dmax"), dsv = c.querySelector(".rl-dsave"), di = Lm.discard || {};
     dmax.value = Lm.discard_days || 0; dmax.disabled = dsv.disabled = !D.can_limit;
     c.querySelector(".rl-dinfo").textContent = `${fn(di.total || 0)} verdicts stored` + (Lm.discard_days ? ` · ${fn(di.would || 0)} would be discarded now` : " · retention off") +
@@ -939,20 +934,26 @@
   // events sent through the review phase per day (review_events: one row per event review, kept 30 days)
   // Decision model (clef) decides every link; the event reviewer model makes one pass per event and labels it (suspicious / benign / expected + link artifacts)
   function clefCard(D, cfgMode) {
-    const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {}, ev = K.events_day || {};
+    const K = D.clef || {}, cfg = K.config || {}, d = K.day || {}, a = K.all || {}, s = K.status || {}, ev = K.events_day || {}, P = K.pending || {};
     const pc = (n, t) => (t ? Math.round((100 * n) / t) + "%" : "—");
     const c = card("Decision model", K.error ? `<div class="bad">Unavailable: ${esc(K.error)}</div>` : `
       <div class="small muted">Correlation review in two stages. <b>1.</b> The correlation script proposes links → <b>${esc(cfg.model || "clef-flash")}</b>
-        answers yes/no <i>related?</i> for every link; that answer is the verdict. <b>2.</b> Once no link is left undecided, the event reviewer model
-        (${esc(D.status?.model || "")}) makes one call per event with all its related events and notes: <b>the event reviewer labels the event</b>
-        suspicious / benign / expected and writes the reason and the artifacts of each related event. A person's ✅ Expected / 🟢 Benign / ⚠️ Suspicious verdict
+        answers yes/no <i>related?</i> for every link, live; that answer is the verdict. <b>2.</b> Linked events form a correlated group. Once a group has settled
+        (its newest event is one event window old, ${esc(P.window_minutes ?? 10)} min + 5 min for late logs, and none of its links is undecided) the event reviewer model
+        (${esc(D.status?.model || "")}) makes <b>one call for the whole group</b> with all its events and notes and <b>labels every event of the group</b>
+        (until then they show ⏳ Pending review; a high-severity event with no label gets a provisional label at once). A settled group is reviewed again only when it gains an event.
+        The label is
+        suspicious / benign / expected; the reviewer also writes the reason and the artifacts of each related event. A person's ✅ Expected / 🟢 Benign / ⚠️ Suspicious verdict
         (on the event, or on artifacts it shows) outweighs that label. The decision model only decides links; the event reviewer never decides a link.</div>
       ${kpis([["Links decided / min (5 min)", fn(K.per_min || 0)], ["Links decided (24 h)", fn(d.pairs || 0)],
               ["Related (24 h)", `${fn(d.related || 0)} · ${pc(d.related || 0, d.pairs)}`], ["Not related (24 h)", fn(d.not_related || 0)],
               ["Avg time per link", d.ms_related == null ? "—" : fn(d.ms_related) + " ms"], ["Events reviewed / min (10 min)", fn(K.events_per_min || 0)],
               ["Events 24 h: suspicious / benign / expected", `${fn(ev.suspicious || 0)} / ${fn(ev.benign || 0)} / ${fn(ev.expected || 0)}`],
               ["All time", `${fn(a.pairs || 0)} links · ${fn(a.related || 0)} related`],
-              ["Person's verdict applied (24 h)", fn(K.owner_applied_day || 0)]])}
+              ["Person's verdict applied (24 h)", fn(K.owner_applied_day || 0)],
+              ["Events pending review", `<a href="#/events?v=pending" title="Events whose correlated group has not settled yet">${fn(P.events || 0)}</a>${P.links_undecided ? ` <span class="small muted">${fn(P.links_undecided)} with links deciding</span>` : ""}${P.next_settle ? ` <span class="small muted">next settles ${esc(new Date(P.next_settle * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</span>` : ""}`, P.past_settle ? "bad" : ""],
+              ["Event reviewer calls (1 h)", `${fn(P.calls_hour || 0)} <span class="small muted">${fn(P.labelled_hour || 0)} events labelled</span>`],
+              ["Settle → label delay (1 h)", P.delay_avg_s == null ? "—" : `${fn(Math.round(P.delay_avg_s))} s avg <span class="small muted">max ${fn(Math.round(P.delay_max_s || 0))} s</span>`]])}
       <div class="idgrid" style="margin-top:8px">
         <span class="k">Server</span><span><span class="mono">${esc(cfg.url || "")}</span> · ${K.healthy ? '<span class="good">up</span>' : '<span class="bad">unreachable (see Decision model server)</span>'}${K.timeouts ? ` · ${fn(K.timeouts)} retried time-outs` : ""}</span>
         <span class="k">Now</span><span>${s.clef_stage === "related" ? `deciding links · ${fn(s.clef_todo || 0)} left` : s.clef_stage === "events" ? `event pass · ${fn(s.classifying || 0)} events left${s.event_secs ? ` · last took ${s.event_secs} s` : ""}` : "idle"} · this pass ${fn(s.clef_related_this_run || 0)} links, ${fn(s.classified_this_run || 0)} events</span>
@@ -1196,49 +1197,19 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
     return c;
   }
 
-  // review job lookback window (lookback.py, store meta "review_lookback"): hours of logs each run collects
+  // the event window (lookback.py; More > Settings > Site > event_window_minutes): one setting for the correlation window,
+  // the review job's coverage and the event reviewer's settle wait. Shown here; edited on the Settings page.
   function lookbackCard(D) {
-    const L = D.lookback || { hours: 24, min: 1, max: 24, daily_hour: 5 };
-    const iv = D.review?.interval_minutes, ivH = iv ? iv / 60 : null;
-    const rec = ivH ? Math.min(L.max, Math.ceil(ivH) + 1) : null;
+    const L = D.lookback || { minutes: 10, min: 2, max: 120, daily_hour: 5, ingest_slack_s: 300 };
     const c = document.createElement("div");  // a section inside the Review job card
     c.style.cssText = "margin-top:14px;padding-top:10px;border-top:1px solid #2a323d";
-    c.innerHTML = `<h3 style="margin:0 0 4px">Review lookback window</h3>
-      <div class="small muted">How many hours of logs each run of the review job collects and correlates. Shorter windows mean fewer events per run,
-        so each run is faster. Every run looks back from the moment it starts.</div>
-      <div class="llm-grid" style="margin-top:10px">
-        <div class="llm-row"><span class="k">Look back</span>
-          <span><input type="number" name="lb_hours" min="${esc(L.min)}" max="${esc(L.max)}" step="1" style="width:5em"> hours</span>
-          <span class="small muted" style="flex:1 1 380px">${ivH ? `The job runs every <b>${esc(String(+ivH.toFixed(2)))} h</b>. Suggested: <b>${esc(rec)} h</b> (the interval plus 1 h of overlap, so no event falls between two runs).`
-            : "The job schedule is not known, so no suggestion can be given."}
-            <span class="lb-warn"></span></span></div>
-      </div>
-      <ul class="small muted" style="margin:8px 0 0 18px;padding:0">
-        <li>The daily run (${String(L.daily_hour ?? L.pdf_hour ?? 5).padStart(2, "0")}:00 UTC) always covers 24 h, so the device baseline stays daily. Only full-day snapshots are added to the baseline.</li>
-        <li>Shorter runs compare volumes with the 24 h baseline scaled down to the window, and skip the "device went silent" check.</li>
-        <li>The dashboard's newest snapshot covers only this window between daily runs. A short run can open a Fix-list item but never mark it fixed.</li>
-      </ul>
-      <div style="margin-top:8px"><button type="button" class="lb-save">Save</button> <span class="small muted lb-msg"></span></div>
-      <div class="small muted" style="margin-top:6px">${L.at ? `Last changed by ${esc(L.by || "?")} ${esc(ago(L.at))}.` : `Not changed yet: default ${esc(L.default ?? 24)} h.`} Applies from the next run.</div>`;
+    c.innerHTML = `<h3 style="margin:0 0 4px">Event window: <b>${esc(L.minutes)} min</b></h3>
+      <div class="small muted">One setting for three things: two events only become a candidate link when they happened at most this far apart;
+        each run collects everything that arrived since the previous run plus one window before it (so nothing falls between runs);
+        and the event reviewer labels a correlated group once, when its newest event is one window old (plus ${esc(Math.round((L.ingest_slack_s || 300) / 60))} min for late log arrivals)
+        and none of its links is undecided. The job runs at least once per window. The daily run (${String(L.daily_hour ?? 5).padStart(2, "0")}:00 UTC) still covers 24 h for the device baseline.</div>
+      <div class="small" style="margin-top:6px">Change it under <a href="#/settings/site?at=event_window_minutes">More &gt; Settings &gt; Site &gt; event_window_minutes</a> (${esc(L.min)}-${esc(L.max)} min, default ${esc(L.default ?? 10)}); it applies within seconds.${L.migrated ? ` <span class="muted">(${esc(L.migrated)})</span>` : ""}</div>`;
     c.id = "ai-lookback";
-    const inp = c.querySelector('input[name="lb_hours"]'), btn = c.querySelector(".lb-save"), msg = c.querySelector(".lb-msg"), wr = c.querySelector(".lb-warn");
-    const warn = () => { const h = +inp.value;
-      wr.className = "lb-warn " + (ivH && h < ivH ? "bad" : "");
-      wr.textContent = ivH && h && h < ivH ? ` Shorter than the run interval: about ${+(ivH - h).toFixed(2)} h of logs between runs will never be reviewed (only the 24 h daily run sees them).`
-        : ivH && h >= 2 * ivH && h > rec ? ` Each run re-reviews about ${+(h - ivH).toFixed(1)} h that the previous run already covered.` : ""; };
-    inp.value = L.hours; warn();
-    inp.disabled = !D.admin; btn.disabled = true;
-    inp.oninput = warn;
-    if (!D.admin) msg.textContent = "Only an admin can change the lookback window.";
-    btn.onclick = async () => {
-      const h = inp.value.trim();
-      if (!/^\d+$/.test(h) || +h < L.min || +h > L.max) { msg.textContent = `Enter a whole number of hours from ${esc(L.min)} to ${esc(L.max)}.`; return; }
-      msg.textContent = "saving…";
-      try { const r = await apiPost("/api/config/lookback", { hours: +h }); inp.value = r.lookback.hours; warn();
-        msg.textContent = `saved: ${r.lookback.hours} h per run (from the next run; the daily run stays 24 h)`; }
-      catch (e) { msg.textContent = "error: " + e.message; btn.disabled = false; }
-    };
-    autoApply(btn, [inp]);
     return c;
   }
 

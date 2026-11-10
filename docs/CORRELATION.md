@@ -106,7 +106,7 @@ treated as noise and creates no candidates. Each candidate gets a score:
 | Part | Points |
 |---|---|
 | Shared entities, weighted by rarity | weight × 1 / (1 + log₂(1 + n/4)), n = events carrying the entity. Weights: external IP 4.0, domain 3.5, internal host 3.0, account 2.0 |
-| Time (events with a time, no vulnerability involved) | gap between the two time spans ≤ 15 min **+2** ("within 15 min", or "same time window" for long spans); ≤ 1 h **+1**; more than 6 h apart **−1.5** |
+| Time (events with a time, no vulnerability involved) | two events whose time spans are more than one **event window** apart (below) are **never** a candidate; within it: gap ≤ 15 min **+2** ("within 15 min", or "same time window" for long spans); ≤ 1 h **+1** (only with a window over 15 min) |
 | Same problem seen by two detectors, and a shared entity | **+2** (e.g. the "SSH password login" vulnerability and SSH sessions with failed logins; a threat-intel finding and the IDS reputation signature for the same IP) |
 | Same ATT&CK technique | **+1** |
 | Vulnerability and an event that share a host | **+1.5** ("vulnerability on the same host"); time is not scored for vulnerabilities |
@@ -140,9 +140,19 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    description, hosts, artifacts, approved owner notes) and the script's score and evidence. The answer is a
    probability; `p ≥ related_min` (default 0.5) = related. **That answer is the verdict** — related and not related
    alike — stored with model name `cloudflare_clef`. 4 questions run in parallel (full clef: ~3 s each, ~70 links/min).
-2. **Events — event reviewer label and reason.** Only once **no link of the newest snapshot is undecided**, the event
-   reviewer model makes one call per event with all of its clef-related events, owner / AI / artifact notes and (if
-   enabled) Elasticsearch and web look-ups. It gives the event's **label** (suspicious / benign / expected) with a
+2. **Events — one event reviewer call per settled correlated group.** Events joined by decided *related* links form a
+   **correlated group** (connected component). A group **settles** once its newest event is one **event window** old
+   (plus 5 min for late Elasticsearch arrivals) and none of its links is undecided; the worker loop (every 5-60 s)
+   then makes **one** event reviewer call for the whole group — the most severe, best-connected member is the anchor,
+   the other members are its candidates — and stores the label and reason on **every member** (each weighed against
+   its own person's verdict). Until then the group's events show **⏳ Pending review · settles at HH:MM** on every
+   page that shows a label (table `review_pending`, rewritten each pass). A labelled group is reviewed again only when
+   it **gains a member** (or a member's person's verdict / threat-intel hit changes), and then again only after it
+   settles; a group that keeps changing for 3 settle waits (a scan firing every minute) is reviewed anyway.
+   **Fast path:** a *high*-severity event with no label yet gets a provisional single-event review at once (at most 5 per
+   pass) so alarms do not wait; its group review replaces it after the settle. Each call is one `review_events` row
+   with `members` (events labelled), `kind` (group / fast / overdue) and `delay` (seconds from settling to the review).
+   The call carries all clef-related events, owner / AI / artifact notes and (if enabled) Elasticsearch and web look-ups. It gives the event's **label** (suspicious / benign / expected) with a
    confidence and writes the **reason**: one managerial paragraph (context of the event, why it chose that label,
    what the look-ups, web research and notes found; related events, artifacts and notes only when they bear on the
    label). It writes no per-link reason - each related event keeps clef's verdict text - and gives only the link's
@@ -157,13 +167,12 @@ stages; with it off, the older event reviewer-only flow is used (described at th
      (0.NN).* The outcome is stored in `event_class.owner` (verdict, kind, weight, note, matched artifacts, applied or
      held and why, the reviewer's own label and confidence).
 
-   Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. An event is
-   reviewed again when its set of link decisions, its threat-intel hits or the person's verdict that applies to it
-   change; at most 20 events per pass, never-reviewed and best-connected first. An event whose every link clef
+   Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. At most 20
+   groups per pass, never-reviewed and most severe first. An event whose every link clef
    rejected still gets an event reviewer call: the prompt says the empty candidate list is deliberate, so the event
    reviewer explains the label from the event and its notes alone. If the call fails (prose instead of JSON, no
    label, an error), nothing is stored and the event is asked again on later passes, at most 3 times per set of
-   link decisions; after that it waits until its links change. Suspicious medium / high events become alarms.
+   link decisions; after that it waits until its group changes. Suspicious medium / high events become alarms.
    `event_class.model` is the event reviewer's model. Audit-log purpose: `event-review`.
 3. Verdicts are stored per unordered pair in `dashboard/state/corr_llm.db` (`verdicts`; clef's probabilities in
    `clef`), so each pair is asked once and the decision applies in both directions. A person's decision (✓/✗, or an
@@ -180,7 +189,7 @@ flowchart LR
     LIM -- "skipped" --> HID["not sent"]
     LIM -- "allowed" --> CLEF["Decision model (clef)\nyes/no per link\n= the verdict"]
     CLEF --> DB[("corr_llm.db\nverdicts, clef")]
-    DB -- "no link undecided" --> REV["Event reviewer model\none call per event,\nall related events"]
+    DB -- "group settled:\nnewest event 1 window old,\nno link undecided" --> REV["Event reviewer model\none call per correlated group,\nlabel on every member"]
     PV["Person's verdict\n(event or chosen artifacts)"] --> REV
     NOTES["Owner / artifact / AI notes,\nuser profiles"] --> REV
     MEMO[("lookup_memo\nre-review within 6 h:\nreuse earlier results")] -.-> REV
@@ -423,7 +432,7 @@ candidate links each setting affects.
 |---|---|---|
 | **Link types** (grid) | Every event type (`ids`, `alert`, `admin`, `ti`, `gw`, `host`, `finding`, `vuln`, `seg`) × severity (`low`, `medium`, `high`) against every other: each cell is **review** or **skip**. Click a cell to flip it. Cells you never touched inherit the default. | review, except on a brand-new deployment (no verdicts yet): skip, so nothing is sent until an admin opts in |
 | **Severity of `seg`** | Segmentation issues and findings are their own type. Their severity is set by the port: **high** = admin / remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker and Kubernetes APIs, the policy's `sensitive_ports`), **low** = standard service ports (`standard_ports`, default web, mail, DNS, NTP, LDAP…), **medium** = any other (odd) port. All other types take the event's own severity (critical/severe/investigate = high; moderate/warning/review = medium; anything else low). | – |
-| **Time window for the event reviewer** | One setting, in minutes: only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans; links further apart are skipped. Events without a time (open vulnerabilities) are never "apart". `0` = no limit. The box shows how many candidate links are outside the window now. | 0 (no limit) |
+| **Time window** | Shown here, set as the **event window** (More > Settings > Site > `event_window_minutes`): only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans. Events without a time (open vulnerabilities) are never "apart". The box shows how many candidate links are outside the window now. | 10 min |
 | **Max links per event** | Undecided links one event may have. Best script score first; a link needs room at both of its events; the rest are skipped. `0` = no cap, at most 200. | 0 |
 | **Discard old verdicts** | Delete verdicts (and artifacts) whose pair has not been a candidate link for more than N days. Runs hourly after a snapshot has refreshed the "last seen" times; person-made verdicts are kept and the freed space is returned to the disk. `0` = keep forever, at most 3650. | 0 |
 | **Classify events** | See above. | off |
@@ -746,15 +755,15 @@ flowchart LR
 | Setting | Default | What it sets |
 |---|---|---|
 | Interval | 240 min | How often the review job runs, 5–1440 min, on a grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day is the **daily run** (24 h of logs) |
-| Lookback | 24 h | Hours of logs a non-daily run collects, 1–24 |
+| Event window | 10 min | **More > Settings > Site > `event_window_minutes`** (2–120 min, SQLite cfg table, read live — no restart). One setting for three things: the **correlation window** (two events farther apart never link; events up to one window + 5 min outside a snapshot still count), the **review coverage** (each run collects everything that arrived since the previous run's end **minus one window**, `window.arrival(back=)`, so nothing falls between runs whatever the interval) and the **settle wait** of the event reviewer (above). The job runs at least once per window (the effective interval is capped at the window, never under 5 min). The old hours lookback (`meta` `review_lookback`) is migrated once (hours × 60, clamped) |
 | On / off | on | **Pause** on the Review job card stops scheduled runs |
 
 The per-event-category setting (**review** / **queue** / **test** / **skip**, categories `host`, `ids12`, `gw`, `ti`,
 `alert`, the three `seg_*` severities and `high` / `medium` / `low` / `info` for the rest) decides what the event reviewer
 considers and what shows in the queue: *review* events go to the event reviewer first, *queue* events go straight to the
 queue, *test* events are listed and tagged *testing*, *skip* events are ignored. New deployments start every category in
-**test**. These live in the netmon store (`netmon.db`, `meta` table, keys `review_job` and `review_lookback`;
-`review_cfg.py`, `lookback.py`), so the dashboard container and the host scheduler read the same values. Settings
+**test**. These live in the netmon store (`netmon.db`, `meta` table, key `review_job`, `review_cfg.py`; the event window in
+the cfg table, `lookback.py`), so the dashboard container and the host scheduler read the same values. Settings
 saved before the review / research split are read from the old `research_job` record, with the old *research* mode
 read as *queue*.
 
@@ -863,7 +872,7 @@ and every prompt says never to follow instructions found inside it.
 | Step | Model | Runs | Decides | Writes |
 |---|---|---|---|---|
 | 7.1 Link decision | decision model (clef) | every undecided candidate link, continuously | related / not related | nothing (a probability) |
-| 7.2 Event review | event reviewer model | once no link of the event is undecided, one call per event | suspicious / benign / expected (a person's verdict outweighs it) | one reason paragraph, link artifacts, host / internet / DNS notes |
+| 7.2 Event review | event reviewer model | once the event's correlated group has settled (one event window after its newest event, no link undecided), one call per group | suspicious / benign / expected (a person's verdict outweighs it) | one reason paragraph, link artifacts, host / internet / DNS notes |
 | 7.3 Event research | research model | only on **Send to research** | research verdict and priority | research note, link verdicts, host notes, cited sources |
 
 The review job's copy-or-queue step (section 6) is a fourth, narrower use of the event reviewer model: it only decides
@@ -985,14 +994,14 @@ event reviewer (7.2) as an `<ai_note>` *research verdict …* on that event's ne
 | Notes per event | 7 (1–100) | `llm_config` → `context_notes` |
 | Note characters | 6000 (1000–100000) | `llm_config` → `context_notes.chars` |
 | Review limits: link-type modes, default mode | review (skip on a brand-new deployment) | `llm_config` → `review_limits.pair_modes`, `pair_default` |
-| Review limits: time window (minutes) | 0 = off, max 525,600 | `review_limits.window_minutes` |
+| Event window (minutes): correlation window, review coverage, settle wait | 2-120, default 10 | cfg table `site` / `event_window_minutes` (`lookback.py`) |
 | Review limits: max links per event | 0 = no cap, max 200 | `review_limits.max_links` |
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |
 | Decision model on/off, related threshold (0.05–0.95) | on, 0.5 | `llm_config` → `clef` |
 | Decision model server: model, runtime, parallel, context, batch, port | auto, auto, 4, 32768, 8192, 8091 | netmon database document `clef_server` (`clef_server.py`) |
 | Event reviewer verdicts, artifacts, classifications, searches, token logs | – | `dashboard/state/corr_llm.db` (`verdicts`, `clef`, `pair_artifacts`, `event_class` (with `owner`), `cleared_events`, `es_queries`, `review_tokens`, `review_events`; `clef_event` is retired and kept only so older determinations still show) |
-| Review job schedule and modes; event research settings, pending clicks, dismissed queue | see section 5 | store meta `review_job`, `review_lookback`, `research_job`, `research_requests`, `research_dismissed` |
+| Review job schedule and modes; event research settings, pending clicks, dismissed queue | see section 5 | store meta `review_job`, `research_job`, `research_requests`, `research_dismissed` |
 | Research notes | – | `dashboard/state/enrich.db` |
 | People's event notes and verdicts (`verdict`, `scope`) | – | `dashboard/state/kb.db` (`event_notes`) |
 | Host, user and artifact notes | – | `dashboard/state/kb.db` (`kb.py`; subjects `ip:`, `mac:`, `host:`, `dom:`, `art:<kind>:<value>`) |

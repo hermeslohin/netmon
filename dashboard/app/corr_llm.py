@@ -379,6 +379,18 @@ def apart_fn(window_min):
     return apart
 
 
+def _event_window_min():
+    """The event window in minutes (lookback.py, read live)."""
+    import correlate
+    return correlate.window_s() / 60
+
+
+def settle_s():
+    """Seconds a correlated group must stay unchanged (after its newest member) before the event reviewer labels it."""
+    import correlate
+    return correlate.window_s() + correlate.INGEST_SLACK_S
+
+
 def limits():
     raw = _raw_config()
     c = (raw.get("review_limits") or {})
@@ -399,7 +411,7 @@ def limits():
             "excluded": [],  # exclusions were removed (AI pipeline pages no longer has them)
             "rules": [],  # "Never send" rules were removed: nothing is held back from the queue / event reviewer by name
             "classify": bool(c.get("classify")),
-            "window_minutes": _num(c.get("window_minutes"), 0, WINDOW_MAX_MIN),
+            "window_minutes": _event_window_min(),  # the event window (Settings > Site); the old separate limit is ignored
             "discard_days": _num(c.get("discard_days"), 0, DISCARD_MAX_DAYS),
             "max_links": max(0, min(int(c.get("max_links") or 0), MAX_LINKS_LIMIT)) if str(c.get("max_links") or 0).isdigit() else 0}
 
@@ -451,14 +463,8 @@ def set_limits(user, skip_pairs=None, exclude=None, unexclude=None, max_links=No
         cur["excluded"] = [x for x in cur["excluded"] if x["key"] != unexclude]
     if classify is not None:
         cur["classify"] = bool(classify)
-    if window is not None:
-        try:
-            v = float(window.get("minutes") if isinstance(window, dict) else window or 0)
-        except (TypeError, ValueError):
-            raise ValueError("window must be a number of minutes") from None
-        if not 0 <= v <= WINDOW_MAX_MIN:
-            raise ValueError(f"window must be 0-{WINDOW_MAX_MIN:g} minutes (0 = no limit)")
-        cur["window_minutes"] = v
+    if window is not None:  # one event window for correlation, review lookback and settle wait: More > Settings > Site
+        raise ValueError("the correlation window is the event window: set event_window_minutes under More > Settings > Site")
     if discard_days is not None:
         try:
             v = float(discard_days.get("days") if isinstance(discard_days, dict) else discard_days or 0)
@@ -903,6 +909,13 @@ def _schema(c):
         c.execute("ALTER TABLE event_class ADD COLUMN owner TEXT")
     except sqlite3.OperationalError:
         pass
+    try:  # what the last group review covered: {"l": related link pairs of the group, "t": this event's person-verdict / TI token, "g": group size}
+        c.execute("ALTER TABLE event_class ADD COLUMN covered TEXT")
+    except sqlite3.OperationalError:
+        pass
+    # events waiting for their group to settle (rewritten by every event pass): settles = epoch the group is due,
+    # links = 1 while a link of the group is still undecided, rereview = 1 when the event already has an older label
+    c.execute("CREATE TABLE IF NOT EXISTS review_pending (eid TEXT PRIMARY KEY, settles REAL, links INTEGER, rereview INTEGER, n INTEGER, ts REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
     # decision model (clef) answers per pair: p_related always, p_suspicious for pairs it judged related; ms = call time
     # retired: the decision model's own event label (it now decides links only); kept for older determinations' history
@@ -924,7 +937,8 @@ def _schema(c):
         c.execute("ALTER TABLE review_events ADD COLUMN notes INTEGER")  # notes passed in with the review (owner + AI)
     except sqlite3.OperationalError:
         pass
-    for col in ("web INTEGER", "cited INTEGER", "notes_offered INTEGER", "es INTEGER", "planned INTEGER", "memo INTEGER"):  # web look-ups the review ran / web pages its answer cited
+    # members = events the review labelled (its correlated group), delay = seconds from the group settling to the review, kind = group / fast / event
+    for col in ("web INTEGER", "cited INTEGER", "notes_offered INTEGER", "es INTEGER", "planned INTEGER", "memo INTEGER", "members INTEGER", "delay REAL", "kind TEXT"):  # web look-ups the review ran / web pages its answer cited
         try:
             c.execute("ALTER TABLE review_events ADD COLUMN " + col)
         except sqlite3.OperationalError:
@@ -1032,8 +1046,8 @@ def verdicts(keys):
     with _db() as c:
         for i in range(0, len(keys), 500):
             chunk = keys[i:i + 500]
-            for p, r, conf, why, m in c.execute(f"SELECT pair, related, confidence, reason, model FROM verdicts WHERE pair IN ({','.join('?' * len(chunk))})", chunk):
-                out[p] = {"related": bool(r), "confidence": conf, "reason": why, "model": m}
+            for p, r, conf, why, m, ts in c.execute(f"SELECT pair, related, confidence, reason, model, ts FROM verdicts WHERE pair IN ({','.join('?' * len(chunk))})", chunk):
+                out[p] = {"related": bool(r), "confidence": conf, "reason": why, "model": m, "ts": ts}
     return out
 
 
@@ -1149,7 +1163,7 @@ def apply(base):
     tests = list({pair(x, y): (x, y) for x, y in T}.values())
     st = dict(STATUS, pending=len(P), confirmed=len(C), rejected=len(X), testing=len(tests))
     try:
-        cl = classes((base.get("events") or {}).keys())
+        cl = classes((base.get("events") or {}).keys(), pending=True)
     except sqlite3.Error:
         cl = {}
     return {**base, "related": out, "llm": st, "testing": tests, "classes": cl}
@@ -2151,7 +2165,10 @@ def set_event_sources(c, eid, srcs, model):
                   [(eid, s["url"], s["title"], model, time.time(), s.get("id")) for s in srcs])
 
 
-def classes(eids):
+def classes(eids, pending=False):
+    """Event reviewer labels {eid: {label, confidence, reason, model, at, owner?, sources?}}. pending=True (the pages) adds
+    "pending": {settles, links, rereview, n} for events whose group has not settled yet; an event with no label yet then
+    gets label "pending" so every label column shows "Pending review" instead of a blank."""
     eids = list(eids)
     out = {}
     with _db() as c:
@@ -2167,6 +2184,15 @@ def classes(eids):
             for e, u, t, w in c.execute("SELECT eid, url, title, wid FROM event_sources WHERE eid IN (SELECT value FROM json_each(?)) ORDER BY rowid", (json.dumps(ch),)):
                 if e in out:
                     out[e].setdefault("sources", []).append({"url": u, "title": t, "id": w or ""})
+            if pending:
+                for e, st, lk, rr, n in c.execute("SELECT eid, settles, links, rereview, n FROM review_pending WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(ch),)):
+                    p = {"settles": st, "links": bool(lk), "rereview": e in out, "n": n}
+                    if e in out:
+                        out[e]["pending"] = p
+                    else:
+                        out[e] = {"label": "pending", "confidence": None, "model": "", "at": None, "pending": p,
+                                  "reason": "Pending review: the event reviewer labels the whole correlated group once it has settled"
+                                            + (" (links still being decided)" if lk else "") + "."}
     return out
 
 
@@ -2426,6 +2452,9 @@ candidate {"id": "c<n>", "label": "link", "confidence" (0-1, how sure you are of
 NO_CANDS = ("\nThis event has NO related events: the CANDIDATES list is empty on purpose (the decision model judged every proposed "
             "link unrelated). Do not ask for candidates. Answer with decisions holding ONLY the anchor object "
             "{\"id\": \"anchor\", \"label\", \"confidence\", \"reason\", \"artifacts\": []}: explain the label from the event itself and its notes.")
+GROUP_NOTE = ("\nThe CANDIDATES are the rest of the anchor's CORRELATED GROUP: events linked to the anchor directly or through another "
+              "candidate, reviewed together once the group stopped changing. Your label and reason are stored on EVERY event of the "
+              "group, so judge the group as one incident or activity; still give artifacts per candidate.")
 REVIEW_RETRIES = 3  # failed event reviewer calls per event signature before the event is left until its links change
 _REVIEW_FAILS = {}  # eid -> (signature, failed calls)
 _ART = SCHEMA["properties"]["decisions"]["items"]["properties"]["artifacts"]
@@ -2503,19 +2532,28 @@ def clef_pass(base, pairs):
     return n
 
 
-def _event_review(model, eid, base, rel_ids, sig):
-    """Stage 2 for one event: the event reviewer model gets the event, ALL its clef-related events and the notes, classifies
-    the event in one reason paragraph and writes artifacts per related event (and the host / internet / DNS notes from those)."""
+def _event_review(model, eid, base, rel_ids, sig, group=None, covered=None, meta=None):
+    """Stage 2 for one correlated group: the event reviewer model gets the anchor event `eid`, the rest of its group
+    (`rel_ids`: clef-related directly or through another member) and the notes, labels it in one reason paragraph and
+    writes artifacts per directly related event (and the host / internet / DNS notes from those). With `group`
+    ({member eid: (sig, covered JSON)}) the label is stored on every member, each weighed against its own person's verdict.
+    covered = what this review covered for the anchor (event_class.covered JSON; event_pass decides re-reviews from it)."""
+    if group and eid in group:
+        sig, covered = group[eid]
     E = base["events"]
     rows = {r["id"]: r for r in (base.get("related") or {}).get(eid, [])}
     CD = clef_decisions([pair(eid, i) for i in rel_ids])
+    if group:  # only a direct RELATED link counts as one; a member reached through another member may have a "no" with the anchor
+        VD = verdicts([pair(eid, i) for i in rel_ids])
+        CD = {k: v for k, v in CD.items() if (VD.get(k) or {}).get("related")}
     cap = limits()["max_links"] or MAX_CAND * 2  # admin's "max links per event" (AI review page); 0 = default 20
-    rel_ids = sorted(rel_ids, key=lambda i: -((CD.get(pair(eid, i)) or {}).get("p_related") or 0))[:cap]
+    rel_ids = sorted(rel_ids, key=lambda i: (pair(eid, i) not in CD, -((CD.get(pair(eid, i)) or {}).get("p_related") or 0)))[:cap]
     cands = []
     for i in rel_ids:
         r = rows.get(i) or {"id": i, "score": 0, "why": []}
         cd = CD.get(pair(eid, i))
-        cands.append((E[i], {**r, "why": [f"decision model: related (p={cd['p_related']:.2f})" if cd else "related", *(r.get("why") or [])]}))
+        cands.append((E[i], {**r, "why": [f"decision model: related (p={cd['p_related']:.2f})" if cd else ("same correlated group (linked through another member)" if group else "related"),
+                                          *(r.get("why") or [])]}))
     es, mname = config()["es_queries"], model["model"]
     ov = owner_verdicts([eid], E).get(eid)
     sysmsg = EVENT_SYSTEM
@@ -2525,6 +2563,8 @@ def _event_review(model, eid, base, rel_ids, sig):
                    + f"). {str(ov['text'])[:600]}")
     if not cands:  # nothing is related: without this the event reviewer sometimes answers in prose ("no candidate events were provided")
         sysmsg += NO_CANDS
+    elif group and len(group) > 1:
+        sysmsg += GROUP_NOTE
     logq = _es_logger(eid, rel_ids, mname) if es["enabled"] else None
     kw = dict(purpose="event-review", on_query=logq, system=sysmsg, schemas=(ESCHEMA, EQSCHEMA), fmts=(EFMT, EQFMT), base_tokens=500)
     notes, ainotes, esm = _owner_notes(eid, rel_ids, E), _ai_notes(eid, rel_ids, E), es["max"] if es["enabled"] else 0
@@ -2569,17 +2609,34 @@ def _event_review(model, eid, base, rel_ids, sig):
         conf = max(0.0, min(1.0, float(a.get("confidence") or 0.5)))
     except (TypeError, ValueError):
         conf = 0.5
+    conf0 = conf
     label, conf, owner = apply_owner(a["label"], conf, ov, ti=bool(_ti_sig(E[eid])))
     reason = str(a.get("reason") or "")[:900]
+    reason0 = reason
     if owner and owner.get("applied"):
         reason = (f"Person's verdict applied ({ov['verdict']}"
                   + (f", artifacts {', '.join(ov['match'])}" if ov["kind"] == "artifacts" else ", this event")
                   + f"); the event reviewer said {owner['model_label']} ({owner['model_confidence']:.2f}). " + reason)[:900]
     now = time.time()
     with _lock, _db() as c:  # the event reviewer's label (after a person's verdict is weighed in) and its reason
-        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, owner) VALUES (?,?,?,?,?,?,?,?)",
-                  (eid, label, round(conf, 3), reason, mname, sig, now, json.dumps(owner) if owner else None))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, owner, covered) VALUES (?,?,?,?,?,?,?,?,?)",
+                  (eid, label, round(conf, 3), reason, mname, sig, now, json.dumps(owner) if owner else None, covered))
         set_event_sources(c, eid, a_src, mname)
+        c.execute("DELETE FROM review_pending WHERE eid=?", (eid,))
+        if group:  # one review for the whole correlated group: every member gets the label, weighed against its own person's verdict
+            OVm = owner_verdicts([m for m in group if m != eid and m in E], E)
+            for m, (msig, mcov) in group.items():
+                if m == eid or m not in E:
+                    continue
+                ml, mc, mo = apply_owner(a["label"], conf0, OVm.get(m), ti=bool(_ti_sig(E[m])))
+                mr = (f"Labelled with its correlated group ({len(group)} events, reviewed together on "
+                      f"\"{str(E[eid].get('label') or eid)[:80]}\"). " + reason0)[:900]
+                if mo and mo.get("applied"):
+                    mr = (f"Person's verdict applied ({OVm[m]['verdict']}); the group review said {mo['model_label']}. " + mr)[:900]
+                c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, owner, covered) VALUES (?,?,?,?,?,?,?,?,?)",
+                          (m, ml, round(mc, 3), mr, mname, msig, now, json.dumps(mo) if mo else None, mcov))
+                set_event_sources(c, m, a_src, mname)
+                c.execute("DELETE FROM review_pending WHERE eid=?", (m,))
         sent = {r["id"] for _e, r in cands}  # after any context-size retry: what the event reviewer actually got
         record_inputs(c, eid, now, "review", mname, label, None, None,
                       [{"id": i, "p": round((CD.get(pair(eid, i)) or {}).get("p_related") or 0, 3), "sent": i in sent, "related": True} for i in rel_ids])
@@ -2589,10 +2646,11 @@ def _event_review(model, eid, base, rel_ids, sig):
                 continue
             store_artifacts(c, k, clean_artifacts(d.get("artifacts")) + (query_artifacts(logq.found) if logq else []) + web_artifacts(d.get("_sources") or []), mname, now)
         offered = sum(len(v) for v in notes.values()) + sum(len(v) for v in ainotes.values())
-        c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO review_events (ts, prompt, completion, cands, notes, notes_offered, es, planned, web, cited, memo, members, delay, kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                   (now, int(usage.get("prompt") or 0), int(usage.get("completion") or 0), len(cands), int(usage.get("notes", offered) or 0), offered,
                    int(usage.get("es") or 0), 1 if usage.get("planned") else 0,
-                   logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []}), 1 if usage.get("memo") else 0))
+                   logw.n if logw else 0, len({s["url"] for d in D.values() for s in d.get("_sources") or []}), 1 if usage.get("memo") else 0,
+                   len(group) if group else 1, (meta or {}).get("delay"), (meta or {}).get("kind") or ("group" if group else "event")))
     dd = {f"c{n}": {**(D.get(f"c{n}") or {}), "related": True} for n in range(1, len(cands) + 1) if D.get(f"c{n}")}
     try:
         _note_expected(model, eid, E, cands, dd)
@@ -2605,57 +2663,167 @@ def _event_review(model, eid, base, rel_ids, sig):
     return 1
 
 
-def event_pass(base):
-    """Stage 2, only once the decision model has decided every link of the snapshot: one event reviewer call per event whose
-    set of decisions changed since its last review (suspicious / benign / expected + link notes). Events with no
-    related event are classified too (from the event and its notes alone). At most CLASS_PER_PASS events per pass."""
+FAST_PER_PASS = 5  # high-severity events with no label yet reviewed at once (alarms must not wait for the group to settle)
+MAX_WAIT_FACTOR = 3  # a group that keeps changing is reviewed anyway after this many settle waits (a scan firing every minute)
+
+
+def _ev_newest(ev):
+    """Newest event time of one event (t1, else t0); None for events without a time (open weaknesses, ongoing state)."""
+    t = ev.get("t1") if ev.get("t1") is not None else ev.get("t0")
+    return None if ev.get("vuln") or t is None else float(t)
+
+
+def groups_of(base, V=None, keep=None):
+    """Correlated groups of a correlation map: connected components of the decided RELATED links between its events.
+    Returns [{"members": [eid, ...], "newest": epoch | None, "undecided": bool}] for every event that has at least one
+    decided link (an event whose links are all undecided is a group of its own with undecided=True).
+    keep(a, b) -> False drops an undecided link from the count (review limits: skipped / test-mode / cleared pairs)."""
+    rel, E = base.get("related") or {}, base.get("events") or {}
+    V = verdicts({pair(a, r["id"]) for a, lst in rel.items() for r in lst}) if V is None else V
+    par = {}
+
+    def find(x):
+        par.setdefault(x, x)
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    und = set()
+    for a, lst in rel.items():
+        if a not in E:
+            continue
+        find(a)
+        for r in lst:
+            b, k = r["id"], pair(a, r["id"])
+            if b not in E:
+                continue
+            v = V.get(k)
+            if v is None:
+                if keep is None or keep(a, b):
+                    und.update((a, b))
+                    find(b)
+            elif v["related"]:
+                par[find(a)] = find(b)
+    comps = {}
+    for x in list(par):
+        comps.setdefault(find(x), []).append(x)
+    out = []
+    for ms in comps.values():
+        ts = [t for t in (_ev_newest(E[m]) for m in ms) if t is not None]
+        out.append({"members": sorted(ms), "newest": max(ts) if ts else None, "undecided": any(m in und for m in ms)})
+    return out
+
+
+def _cov(raw):
+    try:
+        v = json.loads(raw) if raw else None
+        return v if isinstance(v, dict) else None
+    except ValueError:
+        return None
+
+
+def event_pass(base, now=None):
+    """Stage 2, one event reviewer call per correlated GROUP once it has settled: its newest event is older than the event
+    window plus ingest slack (settle_s(), Settings > Site > event_window_minutes) and none of its links is undecided.
+    The label is stored on every member. A labelled group is reviewed again only when it gains a member (or a person's
+    verdict / threat-intel hit on a member changes), and then again only after it settles. Unsettled events are written
+    to review_pending (the pages show "Pending review, settles at HH:MM"). High-severity events with no label at all
+    get a provisional label at once (FAST_PER_PASS), so alarms do not wait; their group review follows the settle.
+    At most CLASS_PER_PASS groups per pass."""
     import hashlib
     rel, E = base.get("related") or {}, base.get("events") or {}
     if not rel:
         return 0
+    now = time.time() if now is None else now
     V = verdicts({pair(a, r["id"]) for a, lst in rel.items() for r in lst})
     skipped, CL = _limit_fn(base), _cleared()
+    keep = lambda a, b: not (skipped(a, b) or skipped.testing(a, b) or (a in CL and b in CL))  # noqa: E731
+    wait = settle_s()
     with _db() as c:
-        have = dict(c.execute("SELECT eid, sig FROM event_class"))
-    OV = owner_verdicts([a for a in rel if a in E and a not in CL], E)
-    todo = []
-    for a, lst in rel.items():
-        if a not in E or a in CL or skipped.bad(a):
+        have = {e: (sg, _cov(cv)) for e, sg, cv in c.execute("SELECT eid, sig, covered FROM event_class")}
+        first = dict(c.execute("SELECT eid, ts FROM review_pending"))  # when each event started waiting (kept across passes)
+    G = [g for g in groups_of(base, V, keep) if any(m not in CL and not skipped.bad(m) for m in g["members"])]
+    OV = owner_verdicts([m for g in G for m in g["members"]], E)
+    todo, fast, pend = [], [], []
+    for g in G:
+        ms = [m for m in g["members"] if m not in CL and not skipped.bad(m)]
+        gs = hashlib.sha1(("group|" + "|".join(ms)).encode(), usedforsecurity=False).hexdigest()[:16]
+        tok = {m: _with_owner(_with_ti("", E[m]), OV.get(m)) for m in ms}
+        cov = {m: json.dumps({"m": ms, "t": tok[m]}) for m in ms}
+        need = []
+        for m in ms:
+            h = have.get(m)
+            if not h:
+                need.append(m)
+                continue
+            cv = h[1] or {"m": [m], "t": tok[m]}  # labelled before group reviews: it covered itself
+            if str(h[0] or "").startswith("fast|") or set(ms) - set(cv.get("m") or []) or cv.get("t") != tok[m]:
+                need.append(m)
+        if not need:
             continue
-        dec = [(r["id"], V[pair(a, r["id"])]) for r in lst if pair(a, r["id"]) in V and r["id"] in E]
-        if not dec:
-            continue
-        sig = _with_owner(_with_ti(hashlib.sha1(("clef|" + "|".join(sorted(f"{i}:{int(v['related'])}" for i, v in dec))).encode(), usedforsecurity=False).hexdigest()[:16], E[a]), OV.get(a))
-        if have.get(a) == sig:
-            continue
-        f = _REVIEW_FAILS.get(a)
-        if f and f[0] == sig and f[1] >= REVIEW_RETRIES:  # the event reviewer failed this signature too often: wait for new links
-            continue
-        todo.append((a, sig, [i for i, v in dec if v["related"]], [i for i, _ in dec]))
-    todo.sort(key=lambda t: (t[0] in have, -len(t[2])))  # never-reviewed first, then the best-connected
+        settles = (g["newest"] + wait) if g["newest"] is not None else now
+        since = min([first.get(m) or now for m in ms])
+        overdue = now - since >= wait * MAX_WAIT_FACTOR  # keeps changing (a recurring event): review it anyway
+        ready = (not g["undecided"] and settles <= now) or overdue
+        f = _REVIEW_FAILS.get("group|" + gs)
+        if ready and f and f[1] >= REVIEW_RETRIES and f[0] == tuple(sorted(tok.items())):
+            continue  # the event reviewer failed this group too often: wait until it changes
+        if ready:
+            todo.append((ms, gs, cov, tok, overdue, settles))
+        else:
+            fast += [m for m in ms if m not in have and sev_of(E[m]) == "high"]
+        for m in ms:
+            pend.append((m, settles, 1 if g["undecided"] else 0, 1 if m in have else 0, len(ms), first.get(m) or now))
+    with _lock, _db() as c:
+        c.execute("DELETE FROM review_pending")
+        c.executemany("INSERT OR REPLACE INTO review_pending (eid, settles, links, rereview, n, ts) VALUES (?,?,?,?,?,?)", pend)
+    todo.sort(key=lambda t: (all(m in have for m in t[0]), -max(_SEV_RANK.get(sev_of(E[m]), 0) for m in t[0]), -len(t[0])))
     todo = todo[:CLASS_PER_PASS]
-    STATUS.update(classifying=len(todo), clef_stage="events" if todo else "")
+    fast = fast[:FAST_PER_PASS]
+    STATUS.update(classifying=len(todo) + len(fast), clef_stage="events" if todo or fast else "", pending_review=len({p[0] for p in pend}))
 
-    def one(t):
+    def anchor_of(ms):  # the most severe, best-connected member speaks for the group
+        deg = {m: sum(1 for r in rel.get(m, []) if (V.get(pair(m, r["id"])) or {}).get("related")) for m in ms}
+        return max(ms, key=lambda m: (_SEV_RANK.get(sev_of(E[m]), 0), deg[m], m))
+
+    def one(job):
+        kind, t = job
         try:
             m = _target()
             STATUS.update(model=m["model"], provider=m["provider"])
-            k = _event_review(m, t[0], base, t[2], t[1])
+            if kind == "fast":  # provisional single-event review; the group review replaces it once the group settles
+                eid = t
+                rel_ids = [r["id"] for r in rel.get(eid, []) if (V.get(pair(eid, r["id"])) or {}).get("related") and r["id"] in E]
+                k = _event_review(m, eid, base, rel_ids, "fast|" + eid[:40], covered=json.dumps({"m": [eid], "t": "", "fast": 1}), meta={"kind": "fast"})
+            else:
+                ms, gs, cov, tok, over, settles = t
+                a = anchor_of(ms)
+                k = _event_review(m, a, base, [x for x in ms if x != a], gs, group={x: (gs + tok[x], cov[x]) for x in ms},
+                                  meta={"kind": "overdue" if over else "group", "delay": round(max(0.0, time.time() - settles), 1)})
+                fk = "group|" + gs
+                if k:
+                    _REVIEW_FAILS.pop(fk, None)
+                else:
+                    f0, st = _REVIEW_FAILS.get(fk), tuple(sorted(tok.items()))
+                    _REVIEW_FAILS[fk] = (st, (f0[1] if f0 and f0[0] == st else 0) + 1)
             if k:
-                _touch(t[0])
+                _touch(t if kind == "fast" else a)
             return k
         except Exception as e:  # noqa: BLE001 - one bad answer must not stop the pass
-            print(f"event review error ({t[0][:60]}): {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
+            print(f"event review error: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
             _set_error("event", f"event review: {type(e).__name__}: {str(e)[:200]}")
             return 0
     n = 0
     with ThreadPoolExecutor(WORKERS) as ex:
-        for k in ex.map(one, todo):
+        for k in ex.map(one, [("fast", e) for e in fast] + [("group", t) for t in todo]):
             n += k
             STATUS["classified_this_run"] = STATUS.get("classified_this_run", 0) + k
             STATUS["classifying"] = max(0, STATUS.get("classifying", 1) - 1)
     STATUS.update(classifying=0, clef_stage="")
     return n
+
+
+_SEV_RANK = {"high": 3, "medium": 2, "low": 1}
 
 
 def clef_overview():
@@ -2671,7 +2839,13 @@ def clef_overview():
         ev = {lab: n for lab, n in c.execute("SELECT label, COUNT(*) FROM event_class WHERE ts >= ? GROUP BY label", (now - 86400,))}
         ev_min = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ?", (now - 600,)).fetchone()[0] / 10
         own = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ? AND owner LIKE '%\"applied\": true%'", (now - 86400,)).fetchone()[0]
-    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0),
+        pn, pl, prr, pnext, pover = c.execute("SELECT COUNT(*), COALESCE(SUM(links),0), COALESCE(SUM(rereview),0), MIN(settles), "
+                                              "COALESCE(SUM(settles <= ? AND links = 0),0) FROM review_pending", (now - 60,)).fetchone()
+        calls, labelled, dly, dmax = c.execute("SELECT COUNT(*), COALESCE(SUM(COALESCE(members,1)),0), AVG(delay), MAX(delay) FROM review_events WHERE ts >= ?", (now - 3600,)).fetchone()
+    pend = {"events": pn, "links_undecided": pl, "rereview": prr, "next_settle": pnext, "past_settle": pover,
+            "window_minutes": round(_event_window_min()), "settle_s": settle_s(),
+            "calls_hour": calls, "labelled_hour": labelled, "delay_avg_s": round(dly, 1) if dly is not None else None, "delay_max_s": round(dmax, 1) if dmax is not None else None}
+    return {"config": clef.config(), "healthy": clef.healthy(), "day": agg(now - 86400), "all": agg(0), "pending": pend,
             "per_min": round(per_min, 1), "events_day": ev, "owner_applied_day": own, "events_per_min": round(ev_min, 1), "timeouts": clef.STATS["timeouts"],
             "status": {k: STATUS.get(k) for k in ("clef_stage", "clef_todo", "clef_related_this_run", "classifying", "classified_this_run", "event_secs")}}
 
@@ -2729,7 +2903,7 @@ def run_once(get_base, latest_sid):
     if use_clef and latest_sid:  # stage 2 only when the decision model has decided every link of the newest snapshot
         try:
             b = get_base(latest_sid)
-            if b and b.get("related") and not (apply(b).get("llm") or {}).get("pending"):
+            if b and b.get("related"):  # each correlated group is labelled once it settles (event_pass), not when the whole snapshot is decided
                 done += event_pass(b)
             if b:
                 sync_alarms(b)

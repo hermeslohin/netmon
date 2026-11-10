@@ -95,7 +95,7 @@ os.environ.setdefault("NETMON_DB", os.path.join(STATE, "netmon.db"))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 import store  # noqa: E402  /netmon/store.py, DB on the writable /state volume
-import lookback  # noqa: E402  /netmon/lookback.py: review job lookback window (AI pipeline pages)
+import lookback  # noqa: E402  /netmon/lookback.py: the event window (Settings > Site): correlation, review lookback, settle wait
 import runarchive  # noqa: E402  review-run summaries that outlive the run documents
 import fixlist  # noqa: E402  the Fix list in SQL
 import vulnhist  # noqa: E402  /netmon/vulnhist.py: daily vulnerability counts (Fix list + Kubernetes line charts)
@@ -489,6 +489,8 @@ def cfg_validate(doc, data):
             for k in ("service_child_suspicious", "net_suspicious_procs"):
                 if data.get(k):
                     re.compile(str(data[k]))
+        if doc == "site" and "event_window_minutes" in data and lookback.valid(data.get("event_window_minutes")) is None:
+            return f"event_window_minutes must be a whole number of minutes between {lookback.MIN_M} and {lookback.MAX_M}"
         if doc == "policy":
             import ipaddress
             zs = data.get("zones") or {}
@@ -720,7 +722,8 @@ def correlation(sid):
     _clr = with_cleared({}).get("_cleared_seg") or set()  # includes the segmentation suppress rules
     open_iss = [i for i in it.get("open", []) if (i.get("status", "open") == "open" or str(i.get("status", "")).startswith("open"))
                 and risk.seg_key_issue(i["key"]) not in _clr]
-    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()), tuple(r["id"] for r in store.seg_suppress_list()), tuple(r["id"] for r in store.ids_suppress_list()))
+    ck = (sid, alerts[0]["id"] if alerts else 0, len(open_iss), len(acks_load_all()), tuple(r["id"] for r in store.seg_suppress_list()), tuple(r["id"] for r in store.ids_suppress_list()),
+          lookback.minutes())  # a changed event window (Settings > Site) rebuilds the map at once
     hit = _CORR.get(sid)
     if hit and hit[0] == ck:
         return hit[1]
@@ -755,7 +758,7 @@ def _correlation_build(sid, res, alerts, open_iss, ck):
     latest = bool(snapshots()) and snapshots()[-1]["id"] == sid
     v = correlate.build(res["raw"], res["analysis"], alerts, open_iss, adm,
                         SITE.is_internal, lateral._resolver(res["raw"]), tech, latest=latest,
-                        cleared=pol.get("_cleared_seg") or set(), triage=res.get("triage"))
+                        cleared=pol.get("_cleared_seg") or set(), triage=res.get("triage"), window=ck[-1] * 60)
     try:  # suppress rules: check off what they cover (the events stay in the correlation)
         import suppress
         suppress.apply(v.get("events") or {}, res["raw"], res["analysis"], open_iss, v.get("related"), sid=sid if latest else None)
@@ -814,7 +817,7 @@ def review_job():
         tgt = {"provider": "", "model": ""}
     return {"job": "review", "name": "Review job", "model": tgt["model"], "provider": tgt["provider"],
             "provider_name": llm_providers.name(tgt["provider"]) if tgt["provider"] else "",
-            "interval_minutes": cfg["interval_minutes"], "enabled": cfg["enabled"], "next_run_at": review_cfg.next_run(),
+            "interval_minutes": cfg["interval_minutes"], "interval_effective": cfg.get("interval_effective", cfg["interval_minutes"]), "enabled": cfg["enabled"], "next_run_at": review_cfg.next_run(),
             "last_run_at": last.get("started"), "last_status": last.get("status"), "running": st.get("running"),
             "requested": review_cfg.pending_request(),
             "severities": cfg["severities"], "severity_options": cfg["severity_options"],
@@ -1225,13 +1228,6 @@ class H(BaseHTTPRequestHandler):
                     return self._json({**r, "admin": True})
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
-            if u.path == "/api/config/lookback":  # hours of logs each review run collects (admin; read by collect.py auto)
-                try:
-                    res = lookback.put(body.get("hours"), user)
-                except ValueError as e:
-                    return self._json({"error": str(e)}, 400)
-                print(f"review lookback: {user} set {res['hours']} h", file=sys.stderr)
-                return self._json({"ok": True, "lookback": res})
             if u.path in ("/api/config/triage", "/api/config/triage/reopen", "/api/config/triage/run", "/api/config/triage/reopen-guard", "/api/config/review-schedule"):
                 if u.path == "/api/config/review-schedule":
                     try:
@@ -2034,7 +2030,7 @@ class H(BaseHTTPRequestHandler):
                 if (q.get("held") or [""])[0]:  # held detections (not promoted to alarms) with verdicts + verdict counts
                     import eventstore
                     v_ = (q.get("v") or [""])[0]
-                    res = eventstore.detections(min(lim, 500), v_ if v_ in (*eventstore.VERDICTS, "unreviewed") else None)
+                    res = eventstore.detections(min(lim, 500), v_ if v_ in (*eventstore.VERDICTS, "pending", "unreviewed") else None)
                     for r in res["alerts"]:
                         r["mine"] = store.alert_for(r, ids)
                     return self._json(res)

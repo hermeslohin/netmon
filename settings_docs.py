@@ -116,6 +116,12 @@ DOCS = {
         "kibana_data_view": "Kibana Discover data view id used by those links (default logs-*).",
         "unifi_web_url": "Base URL of the UniFi Network web app, for pivot links from a client or event straight into UniFi.",
         "unifi_paths": "Label -> page path under unifi_web_url for the UniFi pivot links (for example 'Flows' -> 'insights/flows').",
+        "event_window_minutes": "Event window in minutes (2-120, default 10). One setting for three things: (1) correlation - two events only "
+                                "become a candidate link when they happened at most this far apart; (2) review coverage - each review job run "
+                                "collects everything that arrived since the previous run plus one window before it, so nothing falls between "
+                                "runs; (3) settle wait - the event reviewer labels a correlated group once, when its newest event is this old "
+                                "(plus 5 min for late log arrivals) and none of its links is still undecided. Until then the group's events "
+                                "show 'Pending review' with the time it settles. Applies within seconds, no restart.",
     },
 }
 

@@ -548,7 +548,7 @@ class AlertsPageJsTest(unittest.TestCase):
         self.assertIn("AI 83%", v[2])
         self.assertIn("event reviewer (AI)", v[2])
         self.assertIn('expected</span> <span class="small muted">model</span>', v[3])
-        self.assertEqual(t["sortKeys"][col], [3, 0, 2, 1], "sorted suspicious, expected, benign, unreviewed")
+        self.assertEqual(t["sortKeys"][col], [4, 0, 2, 1], "sorted suspicious, expected, benign, (pending), unreviewed")
 
     def test_alarm_columns_by_role(self):
         """Admins and defenders get Ask, When, Level, Verdict, Alert, Research, Notes, Artifact notes, row links and filter; a User gets When, Level, Alert only.
@@ -604,11 +604,12 @@ class AlertsPageJsTest(unittest.TestCase):
         out = self.run_js(extra={"alerts": [], "extra": {}}, held=held)
         st = out["steps"][0]
         kp = json.loads(next(h for h in st["html"] if h.startswith("KPIS:"))[5:])
-        self.assertEqual([k[0] for k in kp], ["Suspicious", "Expected", "Benign", "Not reviewed"])
+        self.assertEqual([k[0] for k in kp], ["Suspicious", "Expected", "Benign", "Pending review", "Not reviewed"])
         self.assertIn('>1</a> <span class="small muted">1 alarm</span>', kp[0][1])
-        self.assertEqual((kp[0][2], kp[1][2], kp[2][2], kp[3][2]), ("bad", "good", "good", ""))
+        self.assertEqual((kp[0][2], kp[1][2], kp[2][2], kp[3][2], kp[4][2]), ("bad", "good", "good", "", ""))
         self.assertIn(">4</a>", kp[2][1])
-        self.assertIn(">3</a>", kp[3][1])
+        self.assertIn(">0</a>", kp[3][1])  # pending review
+        self.assertIn(">3</a>", kp[4][1])
         dc = self.card(st, "Detections by verdict")
         self.assertEqual(dc["title"], "Detections by verdict (7, newest 2 shown)")
         self.assertIn('class="vf-chip on" data-v="">All (7)', dc["body"])

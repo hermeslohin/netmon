@@ -51,7 +51,7 @@
   function colsFor(t, askKind, pivKind) {
     const title = (x) => x.label;
     const ack = { k: "_ack", t: "✓", fmt: (v, x) => ackCell(x), sort: () => 0 };
-    const verdict = { k: "_verdict", t: "Verdict", fmt: (v, x) => chips(x), sort: (x) => (window.__oeExtra?.classes?.[x.eid]?.label || "~") };
+    const verdict = { k: "_verdict", t: "Verdict", fmt: (v, x) => chips(x), sort: (x) => (window.__oeExtra?.classes?.[x.eid]?.label || "~"), text: (x) => { const cl = window.__oeExtra?.classes?.[x.eid]; return cl ? (cl.label === "pending" ? "pending review" : cl.label + (cl.pending ? " pending review" : "")) : ""; } };
     const notes = { k: "_unote", t: "Notes", fmt: (v, x) => noteBtn(x.eid), sort: (x) => (S.corr?.unotes?.[x.eid] || []).length };
     const sev = { k: "sev", t: "Severity", fmt: (v) => badge(v || "low"), sort: (x) => sevRank(x.sev) };
     const seen = { k: "n", t: "Seen", num: true, fmt: (v, x) => `${v}×${x.repeats > 1 ? ` <span class="muted small" title="same condition, different numbers each night">${x.repeats} variants</span>` : ""}` };
@@ -80,7 +80,7 @@
   const vcls = (v) => String(v || "").replace(/[^a-z-]/g, "");
   function chips(x) {
     const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], rn = X.related_n?.[x.eid] || 0;
-    return (c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ` : "")
+    return (c?.label === "pending" ? pendBadge(c) + " " : c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ${c.pending ? pendBadge(c, true) + " " : ""}` : "")
       + (c?.sources?.length ? `<span class="small" title="the event reviewer cited ${c.sources.length} web page${c.sources.length === 1 ? "" : "s"} (open the event to see them)">🌍${c.sources.length}</span> ` : "")
       + (n && n.verdict ? `<span class="note-v v-${vcls(n.verdict)}" title="Research note verdict">📝 ${esc(n.verdict)}</span> ` : "")
       + (rn ? `<span class="muted small" title="related events">${rn} related</span>` : "");
@@ -230,7 +230,7 @@
     const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".askdlg-scrim, dialog[open]")) close(); };
     document.addEventListener("keydown", onKey, true); addEventListener("hashchange", close);
     const verdictHtml = (c || n) ? `<div class="oe-verdict">
-        ${c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span>
+        ${c?.label === "pending" ? `<div>${pendBadge(c)}<div class="small muted">${esc(pendTitle(c.pending))}</div></div>` : c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${c.pending ? pendBadge(c) : ""}
           ${c.owner && window.relUi?.ownerHtml ? `<div>${window.relUi.ownerHtml(c)}</div>` : ""}
           ${c.reason ? `<div class="small">${/^Decision model:/.test(c.reason) ? "" : aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) + " "}${window.relUi?.reasonHtml ? window.relUi.reasonHtml(c.reason, c.sources) : esc(c.reason)}</div>` : ""}
           ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}
@@ -283,16 +283,24 @@
     window.__oeMembers = Object.fromEntries(r.events.map((x) => [x.eid, x.members || []]));
     el.innerHTML = "";
     const f = OE.f, c = r.counts || {};
-    const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev));
+    const qv = (/[?&]v=([a-z]*)/.exec(String(globalThis.location?.hash || "")) || [])[1] ?? null; if (qv != null && f._qv !== qv) { f.v = qv; f._qv = qv; }
+    // AI label of a row: the event reviewer's label, "pending" (its correlated group has not settled yet) or "unreviewed"
+    const vOf = (x) => { const cl = window.__oeExtra?.classes?.[x.eid]; return cl?.label === "pending" ? "pending" : cl?.label || "unreviewed"; };
+    const vc = {}; for (const x of r.events) vc[vOf(x)] = (vc[vOf(x)] || 0) + 1;
+    const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev) && (!f.v || vOf(x) === f.v));
     el.insertAdjacentHTML("beforeend", `<div class="muted small">Your backlog: every event stays here until someone accepts it (checks it off), however old — the time range does not apply and nothing expires. Fix-list items (vulnerabilities / misconfigurations) are not listed here: they are on the <a href="#/issues">Fix list</a>. Repeats of one condition are collapsed into one row (unlike <a href="#/posture">Posture</a>, which lists what happened in the selected time range, row by row). Click a row for every occurrence and its related events.</div>`);
-    el.insertAdjacentHTML("beforeend", kpis([["Open events", r.total], ...TYPES.filter(([t]) => c[t]).map(([t, name]) => [name.replace(/ \(.*/, ""), c[t]])]));
+    el.insertAdjacentHTML("beforeend", kpis([["Open events", r.total], ...TYPES.filter(([t]) => c[t]).map(([t, name]) => [name.replace(/ \(.*/, ""), c[t]]),
+      ["Pending review", `<a href="javascript:void 0" class="oe-pend-kpi" title="Events whose correlated group has not settled yet: the event reviewer labels the group once it has">${fn(vc.pending || 0)}</a>`]]));
     const bar = document.createElement("div"); bar.className = "fchips";
     bar.innerHTML = `<select id="oeT"><option value="">All types</option>${TYPES.map(([t, n]) => `<option value="${t}" ${f.type === t ? "selected" : ""}>${esc(n.replace(/ \(.*/, ""))}${c[t] ? " (" + c[t] + ")" : ""}</option>`).join("")}</select> ` +
-      `<select id="oeS"><option value="">Any severity</option>${["high", "medium", "low"].map((s) => `<option ${f.sev === s ? "selected" : ""}>${s}</option>`).join("")}</select>`;
+      `<select id="oeS"><option value="">Any severity</option>${["high", "medium", "low"].map((s) => `<option ${f.sev === s ? "selected" : ""}>${s}</option>`).join("")}</select> ` +
+      `<select id="oeV"><option value="">Any AI label</option>${[["suspicious", "Suspicious"], ["benign", "Benign"], ["expected", "Expected"], ["pending", "Pending review"], ["unreviewed", "Not reviewed"]].map(([v, n]) => `<option value="${v}" ${f.v === v ? "selected" : ""}>${n}${vc[v] ? " (" + vc[v] + ")" : ""}</option>`).join("")}</select>`;
     el.appendChild(bar);
     bar.querySelector("#oeT").onchange = (e) => { f.type = e.target.value; V.events(el); };
     bar.querySelector("#oeS").onchange = (e) => { f.sev = e.target.value; V.events(el); };
-    if (!rows.length) { el.appendChild(card("Open events", `<div class="empty">${r.events.length ? "Nothing open matches the type / severity filter." : "Nothing open — everything is checked off."}</div>`)); return; }
+    bar.querySelector("#oeV").onchange = (e) => { f.v = e.target.value; V.events(el); };
+    el.querySelector?.(".oe-pend-kpi")?.addEventListener("click", () => { f.v = "pending"; V.events(el); });
+    if (!rows.length) { el.appendChild(card("Open events", `<div class="empty">${r.events.length ? "Nothing open matches the type / severity / AI label filter." : "Nothing open — everything is checked off."}</div>`)); return; }
     for (const [t, name, askKind, pivKind] of TYPES) {
       const list = rows.filter((x) => x.type === t);
       if (!list.length) continue;

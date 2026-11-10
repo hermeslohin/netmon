@@ -334,7 +334,7 @@ def extras(rows):
     allids = [m for r in rows for m in r["members"]]
     try:
         import enrich, corr_llm, kb
-        N, C, U = enrich.load(allids), corr_llm.classes(allids), kb.event_notes(allids)
+        N, C, U = enrich.load(allids), corr_llm.classes(allids, pending=True), kb.event_notes(allids)
     except Exception as e:  # noqa: BLE001 - the page works without them
         print(f"eventstore extras: {e}", file=sys.stderr)
         N = C = U = {}
@@ -475,6 +475,8 @@ def alert_verdict(ref, X):
     c = (X.get("classes") or {}).get(ref)
     if c and c.get("label") in VERDICTS:
         return c["label"], "ai"
+    if c and c.get("pending"):  # its correlated group has not settled yet: the event reviewer labels it then
+        return "pending", "ai"
     return "unreviewed", ""
 
 
@@ -536,7 +538,7 @@ def alert_view(alerts, related=True, art_limit=6):
         try:
             import enrich, corr_llm, kb
             allids = [m for r in rows for m in r["members"]]
-            N, C, U = enrich.load(allids), corr_llm.classes(allids), kb.event_notes(allids)
+            N, C, U = enrich.load(allids), corr_llm.classes(allids, pending=True), kb.event_notes(allids)
             for r in rows:
                 for m in reversed(r["members"]):
                     for src, dst in ((N, "notes"), (C, "classes"), (U, "unotes")):
@@ -606,7 +608,7 @@ def detections(limit=300, verdict=None):
     try:
         import corr_llm, kb
         ids = list(dict.fromkeys(refs + [f"alert|{a['id']}" for a in allrows]))
-        C, U = corr_llm.classes(ids), kb.event_notes(ids)
+        C, U = corr_llm.classes(ids, pending=True), kb.event_notes(ids)
         for a in allrows:
             for m in (a["eid"], f"alert|{a['id']}"):
                 for src, dst in ((C, "classes"), (U, "unotes")):

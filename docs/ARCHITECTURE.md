@@ -96,7 +96,7 @@ runs these background threads:
 |---|---|---|
 | `eventstore-ingest` | `eventstore.py` | turns each new snapshot into events with stable ids; open until checked off |
 | `eventstore-ingest` (same thread) | `runarchive.py` | folds each review run into `run_summary` (threat-intel counter row), the Fix-list tables (`fixlist.py`: `fix_run`, `fix_run_source`, `fix_run_device`, `fix_run_ipmac`, `fix_run_lookup`, `fix_item`; the Fix list is one SQL query over them) and `finding_seen`, then deletes the run's documents (`data/<stamp>*`) except the newest 8 and the 05 UTC daily runs of the auto-tune window. Review runs are pipeline input only; the browser never loads one |
-| `corr-llm` | `corr_llm.py`, `clef.py` | correlation review: decision model per proposed link, then one event pass per event |
+| `corr-llm` | `corr_llm.py`, `clef.py` | correlation review: decision model per proposed link, then one event reviewer call per settled correlated group (continuous) |
 | `webpush` | `pushsvc.py` | sends unpushed rows of the `alerts` table as Web Push (VAPID) |
 | `audit-writer` | `audit.py` | ships user actions and AI conversations to `logs-netmon`; spools locally while Elasticsearch is down |
 | `notes-consolidate-timer` | `notes_consolidate.py` | nightly merge of duplicate analyst notes |
@@ -140,15 +140,18 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
 
 1. **Collect.** `collect.py` queries Elasticsearch (Zeek, Suricata, Elastic Defend, osquery, Kubernetes data
    streams), the Kubernetes API of each configured cluster (CIS benchmark, latest image scan) and the UniFi cache
-   over a time window (`window.py`). The watcher uses the last 15 minutes, the review job its lookback window
-   (`lookback.py`), the daily run 24 hours, a dashboard time range an explicit start and end.
+   over a time window (`window.py`). The watcher uses the last 15 minutes, the review job everything since its last
+   run plus one event window (`lookback.py`, More > Settings > Site > `event_window_minutes`), the daily run 24 hours, a dashboard time range an explicit start and end.
 2. **Analyze.** `analyze.py` compares the snapshot against each device's baseline (`host_baseline`, `history`),
    runs the deterministic issue checks (`issues.py`), risk scoring (`risk.py`), ATT&CK mapping (`mitre.py`) and
    threat-intel matching (`extras.py`, `intelmatch.py`).
 3. **Suppress.** Suppress rules, checked-off items and known-benign patterns (`suppress.py`) hide matching events.
-4. **Correlate.** `correlate.py` proposes links between events (shared hosts, IPs, accounts, time, ATT&CK, same
-   problem). The decision model answers one yes/no question per link; the event reviewer model then labels each
-   event suspicious, benign or expected and writes one reason paragraph per event plus link artifacts. A person's
+4. **Correlate.** `correlate.py` proposes links between events (shared hosts, IPs, accounts, ATT&CK, same problem)
+   that happened at most one **event window** apart (More > Settings > Site > `event_window_minutes`, default 10 min).
+   Continuously, in the dashboard's correlation worker (every 5-60 s), the decision model answers one yes/no question
+   per link; once a correlated group has settled (its newest event one window + 5 min old, no link undecided) the
+   event reviewer model makes ONE call for the group, labels every member suspicious, benign or expected and writes
+   one reason paragraph plus link artifacts. Until then the events show "Pending review, settles at HH:MM". A person's
    verdict on the event, or on artifacts it shows, outweighs the reviewer's label. Verdicts live in `corr_llm.db`.
 5. **Review job.** For events in a "review" category without a note, the event reviewer copies a matching earlier
    note (marked as copied). It never writes new notes. Everything else waits on **AI pipeline monitoring → Queue**.
@@ -165,7 +168,7 @@ The urgent path is separate and has no AI: watcher → `alerts` table → `webpu
 | Stage | Model | Where chosen | Input | Output |
 |---|---|---|---|---|
 | Correlation link decision | decision model (System One API, probabilities only) | AI pipeline configuration → Decision model settings | the two events + the script's evidence | related / not related per link |
-| Event pass | event reviewer model | AI pipeline configuration → Models | event + decided links + notes + intel hits + a person's verdict that applies | suspicious / benign / expected (a person's verdict outweighs it), one reason paragraph per event, link artifacts |
+| Event pass | event reviewer model | AI pipeline configuration → Models | a settled correlated group (anchor + members) + notes + intel hits + a person's verdict that applies | suspicious / benign / expected on every member (a person's verdict outweighs it), one reason paragraph per group, link artifacts |
 | Review job | event reviewer model | AI pipeline configuration → Models | queued events + earlier notes | copied note or left queued |
 | Event research | research model | AI pipeline configuration → Models | one event, web, optional Elasticsearch | research note with verdict |
 | Ask AI | chat model | AI pipeline configuration → Models | user question + read-only tools | answer |

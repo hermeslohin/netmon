@@ -158,7 +158,7 @@ def settings_state():
     ai = aireview(a)
     integ = a.get("/api/config/integrations")[1]
     return {
-        "lookback": ai["lookback"]["hours"], "config": ai["config"], "clef": ai["clef"]["config"],
+        "lookback": ai["lookback"]["minutes"], "config": ai["config"], "clef": ai["clef"]["config"],
         "web_cache": {k: ai["web_cache"][k] for k in ("enabled", "days")},
         "review": {k: ai["review"][k] for k in ("enabled", "interval_minutes", "modes")},
         "research": {k: ai["research"][k] for k in ("provider", "model", "limits", "web_research", "es_search")},
@@ -308,16 +308,16 @@ class ReviewJob(Base):
     """Review job, event research and auto-close settings."""
 
     def test_lookback_saved(self):
-        """The review lookback hours are saved and shown on the AI pipeline page; out-of-range or non-numbers are refused.
-        REQ: SET-64"""
+        """The event window is saved under Settings > Site, shown on the AI pipeline page and picked up live; out-of-range or non-numbers are refused.
+        REQ: SET-64, EVW-01"""
         a = admin()
-        r = self.ok(a, "/api/config/lookback", {"hours": 6})
-        self.assertEqual(r["lookback"]["hours"], 6)
-        self.assertEqual(aireview(a)["lookback"]["hours"], 6)
-        self.assertEqual(aireview(a)["lookback"]["by"], harness.ADMIN_USER)
-        self.bad_unchanged(a, [("/api/config/lookback", {"hours": 0}), ("/api/config/lookback", {"hours": 25}),
-                               ("/api/config/lookback", {"hours": "six"}), ("/api/config/lookback", {"hours": True}),
-                               ("/api/config/lookback", {})], lambda: aireview(a)["lookback"]["hours"])
+        set_w = lambda v: ("/api/config/cfg", {"doc": "site", "path": ["event_window_minutes"], "value": v})  # noqa: E731
+        self.ok(a, "/api/config/cfg", {"doc": "site", "path": ["internal_prefixes"], "value": ["10."]})  # the fixture's site doc starts empty
+        self.ok(a, *set_w(5))
+        self.assertEqual(aireview(a)["lookback"]["minutes"], 5)
+        self.ok(a, *set_w(10))
+        self.assertEqual(aireview(a)["lookback"]["minutes"], 10)
+        self.bad_unchanged(a, [set_w(1), set_w(121), set_w("six"), set_w(True), set_w(2.5)], lambda: aireview(a)["lookback"]["minutes"])
 
     def test_review_schedule_saved(self):
         """The review job interval (hours + minutes) is saved and read back; under 5 minutes or a non-number is refused.
@@ -540,11 +540,11 @@ class EventReviewer(Base):
         """Review limits (max links, classification, time window, verdict retention, pair modes) are saved; bad values refused.
         REQ: SET-66"""
         a = admin()
-        self.ok(a, "/api/llm/review-limits", {"max_links": 7, "classify": True, "window": 30, "discard_days": 10,
+        self.ok(a, "/api/llm/review-limits", {"max_links": 7, "classify": True, "discard_days": 10,
                                               "pair_modes": {"alert-vuln": "review"}})
         L = aireview(a)["limits"]
         self.assertEqual((L["max_links"], L["classify"], L["window_minutes"], L["discard_days"], L["pair_modes"].get("alert-vuln")),
-                         (7, True, 30, 10, "review"))
+                         (7, True, 10, 10, "review"))  # the window is the event window (Settings > Site), not a review limit
         self.bad_unchanged(a, [("/api/llm/review-limits", {"max_links": -1}), ("/api/llm/review-limits", {"max_links": 201}),
                                ("/api/llm/review-limits", {"window": "soon"}), ("/api/llm/review-limits", {"discard_days": -2}),
                                ("/api/llm/review-limits", {"pair_modes": {"Bad Pair": "review"}}),
@@ -643,7 +643,6 @@ def admin_only_posts():
         ("/api/config/integrations/web", {"provider": "brave", "api_key": fake_key("dn02")}),
         ("/api/config/integrations/opencti", {"min_score": 12}),
         ("/api/config/integrations/feeds", {"items": [{"name": "e2e_denied", "url": LOOP, "kind": "ips"}]}),
-        ("/api/config/lookback", {"hours": 2}),
         ("/api/config/review-schedule", {"hours": 9}),
         ("/api/config/triage", {"reviewer_expected": True, "min_conf": 0.55}),
         ("/api/config/triage/reopen", {}),
@@ -744,10 +743,10 @@ class SettingsAudit(Base):
                 break
             time.sleep(0.5)
         self.assertEqual(sorted(want - seen), [])
-        hit = next(r for r in rows if is_post(r, "/api/config/lookback"))
+        hit = next(r for r in rows if is_post(r, "/api/config/review-schedule"))
         self.assertEqual(hit["user"]["roles"], ["admin"])
-        self.assertEqual(hit["event"]["action"], "config.lookback")
-        self.assertEqual(hit["netmon"]["params"]["hours"], 2)
+        self.assertEqual(hit["event"]["action"], "config.review-schedule")
+        self.assertEqual(hit["netmon"]["params"]["hours"], 9)
 
     def test_secrets_redacted(self):
         """API keys sent to integration and provider settings never appear in the audit log, saved or rejected.
@@ -775,9 +774,9 @@ class SettingsAudit(Base):
         REQ: SET-70, SET-69"""
         a, d = admin(), as_(DEFENDER)
         self.bad(a, "/api/llm/clef", {"related_min": 3})
-        self.bad(d, "/api/config/lookback", {"hours": 3}, codes=(403,))
+        self.bad(d, "/api/config/review-schedule", {"hours": 3}, codes=(403,))
         h1, _ = audit_wait(lambda r: is_post(r, "/api/llm/clef", outcome="failure") and r["http"]["response"]["status_code"] == 400)
-        h2, _ = audit_wait(lambda r: is_post(r, "/api/config/lookback", user=DEFENDER, outcome="failure")
+        h2, _ = audit_wait(lambda r: is_post(r, "/api/config/review-schedule", user=DEFENDER, outcome="failure")
                            and r["http"]["response"]["status_code"] == 403)
         self.assertTrue(h1)
         self.assertTrue(h2)

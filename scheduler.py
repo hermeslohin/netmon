@@ -145,7 +145,8 @@ def tick(now=None):
         start("review", [PY, os.path.join(NM, "review.py"), "--trigger", "manual"], f"(requested by {req.get('by')})")
     cfg = RC.get()
     if cfg["enabled"]:
-        st = RC.slot_start(RC.slot(now, cfg["interval_minutes"]), cfg["interval_minutes"])
+        iv = cfg["interval_effective"]  # at most one event window (review_cfg.effective)
+        st = RC.slot_start(RC.slot(now, iv), iv)
         if "review" not in s:
             s["review"] = st  # first start: wait for the next slot instead of running at once
         elif st > float(s.get("review") or 0):  # a new slot began (an interval change never re-runs an earlier slot)

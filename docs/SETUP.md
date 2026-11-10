@@ -146,8 +146,9 @@ checked by the first run after they arrive.
   successful window. No event ids are kept.
 - Watcher window = (bookmark, now - 2 min]. Windows touch end to end, so every event is checked exactly once. The
   2-minute margin covers the data streams' 30 s refresh, so events stamped just before the end are already searchable.
-- Review job window = (min(bookmark, now - lookback), now - 2 min], so it keeps its usual lookback overlap and also
-  covers any runs that were missed.
+- Review job window = (min(bookmark - event window, now - event window), now - 2 min]: everything since the last run
+  plus one event window before it (More > Settings > Site > `event_window_minutes`, default 10 min), so a new event
+  always meets the events it may link to, nothing falls between runs whatever the interval, and missed runs are covered.
 - The bookmark moves only after a run without failed checks (watcher) or failed collectors (review job). A failed run is
   covered by the next one. After an outage longer than 7 days the window restarts at now - 7 days.
 - Documents without `event.ingested` fall back to `@timestamp` over the same span.
@@ -216,7 +217,7 @@ Jobs never overlap with themselves. A slot missed while the host was down is not
 
 Each run:
 
-1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover the lookback window set on the AI pipeline pages (1-24 h, stored by `lookback.py`). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
+1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover everything that arrived since the previous run plus one **event window** (More > Settings > Site > `event_window_minutes`, 2-120 min, default 10, `lookback.py`; the job runs at least once per window). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. Builds the work list (`enrich.sh events`): every event without a note, by category (`review_cfg.py` modes: **review**, **queue**, **test**, **skip**). Every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events.
 3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI pipeline configuration → Models, e.g. a local open-weights model; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
 4. Everything else waits in the **Queue** on the AI pipeline pages for a person.

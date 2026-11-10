@@ -687,3 +687,7 @@ tr.muted td { opacity: .6; }
 .tls-x{background:none;border:0;color:var(--muted);font-size:18px;line-height:1;padding:4px 8px;cursor:pointer}
 .tls-modal .idgrid span{overflow-wrap:anywhere}
 @media (max-width:700px){.tls-x{font-size:22px;padding:6px 10px}}
+
+/* "Pending review" (corr_llm.event_pass): the event's correlated group has not settled yet */
+.note-v.v-pending,.cls-btn.v-pending{color:var(--warn,#d9a400);border-color:var(--warn,#d9a400)}
+.cls-btn.pend:not(.v-pending){box-shadow:inset 0 -2px 0 var(--warn,#d9a400)}

@@ -178,11 +178,11 @@ for i, (c, t) in enumerate(legend):
 out_leg.append(f'<line x1="720" y1="{ly + 18}" x2="760" y2="{ly + 18}" stroke="#94a3b8" stroke-width="1.5"/><text x="768" y="{ly + 22}" fill="#94a3b8" font-size="10">request / data flow</text>')
 out_leg.append(f'<line x1="720" y1="{ly + 38}" x2="760" y2="{ly + 38}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="6,3"/><text x="768" y="{ly + 42}" fill="#94a3b8" font-size="10">via internet / cloud</text>')
 notes = ["Elasticsearch is queried read-only; the one write is the dashboard's append-only audit log (index logs-netmon). netmon never changes UniFi or the network.",
-         "Review job (every 30 min-24 h, set on the dashboard): collect + analyze, and an event reviewer that copies similar earlier notes (marked as copied) or leaves events queued. Events are researched by the model only when a person clicks Send to research.",
+         "Review job (at least once per event window, default 10 min): collect everything since the last run + one window, analyze, and an event reviewer that copies similar earlier notes (marked as copied) or leaves events queued. Events are researched by the model only when a person clicks Send to research.",
          "Every 15 min: deterministic watcher → alerts table → Web Push to subscribed users. Nothing is posted to chat.",
          "Ask AI: dashboard chat with the chosen model; only web search/fetch + read-only netmon tools (no terminal/files/memory).",
          "Host broker: the dashboard has no Elasticsearch key; time-range collection and event reviewer look-ups go through host_broker.py.",
-         "Correlation: the script proposes links, review limits filter them, the decision model (System One API) decides links only; the event reviewer labels each event and explains it; a person's verdict outweighs its label.",
+         "Correlation: the script proposes links, review limits filter them, the decision model (System One API) decides links only, live; once a correlated group settles (one event window after its newest event) the event reviewer labels the whole group in one call (Pending review until then); a person's verdict outweighs its label.",
          "Event reviewer look-ups first: a planning call picks Elasticsearch searches (via the broker, max 3) and web look-ups (Firecrawl; ipinfo.io for IPs),",
          "   then it decides with the results and cites pages as [W1] links (Open events, classification pop-up). Re-reviews reuse results for 6 h; web cache 7 days.",
          "Local models (optional): any OpenAI-compatible server for the event reviewer, any System One server on loopback for the decision model; host service, Kubernetes or another server, all interchangeable with cloud APIs.",

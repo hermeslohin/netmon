@@ -14,6 +14,7 @@ DEFAULTS = {
     "admin_workstations": "your admin workstation", "host_ips": {}, "display_names": {}, "crown_jewels": {},
     "game_ports": {}, "vapid_contact": "mailto:admin@example.invalid", "github_user": "", "github_repo": "",
     "image_repo": "", "sensitive_terms": [],
+    "event_window_minutes": 10,  # lookback.py: correlation window, review lookback and settle wait (2-120 min)
     # pivot links (dashboard 🔎 buttons): Kibana base URL + Discover data view, UniFi Network web app base + pages
     "kibana_url": "", "kibana_data_view": "logs-*", "unifi_web_url": "",
     "unifi_paths": {"Security detections (System Log)": "logs/threats", "Flows": "insights/flows"},
