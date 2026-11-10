@@ -222,6 +222,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67 | 5 | 3 |
 | `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
 | `review.lookback` | More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait) | `/api/config/cfg` | EVW-01, EVW-02, EVW-03, EVW-04, SET-64 | 14 | 6 |
+| `push.gate` | More > Settings > Site > push_wait_for_ai / push_hold_max_minutes: wait for the AI verdict before phone alerts, longest hold | `/api/config/cfg` | PSH-01, PSH-05, PSH-06 | 6 | 0 |
 | `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
 | `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 29 | 7 |
 | `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
@@ -283,6 +284,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_opencti.py` | 13 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07) |
 | `tests/unit/test_owner_verdict_scope.py` | 10 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
 | `tests/unit/test_posture.py` | 29 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
+| `tests/unit/test_push_gate.py` | 11 | Phone-push gate (dashboard/app/pushgate.py): urgent alarms wait for the event reviewer's group verdict, expected / (PSH-01, PSH-02, PSH-03, PSH-04, PSH-05, PSH-06) |
 | `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, RISK-03, STO-06, STO-07) |
 | `tests/unit/test_related_view.py` | 1 | Open events page: related events of rows older than the loaded snapshot come from the stored verdicts (STO-10) |
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |

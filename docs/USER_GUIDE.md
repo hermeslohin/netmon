@@ -158,6 +158,18 @@ Detections are not pushed on their own: they appear under **Detections by verdic
 
 Push is set up per browser or phone, so do it on each one you use. The device choice belongs to your account.
 
+### Phone alerts wait for the AI verdict
+
+With **Wait for AI verdict before phone alerts** on (the default; admins change it under **More > Settings > Site > `push_wait_for_ai`**), an urgent alert does not buzz your phone the moment it is raised. It waits until the event reviewer has labelled the alert's whole correlated group, so the notification can tell you what the AI thinks:
+
+- **Meanwhile** the alert is already on the Alerts page with the **⏳ Pending review** badge.
+- **Suspicious, malicious or unknown:** you get the notification with the verdict and confidence, the reviewer's one-line reason and how many events were reviewed together. These verdicts always notify.
+- **Expected or benign, and every auto-close guard rail agrees** (no protected category such as admin access or threat intel, no suspicious activity on the same device, confident enough): no phone notification at all. The alert still shows on the dashboard (and is auto-closed as usual). Its verdict pop-up says **📵 push suppressed (expected)**, so you can always check what was kept off your phone.
+- **Expected or benign, but a guard rail objects:** you are notified, and the notification says which guard rail.
+- **No AI verdict in time:** if the verdict has not arrived after **`push_hold_max_minutes`** (default *0 = auto*: the event window + 5 minutes, so 15 minutes with the default 10-minute window), or the event reviewer is off or failing, or the event is *Not reviewed*, you are notified anyway, marked **AI review unavailable**. An urgent alert is never dropped without a notification or a suppression note.
+
+Turn the switch off to get every urgent alert immediately, without AI context, as before.
+
 ### Reading alerts
 
 **Recent alerts** lists the last 30 days, newest first. Unread alerts are highlighted. **Mark all read** clears the counter: for admins and network defenders it marks every alert read for everyone, for a User only for themselves. Admins and defenders also see **Verdict**, **Research**, **Notes** and **Artifact notes** columns; click a row to open the event with its related events. Users see When, Level and Alert.
@@ -780,6 +792,7 @@ Reload once (⟳ in the header, or the browser's reload). On a phone, close the 
 - **Are notifications allowed?** Check the browser's site settings.
 - **Is the device selected?** Check that the device is included under *Which devices alert me*.
 - **iPhone/iPad:** notifications only work from the home-screen app.
+- **Was it kept off your phone on purpose?** With *Wait for AI verdict before phone alerts* on, an alert the AI calls expected or benign (and every guard rail agrees) is not pushed; its verdict pop-up says *push suppressed*. Other alerts arrive once the AI verdict is in, at most `push_hold_max_minutes` after they were raised.
 
 **A finding keeps coming back after I checked it off.**
 Checking off is tied to the finding's wording. If the finding's details change (for example a different port), it counts as a new finding. For segmentation flows, use **Clear**; it follows the device even if its IP address changes.

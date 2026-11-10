@@ -242,6 +242,11 @@ class TestRunOnce(_Base):
                      "user1": {"hash": "x", "role": "user"}, "user2": {"hash": "x", "role": "user"}}, auth.USERS)
         store.registry_save({mac(1): {"mac": mac(1), "ips": [IPS["laptop"]], "name": "Laptop"},
                              mac(3): {"mac": mac(3), "ips": [IPS["camera"]], "name": "Camera"}})
+        d = store.cfg_load("site")  # fan-out only: the AI-verdict push gate is tested in test_push_gate.py
+        d["push_wait_for_ai"] = False
+        store.cfg_save("site", d)
+        import site_cfg
+        site_cfg._cache = None
         self.sent = []
         self.ok = True
         p = mock.patch.object(pushsvc, "send", self._send)

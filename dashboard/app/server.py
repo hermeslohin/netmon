@@ -480,6 +480,15 @@ def tuning_info():
 
 def cfg_with_defaults(doc, data):
     """Settings added after an install show on the Settings page with their default value and note (saved on the next edit)."""
+    if doc == "site":  # phone-push gate (pushgate.py): shown with their defaults until first saved
+        import settings_docs
+        out, notes = dict(data), settings_docs.DOCS.get("site", {})
+        for k, dv in (("push_wait_for_ai", True), ("push_hold_max_minutes", 0)):
+            if k not in out:
+                out[k] = dv
+            if notes.get(k) and "_doc_" + k not in out:
+                out["_doc_" + k] = notes[k]
+        return out
     if doc != "policy":
         return data
     out = dict(data)
@@ -545,6 +554,12 @@ def cfg_validate(doc, data):
                     re.compile(str(data[k]))
         if doc == "site" and "event_window_minutes" in data and lookback.valid(data.get("event_window_minutes")) is None:
             return f"event_window_minutes must be a whole number of minutes between {lookback.MIN_M} and {lookback.MAX_M}"
+        if doc == "site" and "push_wait_for_ai" in data and not isinstance(data.get("push_wait_for_ai"), bool):
+            return "push_wait_for_ai must be on or off"
+        if doc == "site" and "push_hold_max_minutes" in data:
+            v = data.get("push_hold_max_minutes")
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 240:
+                return "push_hold_max_minutes must be a whole number of minutes between 0 (auto) and 240"
         if doc == "policy":
             import ipaddress
             zs = data.get("zones") or {}

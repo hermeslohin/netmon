@@ -131,6 +131,14 @@ DOCS = {
                                 "runs; (3) settle wait - the event reviewer labels a correlated group once, when its newest event is this old "
                                 "(plus 5 min for late log arrivals) and none of its links is still undecided. Until then the group's events "
                                 "show 'Pending review' with the time it settles. Applies within seconds, no restart.",
+        "push_wait_for_ai": "Wait for AI verdict before phone alerts (default on). An urgent alarm reaches phones only once the event "
+                            "reviewer has labelled its correlated group, and the notification carries the verdict, its reason and the "
+                            "group size. Expected or benign alarms that pass every auto-close guard rail are not pushed at all (still on "
+                            "the dashboard, logged as 'push suppressed'). Suspicious, malicious and unknown verdicts always push. Off = "
+                            "every alarm is pushed at once, as before.",
+        "push_hold_max_minutes": "Longest an urgent alarm waits for the AI verdict before it is pushed anyway, marked 'AI review "
+                                 "unavailable' (0 = auto: event window + 5 min; 1-240). It is also pushed at once when the event "
+                                 "reviewer is off or failing, or the event is Not reviewed.",
     },
 }
 

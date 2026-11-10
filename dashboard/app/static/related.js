@@ -278,11 +278,15 @@
       : `<div class="small" style="margin-top:6px"><b>Auto-close</b>${ac.map((r) => `<div class="vd-ac">${r.state === "closed" ? "🤖" : "↩"} ${esc(AC_STATE[r.state] || r.state)} · ${esc(ft(r.state === "expired" ? r.closed_at || r.at : r.at))}
           · verdict <b>${esc(r.verdict || "")}</b> from the ${r.source === "person" ? "person's verdict" : r.source === "reviewer" ? "event reviewer" : "research note"}${r.refs ? ` · ${r.refs} grouped item${r.refs === 1 ? "" : "s"}` : ""}
           ${r.can_reopen && canAck ? ` <button type="button" class="vd-reopen" data-t="${esc(r.type)}" data-k="${esc(r.key)}" title="Un-check it: back to the open findings; auto-close will not close it again">Reopen</button>` : ""}</div>`).join("")}</div>`;
+    // phone-push gate (pushgate.py): a suppressed push gets a small note; a held / fail-safe push says so too
+    const PG = { suppressed: (r) => `📵 push suppressed (${r.verdict || "expected"})`, held: () => "⏳ phone alert held until the AI verdict",
+      "pushed-unavailable": () => "📱 pushed: AI review unavailable", pushed: (r) => `📱 pushed${r.verdict ? " with verdict " + r.verdict : ""}` };
+    const pgHtml = (V?.push || []).filter((r) => PG[r.state]).slice(0, 3).map((r) => `<div class="small muted vd-push" title="${esc(r.why || "")}">${esc(PG[r.state](r))}${r.at ? " · " + esc(ft(isoAt(r.at))) : ""}</div>`).join("");
     const ev = V?.event?.label ? `<div class="small muted">${V.event.link ? `<a href="${esc(V.event.link)}">${esc(V.event.label.slice(0, 120))}</a>` : esc(V.event.label.slice(0, 120))}</div>` : "";
     const eid = V?.eid || id;
     return `<div class="rel-head"><b>AI verdict</b> ${c && c.model ? aiFlare({ model: String(c.model).split(" + ").pop(), via: "event reviewer", at: isoAt(c.at) }) : ""}
         <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
-      <div class="note-body">${ev}${head}${when}${why}${acHtml}
+      <div class="note-body">${ev}${head}${when}${why}${acHtml}${pgHtml}
         ${eid ? `<div class="rel-inputs" data-inputs="${esc(eid)}"><div class="small muted">Loading the events reviewed together…</div></div>` : ""}
         <div class="small muted">Label and reason from the event reviewer once all of this event's links were decided; it labels the whole correlated group (listed above) in one call. A person's verdict outweighs it. Verify before acting.</div></div>`;
   }

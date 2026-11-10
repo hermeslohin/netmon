@@ -63,18 +63,27 @@ def send(sub, payload, ttl=3600, urgency="high"):
 def payload_for(rows):
     if len(rows) == 1:
         r = rows[0]
-        return {"title": "Syn: " + ("ALERT" if r["severity"] == "investigate" else "urgent"), "body": r["text"][:400],
+        ai = r.get("ai") or {}
+        return {"title": "Syn: " + ("ALERT" if r["severity"] == "investigate" else "urgent") + (" · " + ai["tag"] if ai else ""),
+                "body": ((ai["line"] + "\n") if ai else "") + r["text"][:400],
                 "tag": "netmon-" + str(r["id"]), "url": "/#/reports" if r.get("source") == "report" else "/#/alerts",
                 "severity": r["severity"]}
     inv = sum(1 for r in rows if r["severity"] == "investigate")
-    body = "\n".join("• " + r["text"][:140] for r in rows[:4]) + (f"\n…and {len(rows) - 4} more" if len(rows) > 4 else "")
+    body = "\n".join("• " + (f"[{r['ai']['tag']}] " if r.get("ai") else "") + r["text"][:140] for r in rows[:4]) + (f"\n…and {len(rows) - 4} more" if len(rows) > 4 else "")
     return {"title": f"Syn: {len(rows)} urgent alerts" + (f" ({inv} investigate)" if inv else ""), "body": body,
             "tag": "netmon-batch-" + str(rows[-1]["id"]), "url": "/#/alerts", "severity": "investigate" if inv else "urgent"}
 
 
 def run_once():
     rows = store.alerts_unpushed()
+    try:  # urgent / investigate alarms wait for the AI verdict (pushgate.py); suppressed ones are marked without a push
+        import pushgate
+        rows, done = pushgate.decide(rows)
+    except Exception as e:  # noqa: BLE001 - fail safe: without the gate every alarm goes out as before
+        print(f"push gate failed, pushing unfiltered: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        done = [r["id"] for r in rows]
     if not rows:
+        store.alerts_mark(done, "pushed")
         return 0
     subs = store.push_subs()
     reg = store.registry_load() if subs else {}
@@ -95,7 +104,7 @@ def run_once():
         else:
             _status["last_error"] = err
             print(f"push to {s['endpoint'][:60]}… failed: {err}", file=sys.stderr, flush=True)
-    store.alerts_mark([r["id"] for r in rows], "pushed")  # mark even with no subscribers: no flood on first subscribe
+    store.alerts_mark(done, "pushed")  # mark even with no subscribers: no flood on first subscribe (held alarms stay unpushed)
     return len(rows)
 
 

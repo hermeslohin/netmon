@@ -270,6 +270,92 @@ def _refs_of(row):
         return []
 
 
+def _host_hold(oe, g, notes, cls, pv, hosts, cut):
+    """Guard 3's held hosts: {host token: label} of open events some source (or a person) called suspicious/malicious,
+    seen since cut. Empty when host_hold is off."""
+    sus = {}
+    for e in (oe if g["host_hold"] else ()):
+        mem = [e["eid"], *(e.get("members") or [])]
+        if _epoch(e.get("last_seen")) < cut or str(e["eid"]).startswith(NO_HOLD):
+            continue
+        pn = max((pv[m] for m in mem if m in pv), key=lambda n: n["ts"] or 0, default=None)
+        badv = (pn["verdict"] in BAD) if pn else any(v in BAD for m in mem for v in _verdicts(m, notes, cls).values())
+        if badv:
+            for h in hosts(mem):
+                sus.setdefault(h, e.get("label") or e["eid"])
+    return sus
+
+
+def guard_rails(mem, good, g, sus, hosts, evx, info, lx=None):
+    """The auto-close guard rails (module docstring 1, 2, 3, 6) for an AI expected/benign verdict on one event (mem = the
+    event and its grouped members). good = the closing verdicts ["reviewer_expected", ...]; g = _guard(settings);
+    sus = _host_hold(); info(src) = that source's verdict record; lx = an expired closure of the event's group.
+    Returns (guard or None, why, good, held hosts, protected categories). Used by run() and by the phone-push gate
+    (push_check), so both apply exactly the same rules."""
+    guard, why, hh, pc = None, "", [], []
+    if lx:  # guard 6: after an expired closure only a newer verdict counts
+        since = _epoch(lx.get("closed_at"))
+        fresh = [k for k in good if _epoch(info(k.split("_")[0]).get("at")) > since]
+        if fresh:
+            good = fresh
+        else:
+            guard, why = "stale", f"closure expired; waiting for a verdict newer than {lx.get('closed_at')}"
+    hh = sorted(hosts(mem) & sus.keys()) if not guard else []
+    if hh:  # guard 3
+        guard, why = "host", f"held: open suspicious event on {hh[0]} ({str(sus[hh[0]])[:70]})"
+    pc = sorted(set().union(*(categories(m, evx[m][0] if m in evx else "") for m in mem)) & set(g["protect"])) if not guard else []
+    if pc:  # guard 2
+        guard, why = "protected", "protected category: " + ", ".join(pc)
+    if not guard and g["min_conf"] > 0 and not any(k.startswith("researcher_") for k in good):  # guard 1
+        conf = info("reviewer").get("confidence")
+        if conf is None or float(conf) < g["min_conf"]:
+            guard, why = "low_conf", f"event reviewer confidence {conf if conf is not None else '?'} < {g['min_conf']} and no research note agrees"
+    return guard, why, good, hh, pc
+
+
+def push_check(eid, members=()):
+    """Phone-push gate (pushgate.py): may an urgent alarm about this event stay off the phones? ok=True only when its
+    verdict is expected/benign (a person's, or an AI verdict that passes every guard rail above, the same
+    guard_rails() auto-close uses) and no source calls it suspicious/malicious. Returns {ok, verdict, source, guard, why}."""
+    import corr_llm
+    import eventstore
+    import kb
+    with _lock:
+        c = _c()
+        g = _guard(settings(c))
+        evx, _gl = _event_index()
+        mem = list(dict.fromkeys([eid, *members]))
+        oe = eventstore.open_events(limit=10 ** 6)["events"]
+        ids = list(dict.fromkeys(mem + [i for e in oe for i in [e["eid"], *(e.get("members") or [])]]))
+        notes, cls, pv = enrich.load(ids), corr_llm.classes(ids), kb.person_verdicts(ids)
+
+        def hosts(ms):
+            out = set()
+            for m in ms:
+                out |= evx[m][2] if m in evx else _hosts_of(m)
+            return out
+        pn = max((pv[m] for m in mem if m in pv), key=lambda n: n["ts"] or 0, default=None)
+        if pn:  # a person's call outranks every AI verdict and every guard rail
+            ok = pn["verdict"] in KINDS
+            return {"ok": ok, "verdict": pn["verdict"], "source": "person", "guard": None, "why": "" if ok else "a person called it " + pn["verdict"]}
+        vs, bad = {}, None
+        for m in mem:
+            for k, v in _verdicts(m, notes, cls).items():
+                vs.setdefault(k, v)
+                bad = bad or (v if v in BAD else None)
+        if bad:  # any source on any grouped member calling it suspicious / malicious always pushes
+            return {"ok": False, "verdict": bad, "source": "", "guard": None, "why": f"a source calls the group {bad}"}
+        good = [f"{k}_{vs[k]}" for k in SOURCES if vs.get(k) in KINDS]
+        if not good:
+            return {"ok": False, "verdict": vs.get("reviewer") or "", "source": "reviewer", "guard": None, "why": "no expected/benign verdict"}
+        lx = next((dict(r) for r in c.execute("SELECT * FROM autoclose_log WHERE state='expired' AND eid IS NOT NULL")
+                   if eventstore.gkey(r["eid"]) == eventstore.gkey(eid)), None)
+        info = lambda src: (notes.get(eid) if src == "researcher" else cls.get(eid)) or {}  # noqa: E731
+        guard, why, good, _hh, _pc = guard_rails(mem, good, g, _host_hold(oe, g, notes, cls, pv, hosts, time.time() - HOLD_HOURS * 3600),
+                                                 hosts, evx, info, lx=lx)
+        return {"ok": not guard, "verdict": good[0].split("_", 1)[1], "source": good[0].split("_", 1)[0], "guard": guard, "why": why}
+
+
 def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", with_open=True, reopen_guard=False):
     """Apply the enabled options to the snapshot. Returns counts (also the preview for the Configuration card).
     An item closes when an enabled source says expected/benign, no source calls it suspicious/malicious and no guard rail
@@ -347,16 +433,7 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
 
         # guard 3: hosts with an open event some source (or a person) called suspicious/malicious, seen in the last HOLD_HOURS
         # off (host_hold false): only the event called suspicious stays open; the rest of its host closes as usual
-        sus = {}
-        for e in (oe if g["host_hold"] else ()):
-            mem = [e["eid"], *(e.get("members") or [])]
-            if _epoch(e.get("last_seen")) < cut or str(e["eid"]).startswith(NO_HOLD):
-                continue
-            pn = max((pv[m] for m in mem if m in pv), key=lambda n: n["ts"] or 0, default=None)
-            badv = (pn["verdict"] in BAD) if pn else any(v in BAD for m in mem for v in _verdicts(m, notes, cls).values())
-            if badv:
-                for h in hosts(mem):
-                    sus.setdefault(h, e.get("label") or e["eid"])
+        sus = _host_hold(oe, g, notes, cls, pv, hosts, cut)
 
         def reopen(typ, key, a, lg, label, why):
             """Un-check an auto-closed item (own + group check-offs). False when a suppress rule keeps it hidden."""
@@ -415,26 +492,10 @@ def run(raw, analysis, open_issues, other_eids=(), dry=False, trigger="manual", 
             def info(src):
                 return vfrom.get((eid, src)) or (notes.get(eid) if src == "researcher" else cls.get(eid)) or {}
 
-            guard, why = None, ""
+            guard, why, hh, pc = None, "", [], []
             if not pn:  # guard rails hold back AI verdicts only; a person's call always applies
                 lx = lg if lg and lg["state"] == "expired" else exp_by_g.get(eventstore.gkey(eid))
-                if lx and not auto:  # guard 6: after an expired closure only a newer verdict counts
-                    since = _epoch(lx.get("closed_at"))
-                    fresh = [k for k in good if _epoch(info(k.split("_")[0]).get("at")) > since]
-                    if fresh:
-                        good = fresh
-                    else:
-                        guard, why = "stale", f"closure expired; waiting for a verdict newer than {lx.get('closed_at')}"
-                hh = sorted(hosts(mem) & sus.keys()) if not guard else []
-                if hh:  # guard 3
-                    guard, why = "host", f"held: open suspicious event on {hh[0]} ({str(sus[hh[0]])[:70]})"
-                pc = sorted(set().union(*(categories(m, evx[m][0] if m in evx else "") for m in mem)) & protect) if not guard else []
-                if pc:  # guard 2
-                    guard, why = "protected", "protected category: " + ", ".join(pc)
-                if not guard and g["min_conf"] > 0 and not any(k.startswith("researcher_") for k in good):  # guard 1
-                    conf = info("reviewer").get("confidence")
-                    if conf is None or float(conf) < g["min_conf"]:
-                        guard, why = "low_conf", f"event reviewer confidence {conf if conf is not None else '?'} < {g['min_conf']} and no research note agrees"
+                guard, why, good, hh, pc = guard_rails(mem, good, g, sus, hosts, evx, info, lx=None if auto else lx)
             if guard and auto and lg and lg["state"] == "closed" and (lg.get("source") or "researcher") != "person":
                 recent = glast.get(eventstore.gkey(eid), 0) >= cut or any((evx.get(m) or (0, 0))[1] >= cut for m in mem)
                 if guard == "host" and recent:
@@ -671,7 +732,14 @@ def verdict_info(eid="", typ="", key=""):
             ev = eventstore._ev_view([eid]).get(eid) or {}
         except Exception as e:  # noqa: BLE001
             print(f"verdict_info: event: {type(e).__name__}: {e}", file=sys.stderr)
-    return {"eid": eid, "event": {k: ev.get(k) for k in ("type", "label", "link", "t0", "t1")}, "class": cls, "autoclose": ac}
+    push = []
+    if eid:
+        try:  # what the phone-push gate did with alarms about this event (held / pushed / suppressed)
+            import pushgate
+            push = pushgate.for_event(eid)
+        except Exception as e:  # noqa: BLE001
+            print(f"verdict_info: push gate: {type(e).__name__}: {e}", file=sys.stderr)
+    return {"eid": eid, "event": {k: ev.get(k) for k in ("type", "label", "link", "t0", "t1")}, "class": cls, "autoclose": ac, "push": push}
 
 
 if __name__ == "__main__":
