@@ -19,6 +19,20 @@
   const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
   const blankLike = (v) => (Array.isArray(v) ? [] : isObj(v) ? {} : typeof v === "number" ? 0 : typeof v === "boolean" ? false : "");
 
+  // device_classes keys are MACs or IPs: show the host name Syn has learned for each (device registry = UniFi / DHCP /
+  // device naming, then the open time range's devices, then the page's name lookup). Display only: never saved.
+  const learnedHost = (key, reg, devs, nameOf) => {
+    const k = String(key || "").trim().toLowerCase();
+    if (!k) return "";
+    const hit = (d) => d && (String(d.mac || "").toLowerCase() === k || (d.ips || []).includes(key) || (d.ip && d.ip === key));
+    for (const [rk, d] of Object.entries(reg || {})) if (rk.toLowerCase() === k || hit(d)) { const n = d.hostname || d.name; if (n) return n; }
+    for (const [ip, d] of Object.entries(devs || {})) if (ip === key || hit({ ...d, ip })) { const n = d.hostname || d.name; if (n) return n; }
+    return (nameOf && nameOf(key)) || "";
+  };
+  window.learnedHost = learnedHost;
+  const learnedEl = (key) => h("div", { class: "muted small cfg-learned", title: "Host name learned from UniFi / DHCP / device naming (display only)" },
+    "learned: " + (learnedHost(key, S.reg?.devices_seen, S.snap?.raw?.devices, S.idx?.nameOf) || "—"));
+
   // Each editor: { el, get() }. get() throws Error(text) when a value is invalid.
   function scalar(v, ed) {
     if (typeof v === "boolean") { const i = h("input", { type: "checkbox", disabled: !ed }); i.checked = v; return { el: i, get: () => i.checked }; }
@@ -44,7 +58,7 @@
   function filterBox(tbl, n) {
     if (n <= 12) return null;
     const f = h("input", { type: "search", placeholder: `filter ${n} rows`, style: "margin:4px 0;width:16em" });
-    f.oninput = () => { const q = f.value.toLowerCase(); tbl.querySelectorAll("tbody tr").forEach((tr) => { const t = [...tr.querySelectorAll("input,textarea")].map((x) => x.value).join(" ").toLowerCase(); tr.style.display = !q || t.includes(q) ? "" : "none"; }); };
+    f.oninput = () => { const q = f.value.toLowerCase(); tbl.querySelectorAll("tbody tr").forEach((tr) => { const t = [...tr.querySelectorAll("input,textarea")].map((x) => x.value).concat([...tr.querySelectorAll(".cfg-learned")].map((x) => x.textContent)).join(" ").toLowerCase(); tr.style.display = !q || t.includes(q) ? "" : "none"; }); };
     return f;
   }
 
@@ -84,7 +98,8 @@
     const addRow = (k, v, fresh) => {
       const tr = h("tr"), r = { ro: k.startsWith("_"), orig: k };
       const ki = h("input", { type: "text", value: k, disabled: !ed || r.ro, style: "min-width:8em" });
-      r.key = ki; tr.append(h("td", {}, ki));
+      r.key = ki; tr.append(h("td", {}, ki, key === "device_classes" && !r.ro ? learnedEl(k) : ""));
+      if (key === "device_classes" && !r.ro) ki.addEventListener("change", () => { const l = tr.querySelector(".cfg-learned"); if (l) l.replaceWith(learnedEl(ki.value.trim())); });
       if (r.ro) { r.keep = v; tr.append(h("td", { colspan: matrix ? cols.length : 1, class: "muted small" }, typeof v === "string" ? v : JSON.stringify(v))); tb.append(tr); rows.push(r); return; }
       if (matrix) { r.cells = {}; r.absent = new Set(cols.filter((c) => !(c in v))); cols.forEach((c) => { const e = editor(v[c] ?? blankLike(sample[c]), ed, c); r.cells[c] = e; tr.append(h("td", {}, e.el)); }); }
       else { r.e = editor(v, ed, k); tr.append(h("td", {}, r.e.el)); }

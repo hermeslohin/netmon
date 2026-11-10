@@ -524,7 +524,7 @@ function ackBox(type, x, label) {
     const sip = src.includes(":") ? macIp(src) || src : src; label = `Segmentation: ${S.idx?.nameOf?.(sip) || sip} → ${S.idx?.nameOf?.(dst) || dst}:${port}`; }
   if (t === "seg") return `<input type="checkbox" class="ack-cb" data-t="seg" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Cleared " + esc(ft(a.at)) + " — uncheck to bring it back" : "Clear: this flow is expected (hides it everywhere and stops it counting toward risk)"}">` + why;
   const sup = !a && type !== "seg" && ["admin", "defender"].includes(S.me?.role) && label !== undefined && window.suppressDialog
-    ? `<button type="button" class="sup-btn" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" title="Suppress: hide it like a check-off, but as a rule by signature name (and optionally an artifact). Rules are listed under Settings → Configuration; still correlated.">🚫</button>` : "";
+    ? `<button type="button" class="sup-btn" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" title="Suppress: hide it like a check-off, but as a rule by signature name (and optionally an artifact). Rules are listed under Settings → Configuration; still correlated." aria-label="Suppress"><i class="ic ic-ban" aria-hidden="true"></i></button>` : "";
   return `<input type="checkbox" class="ack-cb" data-t="${type}" data-k="${esc(k)}" data-l="${esc(label || "")}" ${a ? "checked" : ""} title="${a ? "Checked off " + esc(ft(a.at)) + " — uncheck to restore" : "Check off (hide)"}">${sup}${why}`;
 }
 document.addEventListener("click", (e) => {
@@ -1672,7 +1672,7 @@ function backdropClose(d, close) {
 window.backdropClose = backdropClose;
 const touchUI = () => matchMedia("(pointer: coarse)").matches;
 window.touchUI = touchUI;
-function idsSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn ids-sup" data-sig="${esc(x.name)}" title="Suppress this IDS signature: hidden everywhere in netmon (Security Onion and UniFi are not changed)">🚫</button>` : ""; }
+function idsSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn ids-sup" data-sig="${esc(x.name)}" title="Suppress this IDS signature: hidden everywhere in netmon (Security Onion and UniFi are not changed)" aria-label="Suppress"><i class="ic ic-ban" aria-hidden="true"></i></button>` : ""; }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".ids-sup"); if (!b) return;
   const d = document.createElement("div"); d.className = "modal-back";
@@ -1691,7 +1691,7 @@ document.addEventListener("click", (e) => {
     catch (err) { q(".is-ok").disabled = false; q(".is-msg").textContent = "error: " + (err.message || err); }
   };
 });
-function segSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn seg-sup" data-src="${esc(x.src)}" data-dst="${esc(x.dst)}" data-port="${esc(x.port)}" title="Suppress segmentation violations by IP address and ports: hidden everywhere and never sent to the correlation">🚫</button>` : ""; }
+function segSupBtn(x) { return S.me && ["admin", "defender"].includes(S.me.role) ? `<button type="button" class="sup-btn seg-sup" data-src="${esc(x.src)}" data-dst="${esc(x.dst)}" data-port="${esc(x.port)}" title="Suppress segmentation violations by IP address and ports: hidden everywhere and never sent to the correlation" aria-label="Suppress"><i class="ic ic-ban" aria-hidden="true"></i></button>` : ""; }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".seg-sup"); if (!b) return;
   const d = document.createElement("div"); d.className = "modal-back";

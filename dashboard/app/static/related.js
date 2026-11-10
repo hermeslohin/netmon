@@ -324,7 +324,7 @@
   window.alertMuteHtml = (label) => { return ""; /* never-send mute rules removed */ if (!canMute()) return ""; const h = alertHost(label);
     return `<span class="mute-btns small" data-label="${esc(label)}"><button type="button" class="mute-btn" data-mute="name" title="Mute alerts like this: never send them to the AI, clear the ones already raised and clear future ones automatically. You can edit the pattern.">mute name…</button>`
       + `<button type="button" class="mute-btn" data-mute="host" ${h ? "" : "disabled"} title="${h ? `Only for host ${esc(h)}` : "no host in this alert"}">mute name + host…</button>`
-      + `<button type="button" class="mute-btn" data-mute="suppress" title="Suppress: hide alerts like this from the feed but keep them in correlation, research and review. You can edit the pattern and pick an artifact of the alert or of its correlated events.">🚫 suppress…</button></span>`; };
+      + `<button type="button" class="mute-btn mute-sup" data-mute="suppress" title="Suppress: hide alerts like this from the feed but keep them in correlation, research and review. You can edit the pattern and pick an artifact of the alert or of its correlated events."><i class="ic ic-ban" aria-hidden="true"></i> suppress…</button></span>`; };
   // ---- Suppress dialog (button next to a check-off box): hide an event by signature name (+ one artifact), keep it in correlation
   let lastClick = null; document.addEventListener("click", (e) => { lastClick = e.target; }, true);
   const globRe = (g) => new RegExp("^" + String(g).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");

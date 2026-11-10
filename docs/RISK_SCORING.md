@@ -19,7 +19,7 @@ and `dashboard/app/lateral.py` (admin sessions and link scores).
 - [Tuning](#tuning)
 - [Known limitations](#known-limitations)
 
-![Security → Risk: network risk index, high/medium host counts, top 15 hosts stacked by component, and the likelihood × impact bubble chart](img/risk-overview.png)
+![Security → Risk: network risk index, high/medium host counts, top 15 hosts stacked by component, and the likelihood × impact bubble chart](img/risk-overview.webp)
 
 ---
 
@@ -127,7 +127,7 @@ Likelihood measures how probable a compromise is. Impact measures how much a com
 network. An impact-5 host can reach the full 100. An impact-2 IoT device tops out at 40, so a noisy camera never
 outranks a moderately exposed server.
 
-![Hosts ranked by risk: score, likelihood, impact, zone, class, open issues and the top three drivers per host](img/risk-hosts.png)
+![Hosts ranked by risk: score, likelihood, impact, zone, class, open issues and the top three drivers per host](img/risk-hosts.webp)
 
 Each host's device or endpoint page has a **Risk to the network** card. It shows the five likelihood components as
 bars against their caps, the impact and its reason, and every driver:
@@ -295,7 +295,7 @@ Host risk bubbles use the newest nightly snapshot, not the picked periods.
 - **Network map** zone badges show the highest host risk in the zone. Badges appear only when that value is ≥ 8.
   With **Colour by: Risk**, each host is filled green → red by its score, and riskier hosts are drawn larger.
 
-![Network map coloured by host risk, with a zone badge showing the highest risk in each zone](img/network-map.png)
+![Network map coloured by host risk, with a zone badge showing the highest risk in each zone](img/network-map.webp)
 
 ---
 
@@ -351,7 +351,7 @@ With impact 5 (class `server`), risk = 45.9 × 5 / 5 = **45.9**, which is red. T
 The **Scoring model** box at the bottom of the Risk page summarises the model and reads the severity bases live
 from the API:
 
-![Scoring model box on the Risk page](img/risk-model.png)
+![Scoring model box on the Risk page](img/risk-model.webp)
 
 All weights are module-level constants:
 

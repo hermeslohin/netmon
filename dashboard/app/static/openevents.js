@@ -45,7 +45,7 @@
     const [a, ...more] = x.acks || [];
     if (!a) return "";
     const sup = ["admin", "defender"].includes(S.me?.role) && window.suppressDialog
-      ? `<button type="button" class="sup-btn" data-t="${esc(a.type)}" data-k="${esc(a.key)}" data-l="${esc(x.label)}" title="Suppress: hide it like a check-off, but as a rule by signature name (and optionally an artifact). Rules are listed under Settings → Configuration; still correlated.">🚫</button>` : "";
+      ? `<button type="button" class="sup-btn" data-t="${esc(a.type)}" data-k="${esc(a.key)}" data-l="${esc(x.label)}" title="Suppress: hide it like a check-off, but as a rule by signature name (and optionally an artifact). Rules are listed under Settings → Configuration; still correlated." aria-label="Suppress"><i class="ic ic-ban" aria-hidden="true"></i></button>` : "";
     return `<input type="checkbox" class="ack-cb" data-t="${esc(a.type)}" data-k="${esc(a.key)}" data-l="${esc(x.label)}" data-more="${esc(JSON.stringify(more))}" title="Check off${x.repeats > 1 ? ` (all ${x.repeats} variants of this)` : ""}">${sup}`;
   };
 

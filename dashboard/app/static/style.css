@@ -825,8 +825,15 @@ header{background:#0b0b0c}
 .ic-note{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'/%3E%3C/svg%3E")}.ic-chat{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E")}
 i.ic{font-style:normal}
 .unote-btn .ic,.extnote-btn .ic{width:12px;height:12px;margin:0;vertical-align:-1px;background:currentColor}
-.unote-btn,.extnote-btn{color:var(--gold);border-color:rgba(217,182,93,.35);opacity:.85;border-radius:999px}
-.unote-btn:hover,.unote-btn.has,.extnote-btn:hover,.extnote-btn.has{color:var(--gold2);border-color:var(--gold);background:var(--gold-dim)}
+.unote-btn,.extnote-btn,.sup-btn,.mute-sup{color:var(--gold);border-color:rgba(217,182,93,.35);opacity:.85;border-radius:999px}
+.unote-btn:hover,.unote-btn.has,.extnote-btn:hover,.extnote-btn.has,.sup-btn:hover,.mute-sup:hover{color:var(--gold2);border-color:var(--gold);background:var(--gold-dim)}
+/* suppress (🚫 rule) button: same gold pill as the note/ask buttons, with a line "ban" icon in currentColor */
+.sup-btn{margin-left:4px;padding:1px 6px;font-size:11px;line-height:1.4;background:var(--panel2);border:1px solid rgba(217,182,93,.35);cursor:pointer;white-space:nowrap}
+.sup-btn .ic,.mute-sup .ic{width:12px;height:12px;margin:0;vertical-align:-1px;background:currentColor}.mute-sup .ic{margin-right:3px}
+.sup-btn:active,.mute-sup:active{background:var(--gold);color:#1a1408;border-color:var(--gold)}.sup-btn:active .ic,.mute-sup:active .ic{background:#1a1408}
+.sup-btn:focus-visible,.mute-sup:focus-visible{outline:2px solid var(--gold2);outline-offset:2px}
+.sup-btn:disabled,.mute-sup:disabled{opacity:.45;cursor:not-allowed;color:var(--muted);border-color:var(--border);background:var(--panel2)}
+.ic-ban{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M5.6 5.6l12.8 12.8'/%3E%3C/svg%3E")}
 .askh{border-radius:999px;color:var(--gold);padding:2px 7px}.askh .ic{width:14px;height:14px;margin:0;vertical-align:-2px;background:currentColor}
 .badge:not([class*=sev-]){border-color:var(--border);color:var(--muted)}
 .ic-user{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c1-4 4-6 8-6s7 2 8 6'/%3E%3C/svg%3E")}#userBox .ic{margin-right:6px;width:15px;height:15px}

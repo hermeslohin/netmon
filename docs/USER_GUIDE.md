@@ -51,6 +51,9 @@ Syn only reads data. It never changes the network, the gateway or Security Onion
 - If you are locked out after too many wrong passwords, wait for the lockout to expire or ask an admin (see [Users](#9-admin-tasks)).
 - The badge next to your name shows your role: **Admin** (everything), **Network defender** (sees everything, can't change settings) or **User** (only the alerts and events of the devices assigned to you; you get a **My devices** page and **Alerts**). Details: [ACCESS_CONTROL.md](ACCESS_CONTROL.md).
 
+
+<img src="img/login.webp" alt="Syn sign-in page on a computer: the Syn logo and a username and password form" width="560"> <img src="img/login-phone.webp" alt="Syn sign-in page on a phone" width="200">
+
 ---
 
 ## 3. Finding your way around
@@ -123,7 +126,7 @@ Every page is made of boxes (cards).
 | ✨ *verdict* | The AI's research note on this event. Click it to read it. See [Research notes](#research-notes-on-events). |
 | ✨ *model name* | Marks text written by an AI and which model wrote it. |
 
-![Baseline findings table with Host IP, Last seen and the filter box](img/posture-baseline-findings.png)
+![Baseline findings table with Host IP, Last seen and the filter box](img/posture-baseline-findings.webp)
 
 *Host findings on Posture: check box, 💬 Ask, Related count and the ✨ verdict button on each row.*
 
@@ -160,7 +163,7 @@ Push is set up per browser or phone, so do it on each one you use. The device ch
 
 **Noisy alerts (admins and network defenders).** Use 🚫 **suppress** on an alert (the same dialog as for findings): alerts like it are hidden from the feed and stop appearing, but still go through correlation, research and review. Suppress rules are listed and removed under Settings → Configuration → Suppress rules. Alert *mute* rules from earlier versions are still applied (a matching alert is stored already **cleared**: no push or chat message, not unread, not sent to the AI) and are listed in the **Alert mute rules** card on the Alerts page; **show cleared (N)** lists what they cleared and **Remove rule** deletes a rule and brings its alerts back. New mute rules can no longer be created.
 
-![Urgent alerts page](img/alerts.png)
+![Urgent alerts page](img/alerts.webp)
 
 ---
 
@@ -291,7 +294,7 @@ See [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for exactly which role may do what.
 
 The one-page summary of the selected snapshot.
 
-![Overview page](img/overview.png)
+![Overview page](img/overview.webp)
 
 - **Tiles:** devices seen, total and internet traffic, connections, IDS alerts, high findings, unhealthy endpoints, threat-intel hits, capture loss, recurring issues, the highest-risk host and issues fixed.
 - **Charts:** traffic per hour, top talkers, findings by severity and kind, devices by zone.
@@ -322,7 +325,11 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 
 **First occurred / Last occurred** are when the activity behind the event happened: the earliest and latest Elasticsearch record (Zeek connection, DNS or TLS log, IDS alert, endpoint process/network/file event, auth log) over every window the event appeared in. They are filled in every 15 minutes. Events with no record behind them (agent offline, silent device, Kubernetes inventory, code-scan alerts), or not looked up yet, show when Syn saw them instead, greyed and marked *(seen)*. In the detail window each firing is headed by the time it happened, with "Syn saw it …" beside it.
 
-![Open events: one card per type, with check boxes, Ask, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
+![Open events: one card per type, with check boxes, Ask, Kibana pivot, Related, verdict and note buttons](img/open-events.webp)
+
+![AI verdict pop-up: label, confidence, the event reviewer's reason, when it was reviewed and the events reviewed together](img/verdict-popup.webp)
+
+![An open event whose correlated group has not settled yet: the ⏳ Pending review badge with the time it settles](img/pending-review.webp)
 
 - **Same cards and tools as Posture.** One card per type: Baseline findings, Endpoint (host) findings, IDS signatures, Gateway events, Admin sessions, Threat intel hits, Alerts, Triage alarms. Every row has the check box and 🚫 suppress button, 💬 Ask AI, 🔎 Kibana pivot (opens on the event's own time window, not the loaded snapshot's), the **Related** count and popup, the ✨ AI research verdict, the 🏷 event reviewer classification (*suspicious*, *benign*, *expected*), your 📝 notes and the 👁 times seen. Tables sort and filter like everywhere else.
 - **Repeats are one row (unlike Posture).** A finding's text contains numbers that change every night ("145 conns", "3,983 queries"), so on Posture one condition shows up as a new row in each window. Open events groups:
@@ -336,7 +343,7 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 - **Related events** come from the stored correlation verdicts, so events of any age show their Related count and popup (links, shared artifacts, the event's label) along with their notes, verdicts and classification.
 - **Where it comes from.** Every snapshot's events are saved in the Syn database (table `events`) with their first/last time and how often they were seen, so the page needs no JSON files and survives snapshots aging out.
 
-![IDS signatures card on Open events](img/open-events-ids.png)
+![IDS signatures card on Open events](img/open-events-ids.webp)
 
 ### Security → Posture
 
@@ -400,7 +407,7 @@ Misconfigurations and security suggestions from all snapshots, such as SSH passw
 
 Every internal host in its zone behind the gateway, including hosts known from the device registry, DHCP or UniFi but not seen in the time range (greyed; **show hosts not seen in this time range** hides them). Gateway (.1), network (.0) and broadcast (.255) addresses are not drawn. **Colour by** switches between risk, device class and activity; the search box dims non-matching hosts. Click a host for details, or the gateway for its health and every zone interface. With no zones and no hosts yet (fresh install) only the gateway is shown, with a hint to add zones in Settings.
 
-![Network map](img/network-map.png)
+![Network map](img/network-map.webp)
 
 ### Network → Lateral movement
 
@@ -426,7 +433,7 @@ Host-to-host connections inside the network, compared against the zone policy.
 
 The accounts seen in your logs (endpoint logins, failed attempts, sudo, admin sessions, suspicious processes) and how each is normally used. This is not the list of dashboard logins; those are under **More → Dashboard users**. Everything here is counted from the logs, not an AI judgement.
 
-![Network users page](img/netusers.png)
+![Network users page](img/netusers.webp)
 
 - **Tiles:** accounts, accounts with logins, privileged accounts (root or sudo), accounts with mostly failed attempts, and the number of reports looked at. Click a tile to filter the table; a chip above the table shows the filter and ✕ clears it.
 - **Accounts table:** flags (for example *privileged*, *mostly failures*, *new*), successful and failed counts, hosts, sources, methods, an hour-of-day activity strip (UTC), how many reports the account appeared in, and its general pattern. Click an account for its page.
@@ -590,9 +597,14 @@ Settings that apply to everyone. Admins can change them; network defenders see t
 
 Network policy, endpoint policy, the known-benign list and your site values, edited as tables. Admins can change them; network defenders see them read-only. Everything is stored in the Syn database; there are no policy or site JSON files any more.
 
-![Settings: network policy zones and device classes as editable tables](img/settings-policy.png)
+![Settings: network policy zones and device classes as editable tables](img/settings-policy.webp)
+
+![Device classes table: each MAC or IP key shows the host name Syn learned for it (learned: —  when none)](img/settings-device-classes.webp)
+
+![Site settings with event_window_minutes, the one event-window setting](img/settings-event-window.webp)
 
 - **Four tabs:** *Network policy* (zones, device classes, sensitive and discovery ports, allowed flows), *Endpoint policy* (rules for endpoint findings: suspicious paths, processes, ports, trusted tools, admin sources, osquery expectations), *Known benign* (signatures, names, DNS and beacon domains the AI and the scoring treat as benign; the review job adds to it) and *Site* (your addresses, host names, URLs, display names, crown jewels).
+- **Device classes show the learned host name.** Under each MAC or IP key of *device_classes* the table shows `learned: <name>`, the host name Syn has learned for that device (from UniFi, DHCP or your device names), or `learned: —` if none. It is for display only and is not saved; the filter box matches it too.
 - **Each section is a card with a table.** Edit a cell in place, **+ Add row**, ✕ to remove a row, and use the filter box on long lists. Nested values (a list inside a table cell) are tables too. There is no Save button: a change is saved as soon as you leave the edited cell (or press Enter), add a key, or remove a row, and a green "✓ Saved" appears under the card. Settings that are single values sit in a **General** card.
 - **Validation.** The server refuses a section that would break a job: an invalid regular expression, an *allow* rule without a source and destination, a bad internal network range, or a known-benign table that isn't name → reason. A refused change is not saved: the reason appears in red under the card, and the cell stays as you typed it until you fix it.
 - **When it applies.** Jobs and the dashboard pick changes up within a few seconds, except values the dashboard reads only once at start (crown jewels and host IPs used by risk scoring), which need a dashboard restart.
@@ -647,7 +659,7 @@ A chat assistant that knows the Syn data. It can look up findings, devices, aler
 
 Limits: 40 messages per person per hour, 4,000 characters per message. Answers can be wrong. Check important findings on the dashboard pages.
 
-![Ask AI chat page](img/ask-ai.png)
+![Ask AI chat page](img/ask-ai.webp)
 
 ![Ask about this dialog with suggested questions and the Model menu](img/ask-dialog.png)
 *The 💬 dialog: suggested questions, your own question, and the Model menu (admins).*
@@ -665,9 +677,9 @@ The AI pipeline has two pages. Each is four boxes, one per part (jump links at t
 
 Everyone who can see the pages sees the configuration page; only admins can change it (review limits: admins and network defenders). The boxes:
 
-![Models card on AI pipeline configuration](img/aireview-models.png)
+![Models card on AI pipeline configuration](img/aireview-models.webp)
 
-![Review limits: classify events, time window, event-type matrix](img/aireview-limits.png)
+![Review limits: classify events, time window, event-type matrix](img/aireview-limits.webp)
 
 | Box | What it shows |
 |---|---|
@@ -721,7 +733,7 @@ Everyone who can see the pages sees the configuration page; only admins can chan
 - **Time range:** in the header the range picker is shrunk to a 📅 icon; tap it to open the same range popup.
 - **Research indicator:** a spinning 🔬 at the top centre shows while an event is being researched (Send to research) (checked every 15 seconds; on every page).
 
-<img src="img/mobile-overview.png" alt="Overview on a phone" width="300"> <img src="img/mobile-list.png" alt="Phone view: a table shown as a list of cards" width="300">
+<img src="img/mobile-overview.webp" alt="Overview on a phone" width="300"> <img src="img/mobile-list.webp" alt="Phone view: a table shown as a list of cards" width="300">
 *On a phone, wide tables become lists of cards.*
 
 ---
@@ -743,7 +755,7 @@ Every account has a role (full table in [ACCESS_CONTROL.md](ACCESS_CONTROL.md)):
 - **Delete a user.**
 - **Locked out?:** explains how to unlock an account after too many failed sign-ins.
 
-![Dashboard users page](img/users.png)
+![Dashboard users page](img/users.webp)
 
 Installation, adding admins and other configuration are in [SETUP.md](SETUP.md).
 
