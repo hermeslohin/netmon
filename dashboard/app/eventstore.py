@@ -652,8 +652,9 @@ def posture_items(raw, analysis):
     for h in ti.get("ip_hits_out") or []:
         out.append({"eid": f"ti|out|{h.get('ip')}", "type": "ti", "label": "", "t0": w0, "t1": w1, "host_ips": [], "item": None})
     for h in [*(ti.get("domain_hits") or []), *(ti.get("new_domains") or [])]:
-        if h.get("domain"):
-            out.append({"eid": f"ti|dom|{h.get('domain')}", "type": "ti", "label": "", "t0": w0, "t1": w1, "host_ips": [], "item": None})
+        dn = h.get("domain") or h.get("name")
+        if dn:
+            out.append({"eid": f"ti|dom|{dn}", "type": "ti", "label": "", "t0": w0, "t1": w1, "host_ips": [], "item": None})
     return out
 
 

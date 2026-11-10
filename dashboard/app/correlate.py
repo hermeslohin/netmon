@@ -365,9 +365,10 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         add(f"ti|out|{h.get('ip')}", "ti", f"Outbound to listed IP {h.get('ip')} ({', '.join(h.get('feeds', []))})", w0, w1, e,
             ["T1071"], "#/threatintel?ev=ti|out|" + str(h.get("ip")), "high", topics={"threat-intel"}, item=h)
     for h in ti.get("domain_hits") or []:
-        e = ents_from_text(str(h), {("dom", str(h.get("domain", "")).lower())})
-        add(f"ti|dom|{h.get('domain')}", "ti", f"Listed domain {h.get('domain')}", w0, w1, e, ["T1071"], "#/threatintel?ev=ti|dom|" + str(h.get("domain")), "high", topics={"threat-intel"},
-            extra=[("dns", str(h.get("domain", "")).lower(), "listed domain")] if h.get("domain") else [], item=h)
+        dn = h.get("domain") or h.get("name")  # collect.py domain hits carry the looked-up name in `name`
+        e = ents_from_text(str(h), {("dom", str(dn or "").lower())})
+        add(f"ti|dom|{dn}", "ti", f"Listed domain {dn}", w0, w1, e, ["T1071"], "#/threatintel?ev=ti|dom|" + str(dn), "high", topics={"threat-intel"},
+            extra=[("dns", str(dn).lower(), "listed domain")] if dn else [], item=h)
 
     # --- UniFi gateway events (the Posture "Gateway events" card; ids match gwId() in app.js)
     uev = ((raw.get("unifi") or {}).get("events") or {})

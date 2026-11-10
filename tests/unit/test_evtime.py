@@ -170,6 +170,17 @@ class WindowTimesTest(unittest.TestCase):
         self.assertEqual(items[0]["t1"] - items[0]["t0"], 86400)
         self.assertEqual(eventstore.posture_items({}, {}), [])
 
+    def test_domain_hits_keyed_by_name(self):
+        """Listed-domain hits from collect.py carry the domain in `name`: Posture and the correlation use it (not "None").
+        REQ: EVT-03"""
+        raw = {"generated": "2026-01-02T00:00:00Z", "threat_intel": {"domain_hits": [{"name": "c2.example", "matched": "c2.example", "sources": {IP["laptop"]: 3}}]}}
+        self.assertEqual([x["eid"] for x in eventstore.posture_items(raw, {})], ["ti|dom|c2.example"])
+        import correlate
+        v = correlate.build(raw, {}, [], [], [], lambda ip: ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."),
+                            lambda h: "", lambda s_, t: [])
+        self.assertIn("ti|dom|c2.example", v["events"])
+        self.assertEqual(v["events"]["ti|dom|c2.example"]["label"], "Listed domain c2.example")
+
     def test_cache_and_queue(self):
         """Uncached rows go to the broker queue (pending); once looked up they come back from the cache, nothing queued.
         REQ: EVT-03"""
