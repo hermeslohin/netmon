@@ -56,9 +56,29 @@ alerts = []
 EVENT_TS = {}  # alert key -> epoch the event happened (Elasticsearch @timestamp), when the check knows it
 
 
-def alert(key, text, at=None):
+_POL = None
+
+
+def alarm_on(kind, ip=None, mac=None):
+    """Per-class alarm switches (classdefs): False when the device's class has `kind` switched off."""
+    global _POL
+    import classdefs
+    if _POL is None:
+        try:
+            _POL = store.cfg_load("policy") or {}
+        except Exception:  # noqa: BLE001 - no policy = defaults (every alarm on)
+            _POL = {}
+    if ip and not mac:
+        mac = next((m for m, r_ in registry.items() if ip in (r_.get("ips") or [])), None)
+    return classdefs.device_alarm(_POL, kind, ip, mac)
+
+
+def alert(key, text, at=None, kind=None, ip=None, mac=None):
     """Queue an alert. at = when the event happened (epoch s): a late Elasticsearch arrival keeps its real time, so the
-    correlation links it by event time, not by when this pull ran."""
+    correlation links it by event time, not by when this pull ran. kind + ip/mac: dropped when that alarm is switched
+    off for the device's class."""
+    if kind and (ip or mac) and not alarm_on(kind, ip, mac):
+        return
     alerts.append((key, text))
     if at:
         EVENT_TS.setdefault(key, float(at))
@@ -111,7 +131,8 @@ for b in buckets(r["aggregations"]["s"]):
         mt = " [ATT&CK " + ", ".join(f"{i} {mitre.tech(i).get('name', '')}" for i in mt) + "]" if mt else ""
     except Exception:
         mt = ""
-    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}{late_note(b)}", at=bucket_time(b))
+    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}{late_note(b)}", at=bucket_time(b),
+          kind="ids", ip=(src or [None])[0])
 
 # 2. New devices
 known_ips = {ip for r_ in registry.values() for ip in r_.get("ips", [])}
@@ -126,13 +147,14 @@ if registry:
         if mac not in known_macs:
             ip = (buckets(b["ip"]) or [{"key": "?"}])[0]["key"]
             host = (buckets(b["h"]) or [{"key": ""}])[0]["key"]
-            alert(f"newmac|{mac}", f"**New device joined:** MAC {mac} {('host ' + host) if host else ''} got {ip} - not in inventory or baseline")
+            alert(f"newmac|{mac}", f"**New device joined:** MAC {mac} {('host ' + host) if host else ''} got {ip} - not in inventory or baseline",
+                  kind="new-device-dhcp", mac=mac, ip=None if ip == "?" else ip)
     r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), INT]}},
                            "aggs": {"s": {"terms": {"field": "source.ip", "size": 400}}}})
     for b in buckets(r["aggregations"]["s"]):
         ip = b["key"]
         if ip not in known_ips and ip not in names and b["doc_count"] >= 10 and not ip.endswith((".1", ".255")):
-            alert(f"newip|{ip}", f"**New device active:** {ip} made {b['doc_count']} connections - never seen before")
+            alert(f"newip|{ip}", f"**New device active:** {ip} made {b['doc_count']} connections - never seen before", kind="new-device", ip=ip)
 
 # 3. New Internet-facing port
 served = store.served_ports()  # indexed; no longer parses every history record each run
@@ -146,7 +168,7 @@ for b in buckets(r["aggregations"]["p"]):
     ip, port = b["key"][0], str(b["key"][1])
     if hist and port not in served.get(ip, set()):
         alert(f"inport|{ip}|{port}", f"**New Internet-facing port:** {nm(ip)} answered {b['doc_count']} conns on port {port} "
-                                     f"from {b['s']['value']} Internet hosts ({int(b['b']['value'])} bytes)")
+                                     f"from {b['s']['value']} Internet hosts ({int(b['b']['value'])} bytes)", kind="inbound-port", ip=ip)
 
 # 4. Threat intel (feeds cached by the nightly run; refresh only if very stale)
 extras.refresh_feeds(max_age_h=36)
@@ -161,7 +183,8 @@ for idx, field, dset in (("logs-zeek-so", "dns.query.name", "zeek.dns"), ("logs-
             src = [x["key"] for x in buckets(b["s"])]
             if any(f.startswith("opencti_") for f in fl):
                 octi_hits.append({"value": m, "feeds": fl, "count": b["doc_count"], "sources": [nm(x) for x in src]})
-            alert(f"tidom|{m}|{src[:1]}", f"**Threat-intel domain:** {', '.join(map(nm, src))} -> {b['key']} (listed in {', '.join(fl)})")
+            alert(f"tidom|{m}|{src[:1]}", f"**Threat-intel domain:** {', '.join(map(nm, src))} -> {b['key']} (listed in {', '.join(fl)})",
+                  kind="ti-domain", ip=(src or [None])[0])
 r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), INT, {"term": {"connection.local.responder": False}}]}},
                        "aggs": {"d": {"terms": {"field": "destination.ip", "size": 20000},
                                       "aggs": {"s": {"terms": {"field": "source.ip", "size": 2}}, "p": {"terms": {"field": "destination.port", "size": 2}}}}}})
@@ -173,7 +196,7 @@ for b in buckets(r["aggregations"]["d"]):
     if fl:
         src = [x["key"] for x in buckets(b["s"])]
         alert(f"tiip|{b['key']}|{src[:1]}", f"**Threat-intel IP:** {', '.join(map(nm, src))} -> {b['key']}:{[x['key'] for x in buckets(b['p'])]} "
-                                            f"x{b['doc_count']} (listed in {', '.join(fl)})")
+                                            f"x{b['doc_count']} (listed in {', '.join(fl)})", kind="ti-ip-out", ip=(src or [None])[0])
 
 
 def file_intel():
@@ -318,7 +341,7 @@ try:
         lead = "ALERT" if a["level"] == "high" else "notice"
         alert(f"admin|{a['src']}|{a['dst']}|{a['protocol']}|{a['level']}",
               f"**Admin {lead}:** {a['protocol']} {nm(a['src'])} -> {nm(a['dst'])}: {a['why']}"
-              f"{' - accounts ' + users if users else ''}{tags}")
+              f"{' - accounts ' + users if users else ''}{tags}", kind="admin-access", ip=a["src"])
     for k, err in (_aa.get("errors") or {}).items():
         if k != "windows_logons":
             print(f"(admin check {k} failed: {err})", file=sys.stderr)

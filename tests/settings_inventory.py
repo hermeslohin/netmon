@@ -25,6 +25,8 @@ SETTINGS = {
                            ["integrations.save"], ["FEED-01", "FEED-02", "SET-60"]),
     # ---- Settings page documents (every documented key, settings_docs.DOCS) ----
     "cfg.policy": ("Settings > Network policy (zones, roles, device classes, ports, thresholds)", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-44", "SET-45", "SET-46", "SET-47", "SET-49", "SET-50", "SET-67"]),
+    "cfg.class_defs": ("Settings > Network policy > Device class definitions (add, rename, remove, behaves like, per-class alarm switches)",
+                       ["/api/config/classes"], [], ["CLS-01", "CLS-02", "CLS-03", "CLS-04", "CLS-05", "ANA-30"]),
     "cfg.host_policy": ("Settings > Host policy", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48", "SET-49"]),
     "cfg.known_benign": ("Settings > Known benign", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),
     "cfg.site": ("Settings > Site", ["/api/config/cfg"], [], ["STO-02", "CFG-01", "EVW-01", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),

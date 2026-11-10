@@ -5,7 +5,7 @@ const PIV = new Map(), PIV_K = new Map();
 function pivotBtn(kind, item) {
   if (!SITE.kibana_url && !(kind === "gateway" && SITE.unifi_web_url)) return "";
   const id = regId(PIV, PIV_K, "p", { kind, item });
-  return `<button type="button" class="pivh" data-piv="${id}" title="Open the related events in Kibana${kind === "gateway" ? " / UniFi" : ""}" aria-label="Open related events">🔎</button>`;
+  return `<button type="button" class="pivh" data-piv="${id}" title="Open the related events in Kibana${kind === "gateway" ? " / UniFi" : ""}" aria-label="Open related events"><i class="ic ic-search" aria-hidden="true"></i></button>`;
 }
 const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivotBtn(kind, x) });
 
@@ -185,5 +185,5 @@ const pivotCol = (kind) => ({ k: "_piv", t: "", cls: "askcell", fmt: (v, x) => p
   };
   // 🔍 button (opened by the .kib-btn capture handler in related.js, so it works inside clickable rows)
   window.artSearchBtn = (kind, v, days = 7) => { const u = window.artSearchUrl(kind, v, days);
-    return u ? `<button type="button" class="kib-btn art-kib" data-kib="${esc(u)}" title="Search ${esc(String(v))} in Elasticsearch (Kibana Discover, last ${days} days)">🔍</button>` : ""; };
+    return u ? `<button type="button" class="kib-btn art-kib" data-kib="${esc(u)}" title="Search ${esc(String(v))} in Elasticsearch (Kibana Discover, last ${days} days)" aria-label="Search in Elasticsearch"><i class="ic ic-search" aria-hidden="true"></i></button>` : ""; };
 })();

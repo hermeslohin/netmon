@@ -119,7 +119,7 @@
   // #/netnotes/<ip | cidr | dom:<name> | cert:<sha256>> = one entry's notes; bare #/netnotes = the notes part of the DNS, TLS and IPs page
   const srch = (k, v) => (window.artSearchBtn ? artSearchBtn(k, v) : "");
   const srchLine = (k, v, what) => { const u = window.artSearchUrl?.(k, v);
-    return u ? `<div class="small" style="margin:4px 0 10px"><button type="button" class="kib-btn art-kib" data-kib="${esc(u)}">🔍 Search ${esc(what)} in Elasticsearch</button> <span class="muted">Kibana Discover, last 7 days</span></div>` : ""; };
+    return u ? `<div class="small" style="margin:4px 0 10px"><button type="button" class="kib-btn art-kib" data-kib="${esc(u)}"><i class="ic ic-search" aria-hidden="true"></i> Search ${esc(what)} in Elasticsearch</button> <span class="muted">Kibana Discover, last 7 days</span></div>` : ""; };
   V.netnotes = async (el, arg) => {
     const ip = decodeURIComponent(arg || "");
     if (!ip) { V.dns(el); if (!S._scrolled) setTimeout(() => document.getElementById("notes-section")?.scrollIntoView(), 600); return; }  // old link: the notes part of DNS, TLS and IPs

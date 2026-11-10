@@ -77,11 +77,11 @@
       const uns = S.corr.unotes?.[b.dataset.rel] || [], un = uns.length, ut = un ? `📝 ${un}${uns.some((x) => x.status === "pending") ? " ⏳" : ""}` : "📝";
       if (ub.textContent !== ut) ub.textContent = ut;
       ub.classList.toggle("has", un > 0);
-      // times seen: "👁 N×" after the Related count (snapshots the event was present in; alerts: times raised)
+      // times seen: gold eye icon + "N×" after the Related count (snapshots the event was present in; alerts: times raised)
       const sn = S.corr.seen?.[b.dataset.rel]; let sb = b.parentNode.querySelector(`.seen-flair[data-seen="${CSS.escape(b.dataset.rel)}"]`);
       if (sn && !sb) { sb = document.createElement("span"); sb.className = "seen-flair small muted"; sb.dataset.seen = b.dataset.rel; (ub.nextElementSibling?.classList.contains("pend-flair") ? ub.nextElementSibling : ub).after(sb); }
       if (!sn && sb) sb.remove();
-      if (sn && sb) { const t = ` 👁 ${sn.n}×`; if (sb.textContent !== t) sb.textContent = t; sb.title = `Seen ${sn.n} time${sn.n === 1 ? "" : "s"}${sn.first ? " · first " + sn.first : ""}${sn.last ? " · last " + sn.last : ""}`; }
+      if (sn && sb) { const t = ` ${sn.n}×`; if (sb.textContent !== t) { sb.textContent = t; sb.insertAdjacentHTML("afterbegin", ' <i class="ic ic-eye" aria-hidden="true"></i>'); } sb.title = `Seen ${sn.n} time${sn.n === 1 ? "" : "s"}${sn.first ? " · first " + sn.first : ""}${sn.last ? " · last " + sn.last : ""}`; }
       // "settles at HH:MM": the event's correlated group has not settled yet (its label button above says Pending review)
       const pp = cl?.pending, isP = !!pp || pendingEv(b.dataset.rel); let pf = ub.nextElementSibling?.classList.contains("pend-flair") ? ub.nextElementSibling : null;
       if (isP && !pf) { pf = document.createElement("span"); pf.className = "pend-flair"; ub.after(pf); }

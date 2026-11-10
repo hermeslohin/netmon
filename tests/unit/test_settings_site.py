@@ -201,13 +201,15 @@ class CfgValidate(unittest.TestCase):
                 with self.subTest(key=k, value=bad):
                     self.bad("policy", self.pol(**{k: bad}))
         import server
-        shown = server.cfg_with_defaults("policy", {"zones": {}})
-        self.assertEqual(shown["new_tls_classes"], ["iot"])
-        self.assertTrue(shown["_doc_new_domain_classes"])
-        self.assertEqual(server.cfg_with_defaults("policy", {"new_tls_classes": ["*"]})["new_tls_classes"], ["*"])
+        shown = server.cfg_with_defaults("policy", {"zones": {}})  # shown as the class_defs switches, not the old keys
+        self.assertNotIn("new_tls_classes", shown)
+        self.assertTrue(shown["_doc_class_defs"])
+        iot = next(d for d in shown["class_defs"] if d["name"] == "iot")
+        self.assertNotIn("new-tls-server", iot["off"])
+        star = server.cfg_with_defaults("policy", {"new_tls_classes": ["*"]})["class_defs"]
+        self.assertTrue(all("new-tls-server" not in d["off"] for d in star))
         t = template("policy")
-        self.assertEqual(t["new_domain_classes"], ["iot"])
-        self.assertEqual(t["new_tls_classes"], ["iot"])
+        self.assertNotIn("new_domain_classes", t)
 
     def test_spike_threshold_values(self):
         """spike_thresholds rejects an unknown detection, a non-table row, bad severity, negative or text numbers and unknown columns.

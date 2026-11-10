@@ -19,6 +19,7 @@ for _p in (_os.environ.get("NETMON_DIR", "/netmon"), _os.path.dirname(_os.path.d
     if _os.path.isdir(_p) and _p not in _sys.path:
         _sys.path.append(_p)
 import site_cfg as SITE  # noqa: E402  network-specific values live in the site settings
+import classdefs  # noqa: E402  device class definitions (behaves like)
 
 SEV_BASE = {"high": 45, "medium": 28, "low": 14, "info": 5}
 # issue-key prefix -> (factor, why)
@@ -305,7 +306,8 @@ def compute(raw, analysis, tracker, policy, known_benign):
         if is_ip and not d.get("known"):
             vg += 4
             drivers.append(("visibility", "not in inventory"))
-        if is_ip and (cls in ("server", "infra", "work") or role(z) in ("protected", "dmz")) and t not in agent_ips and cls != "infra":
+        rcls = classdefs.like(policy, cls) if cls else ""  # built-in rules follow the class's 'behaves like'
+        if is_ip and (rcls in ("server", "infra", "work") or role(z) in ("protected", "dmz")) and t not in agent_ips and rcls != "infra":
             vg += 4
             drivers.append(("visibility", "no Elastic agent on a server/workstation"))
         ag = agent_ips.get(t)
@@ -323,7 +325,7 @@ def compute(raw, analysis, tracker, policy, known_benign):
         elif not is_ip:
             impact, iwhy = 4, "endpoint with Elastic agent"
         else:
-            impact = max(IMPACT_BY_CLASS.get(cls, 0), IMPACT_BY_ROLE.get(role(z), 2) if not cls else 0) or 2
+            impact = max(IMPACT_BY_CLASS.get(rcls, 0), IMPACT_BY_ROLE.get(role(z), 2) if not cls else 0) or 2
             iwhy = f"class {cls}" if cls else f"zone {z or '?'}"
         score = round(likelihood * impact / 5, 1)
         if score <= 0 and not vs:

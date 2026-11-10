@@ -154,15 +154,31 @@ def beacon_id(c):
     return f"{c.get('domain') or c.get('asn') or c['dst']}:{c['port']}"
 
 
+def gate(add, pol, today):
+    """Wrap add(sev, key, kind, msg) so per-class alarm switches apply (classdefs.alarm_enabled: a kind switched off
+    for the device's class is never raised). key = device MAC or IP."""
+    sys.path.insert(0, NM)
+    import classdefs
+
+    def g(sev, k, kind, msg):
+        ip = (today.get(k) or {}).get("ip") or k
+        if classdefs.device_alarm(pol, kind, ip, k if k != ip else None):
+            add(sev, k, kind, msg)
+    return g
+
+
 def extras_findings(snap, today, ip2key, history, days, benign, add):
     """Threat intel, beaconing, segmentation, IoT allowlists, files/software, TLS."""
     sys.path.insert(0, NM)
     import extras
+    import classdefs
     pol = extras.load_policy()
+    add = gate(add, pol, today)
     cls = pol.get("device_classes", {})
     devs = snap["devices"]
     name = lambda ip: (devs.get(ip) or {}).get("name") or (benign.get("names") or {}).get(ip) or ip
     klass = lambda ip: cls.get((devs.get(ip) or {}).get("mac") or "", cls.get(ip, "unclassified"))
+    rule = lambda ip: classdefs.like(pol, klass(ip))  # built-in rules follow the class's 'behaves like'
     key = lambda ip: ip2key.get(ip, ip)
     ready = days >= MIN_DAYS
     past_of = lambda k: [h["devices"][k] for h in history if k in h.get("devices", {})]
@@ -194,7 +210,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
     for nd in ti.get("new_domains", []):
         if nd["age_days"] <= 30:
             for s in nd["sources"]:
-                sev = "high" if klass(s) in ("iot", "camera") else "medium"
+                sev = "high" if rule(s) in ("iot", "camera") else "medium"
                 add(sev, key(s), "newly-registered-domain", f"{nd['domain']} registered {nd['registered']} ({nd['age_days']} days old), {nd['sources'][s]} queries")
 
     # --- beaconing ---
@@ -222,7 +238,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
         if why and (c["dst"] in tihit or c_dom in newdom):
             add("high", k, "beacon-suspicious", desc + "; " + ", ".join(why))
         elif ready and beacon_id(c) not in seen:
-            add("high" if klass(c["src"]) in ("iot", "camera") and why else "medium", k, "beacon-new",
+            add("high" if rule(c["src"]) in ("iot", "camera") and why else "medium", k, "beacon-new",
                 desc + ("; " + ", ".join(why) if why else ""))
         elif why and not ready and c["score"] >= ub and not c_dom:
             add("low", k, "beacon-unlabelled", desc + "; " + ", ".join(why))
@@ -245,9 +261,8 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
             if new and past_of(k):
                 add("low", k, "new-internal-peer", f"{len(new)} new internal destinations: {', '.join(new[:5])}")
 
-    # --- destination allowlist (new domains / new TLS server names), for the device classes in policy
-    #     new_domain_classes / new_tls_classes (default iot, camera, media, game; "*" = every device) ---
-    dom_cls, tls_cls = extras.new_dest_classes(pol, "domain"), extras.new_dest_classes(pol, "tls")
+    # --- destination allowlist (new domains / new TLS server names): collected and raised only for device classes whose
+    #     iot-new-domain / iot-new-network / iot-raw-ip / new-tls-server switches are on (classdefs; default iot only) ---
     if ready:
         for k, t in today.items():
             if "iot" not in t:
@@ -255,14 +270,11 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
             past = [p["iot"] for p in past_of(k) if p.get("iot")]
             if not past:
                 continue
-            kc = klass(t["ip"])
-            if extras.new_dest_applies(kc, tls_cls) and any("sni" in p for p in past):
+            if any("sni" in p for p in past):
                 ss = set().union(*[set(p.get("sni", [])) for p in past])
                 ns = [x for x in t["iot"].get("sni", []) if x and x not in ss]
                 if ns:
                     add("medium", k, "new-tls-server", f"TLS to server names (certificates) outside its learned list: {', '.join(ns[:6])}")
-            if not extras.new_dest_applies(kc, dom_cls):
-                continue
             sd = set().union(*[set(p["domains"]) for p in past])
             sa = set().union(*[set(p["asns"]) for p in past])
             sr = set().union(*[set(p.get("raw_ips", [])) for p in past])
@@ -282,7 +294,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
         if f.get("mhr_detect_pct"):
             add("high", key(f["receiver"]), "malware-hash",
                 f"received {f['mime']} from {f.get('host') or f['sender']} - {f['mhr_detect_pct']}% AV detection (Team Cymru MHR), md5 {f['md5']}")
-        elif f["exec"] and klass(f["receiver"]) in ("iot", "camera", "media", "game"):
+        elif f["exec"] and rule(f["receiver"]) in ("iot", "camera", "media", "game"):
             add("high", key(f["receiver"]), "iot-executable", f"{klass(f['receiver'])} device downloaded {f['mime']} from {f.get('host') or f['sender']}{f.get('uri','')}")
     for s in fs.get("software", []):
         o = extras.outdated(s)
@@ -319,7 +331,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
             new = [x for x in t.get("ja4", []) if x not in seen]
             if new and pst and any(p.get("ja4") for p in pst):
                 kc = klass(t["ip"])
-                if kc in ("iot", "camera", "media", "game"):
+                if rule(t["ip"]) in ("iot", "camera", "media", "game"):
                     add("medium", k, "new-tls-client", f"{kc} device used {len(new)} new TLS client fingerprint(s) (JA4 {new[0]}) - new software or tampering?")
                 elif len(new) >= 3:
                     add("low", k, "new-tls-client", f"{len(new)} new TLS client fingerprints (new apps/OS update)")
@@ -350,9 +362,12 @@ def main():
 
     findings = []
 
-    def add(sev, key, kind, msg):
+    def add_raw(sev, key, kind, msg):
         findings.append({"severity": sev, "device": key, "name": (today.get(key) or {}).get("name") or key,
                          "kind": kind, "detail": msg})
+    sys.path.insert(0, NM)
+    import extras as _ex
+    add = gate(add_raw, _ex.load_policy(), today)  # per-class alarm switches (Settings > Network policy > Device class definitions)
 
     extras_findings(snap, today, ip2key, history, days, benign, add)
 

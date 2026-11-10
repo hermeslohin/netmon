@@ -250,10 +250,12 @@ class SmallHelperTests(unittest.TestCase):
         self.assertEqual(got, {(kc, "new-tls-server"), (kl, "new-tls-server")})
         got, kc, kl = self._dest_findings({"new_tls_classes": ["unclassified"]}, cls_laptop=None)
         self.assertIn((kl, "new-tls-server"), got)
-        self.assertEqual(extras.new_dest_classes({"new_tls_classes": "iot"}, "tls"), set(extras.NEW_DEST_CLASSES))  # invalid -> default
-        self.assertTrue(extras.new_dest_applies(None, {"unclassified"}))
+        got, kc, kl = self._dest_findings({"new_tls_classes": "iot"}, cls_cam="iot")  # invalid -> default iot
+        self.assertIn((kc, "new-tls-server"), got)
+        pol = {"device_classes": {kc: "iot"}, "new_domain_classes": [], "new_tls_classes": ["unclassified"]}
+        self.assertEqual(sorted(extras.new_dest_ips({IP["camera"]: {"mac": kc}, IP["laptop"]: {"mac": kl}}, pol)), [IP["laptop"]])
         src = open(os.path.join(_env.REPO, "collect.py"), encoding="utf-8").read()
-        self.assertEqual(src.count('extras.new_dest_classes(pol, w)) for w in ("domain", "tls")'), 2)
+        self.assertEqual(src.count("extras.new_dest_ips(devs)"), 2)
 
 if __name__ == "__main__":
     unittest.main()

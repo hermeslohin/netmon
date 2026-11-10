@@ -16,16 +16,18 @@ DOCS = {
                       "protected = servers/clusters/AI (IoT or camera access and unexpected cross-zone access are flagged; impact 5; risk x1.15), "
                       "mgmt = IPMI / infrastructure (impact 4), user = PCs and phones (impact 3), iot = IoT, cameras, guests (impact 2, and not allowed to reach protected zones). "
                       "Zone names are free-form; the role is what counts.",
-        "device_classes": "What kind of device each one is: MAC address (preferred, survives DHCP changes) or IP -> class. Classes: iot, camera, media, game, personal, work, server, k8s, infra. "
+        "device_classes": "What kind of device each one is: MAC address (preferred, survives DHCP changes) or IP -> class. Classes: the ones in Device class definitions (built in: iot, camera, media, game, personal, work, server, k8s, infra). "
                           "The class sets a device's risk impact (infra/server 5, k8s/work 4, personal 3, camera/media/game/iot 2) and drives rules: iot and camera devices must not reach protected zones or use admin ports. "
                           "A device with no class is 'unclassified' and takes its zone's impact. 'Discover from UniFi' guesses classes from UniFi fingerprints; review them.",
-        "new_domain_classes": "Which device classes get 'new domain' findings (iot-new-domain, plus new networks and IPs with no ASN): netmon learns the domains each such device looks up "
-                              "and flags ones outside that learned list. A list of classes from device_classes (iot, camera, media, game, personal, work, server, k8s, infra), "
-                              "'unclassified' for devices with no class, or '*' for every device. Default iot only (single-purpose devices with a stable set of destinations); add camera, media or game the same way; "
-                              "PCs and phones visit new domains all day, so adding personal or work is noisy. An empty list turns the finding off. Applies from the next collection.",
-        "new_tls_classes": "Which device classes get 'new TLS server' findings (new-tls-server): netmon learns the TLS server names (the names on the certificates) each such device connects to "
-                           "and flags ones outside that learned list, which also catches look-ups that bypass your DNS. Same values as new_domain_classes "
-                           "(classes, 'unclassified', '*'; empty = off). Default iot only. Applies from the next collection.",
+        "class_defs": "Device class definitions (the 'Device class definitions' card): the classes device_classes can use, and per class "
+                      "which alarms it can raise. Add, rename or remove classes there; a rename updates device_classes and allow rules that "
+                      "use the class, and a class still in use can only be removed by moving its devices to another class (or unclassified). "
+                      "'Behaves like' picks the built-in class (iot, camera, media, game, personal, work, server, k8s, infra) whose built-in rules a "
+                      "class follows: protected-zone and admin-port rules (iot, camera), executable downloads and new TLS clients (iot, camera, media, game) "
+                      "and risk impact. Each class has an on/off switch per alarm (findings, live alerts, endpoint findings); off = devices of that class "
+                      "never raise it. The 'unclassified' row holds the switches for devices with no class. Defaults keep the earlier behaviour: "
+                      "new domain / new network / IP without ASN / new TLS server name are on for iot only, everything else is on. "
+                      "Replaces new_domain_classes / new_tls_classes (read until the first edit here, then migrated). Applies from the next job run.",
         "sensitive_ports": "Admin / remote-control / lateral-movement ports (SSH 22, SMB 445, RDP 3389, databases, Docker and Kubernetes APIs...). "
                            "A successful internal connection to one of these that is not covered by an allow rule is a segmentation violation, and its severity is HIGH. "
                            "Add a port here to treat it as administrative; netmon also has a built-in list of admin ports that is always included.",

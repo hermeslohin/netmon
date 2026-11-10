@@ -584,7 +584,7 @@ class AlertsPageJsTest(unittest.TestCase):
         out = self.run_js(feed_=feed(rows_), extra={"alerts": rows_, "extra": ex}, held=NO_HELD)
         t = self.card(out["steps"][0], "Recent alerts")["body"]
         c = {k: [r[t["cols"].index(k)] for r in t["cells"]] for k in ("Research", "Notes", "Artifact notes", "Alert")}
-        for s in ("📝 benign", "🤖 reviewed", "🌍2", "🔎1"):
+        for s in ("📝 benign", "🤖 reviewed", "🌍2", 'ic-search web-n" aria-hidden="true"></i>1'):
             self.assertIn(s, c["Research"][0])
         self.assertIn("none yet", c["Research"][1])
         self.assertIn("none yet", c["Research"][2])

@@ -116,7 +116,7 @@
     return (n ? `<span class="note-v v-${esc(String(n.verdict || "").replace(/[^a-z-]/g, ""))}" title="Research note: ${esc(n.summary || "")}">📝 ${esc(n.verdict || "researched")}</span> ` : "")
       + (r && !/^Decision model:/.test(r) ? `<span class="small muted" title="The event reviewer's explanation is shown under the alert">🤖 reviewed</span>` : "")
       + (src ? ` <span class="small" title="the event reviewer cited ${src} web page${src === 1 ? "" : "s"}">🌍${src}</span>` : "")
-      + ((X().web?.[a.eid] || []).length ? ` <span class="small" title="${esc((X().web[a.eid]).map((w) => (w.kind === "page" ? "page: " : "search: ") + w.query).join("\n"))}">🔎${X().web[a.eid].length}</span>` : "")
+      + ((X().web?.[a.eid] || []).length ? ` <span class="small" title="${esc((X().web[a.eid]).map((w) => (w.kind === "page" ? "page: " : "search: ") + w.query).join("\n"))}"><i class="ic ic-search web-n" aria-hidden="true"></i>${X().web[a.eid].length}</span>` : "")
       || `<span class="muted small">none yet</span>`; };
   const unoteBtn = (a) => { const ns = S.corr?.unotes?.[a.eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {};

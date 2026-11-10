@@ -476,26 +476,61 @@ def tuning_info():
     return {"settings": out}
 
 
-DEVICE_CLASSES = ("iot", "camera", "media", "game", "personal", "work", "server", "k8s", "infra")  # settings_docs / discover.py
 
 
 def cfg_with_defaults(doc, data):
     """Settings added after an install show on the Settings page with their default value and note (saved on the next edit)."""
     if doc != "policy":
         return data
-    import extras
     out = dict(data)
     try:
         import settings_docs
         notes = settings_docs.DOCS.get("policy", {})
     except Exception:  # noqa: BLE001 - notes are optional
         notes = {}
-    for k in ("new_domain_classes", "new_tls_classes"):
-        if k not in out:
-            out[k] = list(extras.NEW_DEST_CLASSES)
-            if notes.get(k) and "_doc_" + k not in out:
-                out["_doc_" + k] = notes[k]
+    import classdefs
+    # class_defs: shown with the defaults built from the older new_domain_classes / new_tls_classes until the first class
+    # edit stores it (POST /api/config/classes migrates and drops those keys)
+    if "class_defs" not in out:
+        out["class_defs"] = classdefs.defs(out)
+    for k in classdefs.LEGACY:
+        out.pop(k, None)
+        out.pop("_doc_" + k, None)
+    if notes.get("class_defs") and "_doc_class_defs" not in out:
+        out["_doc_class_defs"] = notes["class_defs"]
     return out
+
+
+def classes_post(body, user=""):
+    """POST /api/config/classes {op: add|rename|remove|update, name, new, like, move_to, off}: edit the device class
+    definitions and the device_classes / allow entries that use them, in one save. Returns (json, status)."""
+    import classdefs
+    op, name = str(body.get("op") or ""), str(body.get("name") or "").strip()
+    pol = store.cfg_load("policy")
+    try:
+        if op == "add":
+            new = classdefs.add(pol, name, str(body.get("like") or ""))
+        elif op == "rename":
+            new = classdefs.rename(pol, name, str(body.get("new") or ""))
+        elif op == "remove":
+            mv = body.get("move_to")
+            new = classdefs.remove(pol, name, None if mv is None else str(mv))
+        elif op == "update":
+            off = body.get("off")
+            new = classdefs.update(pol, name, body.get("like") if isinstance(body.get("like"), str) else None,
+                                   off if isinstance(off, list) else None)
+        else:
+            return {"error": "op must be add, rename, remove or update"}, 400
+    except ValueError as e:
+        return {"error": str(e), "in_use": len(classdefs.in_use(pol, name))}, 400
+    # only the definitions are checked: an edit here never introduces an undefined device class (rename / move use
+    # defined names), and a device_classes row that was already invalid must not block fixing the classes
+    bad = classdefs.valid_defs(new["class_defs"])
+    if bad:
+        return {"error": bad}, 400
+    n = store.cfg_save("policy", new)
+    print(f"settings: {user} class {op} {name}", file=sys.stderr)
+    return {"ok": True, "rows": n, "class_defs": new["class_defs"], "device_classes": new.get("device_classes") or {}}, 200
 
 
 def cfg_validate(doc, data):
@@ -521,17 +556,23 @@ def cfg_validate(doc, data):
             for z, r in (data.get("zone_roles") or {}).items():
                 if not z.startswith("_") and r not in ("dmz", "protected", "mgmt", "user", "iot"):
                     return f"zone_roles[{z}] must be one of dmz, protected, mgmt, user, iot"
+            import classdefs
+            if data.get("class_defs") is not None:
+                bad = classdefs.valid_defs(data["class_defs"])
+                if bad:
+                    return bad
+            known = classdefs.names(data)
             dc = data.get("device_classes")
             if dc is not None:
                 if not isinstance(dc, dict):
                     return "device_classes must be a table of MAC or IP -> class"
                 for d, c in dc.items():
-                    if not str(d).startswith("_") and c not in DEVICE_CLASSES:
-                        return f"device_classes[{d}] must be one of {', '.join(DEVICE_CLASSES)}"
-            for k in ("new_domain_classes", "new_tls_classes"):
+                    if not str(d).startswith("_") and c not in known:
+                        return f"device_classes[{d}] must be one of {', '.join(known)}"
+            for k in classdefs.LEGACY:  # older keys, still accepted until class_defs is saved
                 v = data.get(k)
                 if v is not None:
-                    ok = ("*", "unclassified", *DEVICE_CLASSES)
+                    ok = ("*", "unclassified", *known)
                     if not isinstance(v, list) or any(not isinstance(x, str) or x.strip() not in ok for x in v):
                         return f"{k} must be a list of device classes ({', '.join(ok)}; * = every device)"
             for k in ("sensitive_ports", "discovery_ports", "gateway_ports"):
@@ -1624,6 +1665,8 @@ class H(BaseHTTPRequestHandler):
                 store.cfg_save("policy", pol)
                 print(f"settings: {user} accepted auto-tune recommendations: {', '.join(done)}", file=sys.stderr)
                 return self._json({"ok": True, "applied": done})
+            if u.path == "/api/config/classes":  # admin only (ADMIN_POST prefix): Device class definitions card
+                return self._json(*classes_post(body, user))
             if u.path == "/api/config/cfg":  # admin only (ADMIN_POST prefix); set one value inside a settings document
                 doc, kp, val = str(body.get("doc") or ""), body.get("path"), body.get("value")
                 if doc not in store.CFG_DOCS or not isinstance(kp, list) or not kp or len(kp) > 6 or "value" not in body:
@@ -1806,7 +1849,11 @@ class H(BaseHTTPRequestHandler):
                 doc = (q.get("doc") or ["policy"])[0]
                 if doc not in store.CFG_DOCS:
                     return self._json({"error": "unknown settings document"}, 404)
-                return self._json({"doc": doc, "docs": list(store.CFG_DOCS), "data": cfg_with_defaults(doc, store.cfg_load(doc)), "admin": admin})
+                extra = {}
+                if doc == "policy":  # the Device class definitions card: alarm catalogue + built-in classes
+                    import classdefs
+                    extra = {"alarms": classdefs.catalogue(), "builtin_classes": list(classdefs.BUILTIN)}
+                return self._json({"doc": doc, "docs": list(store.CFG_DOCS), "data": cfg_with_defaults(doc, store.cfg_load(doc)), "admin": admin, **extra})
             if path == "/api/config/triage":
                 inp = autoclose_inputs()
                 return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "review": review_job(),

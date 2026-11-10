@@ -513,22 +513,13 @@ BEACON = {"min_conns": 36, "min_score": 0.75, "min_coverage": 0.4, "min_interval
           "ignore_ports": [3478, 19302]}  # defaults; policy "beacon" overrides (Settings > Network policy)
 
 
-# "new destination" findings (allowlist learned per device): which device classes they apply to (policy.new_domain_classes /
-# policy.new_tls_classes). A list of classes; "*" = every device, "unclassified" = devices with no class, [] = off.
-NEW_DEST_CLASSES = ["iot"]
-
-
-def new_dest_classes(pol=None, what="domain"):
-    """Set of device classes the new-domain (what="domain") or new-TLS-server-name (what="tls") findings apply to;
-    {"*"} = all devices. A missing or invalid value falls back to NEW_DEST_CLASSES."""
-    v = (pol if pol is not None else load_policy()).get("new_domain_classes" if what == "domain" else "new_tls_classes")
-    if not isinstance(v, list) or any(not isinstance(x, str) for x in v):
-        return set(NEW_DEST_CLASSES)
-    return {x.strip() for x in v if x.strip()}
-
-
-def new_dest_applies(cls, classes):
-    return "*" in classes or (cls or "unclassified") in classes
+def new_dest_ips(devs, pol=None):
+    """Internal IPs whose destinations are collected: devices with any new-destination alarm switched on for their class
+    (classdefs: iot-new-domain / iot-new-network / iot-raw-ip / new-tls-server; default iot only)."""
+    import classdefs
+    pol = pol if pol is not None else load_policy()
+    return [ip for ip, d in devs.items() if SITE.is_internal(ip)
+            and any(classdefs.device_alarm(pol, k, ip, d.get("mac")) for k in classdefs.NEW_DEST_KINDS)]
 
 
 def beacon_cfg(pol=None):
@@ -898,6 +889,7 @@ def port_severity(port, sens, std):
 
 def policy_violations(flows, ip2mac, pol):
     """Flag internal flows that break the segmentation policy (see policy.json). Severity is by port class (port_severity)."""
+    import classdefs
     std = set(pol.get("standard_ports") or STANDARD_PORTS) | set(pol.get("discovery_ports", []))
     sens = set(pol.get("sensitive_ports", []))
     allow = pol.get("allow", [])
@@ -919,6 +911,7 @@ def policy_violations(flows, ip2mac, pol):
         if f["answered"] == 0 and f["conns"] < 5:
             continue
         sc, dc = classify(f["src"], ip2mac.get(f["src"]), pol), classify(f["dst"], ip2mac.get(f["dst"]), pol)
+        sl = classdefs.like(pol, sc)  # built-in rules follow the class's 'behaves like'
         if f["dst"].endswith(".1") and (f["port"] in disc or f["port"] in pol.get("gateway_ports", [])):
             continue
         if allowed(f, sc, dc):
@@ -927,9 +920,9 @@ def policy_violations(flows, ip2mac, pol):
         sr, dr = zone_role(f["src_zone"], pol), zone_role(f["dst_zone"], pol)
         if sr == "dmz" and dr != "dmz":
             reason, sev = "DMZ host initiating into the internal network", "high"
-        elif sc in ("iot", "camera") and dr == "protected":
+        elif sl in ("iot", "camera") and dr == "protected":
             reason, sev = f"{sc} device reaching {f['dst_zone']}", "high"
-        elif sc in ("iot", "camera") and f["port"] in sens:
+        elif sl in ("iot", "camera") and f["port"] in sens:
             reason, sev = f"{sc} device using admin/lateral port {f['port']}", "high"
         elif f["port"] in sens and f["answered"]:
             reason, sev = f"lateral-movement/admin port {f['port']} ({f['service'] or 'tcp'}) between internal hosts", "medium"

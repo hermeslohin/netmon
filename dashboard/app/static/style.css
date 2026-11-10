@@ -841,3 +841,25 @@ i.ic{font-style:normal}
 .badge:not([class*=sev-]){border-color:var(--border);color:var(--muted)}
 .ic-user{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c1-4 4-6 8-6s7 2 8 6'/%3E%3C/svg%3E")}#userBox .ic{margin-right:6px;width:15px;height:15px}
 @media (max-width:900px){.ngm{background:none!important;border:0!important;box-shadow:none!important;border-radius:0}}
+
+/* magnifying-glass ("eyeglass") buttons - pivot (open related events), Search in Elasticsearch, web-research count: the same
+   gold line icon + gold pill as the note / suppress buttons (was the 🔎 / 🔍 emoji) */
+.ic-search{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E")}
+.pivh,.kib-btn.art-kib{color:var(--gold);border:1px solid rgba(217,182,93,.35);background:var(--panel2);border-radius:999px;opacity:.85}
+.pivh .ic,.kib-btn.art-kib .ic,.ic.web-n{width:12px;height:12px;margin:0;vertical-align:-1px;background:currentColor}.ic.web-n{color:var(--gold);margin-right:2px}
+.kib-btn.art-kib:has(.ic) .ic:not(:last-child){margin-right:4px}
+.pivh:hover,.pivh:focus-visible,.kib-btn.art-kib:hover{color:var(--gold2);border-color:var(--gold);border-style:solid;background:var(--gold-dim);opacity:1}
+.pivh:active,.kib-btn.art-kib:active{background:var(--gold);color:#1a1408;border-color:var(--gold)}.pivh:active .ic,.kib-btn.art-kib:active .ic{background:#1a1408}
+.pivh:focus-visible,.kib-btn.art-kib:focus-visible{outline:2px solid var(--gold2);outline-offset:2px}
+@media (max-width:900px){.pivh{padding:4px 9px}.pivh .ic{width:14px;height:14px}}
+/* Device class definitions card */
+.cdef-sws{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 14px;padding:4px 0 6px}
+.cdef-sw{display:flex;gap:6px;align-items:center;font-size:12px;padding:2px 0;cursor:pointer}
+.cdef-tbl td{vertical-align:top}.cdef-tbl select{max-width:10em}
+@media (max-width:900px){.cdef-sws{grid-template-columns:1fr}.cdef-sw{padding:6px 0;font-size:13px}}
+/* times-seen flair (was the 👁 emoji): gold line eye icon */
+.ic-eye{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E")}
+.seen-flair .ic{width:13px;height:13px;margin:0 2px 0 0;vertical-align:-2px;background:var(--gold)}
+@media (max-width:900px){.cdef-tbl,.cdef-tbl tbody,.cdef-tbl tr,.cdef-tbl td{display:block;width:auto;min-width:0}.cdef-tbl thead{display:none}
+ .cdef-tbl tr{padding:6px 0;border-bottom:1px solid var(--border)}.cdef-tbl td{border:0;padding:2px 0}.cdef-tbl td:nth-child(2)::before{content:"Behaves like ";color:var(--muted);font-size:12px}
+ .cdef-sw{justify-content:flex-start}.cdef-sw input{flex:none}}

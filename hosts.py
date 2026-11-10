@@ -669,8 +669,31 @@ def findings(data, base, nightly=True):
             add(f"silent|{host}", "Investigate", f"{host} stopped sending syslog (0 events this window vs {sl['prev_window']} before; last {sl['last']}) - logging stopped or host down")
     seen_k = set()
     F = [f for f in F if not (f[0] in seen_k or seen_k.add(f[0]))]
+    F = class_gate(F)
     order = {"Investigate": 0, "Review": 1, "Info": 2}
     return sorted(F, key=lambda x: order.get(x[1], 3))
+
+
+def class_gate(F, pol=None, registry=None):
+    """Per-class alarm switches (classdefs, kinds host-<kind>): drop findings whose host's device class has that kind
+    switched off. The host is matched to a device by its learned host name; unmatched hosts are unclassified."""
+    try:
+        import classdefs, extras, store
+        pol = extras.load_policy() if pol is None else pol
+        registry = store.registry_load() if registry is None else registry
+    except Exception:  # noqa: BLE001 - never lose endpoint findings over the switches
+        return F
+    out, cache = [], {}
+    for f in F:
+        parts = str(f[0]).split("|")
+        kind, host = "host-" + parts[0], (parts[1] if len(parts) > 1 else "")
+        if kind in classdefs.ALARM_IDS and host:
+            if host not in cache:
+                cache[host] = classdefs.host_class(pol, host, registry)
+            if not classdefs.alarm_enabled(pol, cache[host], kind):
+                continue
+        out.append(f)
+    return out
 
 
 def gather(minutes, nightly=True):

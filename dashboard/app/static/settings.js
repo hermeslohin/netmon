@@ -58,7 +58,7 @@
   function filterBox(tbl, n) {
     if (n <= 12) return null;
     const f = h("input", { type: "search", placeholder: `filter ${n} rows`, style: "margin:4px 0;width:16em" });
-    f.oninput = () => { const q = f.value.toLowerCase(); tbl.querySelectorAll("tbody tr").forEach((tr) => { const t = [...tr.querySelectorAll("input,textarea")].map((x) => x.value).concat([...tr.querySelectorAll(".cfg-learned")].map((x) => x.textContent)).join(" ").toLowerCase(); tr.style.display = !q || t.includes(q) ? "" : "none"; }); };
+    f.oninput = () => { const q = f.value.toLowerCase(); tbl.querySelectorAll("tbody tr").forEach((tr) => { const t = [...tr.querySelectorAll("input,textarea,select")].map((x) => x.value).concat([...tr.querySelectorAll(".cfg-learned")].map((x) => x.textContent)).join(" ").toLowerCase(); tr.style.display = !q || t.includes(q) ? "" : "none"; }); };
     return f;
   }
 
@@ -102,7 +102,7 @@
       if (key === "device_classes" && !r.ro) ki.addEventListener("change", () => { const l = tr.querySelector(".cfg-learned"); if (l) l.replaceWith(learnedEl(ki.value.trim())); });
       if (r.ro) { r.keep = v; tr.append(h("td", { colspan: matrix ? cols.length : 1, class: "muted small" }, typeof v === "string" ? v : JSON.stringify(v))); tb.append(tr); rows.push(r); return; }
       if (matrix) { r.cells = {}; r.absent = new Set(cols.filter((c) => !(c in v))); cols.forEach((c) => { const e = editor(v[c] ?? blankLike(sample[c]), ed, c); r.cells[c] = e; tr.append(h("td", {}, e.el)); }); }
-      else { r.e = editor(v, ed, k); tr.append(h("td", {}, r.e.el)); }
+      else { r.e = key === "device_classes" ? classSelect(v, ed) : editor(v, ed, k); tr.append(h("td", {}, r.e.el)); }
       tr.append(h("td", {}, delBtn(() => { rows.splice(rows.indexOf(r), 1); tr.remove(); }, ed))); r.tr = tr; rows.push(r); tb.append(tr);
       if (fresh) ki.focus();
     };
@@ -122,6 +122,65 @@
       }
       return out;
     } };
+  }
+
+  // device_classes values: a drop-down of the defined classes (Device class definitions card)
+  let CLASSES = [];
+  function classSelect(v, ed) {
+    const opts = CLASSES.includes(v) || !v ? CLASSES : [...CLASSES, v];
+    const s = h("select", { disabled: !ed, class: "cfg-class" }, h("option", { value: "" }, "— pick a class —"), opts.map((c) => h("option", { value: c }, c)));
+    s.value = v || "";
+    return { el: s, get: () => { if (!s.value) { s.style.outline = "2px solid #e06a5f"; throw new Error("pick a class for every device"); } s.style.outline = ""; return s.value; } };
+  }
+
+  // Device class definitions (policy.class_defs): add / rename / remove classes, 'behaves like', per-class alarm switches.
+  // Every edit is one POST /api/config/classes; the server also updates device_classes / allow rules that use the class.
+  function classDefsCard(data, alarms, builtin, ed, reload) {
+    const defs = data.class_defs || [], dc = data.device_classes || {};
+    const used = (n) => Object.entries(dc).filter(([k, v]) => !k.startsWith("_") && v === n).length;
+    const box = h("span", { class: "small", style: "margin-left:10px" });
+    const say = (t, bad) => { box.textContent = t; box.style.color = bad ? "#e06a5f" : "#6cc287"; };
+    const post = async (body, again = true) => {
+      try { box.style.color = ""; box.textContent = "Saving…"; await apiPost("/api/config/classes", body); say("✓ Saved " + new Date().toLocaleTimeString()); if (again) reload(); return true; }
+      catch (e) { say("Not saved: " + String(e.message || e).replace(/^.*?→ \d+\s*/, ""), true); return false; }
+    };
+    const groups = [...new Set(alarms.map((a) => a.group))];
+    const likeSel = (v, dis) => { const s = h("select", { disabled: dis }, builtin.map((b) => h("option", { value: b }, b))); s.value = v; return s; };
+    const rowsEl = defs.map((d) => {
+      const un = d.name === "unclassified", isB = builtin.includes(d.like) && d.like === d.name;
+      const off = new Set(d.off || []);
+      const nm = h("input", { type: "text", value: d.name, disabled: !ed || un, style: "width:9em", title: un ? "Devices with no class" : "Rename (updates every device using it)" });
+      nm.onchange = async () => { const v = nm.value.trim().toLowerCase(); if (v && v !== d.name) { if (!(await post({ op: "rename", name: d.name, new: v }))) nm.value = d.name; } };
+      const lk = un ? h("span", { class: "muted small" }, "—") : likeSel(d.like, !ed || isB);
+      if (!un && !isB) lk.onchange = () => post({ op: "update", name: d.name, like: lk.value });
+      if (!un && isB) lk.title = "A built-in class behaves like itself";
+      const nOn = alarms.length - off.size;
+      const sum = h("summary", { class: "small" }, `Alarms: ${nOn} of ${alarms.length} on`);
+      const sw = groups.map((g) => h("div", { class: "cdef-grp" }, h("div", { class: "muted small", style: "margin-top:6px;font-weight:600" }, g),
+        alarms.filter((a) => a.group === g).map((a) => {
+          const cb = h("input", { type: "checkbox", disabled: !ed, "data-kind": a.id, style: "accent-color:#6cc287" }); cb.checked = !off.has(a.id);
+          cb.onchange = async () => { cb.checked ? off.delete(a.id) : off.add(a.id); sum.textContent = `Alarms: ${alarms.length - off.size} of ${alarms.length} on`; if (!(await post({ op: "update", name: d.name, off: [...off] }, false))) { cb.checked = !cb.checked; cb.checked ? off.delete(a.id) : off.add(a.id); } };
+          return h("label", { class: "cdef-sw", title: a.id }, cb, " ", a.label);
+        })));
+      const det = h("details", { class: "cdef-alarms" }, sum, h("div", { class: "cdef-sws" }, sw));
+      const n = used(d.name);
+      const rmArea = h("span", {});
+      const rm = un ? "" : h("button", { type: "button", class: "small", title: "Remove this class", disabled: !ed, onclick: () => {
+        if (!n) { if (confirm(`Remove class '${d.name}'?`)) post({ op: "remove", name: d.name }); return; }
+        const mv = h("select", {}, h("option", { value: "" }, "unclassified"), defs.filter((x) => x.name !== d.name && x.name !== "unclassified").map((x) => h("option", { value: x.name }, x.name)));
+        rmArea.replaceChildren(h("div", { class: "small", style: "margin-top:4px" }, `${n} device(s) use it. Move them to `, mv, " ",
+          h("button", { type: "button", class: "small", onclick: () => post({ op: "remove", name: d.name, move_to: mv.value }) }, "Move and remove"), " ",
+          h("button", { type: "button", class: "small", onclick: () => rmArea.replaceChildren() }, "Cancel")));
+      } }, "✕");
+      return h("tr", { "data-class": d.name }, h("td", {}, nm, h("div", { class: "muted small" }, un ? "devices with no class" : `${n} device(s)`)), h("td", {}, lk), h("td", {}, det), h("td", {}, rm, rmArea));
+    });
+    const nn = h("input", { type: "text", placeholder: "new class", style: "width:9em" }), nl = likeSel("iot", false);
+    const addB = h("button", { type: "button", class: "small", onclick: () => { const v = nn.value.trim().toLowerCase(); if (v) post({ op: "add", name: v, like: nl.value }); } }, "+ Add class");
+    const tbl = h("table", { class: "cfg-tbl cdef-tbl" }, h("thead", {}, h("tr", {}, h("th", {}, "Class"), h("th", {}, "Behaves like"), h("th", {}, "Alarms"), h("th"))), h("tbody", {}, rowsEl));
+    const tip = data._doc_class_defs || "";
+    return card(`Device class definitions <span class="muted small">(${defs.length - 1})</span>`, h("div", { id: "cdef-card" },
+      tip ? h("div", { class: "muted small", style: "margin-bottom:6px" }, tip) : "", h("div", { style: "overflow-x:auto" }, tbl),
+      ed ? h("div", { style: "margin-top:6px" }, nn, " behaves like ", nl, " ", addB) : "", h("div", { style: "margin-top:6px" }, box)));
   }
 
   // Auto-discover zones, zone roles and device classes from UniFi (POST /api/config/discover)
@@ -218,8 +277,12 @@
       const root = h("div", {}, tbl); if (ed) autosave(root, sync, box);
       el.append(card("General", h("div", {}, root, ed ? h("div", { style: "margin-top:6px" }, box) : "")));
     }
+    if (doc === "policy") {
+      CLASSES = (data.class_defs || []).map((d) => d.name).filter((n) => n !== "unclassified");
+      el.append(classDefsCard(data, r.alarms || [], r.builtin_classes || [], ed, () => V.settings(el, doc)));
+    }
     for (const [k, v] of Object.entries(data)) {
-      if (k.startsWith("_") || !(Array.isArray(v) || isObj(v))) continue;
+      if (k.startsWith("_") || !(Array.isArray(v) || isObj(v)) || k === "class_defs") continue;
       const e = editor(v, ed, k), box = h("span", { class: "small", style: "margin-left:10px" });
       const count = Array.isArray(v) ? v.length : Object.keys(v).filter((x) => !x.startsWith("_")).length;
       const root = h("div", {}, e.el); if (ed) autosave(root, async () => { await save([k], e.get(), box); }, box);
