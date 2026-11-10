@@ -276,8 +276,9 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
 
     # --- watcher alerts in/near the window
     for a in alerts:
-        ts = float(a.get("ts") or 0)
-        if not (w0 - SLACK_S <= ts and (latest or ts <= w1 + SLACK_S)):
+        arr = float(a.get("ts") or 0)  # when the watcher stored it: decides whether it belongs to this snapshot
+        ts = float(a.get("event_ts") or arr)  # when it happened: its place in time (a late Elasticsearch arrival keeps its real time)
+        if not any(w0 - SLACK_S <= t and (latest or t <= w1 + SLACK_S) for t in (arr, ts)):
             continue
         e = ents_from_text(a.get("text", ""))
         for t in a.get("targets") or []:

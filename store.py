@@ -106,7 +106,9 @@ def connect(path=None):
     if "targets" not in {r[1] for r in c.execute("PRAGMA table_info(alerts)")}:  # schema v2: devices an alert is about
         c.execute("ALTER TABLE alerts ADD COLUMN targets TEXT NOT NULL DEFAULT '[]'")
     have = {r[1] for r in c.execute("PRAGMA table_info(alerts)")}
-    for col, decl in (("cleared", "INTEGER NOT NULL DEFAULT 0"), ("cleared_rule", "INTEGER"), ("cleared_at", "REAL"), ("held", "INTEGER NOT NULL DEFAULT 0")):  # alerts a mute rule cleared (kept, hidden from the feed)
+    # event_ts = when the event HAPPENED (Elasticsearch @timestamp; NULL = unknown, use ts): ts is when the watcher stored it,
+    # which can be long after a late Elasticsearch arrival. The correlation and the settle wait use event_ts.
+    for col, decl in (("cleared", "INTEGER NOT NULL DEFAULT 0"), ("cleared_rule", "INTEGER"), ("cleared_at", "REAL"), ("held", "INTEGER NOT NULL DEFAULT 0"), ("event_ts", "REAL")):  # alerts a mute rule cleared (kept, hidden from the feed)
         if col not in have:
             c.execute(f"ALTER TABLE alerts ADD COLUMN {col} {decl}")
     if "by_user" not in {r[1] for r in c.execute("PRAGMA table_info(acks)")}:  # who checked an item off (empty = automatic / before this column)
@@ -525,8 +527,8 @@ HELD_SOURCES = ("watcher", "secscan", "account", "report")  # detections: kept a
 
 
 def alerts_add(items, source="watcher", c=None):
-    """items: [(key, text, severity[, targets])]. targets = device identifiers the alert is about (IPs, MACs,
-    host names); derived from key+text when omitted. Queued for web push by the dashboard (pushed=0).
+    """items: [(key, text, severity[, targets[, event_ts]])]. targets = device identifiers the alert is about (IPs, MACs,
+    host names); derived from key+text when omitted. event_ts = epoch the event happened (Elasticsearch @timestamp), when known. Queued for web push by the dashboard (pushed=0).
     An alert that matches a saved mute rule (alert_mutes) is stored already cleared: not pushed, not read-counted, hidden
     from the feed and the correlation, but kept so "show cleared" can list it."""
     c = c or _dc()
@@ -541,10 +543,11 @@ def alerts_add(items, source="watcher", c=None):
         if sup:  # suppressed (not muted): hidden from the feed and not pushed, but still correlated
             hit = {"id": -sup["id"]}
         held = 1 if source in HELD_SOURCES else 0  # an alarm is an event / finding that is medium or high AND reviewed as suspicious (alerts_promote)
+        ets = it[4] if len(it) > 4 and isinstance(it[4], (int, float)) and not isinstance(it[4], bool) and 0 < it[4] <= now + 300 else None
         rows.append((now, it[0], it[1], it[2] if len(it) > 2 else "urgent", source, json.dumps(tg),
-                     1 if hit else 0, hit["id"] if hit else None, now if hit else None, 1 if (hit or held) else 0, 1 if (hit or held) else 0, held))
+                     1 if hit else 0, hit["id"] if hit else None, now if hit else None, 1 if (hit or held) else 0, 1 if (hit or held) else 0, held, ets))
     with tx(c):
-        c.executemany("INSERT INTO alerts(ts,key,text,severity,source,targets,cleared,cleared_rule,cleared_at,pushed,read,held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        c.executemany("INSERT INTO alerts(ts,key,text,severity,source,targets,cleared,cleared_rule,cleared_at,pushed,read,held,event_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         c.execute("DELETE FROM alerts WHERE ts < ?", (now - 30 * 86400,))  # keep 30 days
 
 

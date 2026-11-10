@@ -171,6 +171,32 @@ class TestCoverage(unittest.TestCase):
             prev_to = to
 
 
+class TestLateArrivalStore(unittest.TestCase):
+    """store.alerts_add keeps the event time of a late Elasticsearch arrival; the correlation links by it."""
+
+    def setUp(self):
+        _clean()
+
+    def tearDown(self):
+        _clean()
+
+    def test_event_time_kept_and_used(self):
+        """A watcher alert stored an hour after it happened keeps event_ts, and correlate.build places and links it at that time.
+        REQ: EVW-07"""
+        now = time.time()
+        store.alerts_add([("x|late", "ssh failures from 10.0.0.7 to 10.0.0.9", "urgent", ["ip:10.0.0.9"], now - 3600),
+                          ("x|bad", "new admin session 10.0.0.7 to 10.0.0.9", "urgent", ["ip:10.0.0.9"], "not a time")])
+        rows = {a["key"]: a for a in store.alerts_recent(10, suppressed=True)}
+        self.assertAlmostEqual(rows["x|late"]["event_ts"], now - 3600, places=0)
+        self.assertIsNone(rows["x|bad"]["event_ts"])
+        al = [dict(rows["x|late"]), {**rows["x|bad"], "event_ts": now - 3500}]
+        raw = {"generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "hours": 0.25}  # it arrived now: still in the newest snapshot
+        res = correlate.build(raw, {}, al, [], [], lambda ip: ip.startswith("10."), lambda h: "", lambda s, t: [], latest=True, window=600)
+        ev = {e["label"][:12]: e for k, e in res["events"].items() if k.startswith("alert|")}
+        self.assertAlmostEqual(ev["ssh failures"]["t0"], now - 3600, places=0)  # placed at its event time, kept by its arrival time
+        self.assertTrue(any(r["id"].startswith("alert|") for lst in res["related"].values() for r in lst))
+
+
 class TestCorrelationWindow(unittest.TestCase):
     """correlate.build: two events farther apart than the event window never become a candidate link."""
 
@@ -330,6 +356,23 @@ class TestGroupReview(unittest.TestCase):
         window._ARR.clear()
         self.assertEqual(corr_llm.event_pass(base, now=now), 1)
         self.assertEqual(self.labels(), {"a": "benign", "b": "benign"})
+
+    def test_late_arrival_after_review_one_rereview(self):
+        """An event that reaches Elasticsearch long after its group was labelled still links by event time and causes exactly one re-review.
+        REQ: EVW-07"""
+        now = 1_800_000_000
+        base = {"events": {"a": _ev("x", now - 5000), "b": _ev("y", now - 4900)}, "related": {"a": [{"id": "b", "score": 5, "why": []}]}}
+        self.decide("a", "b")
+        self.assertEqual(corr_llm.event_pass(base, now=now), 1)
+        later = now + 3600  # it arrives an hour later, but happened between a and b
+        base["events"]["late"] = _ev("late arrival", now - 4950)
+        base["related"]["late"] = [{"id": "a", "score": 5, "why": []}]
+        self.decide("late", "a")
+        self.assertEqual(corr_llm.event_pass(base, now=later), 1)  # settled already by event time: one re-review at once
+        self.assertEqual(self.labels(), {"a": "benign", "b": "benign", "late": "benign"})
+        for k in range(3):
+            self.assertEqual(corr_llm.event_pass(base, now=later + 60 * (k + 1)), 0)
+        self.assertEqual(len(self.calls), 2)
 
     def test_alert_verdict_pending(self):
         """Pages show Pending review (filterable) for an event whose group has not settled, never a blank or Not reviewed.

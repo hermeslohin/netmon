@@ -53,10 +53,24 @@ names = {v["ip"]: v["name"] for v in inv.values()}
 names.update(benign.get("names", {}))
 nm = lambda ip: f"{names.get(ip, ip)} ({ip})" if names.get(ip) else ip
 alerts = []
+EVENT_TS = {}  # alert key -> epoch the event happened (Elasticsearch @timestamp), when the check knows it
 
 
-def alert(key, text):
+def alert(key, text, at=None):
+    """Queue an alert. at = when the event happened (epoch s): a late Elasticsearch arrival keeps its real time, so the
+    correlation links it by event time, not by when this pull ran."""
     alerts.append((key, text))
+    if at:
+        EVENT_TS.setdefault(key, float(at))
+
+
+def bucket_time(b):
+    """Epoch of a bucket's first event (its "t0" min @timestamp aggregation), or None."""
+    try:
+        v = (b.get("t0") or {}).get("value")
+        return float(v) / 1000 if v else None
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def is_benign_sig(sig):
@@ -97,7 +111,7 @@ for b in buckets(r["aggregations"]["s"]):
         mt = " [ATT&CK " + ", ".join(f"{i} {mitre.tech(i).get('name', '')}" for i in mt) + "]" if mt else ""
     except Exception:
         mt = ""
-    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}{late_note(b)}")
+    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}{late_note(b)}", at=bucket_time(b))
 
 # 2. New devices
 known_ips = {ip for r_ in registry.values() for ip in r_.get("ips", [])}
@@ -336,8 +350,8 @@ except Exception as e:
 fresh = store.mute_filter(alerts, SUPPRESS_H)  # atomic: prune expired, drop muted, mute the new ones
 if fresh:  # queue for the dashboard's in-app feed + browser/phone push notifications
     try:
-        store.alerts_add([(k, t.replace("**", ""), "investigate" if ("ALERT" in t or t.startswith("**IDS") or "threat" in t.lower()) else "urgent")
-                          for k, t in fresh])
+        store.alerts_add([(k, t.replace("**", ""), "investigate" if ("ALERT" in t or t.startswith("**IDS") or "threat" in t.lower()) else "urgent",
+                           None, EVENT_TS.get(k)) for k, t in fresh])
     except Exception as e:
         print(f"(alert feed write failed: {e})", file=sys.stderr)
     try:  # alerts a saved mute rule clears are in the feed as "cleared" only: no Discord / chat message for them

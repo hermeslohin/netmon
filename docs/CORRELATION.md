@@ -151,7 +151,14 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    settles. Because an event can reach Elasticsearch up to one window after it happened, a group also waits until the
    watcher (the Elasticsearch pull, once per event window) has committed a pull whose arrival window ends after its
    newest event + one window (`window.bookmark("watch")`), so no later pull can add a member after the review; the
-   shown settle time includes that pull. A group that keeps changing for 3 settle waits (a scan firing every minute) is reviewed anyway.
+   shown settle time includes that pull. **Late arrivals:** the pull reads by arrival time (`event.ingested`) from its
+   bookmark, so an event that reaches Elasticsearch late is picked up by the next pull and never dropped. A watcher alert
+   keeps when it happened (`alerts.event_ts`, the Elasticsearch `@timestamp`; IDS alerts today, other checks fall back
+   to the pull time) and is placed and linked at that time; it belongs to the correlation of the pull that stored it.
+   It links to events within one window of it that are still in the newest correlation (those that arrived within about
+   one window + 5 min); if it joins an already labelled group, that group is re-reviewed once. A late event whose
+   partners arrived long before it is labelled with whatever it links to among the events of the same late batch.
+   A group that keeps changing for 3 settle waits (a scan firing every minute) is reviewed anyway.
    **Fast path:** a *high*-severity event with no label yet gets a provisional single-event review at once (at most 5 per
    pass) so alarms do not wait; its group review replaces it after the settle. Each call is one `review_events` row
    with `members` (events labelled), `kind` (group / fast / overdue) and `delay` (seconds from settling to the review).
