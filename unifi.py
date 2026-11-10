@@ -88,13 +88,16 @@ def _flows_raw(t0, t1, max_pages=40):
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# Pre-warmed cache. The cloud connector needs ~0.7 s per call, so a collection used to spend ~10 s waiting on UniFi.
-# `unifi.py --prewarm` (scheduler job, every few minutes) keeps the system log, admin log and traffic flows as
-# time-indexed rows in data/unifi_cache/ and the small "current state" calls (clients, settings, health) for a few
-# minutes; syslog()/flows()/legacy() then answer from disk whenever the request lies inside what is cached and fall
-# back to the live API otherwise. Results are identical to a live fetch, only up to ~PREWARM_SLACK_MS older at the end.
+# Pre-warmed cache, in the SQLite store (netmon.db). The cloud connector needs ~0.7 s per call, so a collection used to
+# spend ~10 s waiting on UniFi. `unifi.py --prewarm` (scheduler job, every few minutes) keeps the system log, admin log
+# and traffic flows as time-indexed rows (tables unifi_rows + unifi_streams) and the small "current state" calls
+# (clients, settings, networks, health) plus the console id as docs (`unifi/<name>`, LEGACY_TTL); syslog()/flows()/
+# legacy() answer from the store whenever the request lies inside what is cached and fall back to the live API
+# otherwise. Results are identical to a live fetch, only up to ~SLACK_MS older at the end. No files on disk.
 # ---------------------------------------------------------------------------------------------------------------
-CACHE_DIR = os.environ.get("NETMON_UNIFI_CACHE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "unifi_cache")
+import sqlite3  # noqa: E402
+import store  # noqa: E402
+
 CACHE_ON = not os.environ.get("NETMON_UNIFI_NOCACHE")
 SLACK_MS = 12 * 60_000          # a request may end this far past the cached tail and still be served from cache
 MAX_ROWS = 30000
@@ -102,28 +105,22 @@ LEGACY_TTL = 15 * 60            # current-state calls (clients, settings, health
 RETAIN_MS = {"syslog-all": 33 * 86400_000, "syslog-admin-activity": 33 * 86400_000, "flows": 72 * 3600_000}
 
 
-def _cpath(name):
-    return os.path.join(CACHE_DIR, name.replace("/", "_") + ".json")
+def _doc(name):
+    return "unifi/" + name.replace("/", "_")
 
 
 def _cload(name):
     try:
-        return json.load(open(_cpath(name)))
-    except (OSError, ValueError):
+        return store.doc_get(_doc(name), {}) or {}
+    except (sqlite3.Error, ValueError):
         return {}
 
 
 def _csave(name, d):
-    """Owner-only (0700 dir / 0600 files): the cache holds the site's network inventory and logs."""
+    """Small cached doc (console id, current-state calls) -> docs table; settings are redacted on every write."""
     if name.startswith("legacy-") and isinstance(d, dict) and "data" in d:  # every writer (legacy(), prewarm())
         d = {**d, "data": redact_secrets(d["data"])}
-    os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
-    os.chmod(CACHE_DIR, 0o700)
-    tmp = _cpath(name) + ".tmp"
-    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
-        json.dump(d, f)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, _cpath(name))
+    store.doc_put(_doc(name), d)
 
 
 # Controller settings carry device credentials (SSH password/hash, mgmt key, API/SSO tokens, mesh PSKs, WireGuard
@@ -143,54 +140,45 @@ def redact_secrets(o):
     return o
 
 
-def _merge(old, new, tkey):
-    seen = {r.get("id") or json.dumps(r, sort_keys=True, default=str): r for r in old}
-    for r in new:
-        seen[r.get("id") or json.dumps(r, sort_keys=True, default=str)] = r
-    return sorted(seen.values(), key=lambda r: r.get(tkey) or 0, reverse=True)
-
-
 def _refresh(name, tkey, fetch, retain_ms, now_ms):
-    """Extend the cache of one stream to `now_ms` (first call or too old: full backfill; else only the tail)."""
-    c = _cload(name)
+    """Extend one stream to `now_ms` (first call or too old: full backfill; else only the tail). -> {from, to, rows}."""
+    w = store.unifi_window(name)
     want0 = now_ms - retain_ms
-    if not c or c.get("from", 1 << 62) > want0 + 86400_000 or c.get("to", 0) < now_ms - retain_ms // 2:
+    if not w or w["from"] > want0 + 86400_000 or w["to"] < now_ms - retain_ms // 2:
         rows, trunc = fetch(want0, now_ms)
-        c = {"from": min([r.get(tkey) or now_ms for r in rows], default=want0) if trunc else want0, "to": now_ms, "rows": rows}
+        t_from, replace = (min([r.get(tkey) or now_ms for r in rows], default=want0) if trunc else want0), True
     else:
-        rows, _ = fetch(c["to"] - 180_000, now_ms)
-        c["rows"] = _merge(c["rows"], rows, tkey)
-        c["to"] = now_ms
-    c["rows"] = [r for r in c["rows"] if (r.get(tkey) or 0) >= want0]
-    if len(c["rows"]) > MAX_ROWS:  # keep the newest MAX_ROWS (a live call is capped the same way); `from` follows
-        c["rows"] = c["rows"][:MAX_ROWS]
-        c["from"] = max(c["from"], c["rows"][-1].get(tkey) or 0)
-    c["from"] = max(c["from"], want0)
-    c["fetched"] = now_ms
-    _csave(name, c)
-    return c
+        rows, _ = fetch(w["to"] - 180_000, now_ms)
+        t_from, replace = w["from"], False
+    t_from, n = store.unifi_write(name, rows, tkey, t_from, now_ms, want0, MAX_ROWS, replace=replace)
+    return {"from": t_from, "to": now_ms, "rows": n}
 
 
-def _from_cache(name, tkey, t0, t1):
+def _cached(name, ok, t0, t1):
+    """(window, rows in [t0, t1]) from one consistent read when ok(window) holds, else None (live call)."""
     if not CACHE_ON:
         return None
-    c = _cload(name)
-    if not c or t0 < c.get("from", 1 << 62) or t1 > c.get("to", 0) + SLACK_MS:
+    try:
+        w = store.unifi_window(name)
+        if not w or not ok(w):
+            return None
+        w, rows = store.unifi_read(name, t0, t1)
+        return (w, rows) if w and ok(w) else None
+    except sqlite3.Error:
         return None
-    return [r for r in c["rows"] if t0 <= (r.get(tkey) or 0) <= t1]
 
 
 def syslog(cat, t0, t1):
-    hit = _from_cache("syslog-" + cat, "timestamp", t0, t1)
-    return hit if hit is not None else _syslog_raw(cat, t0, t1)
+    hit = _cached("syslog-" + cat, lambda w: w["from"] <= t0 and t1 <= w["to"] + SLACK_MS, t0, t1)
+    return hit[1] if hit else _syslog_raw(cat, t0, t1)
 
 
 def flows(t0, t1, max_pages=40):
     """Newest-first flows of [t0, t1], capped like the live call. Cached rows cover [from, now]; a window reaching back
     past `from` gets the cached rows (the same newest ones a live call would return) flagged truncated."""
-    c = _cload("flows") if CACHE_ON else {}
-    if c and c.get("from", 1 << 62) < t1 <= c.get("to", 0) + SLACK_MS and t0 >= c["to"] - RETAIN_MS["flows"] - SLACK_MS:
-        return [r for r in c["rows"] if t0 <= (r.get("time") or 0) <= t1], t0 < c["from"]
+    hit = _cached("flows", lambda w: w["from"] < t1 <= w["to"] + SLACK_MS and t0 >= w["to"] - RETAIN_MS["flows"] - SLACK_MS, t0, t1)
+    if hit:
+        return hit[1], t0 < hit[0]["from"]
     return _flows_raw(t0, t1, max_pages)
 
 
@@ -217,7 +205,7 @@ def prewarm():
                               ("flows", "time", _flows_raw)):
         try:
             c = _refresh(name, tkey, fetch, RETAIN_MS[name], now_ms)
-            out[name] = {"rows": len(c["rows"]), "s": round(time.time() - t, 1)}
+            out[name] = {"rows": c["rows"], "s": round(time.time() - t, 1)}
         except Exception as e:  # noqa: BLE001 - one stream failing must not stop the others
             out[name] = {"error": f"{type(e).__name__}: {e}"}
         t = time.time()

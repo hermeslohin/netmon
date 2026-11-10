@@ -43,6 +43,10 @@ R=$(/usr/bin/python3 "$NM/secfindings.py" sync "$SCAN" --notify new --context "c
 echo "   $R"
 fi
 
+echo "== 1b. state-file gate (retired JSON/cache files stay in netmon.db)"
+/usr/bin/python3 "$NM/store.py" retired-check | sed 's/^/   /'
+[ "${PIPESTATUS[0]}" = 0 ] || { echo "   ABORT: a retired state/cache file or its writer is back - keep that data in netmon.db (store.py)"; exit 10; }
+
 echo "== 2. secret gate on the commit"
 git add -A
 STAGE=$(mktemp -d); trap 'rm -rf "$STAGE"' EXIT

@@ -300,7 +300,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_static_assets.py` | 15 | Static checks of dashboard/app/static: referenced assets exist and app.js fnv() matches correlate.fnv (no node needed). (CFG-06, COR-02, DASH-01, DASH-06) |
 | `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |
-| `tests/unit/test_unifi_cache.py` | 2 | Unit tests for the UniFi on-disk cache (unifi.py): controller credentials are redacted, files are owner-only. (SEC-06) |
+| `tests/unit/test_unifi_cache.py` | 5 | Unit tests for the UniFi pre-warm cache (unifi.py): it lives in netmon.db (unifi_rows/unifi_streams + docs unifi/*), (SEC-06, STO-16) |
 | `tests/unit/test_vulnhist.py` | 4 | vulnhist.py: daily vulnerability counts (Fix list, CIS, image CVEs) and the series the line charts read. (KUBE-13) |
 | `tests/unit/test_websearch_audit.py` | 2 |  (AUD-06) |
 | `tests/unit/test_webtools.py` | 6 | Unit tests for the web search integration: integrations.py (web section) and webtools.py Firecrawl (cloud / self-hosted). (WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06) |

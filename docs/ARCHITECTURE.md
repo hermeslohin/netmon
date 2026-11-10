@@ -72,7 +72,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 | `scheduler.py` | systemd user unit `netmon-scheduler` | always on | `review_cfg`, job state | starts jobs, `logs/<job>.log` |
 | `vulnhist.py record` | child of the scheduler | daily from 06:00 UTC | Fix list (dashboard issue tracker), saved CIS runs, image scan doc | SQLite table `vuln_hist` (Fix list / Kubernetes line charts) |
 | `watch.py` (watcher, the Elasticsearch pull) | child of the scheduler | every event window (default 10 min, `event_window_minutes`, live) | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
-| `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `data/unifi_cache` |
+| `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `netmon.db`: tables `unifi_rows` + `unifi_streams` (log/flow rows), docs `unifi/*` (clients, settings, networks, health, console id) |
 | `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |
 | `review.py` (review job) | child of the scheduler | grid set on AI pipeline configuration (5 min–24 h, anchored 05:00 UTC) or **Run now** | Elasticsearch, UniFi cache, earlier notes | snapshot, `review_job.json`, copied notes |
 | `range_warm.py` | child of the scheduler | every 15-minute slot, 1 min in | host broker functions (collect.py --section, analyze.py --readonly) | the dashboard's default window (last 24 h) as a time range; newest 3 kept (`state/range_warm`) |
@@ -187,7 +187,7 @@ job and event research.
 | `kb.db` | `dashboard/state/` | host notes: what AI runs and people have learned about each device (role, normal behaviour, decisions) |
 | `chat.db` | `dashboard/state/` | Ask AI conversations (per user, mode 0600) |
 | `ranges/` | `dashboard/state/` | dashboard time-range results from the host broker |
-| `data/` | repo root (git-ignored) | collector work files, UniFi cache |
+| `data/` | repo root (git-ignored) | collector work files (the UniFi cache is in `netmon.db`) |
 | `intel/` | repo root (git-ignored) | threat-intel lists (OpenCTI and configured feeds) |
 | `logs/` | repo root (git-ignored) | job logs, saved AI conversations (newest 60 per job) |
 | `k8s/*` documents | `netmon.db` `docs` table | CIS results per cluster, image baseline, image update / CVE scan results |

@@ -79,6 +79,11 @@ CREATE TABLE IF NOT EXISTS push_prefs (
   user TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'all', devices TEXT NOT NULL DEFAULT '[]', updated TEXT);
 CREATE TABLE IF NOT EXISTS push_subs (
   endpoint TEXT PRIMARY KEY, user TEXT, keys TEXT NOT NULL, ua TEXT, created TEXT, last_ok TEXT, fails INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS unifi_rows (
+  stream TEXT NOT NULL, id TEXT NOT NULL, t INTEGER NOT NULL, row BLOB NOT NULL, PRIMARY KEY (stream, id));
+CREATE INDEX IF NOT EXISTS unifi_rows_t ON unifi_rows(stream, t);
+CREATE TABLE IF NOT EXISTS unifi_streams (
+  stream TEXT PRIMARY KEY, t_from INTEGER NOT NULL, t_to INTEGER NOT NULL, fetched INTEGER NOT NULL);
 """
 
 
@@ -213,6 +218,91 @@ def doc_delete(name):
     c = _dc()
     with tx(c):
         c.execute("DELETE FROM docs WHERE name=?", (name,))
+
+
+# --- UniFi pre-warm cache (unifi.py): time-indexed rows per stream (syslog-all, syslog-admin-activity, flows) -----
+# One row per log line / flow keyed by (stream, id); unifi_streams holds the covered window [t_from, t_to].
+# Writes are one BEGIN IMMEDIATE transaction; a read is one read transaction, so a reader (collect, broker,
+# scheduler) always sees a window and its rows from the same commit (WAL: readers never block the writer).
+
+def unifi_rid(r):
+    return str(r.get("id") or json.dumps(r, sort_keys=True, default=str))
+
+
+def unifi_read(stream, t0=None, t1=None, c=None):
+    """-> (window {from, to, fetched} or None, rows newest-first with t0 <= t <= t1)."""
+    c = c or _dc()
+    own = not c.in_transaction
+    if own:
+        c.execute("BEGIN")
+    try:
+        m = c.execute("SELECT t_from, t_to, fetched FROM unifi_streams WHERE stream=?", (stream,)).fetchone()
+        if not m:
+            return None, []
+        q, a = "SELECT row FROM unifi_rows WHERE stream=?", [stream]
+        if t0 is not None:
+            q, a = q + " AND t>=?", a + [int(t0)]
+        if t1 is not None:
+            q, a = q + " AND t<=?", a + [int(t1)]
+        rows = [json.loads(zlib.decompress(r[0])) for r in c.execute(q + " ORDER BY t DESC", a)]
+        return {"from": m[0], "to": m[1], "fetched": m[2]}, rows
+    finally:
+        if own:
+            c.execute("COMMIT")
+
+
+def unifi_window(stream, c=None):
+    m = (c or _dc()).execute("SELECT t_from, t_to, fetched FROM unifi_streams WHERE stream=?", (stream,)).fetchone()
+    return {"from": m[0], "to": m[1], "fetched": m[2]} if m else None
+
+
+def unifi_write(stream, rows, tkey, t_from, t_to, keep_from, max_rows, replace=False, c=None):
+    """Upsert rows (replace=True drops the stream's old rows first), drop rows older than keep_from and keep the newest
+    max_rows (t_from moves up to the oldest kept row when the cap cut rows). One atomic transaction. -> (t_from, rows)."""
+    c = c or _dc()
+    with tx(c):
+        if replace:
+            c.execute("DELETE FROM unifi_rows WHERE stream=?", (stream,))
+        c.executemany("INSERT INTO unifi_rows(stream,id,t,row) VALUES (?,?,?,?) "
+                      "ON CONFLICT(stream,id) DO UPDATE SET t=excluded.t, row=excluded.row",
+                      [(stream, unifi_rid(r), int(r.get(tkey) or 0),
+                        zlib.compress(json.dumps(r, default=str, separators=(",", ":")).encode(), 6)) for r in rows])
+        c.execute("DELETE FROM unifi_rows WHERE stream=? AND t<?", (stream, int(keep_from)))
+        n = c.execute("SELECT COUNT(*) FROM unifi_rows WHERE stream=?", (stream,)).fetchone()[0]
+        if n > max_rows:
+            cut = c.execute("SELECT t FROM unifi_rows WHERE stream=? ORDER BY t DESC LIMIT 1 OFFSET ?",
+                            (stream, max_rows - 1)).fetchone()[0]
+            c.execute("DELETE FROM unifi_rows WHERE stream=? AND id NOT IN "
+                      "(SELECT id FROM unifi_rows WHERE stream=? ORDER BY t DESC LIMIT ?)", (stream, stream, max_rows))
+            t_from, n = max(int(t_from), cut), max_rows
+        t_from = max(int(t_from), int(keep_from))
+        c.execute("INSERT INTO unifi_streams VALUES (?,?,?,?) ON CONFLICT(stream) DO UPDATE SET "
+                  "t_from=excluded.t_from, t_to=excluded.t_to, fetched=excluded.fetched",
+                  (stream, t_from, int(t_to), int(time.time() * 1000)))
+    return t_from, n
+
+
+# Retired on-disk state/cache files: their data lives in this store now. ship.sh (state-file gate) refuses to ship
+# while one exists on disk or while code outside store.py/tests names it again (a writer coming back).
+RETIRED_STATE = {
+    "data/unifi_cache": ("NETMON_UNIFI_CACHE", "unifi_cache"),  # UniFi pre-warm cache -> unifi_rows/unifi_streams + docs unifi/*
+}
+
+
+def retired_check(root=HERE, disk=True):
+    """-> list of problems: retired state paths present under root, or source files (*.py, *.sh) naming them."""
+    bad = [f"{p} exists (its data is in netmon.db)" for p in RETIRED_STATE if disk and os.path.exists(os.path.join(root, p))]
+    for f in glob.glob(os.path.join(root, "**", "*.py"), recursive=True) + glob.glob(os.path.join(root, "**", "*.sh"), recursive=True):
+        rel = os.path.relpath(f, root)
+        if rel == "store.py" or rel.startswith(("tests" + os.sep, "node_modules", "data" + os.sep)):
+            continue
+        try:
+            with open(f, errors="replace") as fh:
+                txt = fh.read()
+        except OSError:
+            continue
+        bad += [f"{rel} names retired state '{w}'" for ws in RETIRED_STATE.values() for w in ws if w in txt]
+    return bad
 
 
 def cfg_doc(path):
@@ -1202,6 +1292,10 @@ if __name__ == "__main__":
         print(cfg_save(sys.argv[2], json.load(open(sys.argv[3]))), "rows")
     elif cmd == "cfg-export":  # store.py cfg-export <doc>: print it as JSON (backup / rollback)
         print(json.dumps(cfg_load(sys.argv[2]), indent=1))
+    elif cmd == "retired-check":  # ship.sh state-file gate
+        bad = retired_check()
+        print("\n".join(bad) or "clean")
+        sys.exit(1 if bad else 0)
     elif cmd == "check":
         print(integrity())
     elif cmd == "export":

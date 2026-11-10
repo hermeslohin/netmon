@@ -34,12 +34,12 @@ JOBS = {
     "watch": [PY, os.path.join(NM, "watch.py")],
     "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
-    "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],
+    "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],  # keeps the UniFi cache in netmon.db warm so ranges/snapshots skip the slow cloud calls
     "rangewarm": [PY, os.path.join(NM, "range_warm.py")],  # the dashboard's default window (last 24 h), pre-collected every slot
     "k8simages": [PY, os.path.join(NM, "kube_images.py")],  # daily: container image updates + CVEs (Trivy) for every Kubernetes cluster
     "vulnhist": [PY, os.path.join(NM, "vulnhist.py"), "record"],  # daily: vulnerability counts for the Fix list / Kubernetes line charts
     "evtime": [PY, os.path.join(NM, "evtime.py")],  # when open events happened: Elasticsearch record times (Open events)
-    "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
+    "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured
 }
 running = {}
 
