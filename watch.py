@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from collect import q, ds, buckets, inventory  # noqa: E402
 import extras  # noqa: E402
 
-WINDOW = int(os.environ.get("NETMON_WATCH_WINDOW", 20))       # minutes: first-run span; env override for testing
+WINDOW = int(os.environ.get("NETMON_WATCH_WINDOW", 20))       # minutes: first-run span; env override for testing (runs every event window: scheduler.watch_period)
 SUPPRESS_H = 12
 import window  # noqa: E402
 _AW = window.arrival("watch", WINDOW)  # (bookmark, now - margin] on event.ingested; every since() below uses it

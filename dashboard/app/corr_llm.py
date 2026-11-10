@@ -2714,6 +2714,16 @@ def groups_of(base, V=None, keep=None):
     return out
 
 
+def _pulled_to():
+    """(end of the watcher's newest committed arrival window or None, pull period s): window.bookmark("watch")."""
+    period = max(60.0, _event_window_min() * 60)
+    try:
+        import window
+        return window.bookmark("watch"), period
+    except Exception:  # noqa: BLE001 - /netmon not mounted (tests of this module alone): settle on time only
+        return None, period
+
+
 def _cov(raw):
     try:
         v = json.loads(raw) if raw else None
@@ -2739,6 +2749,8 @@ def event_pass(base, now=None):
     skipped, CL = _limit_fn(base), _cleared()
     keep = lambda a, b: not (skipped(a, b) or skipped.testing(a, b) or (a in CL and b in CL))  # noqa: E731
     wait = settle_s()
+    win = _event_window_min() * 60
+    pulled, period = _pulled_to()  # end of the newest committed Elasticsearch pull (watcher arrival bookmark)
     with _db() as c:
         have = {e: (sg, _cov(cv)) for e, sg, cv in c.execute("SELECT eid, sig, covered FROM event_class")}
         first = dict(c.execute("SELECT eid, ts FROM review_pending"))  # when each event started waiting (kept across passes)
@@ -2762,9 +2774,15 @@ def event_pass(base, now=None):
         if not need:
             continue
         settles = (g["newest"] + wait) if g["newest"] is not None else now
+        # a late event can reach Elasticsearch up to one window after it happened: settled only once a pull has committed
+        # arrivals past newest + window (so no later pull adds a member after the review)
+        need_pull = g["newest"] + win if g["newest"] is not None else None
+        pull_ok = need_pull is None or pulled is None or pulled >= need_pull
+        if not pull_ok:  # expected: the first pull slot whose window ends after need_pull (+ ingest margin), plus its run time
+            settles = max(settles, (need_pull + 120) // period * period + period + 60)
         since = min([first.get(m) or now for m in ms])
         overdue = now - since >= wait * MAX_WAIT_FACTOR  # keeps changing (a recurring event): review it anyway
-        ready = (not g["undecided"] and settles <= now) or overdue
+        ready = (not g["undecided"] and pull_ok and settles <= now) or overdue
         f = _REVIEW_FAILS.get("group|" + gs)
         if ready and f and f[1] >= REVIEW_RETRIES and f[0] == tuple(sorted(tok.items())):
             continue  # the event reviewer failed this group too often: wait until it changes

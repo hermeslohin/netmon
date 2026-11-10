@@ -26,7 +26,7 @@ netmon watches the home network and the computers on it and tells you what chang
 
 | When | What runs | What you get |
 |---|---|---|
-| Every 15 minutes | **Urgent watcher.** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
+| Every event window (default 10 minutes) | **Urgent watcher (the Elasticsearch pull).** Fixed rules, no AI. | Alerts on the Alerts page and push notifications for serious, new events. |
 | At least once per **event window** (the **review job**; interval set on the Configuration page, run at most one event window apart, on a grid starting at 05:00 UTC) | **Collection and analysis.** | A new *snapshot*: everything that reached Elasticsearch since the previous run plus one event window before it, so nothing falls between runs. Earlier research notes are reused for repeat events. Events are researched only when you click **Send to research**. |
 | Continuously (the correlation worker, every 5-60 s) | **Correlation and the event reviewer.** | The decision model decides each candidate link as it appears. Linked events form a **correlated group**; once the group has **settled** (its newest event is one event window old, plus 5 min for late logs, and no link is undecided) the event reviewer labels the whole group with one call. Until then its events show **⏳ Pending review · settles at HH:MM**. |
 | First run at or after 05:00 UTC (1 AM Eastern in summer) | The same run, always over 24 hours. | A full-day snapshot, the only kind that goes into the device baseline. |
@@ -58,7 +58,7 @@ netmon only reads data. It never changes the network, the gateway or Security On
 | Item | What it does |
 |---|---|
 | **Overview** | The summary page. |
-| **Alerts** | Urgent alerts from the 15-minute watcher. The number is your unread count. |
+| **Alerts** | Urgent alerts from the watcher (every event window, default 10 min). The number is your unread count. |
 | **Open events** | Your to-do list: every event nobody has accepted (checked off) yet, of any age. Not time based; repeats of one condition are one row. The number is how many are open; the page lists at most 5000 rows (most severe and newest first). See [Open events vs Posture](#open-events-vs-posture). |
 | **Security ▾** | Posture, Threat intel, ATT&CK, Risk, Fix list. |
 | **Network ▾** | Network map, Lateral movement, DNS, TLS and IPs, Traffic map, **Users** (accounts seen in the logs and their usual patterns; the dashboard's own logins are under More → Dashboard users). |
@@ -132,7 +132,7 @@ Tables with many rows (baseline findings, host findings, IDS signatures, Zeek we
 
 ## 4. Notifications and alerts
 
-The 15-minute watcher records a **detection** for things such as:
+The watcher (every event window, default 10 min) records a **detection** for things such as:
 
 - a device that has never been seen before;
 - a severity-1 IDS hit, or an IDS hit in a malware, command-and-control, exploit, privilege-gain or coin-mining category at any severity (signatures on the known-benign list are skipped);
@@ -498,7 +498,7 @@ Security monitoring of the Kubernetes cluster, built **only from Security Onion 
 
 Click a pod (or a signal row) to **pivot into the pod**. The pod page shows its node and IP, security hits, warning events, Security Onion alerts and a log-volume chart (stdout and stderr). It also has a log viewer that you can filter by text, container and stream, with an **Older lines** link. The filters are kept in the address, so a filtered view can be bookmarked. The **Pivot** box links to Kibana (all logs of the pod, stderr only, network logs of the pod IP, Kubernetes events), the node's endpoint page and the pod IP as a network device.
 
-Kubernetes findings use keys that start with `k8s-`. The 15-minute watcher raises them as alerts (check 8), and the nightly snapshot adds them to the host findings, so the correlation, the review job and Posture handle them like any other host finding. Findings cover:
+Kubernetes findings use keys that start with `k8s-`. The watcher (every event window, default 10 min) raises them as alerts (check 8), and the nightly snapshot adds them to the host findings, so the correlation, the review job and Posture handle them like any other host finding. Findings cover:
 
 - container-log feed stale;
 - reverse shell, miner, web-attack or secret text in container logs;

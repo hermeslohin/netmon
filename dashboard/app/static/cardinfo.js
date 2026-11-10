@@ -47,7 +47,7 @@ window.CARD_INFO = {
 },
 "k8s|Kubernetes findings": {
 "source": "k8s.py findings over the chosen window: Security Onion data only (container logs, Kubernetes events, API server metrics, SO alerts).",
-"use": "Each one is also raised by the 15-minute watcher and added to the nightly host findings (key prefix k8s-). Tune thresholds and exempt namespaces in Settings → Endpoint policy → k8s.",
+"use": "Each one is also raised by the watcher (every event window, default 10 min) and added to the nightly host findings (key prefix k8s-). Tune thresholds and exempt namespaces in Settings → Endpoint policy → k8s.",
 "what": "Kubernetes security problems found in this window."
 },
 "k8s|Security Onion data coverage": {
@@ -891,7 +891,7 @@ window.CARD_INFO = {
 "what": "The UniFi gateway's protection setup: IPS mode, enabled threat categories, protected networks, honeypot, DNS filtering, ad blocking, endpoint scanning and DPI."
 },
 "security|Host findings": {
-"source": "hosts.py reading Elastic Agent data in Security Onion: Elastic Defend alerts and events, osquery, auth and system logs, Fleet status, compared with a per-host baseline. The 15-minute watcher uses the same rules.",
+"source": "hosts.py reading Elastic Agent data in Security Onion: Elastic Defend alerts and events, osquery, auth and system logs, Fleet status, compared with a per-host baseline. The watcher (every event window, default 10 min) uses the same rules.",
 "use": "Investigate items first. Tick the box once explained; it carries over to later snapshots. Use 💬 Ask AI, Kibana, Related and the research-note verdict to judge each one.",
 "what": "Problems seen on the computers themselves: Defend alerts, unusual logins or repeated failures, account changes, suspicious sudo or processes, new executables, sensitive file changes, agent and Defend policy problems, syslog going silent."
 },
@@ -1126,7 +1126,7 @@ window.CARD_INFO = {
 "what": "Recovery instructions for when nobody can sign in, for example after a forgotten password or too many failed attempts."
 },
 "alerts|Detections by verdict": {
-"source": "The urgent-alert feed (15-minute watcher, scans, account checks; last 30 days) joined with verdicts: a person's verdict, else the event reviewer's label.",
+"source": "The urgent-alert feed (watcher (every event window, default 10 min), scans, account checks; last 30 days) joined with verdicts: a person's verdict, else the event reviewer's label.",
 "use": "Click a verdict chip or a KPI tile to filter. A person's verdict (👤) wins over the event reviewer (AI). Click a row for the research, web research and notes behind it.",
 "what": "Every detection that was not promoted to an alarm, with the verdict it got. Only detections reviewed as suspicious at medium or high severity become alarms."
 },

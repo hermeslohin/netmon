@@ -71,7 +71,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 |---|---|---|---|---|
 | `scheduler.py` | systemd user unit `netmon-scheduler` | always on | `review_cfg`, job state | starts jobs, `logs/<job>.log` |
 | `vulnhist.py record` | child of the scheduler | daily from 06:00 UTC | Fix list (dashboard issue tracker), saved CIS runs, image scan doc | SQLite table `vuln_hist` (Fix list / Kubernetes line charts) |
-| `watch.py` (watcher) | child of the scheduler | every 15 min | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
+| `watch.py` (watcher, the Elasticsearch pull) | child of the scheduler | every event window (default 10 min, `event_window_minutes`, live) | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
 | `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `data/unifi_cache` |
 | `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |
 | `review.py` (review job) | child of the scheduler | grid set on AI pipeline configuration (5 min–24 h, anchored 05:00 UTC) or **Run now** | Elasticsearch, UniFi cache, earlier notes | snapshot, `review_job.json`, copied notes |
@@ -140,7 +140,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
 
 1. **Collect.** `collect.py` queries Elasticsearch (Zeek, Suricata, Elastic Defend, osquery, Kubernetes data
    streams), the Kubernetes API of each configured cluster (CIS benchmark, latest image scan) and the UniFi cache
-   over a time window (`window.py`). The watcher uses the last 15 minutes, the review job everything since its last
+   over a time window (`window.py`). The watcher uses everything since its last pull (one pull per event window), the review job everything since its last
    run plus one event window (`lookback.py`, More > Settings > Site > `event_window_minutes`), the daily run 24 hours, a dashboard time range an explicit start and end.
 2. **Analyze.** `analyze.py` compares the snapshot against each device's baseline (`host_baseline`, `history`),
    runs the deterministic issue checks (`issues.py`), risk scoring (`risk.py`), ATT&CK mapping (`mitre.py`) and

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """netmon scheduler: runs the pipeline's recurring jobs on the host (systemd user unit netmon-scheduler.service).
 
-  watcher        every 15 minutes            watch.py (urgent alerts -> dashboard + Web Push)
+  watcher        every event window          watch.py: the Elasticsearch pull (urgent alerts -> dashboard + Web Push);
+                 (default 10 min)            period = lookback.minutes() (Settings > Site > event_window_minutes), live
   review job     grid set on the dashboard   review.py (review_cfg: interval, anchored at 05:00 UTC; on/off)
                  + "Run now" requests from the AI pipeline pages
 Event research (research.py) is never scheduled: the host broker starts it when a person clicks Send to research.
@@ -97,15 +98,26 @@ def _opencti_wanted():
         return False
 
 
+def watch_period():
+    """Seconds between watcher pulls: one event window (lookback.minutes(), 2-120 min)."""
+    try:
+        import lookback
+        return lookback.minutes() * 60
+    except Exception:  # noqa: BLE001 - no store: the default window
+        return 600
+
+
 def tick(now=None):
     now = now or time.time()
     t = dt.datetime.fromtimestamp(now, dt.timezone.utc)
     s = _state()
-    # watcher: once per 15-minute slot
-    q = int(now // 900)
-    if s.get("watch") != q:
-        if start("watch", why="(15-min slot)"):
-            s["watch"] = q
+    # watcher (the Elasticsearch pull): once per event window (lookback.py, Settings > Site > event_window_minutes, read
+    # live; default 10 min). Its arrival bookmark makes the pulls touch end to end whatever the spacing (no gap, no overlap).
+    wp = watch_period()
+    wst = (now // wp) * wp
+    if float(s.get("watch_at") or 0) < wst:
+        if start("watch", why=f"({int(wp // 60)}-min event window slot)"):
+            s["watch_at"] = wst
     # default dashboard window (last 24 h): pre-collected once per 15-minute slot, 1 minute in (Logstash has caught up)
     rq = int((now - 60) // 900)
     if s.get("rangewarm") != rq and start("rangewarm", why="(15-min slot)"):
@@ -178,13 +190,15 @@ def _dispatch_research():
 def status():
     cfg = RC.get()
     now = time.time()
-    nxt_q = (int(now // 900) + 1) * 900
+    wp = watch_period()
+    nxt_q = (now // wp + 1) * wp
     t = dt.datetime.now(dt.timezone.utc)
     days = (6 - t.weekday()) % 7
     wk = (t + dt.timedelta(days=days)).replace(hour=3, minute=0, second=0, microsecond=0)
     if wk <= t:
         wk += dt.timedelta(days=7)
-    return {"watch": nxt_q, "review": RC.next_run(), "review_interval_minutes": cfg["interval_minutes"],
+    return {"watch": nxt_q, "watch_period_minutes": wp / 60, "review": RC.next_run(), "review_interval_minutes": cfg["interval_minutes"],
+            "review_interval_effective": cfg["interval_effective"],
             "review_enabled": cfg["enabled"], "weekly": wk.timestamp(), "last": _state()}
 
 

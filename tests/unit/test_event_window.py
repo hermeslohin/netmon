@@ -19,7 +19,7 @@ import window  # noqa: E402
 def _clean():
     _env.fresh_db()
     with store.connect() as c:
-        c.execute("DELETE FROM meta WHERE k IN (?, ?, ?)", (lookback.KEY, lookback._OLD_KEY, review_cfg.KEY))
+        c.execute("DELETE FROM meta WHERE k IN (?, ?, ?, ?, ?)", (lookback.KEY, lookback._OLD_KEY, review_cfg.KEY, "arrival:watch", "arrival:review"))
     store._cfg_cache.clear()
 
 
@@ -101,6 +101,50 @@ class TestEventWindowSetting(unittest.TestCase):
         self.assertEqual(review_cfg.get()["interval_effective"], 15)
         n = review_cfg.next_run(1_800_000_000)
         self.assertEqual((n - review_cfg.DAILY_HOUR * 3600) % 900, 0)
+
+
+class TestWatchPeriod(unittest.TestCase):
+    """scheduler: the Elasticsearch pull (watcher) runs once per event window and follows the setting live."""
+
+    def setUp(self):
+        _clean()
+
+    def tearDown(self):
+        _clean()
+
+    def test_watch_runs_once_per_window(self):
+        """With a 10-min window the watcher starts once per 10-min slot; at 5 min it follows at once.
+        REQ: EVW-06"""
+        import scheduler
+        started = []
+        t0 = 1_800_000_000 - 1_800_000_000 % 600
+        with mock.patch.object(scheduler, "start", side_effect=lambda job, *a, **k: started.append(job) or True), \
+                mock.patch.object(scheduler, "_state", return_value={}) as st, mock.patch.object(scheduler, "_save"):
+            state = {"review": 0}
+            st.return_value = state
+            for k in range(0, 1800, 60):  # 30 minutes, one tick a minute
+                scheduler.tick(t0 + k)
+            self.assertEqual(started.count("watch"), 3)
+            self.assertEqual(scheduler.watch_period(), 600)
+            lookback.put(5, "a")
+            started.clear()
+            for k in range(1800, 3600, 60):
+                scheduler.tick(t0 + k)
+            self.assertEqual(started.count("watch"), 6)
+        self.assertEqual(scheduler.status()["watch_period_minutes"], 5)
+
+    def test_watch_pulls_touch_end_to_end(self):
+        """Watcher arrival windows read from the bookmark: consecutive pulls have no gap and no overlap.
+        REQ: EVW-06"""
+        prev = None
+        for k in range(4):
+            window.arrival("watch", 10, now=1_800_000_000 + k * 600)
+            frm, to = window._ARR["frm"], window._ARR["to"]
+            if prev is not None:
+                self.assertEqual(frm, prev)
+            window.commit()
+            prev = to
+        window._ARR.clear()
 
 
 class TestCoverage(unittest.TestCase):
@@ -268,6 +312,24 @@ class TestGroupReview(unittest.TestCase):
         self.assertEqual(corr_llm.event_pass(base, now=now - 20 + corr_llm.settle_s() + 1), 1)
         self.assertEqual(self.labels(), {"a": "benign", "b": "benign"})
         self.assertEqual([k for (k,) in corr_llm._db().execute("SELECT kind FROM review_events ORDER BY ts, rowid")], ["fast", "group"])
+
+    def test_waits_for_a_pull_after_newest_plus_window(self):
+        """A group whose settle time passed is still pending until an Elasticsearch pull committed arrivals past newest + one window.
+        REQ: EVW-06"""
+        now = 1_800_000_000
+        newest = now - 2000
+        base = {"events": {"a": _ev("x", newest - 60), "b": _ev("y", newest)}, "related": {"a": [{"id": "b", "score": 5, "why": []}]}}
+        self.decide("a", "b")
+        with store.connect() as c:  # the last pull ended before newest + window: a late member could still arrive
+            c.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", ("arrival:watch", json.dumps({"to": newest + 300, "from": newest - 300})))
+        self.assertEqual(corr_llm.event_pass(base, now=now), 0)
+        p = corr_llm.classes(["a"], pending=True)["a"]["pending"]
+        self.assertGreater(p["settles"], newest + 600)
+        window.arrival("watch", 10, now=newest + 600 + 300)  # the next pull covers past newest + window
+        window.commit()
+        window._ARR.clear()
+        self.assertEqual(corr_llm.event_pass(base, now=now), 1)
+        self.assertEqual(self.labels(), {"a": "benign", "b": "benign"})
 
     def test_alert_verdict_pending(self):
         """Pages show Pending review (filterable) for an event whose group has not settled, never a blank or Not reviewed.

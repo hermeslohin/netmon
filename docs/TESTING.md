@@ -257,7 +257,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
 | `tests/unit/test_correlate.py` | 41 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01) |
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
-| `tests/unit/test_event_window.py` | 14 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, OPS-03) |
+| `tests/unit/test_event_window.py` | 17 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, EVW-06, OPS-03) |
 | `tests/unit/test_evtime.py` | 14 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
@@ -288,7 +288,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
 | `tests/unit/test_risk_k8s.py` | 4 | Risk: Kubernetes workloads ranked with hosts (risk.k8s_rows). (KUBE-11) |
 | `tests/unit/test_runarchive.py` | 8 | Review-run documents are pipeline input only: run summaries (runarchive.py), pruning, the time-range-only page API (DASH-07, OPS-06, POS-01, POS-04) |
-| `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (OPS-03) |
+| `tests/unit/test_scheduler.py` | 17 | Unit tests for the scheduler's time/slot computations (scheduler.py, review_cfg.py); no jobs are started. (EVW-06, OPS-03) |
 | `tests/unit/test_scoped_notes.py` | 3 | Unit tests for dashboard/app/kb.py wider-scope internet notes: parent-domain notes cover subdomains, CIDR-range notes cover addresses. (STO-13) |
 | `tests/unit/test_server_cache.py` | 2 | Unit tests for the dashboard's in-memory document cache (server.load_json). (DASH-02, OPS-05) |
 | `tests/unit/test_settings_ai.py` | 43 | Unit tests for every AI-pipeline setting: corr_llm setters (notes, models, look-ups, review limits), the decision-model (EVW-01, EVW-02, SET-20, SET-21, SET-22, SET-23, SET-24, SET-25, SET-26, SET-27, SET-28, SET-29, SET-30, SET-31, SET-32, SET-33, SET-34, SET-35) |

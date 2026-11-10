@@ -82,6 +82,7 @@ REQUIREMENTS = {
     "EVW-02": ("Event window", "Two events only become a candidate link when they happened at most one event window apart; events up to one window plus ingest slack outside the snapshot still count.", "docs/CORRELATION.md"),
     "EVW-03": ("Event window", "Review job coverage has no gaps: each run collects everything that arrived since the previous run's end minus one event window, and the job runs at least once per window (never under 5 minutes).", "docs/CORRELATION.md"),
     "EVW-04": ("Event window", "The event reviewer labels a correlated group (connected decided-related links) with ONE call once its newest event is one window plus ingest slack old and none of its links is undecided, storing the label on every member; a labelled group is reviewed again only after it gains a member and settles again.", "docs/CORRELATION.md"),
+    "EVW-06": ("Event window", "The Elasticsearch pull (watcher) runs once per event window, following the setting live, with bookmark windows that touch end to end; a group only settles once a pull has committed arrivals past its newest event plus one window.", "docs/CORRELATION.md"),
     "EVW-05": ("Event window", "Events whose group has not settled show a filterable 'Pending review' badge with the time it settles (never blank); a high-severity event with no label gets a provisional label at once; the AI review page counts events pending review and the settle-to-label delay.", "docs/USER_GUIDE.md"),
     "CFG-05": ("Configuration", "The watcher and the review job select events by arrival time (event.ingested; @timestamp for documents without it) with a per-job bookmark, so events that reach Elasticsearch late are checked when they arrive: watcher windows touch end to end, the bookmark moves only after a run without failed checks, dashboard time ranges stay on event time, and per-source ingest lag is measured.", "SETUP.md (Collection windows)"),
     "CFG-03": ("Configuration", "Collection windows end 'now' or at NETMON_WINDOW_END and produce Elasticsearch range filters.", "SETUP.md (Time ranges)"),
@@ -117,7 +118,7 @@ REQUIREMENTS = {
     # ---- operations ----
     "OPS-01": ("Operations", "Console recovery commands (server.py set-role / add-user / set-password) work without the web UI.", "ACCESS_CONTROL.md"),
     "OPS-02": ("Operations", "The dashboard container runs read-only, non-root, with a passing health check.", "SETUP.md §6"),
-    "OPS-03": ("Operations", "The scheduler runs the watcher every 15 minutes, the research job on its grid and the weekly rebuild on Sunday.", "SETUP.md §7"),
+    "OPS-03": ("Operations", "The scheduler runs the watcher once per event window, the research job on its grid and the weekly rebuild on Sunday.", "SETUP.md §7"),
     "OPS-06": ("Operations", "The review job (review.py) never researches events: its event reviewer only copies matching earlier notes or leaves events queued; event research (research.py) runs only for a person's Send to research click and is never scheduled.", "review.py / research.py / scheduler.py"),
     "OPS-04": ("Operations", "store.py CLI (check / stats) verifies and reports on the database.", "store.py"),
     # ---- Lateral movement page ----

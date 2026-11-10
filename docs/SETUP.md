@@ -1,6 +1,6 @@
 # Setting up netmon
 
-This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review), a 15-minute urgent watcher, the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
+This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review), an urgent watcher (the Elasticsearch pull, once per event window, default 10 min), the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
 
 netmon is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
 
@@ -13,7 +13,7 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 | Component | Required? | Used for |
 |---|---|---|
 | **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl, systemd (user services) | yes | runs the scheduler, the host broker and the dashboard container |
-| **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The 15-minute watcher uses no LLM. |
+| **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The watcher (every event window, default 10 min) uses no LLM. |
 | **Local OpenAI-compatible model server** (any server offering `/v1/chat/completions` with JSON-schema structured output, e.g. llama.cpp, vLLM, SGLang, Ollama) | optional, recommended | the event reviewer (called continuously, so a local model saves API cost); can also serve the review job or chat |
 | **Decision-model server** (System One API, `/v1/systemone`, on loopback: llama.cpp `llama-server` or SGLang) | optional, recommended | decides correlation links and labels events, see [CORRELATION.md](CORRELATION.md). Off = the event reviewer decides links |
 | **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
@@ -137,14 +137,14 @@ Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 M
 
 ### Collection windows (arrival time)
 
-The 15-minute watcher and the review job select events by **when Elasticsearch stored them** (`event.ingested`), not
+The watcher (every event window, default 10 min) and the review job select events by **when Elasticsearch stored them** (`event.ingested`), not
 by when they happened (`@timestamp`). When Logstash or the Security Onion ingest pipeline is backed up, events reach
 Elasticsearch hours late; a "last 20 minutes by @timestamp" window would never see them. With arrival time they are
 checked by the first run after they arrive.
 
 - Each job keeps one bookmark in the store (`meta` key `arrival:watch` / `arrival:review`): the end of its last
   successful window. No event ids are kept.
-- Watcher window = (bookmark, now - 2 min]. Windows touch end to end, so every event is checked exactly once. The
+- Watcher window = (bookmark, now - 2 min], one pull per event window (default 10 min, `scheduler.watch_period()`). Windows touch end to end, so every event is checked exactly once. The
   2-minute margin covers the data streams' 30 s refresh, so events stamped just before the end are already searchable.
 - Review job window = (min(bookmark - event window, now - event window), now - 2 min]: everything since the last run
   plus one event window before it (More > Settings > Site > `event_window_minutes`, default 10 min), so a new event
@@ -204,7 +204,7 @@ systemctl --user status netmon-scheduler   # or: /usr/bin/python3 scheduler.py s
 
 | Job | When | What |
 |---|---|---|
-| watcher | every 15 minutes | `watch.py`: urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
+| watcher | every event window (default 10 min; More > Settings > Site > `event_window_minutes`, followed live) | `watch.py` (the Elasticsearch pull, arrival bookmark: pulls touch end to end): urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
 | review job | every N minutes, set on **Configuration → Review job runs every** (5 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI pipeline pages | `review.py`: collect + analyze, then the event reviewer copies matching earlier notes; everything else waits in the queue. |
 | event research | only when a person clicks **Send to research** | `research.py --event ID`, started by the host broker; a click that has to wait (another research running) is started by the scheduler as soon as the running one ends. Never scheduled. |
 | weekly rebuild | Sundays 03:00 UTC | `weekly_rebuild.sh`: dashboard image rebuild with updated libraries + security scan. |
@@ -294,7 +294,7 @@ integrations document; the API token is write-only).
 3. Thresholds: *Minimum score* (default 50) drops weaker indicators; at or above the *High-confidence score*
    (default 80) a match counts as serious and raises a Threat-intel alert like Feodo or URLhaus.
 
-What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes, 5 minutes past the watcher):
+What it does (`opencti.py`, scheduler job `opencti`, every 15 minutes):
 
 - **Pull**: IP, domain, hostname, file-hash and file-name indicators that are not revoked or expired, plus the hashes of
   malware-sample observables (e.g. MalwareBazaar artifacts), into the SQLite table `ti_local` (one `opencti_*` list each; `ti_lists` holds counts and update times). Full rebuild daily, changes
@@ -397,7 +397,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | `adminproto.py` | admin / lateral-movement protocol + tool catalog, session merger |
 | `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk ([RISK_SCORING.md](RISK_SCORING.md)) |
 | `dashboard/app/correlate.py`, `corr_llm.py` | event correlation, local-LLM review ([CORRELATION.md](CORRELATION.md)) |
-| `watch.py` | 15-minute urgent watcher |
+| `watch.py` | urgent watcher (Elasticsearch pull once per event window, default 10 min) |
 | `review.py`, `review_cfg.py` | the review job and its settings (schedule, modes) |
 | `research.py`, `research_cfg.py` | event research (Send to research) and its settings (model, caps) |
 | `aijob.py`, `prompts/` | tools, budget and logs shared by both, and their prompts |

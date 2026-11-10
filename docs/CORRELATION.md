@@ -79,7 +79,7 @@ Failures also raise **host risk**: they add to the *threat* score of the machine
 stat tiles, a logins-by-protocol chart (click to filter), an outcome chart, the session list and the admin tools
 seen.
 
-**The 15-minute watcher** (`watch.py` check 7) runs the same logic over its window. It raises **Admin ALERT**
+**The watcher (every event window, default 10 min)** (`watch.py` check 7) runs the same logic over its window. It raises **Admin ALERT**
 (investigate) for high and **Admin notice** for medium, tagged with ATT&CK (T1110.x brute force, T1021.x remote
 services), muted for 12 h per *(from, to, protocol, level)*.
 
@@ -148,7 +148,10 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    its own person's verdict). Until then the group's events show **⏳ Pending review · settles at HH:MM** on every
    page that shows a label (table `review_pending`, rewritten each pass). A labelled group is reviewed again only when
    it **gains a member** (or a member's person's verdict / threat-intel hit changes), and then again only after it
-   settles; a group that keeps changing for 3 settle waits (a scan firing every minute) is reviewed anyway.
+   settles. Because an event can reach Elasticsearch up to one window after it happened, a group also waits until the
+   watcher (the Elasticsearch pull, once per event window) has committed a pull whose arrival window ends after its
+   newest event + one window (`window.bookmark("watch")`), so no later pull can add a member after the review; the
+   shown settle time includes that pull. A group that keeps changing for 3 settle waits (a scan firing every minute) is reviewed anyway.
    **Fast path:** a *high*-severity event with no label yet gets a provisional single-event review at once (at most 5 per
    pass) so alarms do not wait; its group review replaces it after the settle. Each call is one `review_events` row
    with `members` (events labelled), `kind` (group / fast / overdue) and `delay` (seconds from settling to the review).

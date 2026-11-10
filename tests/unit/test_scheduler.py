@@ -144,13 +144,14 @@ class SchedulerStatusTest(unittest.TestCase):
         self.assertEqual(scheduler.running, {})
 
     def test_status_watch_next_quarter_hour(self):
-        """The next watcher run is the next 15-minute boundary, within 15 minutes from now.
-        REQ: OPS-03"""
+        """The next watcher run is the next event-window boundary (10 min by default), within one window from now.
+        REQ: OPS-03, EVW-06"""
         before = time.time()
-        s = scheduler.status()
-        self.assertEqual(s["watch"] % 900, 0)
+        with mock.patch("lookback.minutes", return_value=10):
+            s = scheduler.status()
+        self.assertEqual(s["watch"] % 600, 0)
         self.assertGreater(s["watch"], before)
-        self.assertLessEqual(s["watch"] - before, 900)
+        self.assertLessEqual(s["watch"] - before, 600)
 
     def test_status_weekly_is_next_sunday_0300(self):
         """The weekly rebuild is the next Sunday 03:00 UTC, in the future and at most 7 days away.
