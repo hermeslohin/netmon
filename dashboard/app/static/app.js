@@ -426,6 +426,30 @@ function devCell(key, ip, fname) {
   const label = nm ? `<span title="${esc(key)}${ipx && ipx !== key ? " · " + esc(ipx) : ""}">${esc(nm)}</span>` : `<span class="mono">${esc(key)}</span>`;
   return ipx && S.snap?.raw?.devices?.[ipx] ? `<a href="#/device/${encodeURIComponent(ipx)}">${label}</a>` : label;
 }
+// Posture "Occurred": when each event of the loaded range happened (Elasticsearch record times, /api/events/times).
+// Missing times are looked up on the host in the background; the cells fill in as they arrive (no re-render).
+const evtFt = (t) => ft(new Date(t * 1000).toISOString());
+function occHtml(id) {
+  const T = S.evTimes?.sid === S.snap?.id ? S.evTimes.times : null, v = T?.[id];
+  if (v && v[0]) { const a = evtFt(v[0]), b = v[1] ? evtFt(v[1]) : a; return `<span title="When it happened (Elasticsearch record times in this range)">${a === b ? a : `${a} – ${b}`}</span>`; }
+  if (v) return `<span class="muted small" title="No Elasticsearch record behind this event in this range (status / inventory finding)">—</span>`;
+  if (T && !S.evTimes.pending) return `<span class="muted small" title="No Elasticsearch record time for this row">—</span>`;
+  return `<span class="muted small" title="Looking up the Elasticsearch record time…">…</span>`;
+}
+const occCol = (idOf) => ({ k: "_occ", t: "Occurred", fmt: (v, x) => { const id = idOf(x) || ""; return `<span class="evt-occ" data-ev="${esc(id)}">${occHtml(id)}</span>`; },
+  sort: (x) => { const v = S.evTimes?.times?.[idOf(x)]; return v && v[1] ? -v[1] : 0; } });
+let evTimesBusy = false;
+function loadEvTimes(tries = 0) {
+  const sid = S.snap?.id; if (!sid || (evTimesBusy && tries === 0)) return;
+  if (S.evTimes?.sid === sid && !S.evTimes.pending && tries === 0) return;
+  evTimesBusy = true;
+  api("/api/events/times?id=" + encodeURIComponent(sid)).then((d) => {
+    if (S.snap?.id !== sid) { evTimesBusy = false; return; }
+    S.evTimes = { sid, times: d.times || {}, pending: d.pending || 0 };
+    document.querySelectorAll(".evt-occ[data-ev]").forEach((el) => { const h = occHtml(el.dataset.ev); if (el.innerHTML !== h) el.innerHTML = h; });
+    if (d.pending && tries < 30 && /^#\/security\b/.test(location.hash)) setTimeout(() => loadEvTimes(tries + 1), 4000); else evTimesBusy = false;
+  }).catch(() => { evTimesBusy = false; });
+}
 const baseFind = (an) => ((an && an.findings) || []).filter((f) => f.kind !== "segmentation").map((f) => (f.host_ip === undefined ? Object.assign(f, { host_ip: findHostIp(f) }) : f));
 // Segmentation findings / Fix-list "seg|" issues / lateral violations share ONE stable flow key ("<src MAC or IP>|<dst>|<port>",
 // ack type "seg"), so clearing it anywhere clears it everywhere and it stays cleared on later snapshots.
@@ -1207,15 +1231,16 @@ const researchNotes = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.s
   .map((n) => (typeof n === "string" ? n : JSON.stringify(n)).replace(/^\s*[-*•]\s+/, "").trim()).filter(Boolean);
 V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
+  loadEvTimes();
   el.innerHTML = `<h1>Posture</h1><div class="small muted" style="margin:-4px 0 10px">The history of the selected time range, not the to-do list. Time based: the findings, IDS signatures, segmentation violations, beacons and threat-intel hits below show only what happened in the time range chosen in the header 🕒 (a nightly report window loads instantly; any other range is collected for exactly that time). The AI triage alarms and research notes always follow the nightly report that ends inside the range. Check-offs and suppress rules are not time based: they stay in force for every range, and anything unchecked and older than the range remains on <a href="#/events">Open events</a>. Each finding is listed as reported, so one condition can appear as several rows; Open events collapses repeats into one.</div>`;
   { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
   const BF = ackSplit("finding", baseFind(an), "sec-find");
-  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v, x) => devCell(v, x.host_ip, x.name), sort: (x) => `${devNameFor(x.device, x.host_ip, x.name) || "~"} ${x.device || ""}` }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, { k: "last_seen", t: "Last seen", fmt: ft }], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => { const ip = r.host_ip || r.device; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); },
+  el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v, x) => devCell(v, x.host_ip, x.name), sort: (x) => `${devNameFor(x.device, x.host_ip, x.name) || "~"} ${x.device || ""}` }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, occCol((x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`)], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, onclick: (r) => { const ip = r.host_ip || r.device; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); },
     urlFilter: { severity: ["Severity", (x, v) => eqi(x.severity, v)], kind: ["Kind", (x, v) => eqi(x.kind, v)], device: ["Device", (x, v) => eqi(x.device, v)] } })));
   { // endpoint / host findings (Elastic Agent, osquery, syslog); moved here from Endpoints
     const hf = (S.snap.raw.hosts || {}).findings || [];
     const HF = ackSplit("host", hf, "ep-find"), hfo = HF.open;
-    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, hfHostCol((x) => x.key), hfToCol((x) => x.key, (x) => x.text), { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, { k: "last_seen", t: "Last seen", fmt: ft }], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
+    const hc = card(`Host findings (${hfo.length} open)${HF.toggle}`, HF.show.length ? table(null, [ackCol("host", (x) => x.text), askPivCol("host finding", (x) => x.text, "host finding"), { k: "priority", t: "Priority", fmt: badge, sort: (x) => sevRank(x.priority) }, hfHostCol((x) => x.key), hfToCol((x) => x.key, (x) => x.text), { k: "text", t: "Finding", fmt: (v, x) => linkifyIps(v) + (acked("host", x) ? ` <span class="muted small">checked ${esc(ft(ackInfo("host", x).at))}</span>` : "") }, occCol((x) => x.key && `hf|${x.key}`)], HF.show, { filter: true, sort: "priority", dir: 1, rowClass: ackRowCls("host"), evId: (x) => x.key && `hf|${x.key}`,
       urlFilter: { hpri: ["Priority", (x, v) => eqi(x.priority, v)], hstate: ["State", (x, v) => (v === "checked") === !!acked("host", x)] } }) : `<div class="empty">All host findings checked off.</div>`);
     hc.id = "sec-hostfind"; el.appendChild(hc);
   }
@@ -1235,8 +1260,8 @@ V.security = (el) => {
   el.appendChild(grid("g3",
     (() => { const c = card("Threat-intel feeds", table(null, [{ k: "f", t: "Feed" }, { k: "s", t: "Status", cls: "small" }], entries(ti.feed_status).map(([f, s]) => ({ f, s })), { search: false }));
       c.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin-top:6px">Indicators: ${entries(ti.feed_sizes).map(([k, v]) => esc(k) + " " + fn(v)).join(" · ")}</div>`); return c; })(),
-    card(`Inbound hits from listed IPs (${(ti.ip_hits_in || []).length})`, table(null, [askCol("threat-intel hit", (x) => `inbound from listed IP ${x.ip}`), { k: "ip", t: "Source", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "targets", t: "Targets", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(",")) }], ti.ip_hits_in || [], { search: false })),
-    card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => (v ? domFmt(v) : esc(r.ip)) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }],
+    card(`Inbound hits from listed IPs (${(ti.ip_hits_in || []).length})`, table(null, [askCol("threat-intel hit", (x) => `inbound from listed IP ${x.ip}`), { k: "ip", t: "Source", cls: "mono" }, { k: "feeds", t: "Feeds", fmt: (v) => esc((v || []).join(", ")) }, { k: "conns", t: "Conns", num: true }, { k: "targets", t: "Targets", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }, { k: "ports", t: "Ports", fmt: (v) => esc((v || []).join(",")) }, occCol((x) => `ti|in|${x.ip}`)], ti.ip_hits_in || [], { search: false })),
+    card("Outbound TI hits / newly-registered domains", table(null, [askCol("threat-intel hit", (x) => `outbound to ${x.domain || x.ip}`), { k: "domain", t: "Domain/IP", fmt: (v, r) => (v ? domFmt(v) : esc(r.ip)) }, { k: "age_days", t: "Age (d)", num: true }, { k: "queries", t: "Queries", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }, occCol((x) => (x.domain ? `ti|dom|${x.domain}` : `ti|out|${x.ip}`))],
       [...(ti.ip_hits_out || []), ...(ti.domain_hits || []), ...(ti.new_domains || [])], { search: false }))));
   el.appendChild(grid("g2",
     (() => { const DT = ackSplit("dnstunnel", raw.dns_tunnel || [], "sec-dnstun"); return card(`DNS-tunnel scoring (${DT.open.length} open of ${(raw.dns_tunnel || []).length})${DT.toggle}`, table(null, [ackCol("dnstunnel", (x) => `DNS tunnel score: ${x.domain}`), askCol("DNS-tunnel candidate", (x) => x.domain), pivotCol("DNS-tunnel domain"), { k: "domain", t: "Domain", fmt: domFmt }, { k: "score", t: "Score", num: true, bar: true }, { k: "queries", t: "Queries", num: true }, { k: "unique_subdomains", t: "Uniq subs", num: true }, { k: "entropy", t: "Entropy", num: true }, { k: "nxdomain", t: "NX", num: true }, { k: "sources", t: "Sources", fmt: (v) => entries(v).map(([k, n]) => ipLink(k) + " ×" + n).join("<br>") }], DT.show, { sort: "score", rowClass: ackRowCls("dnstunnel") })); })(),

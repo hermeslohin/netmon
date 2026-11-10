@@ -257,6 +257,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
 | `tests/unit/test_correlate.py` | 41 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01) |
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
+| `tests/unit/test_evtime.py` | 12 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |

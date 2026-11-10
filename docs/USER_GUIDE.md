@@ -125,7 +125,7 @@ Every page is made of boxes (cards).
 ![Host findings table with check boxes, Ask, Related and research-note buttons](img/posture-host-findings.png)
 *Host findings on Posture: check box, 💬 Ask, Related count and the ✨ verdict button on each row.*
 
-Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Findings tables show a **Last seen** column, and baseline findings also show the **Host IP** of the device they are about.
+Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Baseline findings, host findings and threat-intel hits show an **Occurred** column: when the activity actually happened, taken from the Elasticsearch records behind the row (the first and last Zeek / Suricata / endpoint / auth-log record time inside the selected range), not when netmon processed it. The times are looked up in the background and fill in a few seconds after the page opens (… while waiting, — when there is no record behind the row, such as an agent-offline or Kubernetes inventory finding). IDS signatures and gateway events already show their own record times. Baseline findings also show the **Host IP** of the device they are about.
 
 ---
 
@@ -317,6 +317,8 @@ In short: **Posture is the history, Open events is the backlog.** Accepting some
 ### Open events
 
 Everything nobody has accepted (checked off) yet, **whatever its age**. The time range in the header does not apply to this page: an unreviewed finding from last week, or last month, stays here until someone accepts it. Events do not expire. Only accepting them (by hand or through an auto-close rule you enabled) removes them; alerts also leave once cleared. Fix-list items (vulnerabilities and misconfigurations) are not on this page or in its count: they have their own page, **Fix list**. The nav item shows how many are open; the page lists at most 5000 rows, most severe and newest first.
+
+**First occurred / Last occurred** are when the activity behind the event happened: the earliest and latest Elasticsearch record (Zeek connection, DNS or TLS log, IDS alert, endpoint process/network/file event, auth log) over every window the event appeared in. They are filled in every 15 minutes. Events with no record behind them (agent offline, silent device, Kubernetes inventory, code-scan alerts), or not looked up yet, show when netmon saw them instead, greyed and marked *(seen)*. In the detail window each firing is headed by the time it happened, with "netmon saw it …" beside it.
 
 ![Open events: one card per type, with check boxes, Ask, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
 

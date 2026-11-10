@@ -37,6 +37,7 @@ JOBS = {
     "rangewarm": [PY, os.path.join(NM, "range_warm.py")],  # the dashboard's default window (last 24 h), pre-collected every slot
     "k8simages": [PY, os.path.join(NM, "kube_images.py")],  # daily: container image updates + CVEs (Trivy) for every Kubernetes cluster
     "vulnhist": [PY, os.path.join(NM, "vulnhist.py"), "record"],  # daily: vulnerability counts for the Fix list / Kubernetes line charts
+    "evtime": [PY, os.path.join(NM, "evtime.py")],  # when open events happened: Elasticsearch record times (Open events)
     "opencti": [PY, os.path.join(NM, "opencti.py"), "run"],  # OpenCTI indicator pull + incident report; exits at once when not configured  # keeps data/unifi_cache warm so ranges/snapshots skip the slow cloud calls
 }
 running = {}
@@ -113,6 +114,10 @@ def tick(now=None):
     oq = int((now - 300) // 900)
     if s.get("opencti") != oq and _opencti_wanted() and start("opencti", why="(15-min slot)"):
         s["opencti"] = oq
+    # event times (Open events): once per 15-minute slot, 8 minutes in (after the watcher and range warm-up stored new events)
+    eq = int((now - 480) // 900)
+    if s.get("evtime") != eq and start("evtime", why="(15-min slot)"):
+        s["evtime"] = eq
     # UniFi pre-warm: every 5-minute slot (a still-running one is not doubled)
     uq = int(now // 300)
     if s.get("unifi") != uq and start("unifi", why="(5-min slot)"):

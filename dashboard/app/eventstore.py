@@ -74,8 +74,35 @@ def _plan_fires(c, rows, sid, now, fresh=None):
     return new, ext
 
 
+def _init(c):
+    c.executescript(DDL)
+    # when the activity happened (Elasticsearch record times, filled by evtime.py on the host): et0/et1 first/last record,
+    # et_upto the window end already looked up
+    for t in ("events", "event_fires"):
+        have = {r[1] for r in c.execute(f"PRAGMA table_info({t})")}
+        for col in ("et0", "et1", "et_upto"):
+            if col not in have:
+                try:
+                    c.execute(f"ALTER TABLE {t} ADD COLUMN {col} REAL")
+                except Exception as e:  # noqa: BLE001 - another process added it first
+                    if "duplicate column" not in str(e):
+                        raise
+    c.execute("CREATE TABLE IF NOT EXISTS event_times (eid TEXT NOT NULL, w0 INTEGER NOT NULL, w1 INTEGER NOT NULL, et0 REAL, et1 REAL, "
+              "at REAL NOT NULL, PRIMARY KEY (eid, w0, w1)) WITHOUT ROWID")
+
+
 def _c():
-    return store.tl_conn("eventstore", lambda c: c.executescript(DDL))
+    return store.tl_conn("eventstore", _init)
+
+
+def _emin(rows, k="et0"):
+    v = [r[k] for r in rows if r[k] is not None]
+    return min(v) if v else None
+
+
+def _emax(rows, k="et1"):
+    v = [r[k] for r in rows if r[k] is not None]
+    return max(v) if v else None
 
 
 def ack_refs(eid):
@@ -216,7 +243,7 @@ def open_events(types=None, sev=None, q=None, limit=2000, merge=False, exclude=N
             todo += [x for x in ack_refs(m["eid"])[:1] if not (grp and x[0] == "event")]
         out.append({"eid": newest["eid"], "type": newest["type"], "label": newest["label"], "sev": newest["sev"], "link": newest["link"],
                     "t0": newest["t0"], "t1": newest["t1"], "item": d.get("item"), "members": [m["eid"] for m in g["members"][-12:]], "first_seen": g["first"], "last_seen": newest["last_seen"], "n": g["n"],
-                    "repeats": len(g["members"]), "ips": d.get("ips") or [], "acks": [{"type": t, "key": k} for t, k in dict.fromkeys(todo)]})
+                    "et0": _emin(g["members"]), "et1": _emax(g["members"]), "repeats": len(g["members"]), "ips": d.get("ips") or [], "acks": [{"type": t, "key": k} for t, k in dict.fromkeys(todo)]})
     if merge:
         out = merge_flows(out)
     out.sort(key=lambda e: (SEV_RANK.get((e["sev"] or "").lower(), 2), -(e["t1"] or 0), e["eid"]))
@@ -246,7 +273,7 @@ def _merge_variants(rows):
         L.sort(key=lambda t: (t[0]["t1"] or 0, t[0]["last_seen"] or 0))  # oldest -> newest
         top = dict(L[-1][0])
         kids = [{"eid": r["eid"], "dst": v, "ip": v, "ips": [], "detail": r["label"], "sev": r["sev"], "first_seen": r["first_seen"],
-                 "last_seen": r["last_seen"], "t0": r["t0"], "t1": r["t1"], "n": r["n"]} for r, v in reversed(L)]
+                 "last_seen": r["last_seen"], "t0": r["t0"], "t1": r["t1"], "et0": r.get("et0"), "et1": r.get("et1"), "n": r["n"]} for r, v in reversed(L)]
         txt = f"{host}: {proc} - {kind} - {len(L)} variants"
         it = dict(top.get("item") or {}); it["text"] = txt
         top["item"] = it; top["label"] = txt
@@ -255,6 +282,8 @@ def _merge_variants(rows):
         top["members"] = list(dict.fromkeys(e for r, _ in reversed(L) for e in r["members"]))[:40]
         top["n"] = sum(r["n"] for r, _ in L); top["repeats"] = sum(r["repeats"] for r, _ in L)
         top["first_seen"] = min(r["first_seen"] for r, _ in L); top["last_seen"] = max(r["last_seen"] for r, _ in L)
+        top["et0"] = min((r.get("et0") for r, _ in L if r.get("et0") is not None), default=None)
+        top["et1"] = max((r.get("et1") for r, _ in L if r.get("et1") is not None), default=None)
         top["children"] = kids
         out.append(top)
     return out
@@ -280,7 +309,7 @@ def merge_flows(rows):
         L.sort(key=lambda t: (t[0]["t1"] or 0, t[0]["last_seen"] or 0))  # oldest -> newest
         top = dict(L[-1][0])
         kids = [{"eid": r["eid"], "dst": m["dst"], "ip": m["ip"] or "", "ips": r["ips"], "detail": (r.get("item") or {}).get("detail") or r["label"],
-                 "sev": r["sev"], "first_seen": r["first_seen"], "last_seen": r["last_seen"], "t0": r["t0"], "t1": r["t1"], "n": r["n"]} for r, m in reversed(L)]
+                 "sev": r["sev"], "first_seen": r["first_seen"], "last_seen": r["last_seen"], "t0": r["t0"], "t1": r["t1"], "et0": r.get("et0"), "et1": r.get("et1"), "n": r["n"]} for r, m in reversed(L)]
         dsts = {k["ip"] or k["dst"] for k in kids}
         txt = f"{pre} -> multiple devices ({len(dsts)})"
         it = dict(top.get("item") or {}); it["detail"] = txt
@@ -291,6 +320,8 @@ def merge_flows(rows):
         top["members"] = list(dict.fromkeys(e for r, _ in reversed(L) for e in r["members"]))[:40]
         top["n"] = sum(r["n"] for r, _ in L); top["repeats"] = sum(r["repeats"] for r, _ in L)
         top["first_seen"] = min(r["first_seen"] for r, _ in L); top["last_seen"] = max(r["last_seen"] for r, _ in L)
+        top["et0"] = min((r.get("et0") for r, _ in L if r.get("et0") is not None), default=None)
+        top["et1"] = max((r.get("et1") for r, _ in L if r.get("et1") is not None), default=None)
         top["children"] = kids
         out.append(top)
     return out
@@ -340,15 +371,15 @@ def detail(eid):
     p = str(eid).split("|")
     pre = "|".join(p[:3]) + "|" if p[0] == "f" and len(p) >= 4 else str(eid)
     occ = []
-    for r in c.execute("SELECT eid,label,sev,link,t0,t1,first_seen,last_seen,n,resolved FROM events WHERE eid >= ? AND eid < ? ORDER BY COALESCE(t1,0) DESC, last_seen DESC",
+    for r in c.execute("SELECT eid,label,sev,link,t0,t1,et0,et1,first_seen,last_seen,n,resolved FROM events WHERE eid >= ? AND eid < ? ORDER BY COALESCE(t1,0) DESC, last_seen DESC",
                        (pre, pre + "\uffff")):
         if r["resolved"] == 0 and gkey(r["eid"]) == gk or r["eid"] == eid:
-            occ.append({k: r[k] for k in ("eid", "label", "sev", "link", "t0", "t1", "first_seen", "last_seen", "n")})
+            occ.append({k: r[k] for k in ("eid", "label", "sev", "link", "t0", "t1", "et0", "et1", "first_seen", "last_seen", "n")})
     if not occ:
         return {"occurrences": [], "related": [], "events": {}}
     members = [o["eid"] for o in occ][:300]
     ch = members
-    fires = [dict(r) for r in c.execute(f"SELECT eid,sid,seen,t0,t1,label FROM event_fires WHERE eid IN ({','.join('?' * len(ch))}) "
+    fires = [dict(r) for r in c.execute(f"SELECT eid,sid,seen,t0,t1,et0,et1,label FROM event_fires WHERE eid IN ({','.join('?' * len(ch))}) "
                                         "ORDER BY seen DESC, COALESCE(t1,0) DESC LIMIT 1000", ch)]
     r0 = c.execute("SELECT MIN(seen) FROM event_fires").fetchone()
     since = r0[0] if r0 else None
@@ -593,3 +624,42 @@ def detections(limit=300, verdict=None):
             pick.append(a)
     shown, X2 = alert_view(pick[:limit], related=False, art_limit=4)
     return {"alerts": shown, "total": len(rows), "matching": len(pick), "counts": counts, "extra": X2}
+
+
+WT_TYPES = ("finding", "host", "ti", "alert", "ids", "admin", "gw")
+_WT_DIRECT = ("ids", "admin", "gw")  # their t0/t1 already are record times
+
+
+def window_times(corr, queue=None):
+    """Posture: when each event of one time range happened -> ({eid: [et0, et1]}, pending). Record times come from the
+    event_times cache (filled by evtime.py on the host); missing ones are queued at the host broker (POST /evtime) and
+    show up on a later call. IDS signatures, admin sessions and gateway events carry their record times already."""
+    E, I = (corr or {}).get("events") or {}, (corr or {}).get("items") or {}
+    c = _c()
+    out, miss = {}, []
+    for eid, ev in E.items():
+        typ = ev.get("type")
+        if typ not in WT_TYPES or ev.get("t1") is None:
+            continue
+        if typ in _WT_DIRECT:
+            out[eid] = [ev.get("t0"), ev.get("t1")]
+            continue
+        w0 = int(ev["t0"] if ev.get("t0") is not None else ev["t1"])
+        r = c.execute("SELECT et0, et1 FROM event_times WHERE eid=? AND w0=? AND w1=?", (eid, w0, int(ev["t1"]))).fetchone()
+        if r:
+            out[eid] = [r[0], r[1]]
+        else:
+            miss.append({"eid": eid, "type": typ, "label": ev.get("label") or "", "t0": ev.get("t0"), "t1": ev.get("t1"),
+                         "host_ips": ev.get("host_ips") or [], "item": _slim(I[eid]) if I.get(eid) is not None else None})
+    if miss:
+        try:
+            (queue or _queue_broker)(miss)
+        except Exception as e:  # noqa: BLE001 - broker down: the page shows the times it has
+            print(f"eventstore: evtime queue failed: {e}", file=sys.stderr)
+    return out, len(miss)
+
+
+def _queue_broker(items):
+    import corr_llm
+    for i in range(0, len(items), 300):  # broker request bodies are capped at 200 kB
+        corr_llm.broker("/evtime", {"items": items[i:i + 300]}, timeout=15)

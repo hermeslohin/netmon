@@ -22,6 +22,8 @@ the host (systemd user unit netmon-broker.service, plain /usr/bin/python3, stdli
                   starts a background scan, Trivy in a container).
   POST /esquery   {query, anchor} -> one bounded, read-only Elasticsearch search for the event reviewer
                   (es_context.py builds it from a structured request; the model never sends DSL). At most 600 per hour.
+  POST /evtime    {items} -> Posture: look up when the events of a time range happened (Elasticsearch record times,
+                  evtime.py) in the background into the event_times table. -> {queued, pending}.
   GET  /health
 
 Every request needs "Authorization: Bearer <NETMON_BROKER_KEY>" (dashboard/.env).
@@ -63,6 +65,38 @@ def esquery(b):
     out["seconds"] = round(time.time() - t, 2)
     return out
 
+
+_evt_lock, _evt_queue = threading.Lock(), {}
+
+
+def evtime_req(b):
+    """Posture event times: queue {items: [{eid, type, label, t0, t1, host_ips, item}]} (events of one time range whose
+    Elasticsearch record times are not cached yet); one background thread looks them up (evtime.window_times) into
+    the event_times table, which the dashboard reads. -> {queued, pending}."""
+    items = b.get("items") or []
+    if not isinstance(items, list):
+        raise ValueError("items: a list")
+    with _evt_lock:
+        for it in items[:2000]:
+            if isinstance(it, dict) and it.get("eid") and it.get("t1") is not None:
+                _evt_queue[(str(it["eid"]), it.get("t0"), it.get("t1"))] = it
+        while len(_evt_queue) > 5000:
+            _evt_queue.pop(next(iter(_evt_queue)))
+        pending = len(_evt_queue)
+
+    def work():
+        import evtime
+        while True:
+            with _evt_lock:
+                batch = list(_evt_queue.values())[-100:]  # newest requests first
+            if not batch:
+                return
+            evtime.window_times(batch, budget=120, log=lambda m: print(m, file=sys.stderr))
+            with _evt_lock:
+                for it in batch:
+                    _evt_queue.pop((str(it["eid"]), it.get("t0"), it.get("t1")), None)
+    _bg("evtime", work)
+    return {"queued": len(items), "pending": pending}
 
 
 _k8s_lock, _k8s_sent, _k8s_cache = threading.Lock(), [], {}
@@ -340,6 +374,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, research_event(b))
             if self.path == "/esquery":
                 return self._send(200, esquery(b))
+            if self.path == "/evtime":
+                return self._send(200, evtime_req(b))
             if self.path == "/clef":
                 return self._send(200, clef_ctl(b))
             if self.path == "/k8s":

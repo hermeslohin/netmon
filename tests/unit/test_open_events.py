@@ -626,14 +626,14 @@ class OpenEventsPageJsTest(unittest.TestCase):
         self.assertTrue(all(c["body"]["sort"] == "sev" for c in out["cards"]))
 
     def test_columns_per_type(self):
-        """Every card starts with check box, Severity, Verdict, Notes and ends with First seen, Last seen, Seen; the
+        """Every card starts with check box, Severity, Verdict, Notes and ends with First occurred, Last occurred, Seen; the
         middle columns depend on the type.
         REQ: OE-15
         """
         out = self.render([_oe_row(BEACON_1, "finding"), _oe_row(IDS, "ids"), _oe_row(HF_A, "host"), _oe_row(GW, "gw"),
                            _oe_row(ADM, "admin")])
         cols = {c["title"].split(" (")[0]: c["body"]["cols"] for c in out["cards"]}
-        head, tail = ["✓", "Severity", "Verdict", "Notes"], ["First seen", "Last seen", "Seen"]
+        head, tail = ["✓", "Severity", "Verdict", "Notes"], ["First occurred", "Last occurred", "Seen"]
         mid = {"Baseline findings": ["Kind", "Device", "Detail"], "IDS signatures": ["Signature", "Count", "From", "To"],
                "Endpoint": ["Host", "To", "Finding"], "Gateway events": ["Time", "Event"], "Admin sessions": ["Event", "Hosts"]}
         self.assertEqual(set(cols), set(mid))

@@ -34,6 +34,11 @@
     return it;
   };
   const when = (v) => (v ? ft(v) : "");
+  // when the activity happened: Elasticsearch record time (et0/et1, epoch s); events with no record behind them
+  // (status / inventory findings, or not looked up yet) fall back to when netmon saw them, marked as such
+  const occ = (et, seen) => (et ? `<span title="When it happened (Elasticsearch record time)${seen ? "; netmon saw it " + ft(seen) : ""}">${ft(new Date(et * 1000).toISOString())}</span>`
+    : seen ? `<span class="muted" title="No Elasticsearch record behind this event (status / inventory finding), or not looked up yet: this is when netmon saw it">${ft(seen)} <span class="small">(seen)</span></span>` : "");
+  const occSpan = (a, b) => { if (!a) return ""; const A = ft(new Date(a * 1000).toISOString()), B = b ? ft(new Date(b * 1000).toISOString()) : A; return A === B ? A : `${A} – ${B}`; };
 
   const ackCell = (x) => {
     const [a, ...more] = x.acks || [];
@@ -50,7 +55,8 @@
     const notes = { k: "_unote", t: "Notes", fmt: (v, x) => noteBtn(x.eid), sort: (x) => (S.corr?.unotes?.[x.eid] || []).length };
     const sev = { k: "sev", t: "Severity", fmt: (v) => badge(v || "low"), sort: (x) => sevRank(x.sev) };
     const seen = { k: "n", t: "Seen", num: true, fmt: (v, x) => `${v}×${x.repeats > 1 ? ` <span class="muted small" title="same condition, different numbers each night">${x.repeats} variants</span>` : ""}` };
-    const times = [{ k: "first_seen", t: "First seen", fmt: when }, { k: "last_seen", t: "Last seen", fmt: when }, seen];
+    const times = [{ k: "et0", t: "First occurred", fmt: (v, x) => occ(v, x.first_seen), sort: (x) => x.et0 || Date.parse(x.first_seen) / 1000 || 0 },
+      { k: "et1", t: "Last occurred", fmt: (v, x) => occ(v, x.last_seen), sort: (x) => x.et1 || Date.parse(x.last_seen) / 1000 || 0 }, seen];
     const label = { k: "label", t: "Event", fmt: (v) => linkifyIps(v) };
     const hosts = { k: "ips", t: "Hosts", fmt: (v) => (v || []).slice(0, 3).map((ip) => ipLink(ip)).join(" "), sort: (x) => (x.ips || [])[0] || "~" };
     const by = {
@@ -84,7 +90,6 @@
     const ns = S.corr?.unotes?.[eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
     return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(eid)}" title="Add a note or verdict on this event (the AI reads approved notes)">${n ? `📝 ${n}${p ? " ⏳" : ""}` : "📝"}</button>`;
   }
-  const secs = (t) => (t ? new Date(t * 1000).toISOString() : "");
   const kindOf = (t) => TYPES.find((r) => r[0] === t) || [];
 
   // one block per time the event fired (recorded one per report): what happened, then that event's related events, the artifacts
@@ -150,9 +155,9 @@
     const body = (f) => relBlock(d, [f.eid], false, win.get(f)) + inputsBlock(d, [f.eid], win.get(f));
     const vHtml = nv > 1 ? `<div class="oe-variants small"><div class="muted">${nv} variants - same condition, different numbers in the text. Click one to show only its firings (click again for all):</div>${vids.map((e) => {
       const o = (d.occurrences || []).find((q) => q.eid === e) || {}, cnt = F.filter((f) => f.eid === e).length;
-      return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${when(o.last_seen)}</span></button>`; }).join("")}</div>` : "";
-    return vHtml + (F.length ? F.map((f, i) => `<div class="oe-fire" data-v="${esc(f.eid)}"><div class="oe-fire-h"><b>${when(f.seen)}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
-        ${f.t1 ? `<span class="small muted">event time ${esc(ft(secs(f.t1)))}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen), ...fireArts(d, f, win.get(f)) }) : ""}</div>
+      return `<button type="button" class="oe-vchip" data-v="${esc(e)}"><span class="oe-var">variant ${vi(e)}/${nv}</span> ${esc(o.label || e)} <span class="muted">· ${cnt} firing${cnt === 1 ? "" : "s"}, last ${o.et1 ? occSpan(o.et1) : when(o.last_seen) + " (seen)"}</span></button>`; }).join("")}</div>` : "";
+    return vHtml + (F.length ? F.map((f, i) => `<div class="oe-fire" data-v="${esc(f.eid)}"><div class="oe-fire-h"><b title="When it happened (Elasticsearch record times in this firing's window)">${f.et0 ? occSpan(f.et0, f.et1) : `<span class="muted" title="No Elasticsearch record found for this firing (or not looked up yet): when netmon saw it">${when(f.seen)} (seen)</span>`}</b>${nv > 1 ? ` <span class="oe-var" title="Variant ${vi(f.eid)} of ${nv}: same condition, different numbers in the text">variant ${vi(f.eid)}/${nv}</span>` : ""}
+        ${f.et0 ? `<span class="small muted">netmon saw it ${when(f.seen)}</span>` : ""} ${f.sid ? `<span class="small muted">report ${esc(f.sid)}</span>` : ""} ${window.pivotBtn ? pivotBtn("fire", { label: f.label, ts: f.t1 ? f.t1 * 1000 : Date.parse(f.seen), ...fireArts(d, f, win.get(f)) }) : ""}</div>
         <div class="oe-fire-w">${linkifyIps(f.label)}</div>${body(f)}</div>`).join("") : `<div class="empty">No firings: nothing for this event has been seen in Elasticsearch (inventory, vulnerability, gateway and code-scan events are not counted).</div>`)
       + `<div class="small muted" style="margin-top:3px">${note}${earlier ? ` ${earlier} earlier appearance${earlier > 1 ? "s were" : " was"} counted before individual times were kept.` : ""}</div>`;
   }
@@ -162,7 +167,7 @@
     const K = x.children || [];
     if (!K.length) return "";
     return `<h4>Instances (${K.length})</h4><div class="oe-kids">${K.map((k, i) => `<details class="oe-fire oe-kid" data-i="${i}"><summary><b>${k.ips.length ? k.ips.map((ip) => ipLink(ip)).join(" → ") : esc(k.ip || k.dst)}</b>
-        <span class="small muted">${esc(k.dst)} · seen ${k.n}× · first ${when(k.first_seen)} · last ${when(k.last_seen)}</span></summary>
+        <span class="small muted">${esc(k.dst)} · seen ${k.n}× · first ${occ(k.et0, k.first_seen)} · last ${occ(k.et1, k.last_seen)}</span></summary>
         <div class="oe-fire-w">${linkifyIps(k.detail)}</div><div class="oe-kid-b small muted">Loading…</div></details>`).join("")}</div>`;
   }
   function wireKids(root, x) {
@@ -236,7 +241,7 @@
     const aiBadges = [mb("classified by", c?.model), mb("researched by", n?.model, "rs")].filter(Boolean).join("");
     back.innerHTML = `<div class="modal oe-modal" role="dialog" aria-label="Event detail">
       <div class="oe-head"><div style="flex:1;min-width:0"><div class="oe-title">${linkifyIps(x.label)}</div>
-        <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first seen ${when(x.first_seen)} · last seen ${when(x.last_seen)} · seen ${x.n}×${x.repeats > 1 ? ` · <span class="oe-var" title="Same condition, but the numbers in the text differ between reports (counts, ports, bytes). Each firing below is tagged with its variant.">${x.repeats} variants</span>` : ""}</div></div>
+        <div class="small muted">${badge(x.sev || "low")} ${esc(kindOf(x.type)[1] || x.type)} · first occurred ${occ(x.et0, x.first_seen)} · last occurred ${occ(x.et1, x.last_seen)} · seen ${x.n}×${x.repeats > 1 ? ` · <span class="oe-var" title="Same condition, but the numbers in the text differ between reports (counts, ports, bytes). Each firing below is tagged with its variant.">${x.repeats} variants</span>` : ""}</div></div>
         <div class="oe-tools">${noteBtn(x.eid)}${askBtn(askKind, x.label, itemOf(x))}${pivBtn(pivKind, pivItem(x))}
           ${x.link ? `<a class="small" href="${esc(x.link)}" title="Open the page this event comes from">open source ↗</a>` : ""}
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>

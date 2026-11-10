@@ -1730,6 +1730,14 @@ class H(BaseHTTPRequestHandler):
                 return self._json(eventstore.open_events(types=set(q.get("type") or []) or None, sev=(q.get("sev") or [""])[0].lower() or None,
                                                          q=(q.get("q") or [""])[0] or None, limit=lim, merge=True,
                                                          exclude={"vuln"}))  # Fix-list items live on the Fix list page (#/issues)
+            if path == "/api/events/times":  # Posture: when each event of the loaded range happened (Elasticsearch record times)
+                import eventstore
+                sid = (q.get("id") or ["latest"])[0]
+                if sid == "latest":
+                    s_ = snapshots()
+                    sid = s_[-1]["id"] if s_ else ""
+                times, pending = eventstore.window_times(correlation(sid) if sid else None)
+                return self._json({"times": times, "pending": pending})
             if path == "/api/events/detail":  # Open events modal: all occurrences of one event + its related events
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]
