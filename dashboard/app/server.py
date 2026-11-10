@@ -466,7 +466,10 @@ def tuning_info():
     """Current values + description of every tunable detection, for the event cards (read-only; edit under More > Settings)."""
     import extras
     pol = store.cfg_load("policy")
-    eff = {"upload_spike": extras.upload_cfg(), "beacon": extras.beacon_cfg(pol), "scan_thresholds": {**{"hosts": 20, "ports": 40}, **(pol.get("scan_thresholds") or {})}}
+    eff = {"upload_spike": extras.upload_cfg(pol=pol), "beacon": extras.beacon_cfg(pol), "scan_thresholds": extras.scan_cfg(pol)}
+    for k in extras.SCOPED:  # device-class scope shown on the event cards too
+        sec = pol.get(k) or {}
+        eff[k] = {**eff[k], **{sk: sec[sk] for sk in extras.SCOPE_KEYS if sec.get(sk)}}
     out = {key: {"title": title, "kinds": rx, "values": eff[key], "doc": pol.get("_doc_" + key) or "",
                  "link": "#/settings/policy"} for rx, key, title in TUNING}
     for n, row in extras.spike_cfg(pol=pol).items():
@@ -507,6 +510,13 @@ def cfg_with_defaults(doc, data):
         out.pop("_doc_" + k, None)
     if notes.get("class_defs") and "_doc_class_defs" not in out:
         out["_doc_class_defs"] = notes["class_defs"]
+    import extras
+    for sname in extras.SCOPED:  # device-class scope: shown as 'every device' / no overrides until first edited
+        sec = out.get(sname)
+        if isinstance(sec, dict) and not all(k in sec for k in extras.SCOPE_KEYS):
+            out[sname] = {**sec, "classes": sec.get("classes", []), "by_class": sec.get("by_class", {})}
+        if notes.get(sname):  # the note explains the class scope (catalog text; older installs stored an older note)
+            out["_doc_" + sname] = notes[sname]
     return out
 
 
@@ -590,6 +600,34 @@ def cfg_validate(doc, data):
                     ok = ("*", "unclassified", *known)
                     if not isinstance(v, list) or any(not isinstance(x, str) or x.strip() not in ok for x in v):
                         return f"{k} must be a list of device classes ({', '.join(ok)}; * = every device)"
+            import extras as _exs  # device-class scope of upload_spike / scan_thresholds / beacon (classes, by_class)
+            for sname in _exs.SCOPED:
+                sec = data.get(sname)
+                if not isinstance(sec, dict):
+                    continue
+                ok = ("*", "unclassified", *known)
+                cl = sec.get("classes")
+                if cl is not None and (not isinstance(cl, list) or any(not isinstance(x, str) or x not in ok for x in cl)):
+                    return f"{sname} classes must be a list of device classes ({', '.join(ok)}; empty or * = every device)"
+                bc = sec.get("by_class")
+                if bc is not None:
+                    if not isinstance(bc, dict):
+                        return f"{sname} by_class must be a table of device class -> settings"
+                    for c, row in bc.items():
+                        if str(c).startswith("_"):
+                            continue
+                        if c not in ok[1:]:
+                            return f"{sname} by_class: unknown device class {c} ({', '.join(ok[1:])})"
+                        if not isinstance(row, dict) or not row:
+                            return f"{sname} by_class[{c}] needs at least one setting"
+                        odd = [k for k in row if k not in _exs.SCOPE_FIELDS[sname]]
+                        if odd:
+                            return f"{sname} by_class[{c}]: {odd[0]} cannot be set per class ({', '.join(_exs.SCOPE_FIELDS[sname])})"
+                        sub = cfg_validate("policy", {sname: row})
+                        if sub:
+                            return f"{sname} by_class[{c}]: {sub}"
+            data = {**data, **{s: {k: v for k, v in data[s].items() if k not in _exs.SCOPE_KEYS}
+                               for s in _exs.SCOPED if isinstance(data.get(s), dict)}}
             for k in ("sensitive_ports", "discovery_ports", "gateway_ports"):
                 v = data.get(k)
                 if v is not None and (not isinstance(v, list) or any(isinstance(x, bool) or not isinstance(x, int) or not 0 < x < 65536 for x in v)):

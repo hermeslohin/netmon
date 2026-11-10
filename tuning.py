@@ -1,5 +1,9 @@
 """Auto-tune recommendations for the detection thresholds (policy: scan_thresholds, beacon, upload_spike, spike_thresholds).
 
+Device classes: upload_spike, scan_thresholds and beacon are tuned per scope - the section's own numbers (devices of the
+classes the rule runs for, without an override) and one proposal per by_class override (id <section>@<class>, written to
+by_class[<class>]). When one class causes most of a section-wide change, a narrower 'class only' override is offered too.
+
 recommend() NEVER writes settings. It replays the retained history (daily per-device history + the daily snapshots) against
 candidate thresholds and proposes values that keep each detection near a findings budget. The dashboard shows the proposals
 (Settings > Network policy > Auto-tune) and the user accepts them one by one; apply() then writes only what was accepted.
@@ -175,6 +179,46 @@ def _beacon_rec(snaps, cur, benign):
             "why": f"About {n_day:.1f} beacon candidates a day pass the benign filters; after the change about {after:.1f}/day. " + " ".join(notes)}
 
 
+def _scopes(pol, section):
+    """The device-class scopes of a threshold section: [(class or None, applies(cls) -> bool)]. None = the section's own
+    numbers (every class the rule runs for that has no override); one entry per class with by_class overrides."""
+    import extras
+    sec = pol.get(section) or {}
+    over = [c for c in extras.scoped_classes(pol, section) if extras.class_scope(sec, c)[0]]
+    out = [(None, lambda c, o=tuple(over): extras.class_scope(sec, c)[0] and c not in o)]
+    return out + [(c, lambda x, c=c: x == c) for c in over]
+
+
+def _scoped_rec(r, section, cls, cur_cfg):
+    """Tag a recommendation with its device-class scope (id section@class, title, target by_class[class])."""
+    if cls is None:
+        return r
+    return {**r, "id": f"{r['id']}@{cls}", "title": f"{r['title']} - class {cls}", "scope": cls, "target": {"section": section, "class": cls}}
+
+
+def _dev_class(pol, dev, entry):
+    import classdefs
+    ip = (entry or {}).get("ip") or (dev if "." in str(dev) else None)
+    return classdefs.class_of(pol, ip, dev if dev != ip else None)
+
+
+def _suggest_class(r, section, events_by_class, scoped, rec_fn):
+    """A section-wide change driven by one device class (>= 70 % of its findings): also offer the narrower fix, a
+    by_class override for that class only, so other classes keep today's sensitivity."""
+    tot = sum(events_by_class.values())
+    if r.get("status") != "change" or not tot:
+        return None
+    cls, n = max(events_by_class.items(), key=lambda kv: kv[1])
+    if n / tot < 0.7 or cls in scoped:
+        return None
+    alt = rec_fn(cls)
+    if not alt or alt.get("status") != "change":
+        return None
+    return {**alt, "id": f"{r['id']}@{cls}", "title": f"{r['title']} - class {cls} only (new override)", "scope": cls,
+            "target": {"section": section, "class": cls},
+            "why": f"{n} of {tot} findings come from class {cls}: change it for that class only and keep the rest as they are. " + alt["why"]}
+
+
 def recommend():
     import extras
     pol = store.cfg_load("policy")
@@ -183,34 +227,84 @@ def recommend():
     days = max(len(hist) - 1, 1)
     recs = []
     spk = extras.spike_cfg(pol=pol)
+    devs = {k for h in hist for k in h.get("devices", {})}
+    last = {}
+    for h in hist:
+        last.update(h.get("devices", {}))
+    dcls = {d: _dev_class(pol, d, last.get(d)) for d in devs}
     for rid, field, name, div, label in SERIES:
-        series = []
-        for dev in {k for h in hist for k in h.get("devices", {})}:
-            v = [(h["devices"][dev].get(field) or 0) / div for h in hist if dev in h.get("devices", {})]
-            if len(v) >= 2:
-                series.append(v)
-        if name is None:
-            u = extras.upload_cfg()
-            cur = {"min": u["min_mb"], "times_normal": u["times_normal"], "mad_factor": u["mad_factor"], "min_days": u["min_days"], "severity": u["severity"]}
-            r = _spike_rec(rid, label, series, days, cur, BUDGET["upload_spike"])
-            r["unit"] = "MB"
-            sec, key = "upload_spike", None
-            if "changes" in r:
-                r["changes"] = {({"min": "min_mb"}.get(k, k)): v for k, v in r["changes"].items()}
-            r["current"] = {({"min": "min_mb"}.get(k, k)): v for k, v in r["current"].items()}
-            r["target"] = {"section": "upload_spike"}
+        def series_of(keep):
+            out = []
+            for dev in devs:
+                if not keep(dcls[dev]):
+                    continue
+                v = [(h["devices"][dev].get(field) or 0) / div for h in hist if dev in h.get("devices", {})]
+                if len(v) >= 2:
+                    out.append(v)
+            return out
+        if name is None:  # upload spike: one proposal per device-class scope (class filter + by_class)
+            for cls, keep in _scopes(pol, "upload_spike"):
+                u = extras.upload_cfg(cls, pol) if cls else extras.upload_cfg(pol=pol)
+                cur = {"min": u["min_mb"], "times_normal": u["times_normal"], "mad_factor": u["mad_factor"], "min_days": u["min_days"], "severity": u["severity"]}
+                r = _spike_rec(rid, label, series_of(keep), days, cur, BUDGET["upload_spike"])
+                r["unit"] = "MB"
+                if "changes" in r:
+                    r["changes"] = {({"min": "min_mb"}.get(k, k)): v for k, v in r["changes"].items()}
+                r["current"] = {({"min": "min_mb"}.get(k, k)): v for k, v in r["current"].items()}
+                r["target"] = {"section": "upload_spike"}
+                recs.append(_scoped_rec(r, "upload_spike", cls, u))
         else:
-            r = _spike_rec(rid, label, series, days, spk[name], BUDGET["spike"])
+            r = _spike_rec(rid, label, series_of(lambda c: True), days, spk[name], BUDGET["spike"])
             r["target"] = {"section": "spike_thresholds", "name": name}
-        recs.append(r)
+            recs.append(r)
     snaps = _daily_snaps()
-    sc = {**DEFAULT_SCAN, **(pol.get("scan_thresholds") or {})}
-    r = _scan_rec(snaps, sc)
-    r["target"] = {"section": "scan_thresholds"}
-    recs.append(r)
-    r = _beacon_rec(snaps, extras.beacon_cfg(pol), benign)
-    r["target"] = {"section": "beacon"}
-    recs.append(r)
+    ipc = extras.ip_classes(pol)
+    ccls = lambda ip: extras.class_of_ip(pol, ipc, ip)  # noqa: E731
+    sec_scan = pol.get("scan_thresholds") or {}
+    scoped = extras.scoped_classes(pol, "scan_thresholds")
+    for cls, keep in _scopes(pol, "scan_thresholds"):
+        cur = {**DEFAULT_SCAN, **{k: v for k, v in sec_scan.items() if k in DEFAULT_SCAN}}
+        if cls:
+            cur = {k: v for k, v in extras.scan_cfg(pol, cls).items() if k in DEFAULT_SCAN}
+        sub = lambda keep_: [{**s, "internal": {"scans": [x for x in (s.get("internal") or {}).get("scans", []) if keep_(ccls(x["src"]))]}} for s in snaps]  # noqa: E731
+        r = _scan_rec(sub(keep), cur)
+        r["target"] = {"section": "scan_thresholds"}
+        recs.append(_scoped_rec(r, "scan_thresholds", cls, cur))
+        if cls is None:
+            byc = {}
+            for s in snaps:
+                for x in (s.get("internal") or {}).get("scans", []):
+                    if keep(ccls(x["src"])):
+                        byc[ccls(x["src"])] = byc.get(ccls(x["src"]), 0) + 1
+            alt = _suggest_class(r, "scan_thresholds", byc, scoped, lambda c: _scan_rec(sub(lambda x: x == c), cur))
+            if alt:
+                recs.append(alt)
+    scoped = extras.scoped_classes(pol, "beacon")
+    for cls, keep in _scopes(pol, "beacon"):
+        bc = extras.beacon_cfg(pol, cls) if cls else extras.beacon_cfg(pol)
+        sub = lambda keep_: [{**s, "beacons": {"candidates": [c for c in (s.get("beacons") or {}).get("candidates", []) if keep_(ccls(c["src"]))]}} for s in snaps]  # noqa: E731
+        r = _beacon_rec(sub(keep), bc, benign)
+        r["target"] = {"section": "beacon"}
+        if cls and "changes" in r:  # ignore_ports is section-wide (the Elasticsearch query): never per class
+            r["changes"].pop("ignore_ports", None)
+            if not r["changes"]:
+                r = {**r, "status": "none", "changes": {}, "why": "Only an ignore_ports change would help, and that applies to every class: see the section-wide proposal."}
+        recs.append(_scoped_rec(r, "beacon", cls, bc))
+        if cls is None:
+            byc = {}
+            for s in snaps:
+                for c in (s.get("beacons") or {}).get("candidates", []):
+                    if keep(ccls(c["src"])):
+                        byc[ccls(c["src"])] = byc.get(ccls(c["src"]), 0) + 1
+
+            def alt_fn(c):
+                a = _beacon_rec(sub(lambda x: x == c), bc, benign)
+                if "changes" in a:
+                    a["changes"].pop("ignore_ports", None)
+                return a if a.get("changes") else None
+            alt = _suggest_class(r, "beacon", byc, scoped, alt_fn)
+            if alt:
+                recs.append(alt)
     return {"window_days": days, "snapshots": len(snaps), "budget": BUDGET, "recommendations": recs,
             "note": "Recommendations only. Nothing is changed until you accept them."}
 
@@ -229,6 +323,8 @@ def apply(accepted):
         sec = pol.setdefault(t["section"], {})
         if "name" in t:
             sec = sec.setdefault(t["name"], {})
+        if t.get("class"):  # a device-class scope: written as that class's override (by_class), the rest untouched
+            sec = sec.setdefault("by_class", {}).setdefault(t["class"], {})
         for k, v in r["changes"].items():
             sec[k] = v
         done.append(r["id"])

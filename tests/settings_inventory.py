@@ -30,7 +30,9 @@ SETTINGS = {
     "cfg.host_policy": ("Settings > Host policy", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48", "SET-49"]),
     "cfg.known_benign": ("Settings > Known benign", ["/api/config/cfg"], [], ["STO-02", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),
     "cfg.site": ("Settings > Site", ["/api/config/cfg"], [], ["STO-02", "CFG-01", "EVW-01", "SET-40", "SET-41", "SET-42", "SET-43", "SET-48"]),
-    "cfg.tune": ("Settings > Auto-tune thresholds (recommend, accept)", ["/api/config/tune-apply"], [], ["SET-51", "SET-52", "SET-67"]),
+    "cfg.class_scope": ("Settings > Network policy > upload_spike / scan_thresholds / beacon: classes (device class drop-down) and by_class overrides",
+                        ["/api/config/cfg"], [], ["CLS-06", "CLS-07", "CLS-08"]),
+    "cfg.tune": ("Settings > Auto-tune thresholds (recommend, accept)", ["/api/config/tune-apply"], [], ["SET-51", "SET-52", "SET-67", "CLS-09"]),
     "cfg.discover": ("Settings > Network policy > Discover from UniFi", ["/api/config/discover"], [], ["SET-53", "SET-54", "SET-55"]),
     # ---- review job / research / auto-close ----
     "review.lookback": ("More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait)", ["/api/config/cfg"], ["lookback.put"], ["EVW-01", "EVW-02", "EVW-03", "EVW-04", "SET-64"]),

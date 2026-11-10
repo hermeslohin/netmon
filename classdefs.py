@@ -274,7 +274,31 @@ def rename(pol, old, new):
     out["device_classes"] = {k: (new if v == old and not str(k).startswith("_") else v) for k, v in dc.items()}
     out["allow"] = [{**a, **{s: new for s in ("src", "dst") if a.get(s) == old}} if isinstance(a, dict) else a
                     for a in out.get("allow") or []]
-    return out
+    return _rescope(out, old, new)
+
+
+SCOPED = ("upload_spike", "scan_thresholds", "beacon")  # threshold sections with a device-class scope (extras.SCOPED)
+
+
+def _rescope(pol, old, new, removed=False):
+    """Follow a class rename or removal in the threshold sections' classes / by_class. On removal the class filter
+    follows the devices to the class they moved to (never turning a narrowed rule into 'every device'); the removed
+    class's overrides go away unless the target class has none."""
+    for sname in SCOPED:
+        sec = pol.get(sname)
+        if not isinstance(sec, dict):
+            continue
+        sec = dict(sec)
+        if isinstance(sec.get("classes"), list) and old in sec["classes"]:
+            sec["classes"] = list(dict.fromkeys(new if c == old else c for c in sec["classes"]))
+        bc = sec.get("by_class")
+        if isinstance(bc, dict) and old in bc:
+            if removed and new in bc:
+                sec["by_class"] = {c: v for c, v in bc.items() if c != old}
+            else:
+                sec["by_class"] = {(new if c == old else c): v for c, v in bc.items()}
+        pol[sname] = sec
+    return pol
 
 
 def remove(pol, name, move_to=None):
@@ -296,7 +320,7 @@ def remove(pol, name, move_to=None):
             continue
         dc[k] = v
     out["device_classes"] = dc
-    return out
+    return _rescope(out, name, move_to or UNCLASSIFIED, removed=True)
 
 
 def update(pol, name, like_=None, off=None):

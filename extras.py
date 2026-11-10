@@ -455,22 +455,97 @@ def _robust(vals):
 UPLOAD_SPIKE = {"min_mb": 25, "times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "high"}  # defaults; policy "upload_spike" overrides
 
 
-def upload_cfg():
-    """policy.upload_spike merged over the defaults (bad values fall back to the default)."""
+# Device-class scope of a threshold section (policy upload_spike / scan_thresholds / beacon, Settings > Network policy):
+#   classes   which device classes the rule runs for ([] / absent / "*" = every device; "unclassified" = devices with no class)
+#   by_class  {class: {setting: value}} per-class overrides of the section's numbers (missing = the section's value)
+SCOPED = ("upload_spike", "scan_thresholds", "beacon")
+SCOPE_KEYS = ("classes", "by_class")
+SCOPE_FIELDS = {"upload_spike": ("min_mb", "times_normal", "mad_factor", "min_days", "severity"),
+                "scan_thresholds": ("hosts", "ports"),
+                "beacon": ("min_conns", "min_score", "min_coverage", "min_intervals", "unlabelled_min_score")}  # ignore_ports stays global (ES query)
+
+
+def class_scope(sec, cls):
+    """(applies, overrides) of one section for device class cls (None / '' = unclassified)."""
+    sec = sec if isinstance(sec, dict) else {}
+    cls = cls or "unclassified"
+    cl = [str(x) for x in (sec.get("classes") or []) if str(x).strip()]
+    ov = (sec.get("by_class") or {}).get(cls) if isinstance(sec.get("by_class"), dict) else None
+    return (not cl or "*" in cl or cls in cl), (ov if isinstance(ov, dict) else {})
+
+
+def ip_classes(pol=None):
+    """{internal IP: device class} from the device registry (MAC first, then IP), for collectors that only see IPs."""
+    import classdefs
+    import store
+    pol = pol if pol is not None else load_policy()
+    out = {}
     try:
-        p = load_policy().get("upload_spike") or {}
+        for k, d in store.registry_load().items():
+            if not isinstance(d, dict):
+                continue
+            mac = d.get("mac") or (k if ":" in str(k) else None)
+            for ip in d.get("ips") or ([d["ip"]] if d.get("ip") else []):
+                out[ip] = classdefs.class_of(pol, ip, mac)
+    except Exception:  # noqa: BLE001 - no registry: classes by IP only
+        pass
+    return out
+
+
+def class_of_ip(pol, ipc, ip):
+    import classdefs
+    c = ipc.get(ip)
+    return c if c and c != "unclassified" else classdefs.class_of(pol, ip)
+
+
+def _scoped(sec, cls, out, conv):
+    """Apply the by_class overrides of cls onto out (a merged copy); adds 'applies' (the class filter)."""
+    ok, ov = class_scope(sec, cls)
+    for k, v in ov.items():
+        if k in out and not str(k).startswith("_"):
+            try:
+                out[k] = conv(k, v)
+            except (TypeError, ValueError):
+                pass
+    out["applies"] = ok
+    return out
+
+
+def upload_cfg(cls=None, pol=None):
+    """policy.upload_spike merged over the defaults (bad values fall back to the default). cls given: that device class's
+    overrides applied and 'applies' = whether the rule runs for the class at all."""
+    try:
+        p = (pol if pol is not None else load_policy()).get("upload_spike") or {}
     except Exception:  # noqa: BLE001
         p = {}
     out = dict(UPLOAD_SPIKE)
+    conv = lambda k, v: v if k == "severity" else float(v)  # noqa: E731
     for k, v in p.items():
         if k in out and not k.startswith("_"):
             try:
-                out[k] = v if k == "severity" else float(v)
+                out[k] = conv(k, v)
             except (TypeError, ValueError):
                 pass
+    if cls is not None:
+        out = _scoped(p, cls, out, conv)
     if out["severity"] not in ("high", "medium", "low", "off"):
         out["severity"] = "high"
     return out
+
+
+SCAN = {"hosts": 20, "ports": 40}  # defaults; policy "scan_thresholds" overrides
+
+
+def scan_cfg(pol=None, cls=None):
+    """policy.scan_thresholds merged over SCAN; cls given: that class's overrides + 'applies'."""
+    p = (pol if pol is not None else load_policy()).get("scan_thresholds") or {}
+    out = dict(SCAN)
+    for k in SCAN:
+        try:
+            out[k] = float(p[k]) if k in p else out[k]
+        except (TypeError, ValueError):
+            pass
+    return _scoped(p, cls, out, lambda k, v: float(v)) if cls is not None else out
 
 
 SPIKES = {  # policy "spike_thresholds": one row per detection. min = absolute floor (a value below it is never a spike)
@@ -522,8 +597,9 @@ def new_dest_ips(devs, pol=None):
             and any(classdefs.device_alarm(pol, k, ip, d.get("mac")) for k in classdefs.NEW_DEST_KINDS)]
 
 
-def beacon_cfg(pol=None):
-    """policy.beacon merged over BEACON; values of the wrong type fall back to the default."""
+def beacon_cfg(pol=None, cls=None):
+    """policy.beacon merged over BEACON; values of the wrong type fall back to the default. cls given: that device
+    class's overrides applied + 'applies' (ignore_ports is never per class)."""
     p = (pol if pol is not None else load_policy()).get("beacon") or {}
     out = dict(BEACON)
     for k, d in BEACON.items():
@@ -534,14 +610,33 @@ def beacon_cfg(pol=None):
             out[k] = [int(x) for x in v] if isinstance(d, list) else float(v)
         except (TypeError, ValueError):
             pass
+    if cls is not None:
+        out = _scoped(p, cls, out, lambda k, v: out[k] if k == "ignore_ports" else float(v))
     return out
+
+
+def scoped_classes(pol, section):
+    """Every class with its own numbers in a section (by_class keys), for collectors that must query loosely enough."""
+    sec = (pol or {}).get(section) or {}
+    return [c for c in (sec.get("by_class") or {}) if not str(c).startswith("_")] if isinstance(sec.get("by_class"), dict) else []
 
 
 def beacons(hours=24, min_conns=None, max_pairs=400):
     """RITA-style beacon score per (src, dst, port): timing regularity, size regularity, day coverage.
     Thresholds come from policy.beacon (see BEACON)."""
-    B = beacon_cfg()
-    min_conns = int(B["min_conns"] if min_conns is None else min_conns)
+    pol = load_policy()
+    B = beacon_cfg(pol)
+    ipc = ip_classes(pol)
+    _bc = {}
+
+    def cfg_of(src):  # per source device class (class filter + by_class overrides)
+        c = class_of_ip(pol, ipc, src)
+        if c not in _bc:
+            _bc[c] = beacon_cfg(pol, c)
+        return _bc[c]
+    if min_conns is None:  # the ES pre-filter must be as loose as the loosest class
+        min_conns = min([B["min_conns"]] + [beacon_cfg(pol, c)["min_conns"] for c in scoped_classes(pol, "beacon")])
+    min_conns = int(min_conns)
     q, ds, buckets = _ctx()
     R = rng(hours)
     r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), {"term": {"source.ip": SITE.get("internal_cidr")}},
@@ -565,7 +660,8 @@ def beacons(hours=24, min_conns=None, max_pairs=400):
             sizes.append((s.get("client") or {}).get("ip_bytes") or 0)
         uts = sorted(set(int(t) for t in ts))
         iv = [b - a for a, b in zip(uts, uts[1:]) if b - a > 0]
-        if len(iv) < B["min_intervals"]:
+        Bs = cfg_of(src)
+        if not Bs["applies"] or n < Bs["min_conns"] or len(iv) < Bs["min_intervals"]:
             return None
         med, skew, mad = _robust(iv)
         smed, sskew, smad = _robust(sizes)
@@ -581,7 +677,7 @@ def beacons(hours=24, min_conns=None, max_pairs=400):
 
     with cf.ThreadPoolExecutor(8) as ex:
         res = [x for x in ex.map(score, pairs) if x]
-    cands = [x for x in res if x["score"] >= B["min_score"] and x["coverage_h"] >= hours * B["min_coverage"]]
+    cands = [x for x in res if x["score"] >= cfg_of(x["src"])["min_score"] and x["coverage_h"] >= hours * cfg_of(x["src"])["min_coverage"]]
     # label destinations: SNI, DNS name, ASN
     ips = list({c["dst"] for c in cands})
     labels = defaultdict(dict)
@@ -646,12 +742,14 @@ def internal_traffic(hours=24):
                       "service": (buckets(b["svc"]) or [{"key": ""}])[0]["key"],
                       "src_zone": zone_of(src, pol), "dst_zone": zone_of(dst, pol)})
     scans = []
-    th = pol.get("scan_thresholds", {"hosts": 20, "ports": 40})
+    ipc, _th = ip_classes(pol), {}
     for b in buckets(r["aggregations"]["scan"]["s"]):
         top = [x["key"] for x in buckets(b["top"])]
         if b["key"].endswith(".1"):  # gateway interfaces broadcast discovery to every host
             continue
-        if b["hosts"]["value"] >= th["hosts"] or b["ports"]["value"] >= th["ports"]:
+        cl = class_of_ip(pol, ipc, b["key"])
+        th = _th.setdefault(cl, scan_cfg(pol, cl))  # per device class: class filter + by_class overrides
+        if th["applies"] and (b["hosts"]["value"] >= th["hosts"] or b["ports"]["value"] >= th["ports"]):
             scans.append({"src": b["key"], "failed_conns": b["doc_count"], "hosts": b["hosts"]["value"],
                           "ports": b["ports"]["value"], "top_ports": top})
     matrix = defaultdict(lambda: {"conns": 0, "bytes": 0, "ports": Counter()})

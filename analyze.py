@@ -103,6 +103,18 @@ def upload_cfg():
     return extras.upload_cfg()
 
 
+def upload_cfg_for(pol, key, t, cache=None):
+    """upload_spike settings for one device (key = MAC or IP, t = its compact() row): its class's by_class overrides
+    and 'applies' = whether the rule runs for its class (policy upload_spike.classes)."""
+    import classdefs
+    import extras
+    cls = classdefs.class_of(pol, t.get("ip"), key if key != t.get("ip") else None)
+    cache = {} if cache is None else cache
+    if cls not in cache:
+        cache[cls] = extras.upload_cfg(cls, pol)
+    return cache[cls]
+
+
 _SP = None
 
 
@@ -215,7 +227,8 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
 
     # --- beaconing ---
     bdom = set(benign.get("beacon_domains", []))
-    ub = extras.beacon_cfg()["unlabelled_min_score"]
+    ubc = {}
+    ub_of = lambda ip: ubc.setdefault(klass(ip), extras.beacon_cfg(pol, klass(ip))["unlabelled_min_score"])  # noqa: E731
     newdom = {n["domain"] for n in ti.get("new_domains", [])}
     tihit = {h["ip"] for h in ti.get("ip_hits_out", []) if h["serious"]}
     for c in (snap.get("beacons") or {}).get("candidates", []):
@@ -240,7 +253,7 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
         elif ready and beacon_id(c) not in seen:
             add("high" if rule(c["src"]) in ("iot", "camera") and why else "medium", k, "beacon-new",
                 desc + ("; " + ", ".join(why) if why else ""))
-        elif why and not ready and c["score"] >= ub and not c_dom:
+        elif why and not ready and c["score"] >= ub_of(c["src"]) and not c_dom:
             add("low", k, "beacon-unlabelled", desc + "; " + ", ".join(why))
 
     # --- internal traffic / segmentation ---
@@ -393,15 +406,16 @@ def main():
         print(f"(new-device alarms not added to findings: {_e})", file=sys.stderr)
 
     # --- per-device deviation vs baseline ---
-    UP = upload_cfg()
+    _pol, _upc = _ex.load_policy(), {}
     for key, t in today.items():
         past = [h["devices"][key] for h in history if key in h.get("devices", {})]
         if not past:  # brand-new devices are reported via the registry below
             continue
+        UP = upload_cfg_for(_pol, key, t, _upc)  # per device class: class filter + by_class overrides
         if spike(t["total"], [p["total"] for p in past], 50 * MB):
             add("medium", key, "volume-spike",
                 f"total {t['total']/MB:.0f} MB vs normal {med([p['total'] for p in past])/MB:.0f} MB")
-        if UP["severity"] != "off" and spike(t["sent"], [p["sent"] for p in past], UP["min_mb"] * MB, mult=UP["times_normal"], madf=UP["mad_factor"], min_days=UP["min_days"]):
+        if UP["applies"] and UP["severity"] != "off" and spike(t["sent"], [p["sent"] for p in past], UP["min_mb"] * MB, mult=UP["times_normal"], madf=UP["mad_factor"], min_days=UP["min_days"]):
             add(UP["severity"], key, "upload-spike",
                 f"sent {t['sent']/MB:.0f} MB vs normal {med([p['sent'] for p in past])/MB:.0f} MB (possible exfil/backup)")
         if (sev := sp("fan_out", t["ext_peers"], [p["ext_peers"] for p in past], card=True)):

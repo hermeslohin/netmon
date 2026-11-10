@@ -102,7 +102,12 @@
       if (key === "device_classes" && !r.ro) ki.addEventListener("change", () => { const l = tr.querySelector(".cfg-learned"); if (l) l.replaceWith(learnedEl(ki.value.trim())); });
       if (r.ro) { r.keep = v; tr.append(h("td", { colspan: matrix ? cols.length : 1, class: "muted small" }, typeof v === "string" ? v : JSON.stringify(v))); tb.append(tr); rows.push(r); return; }
       if (matrix) { r.cells = {}; r.absent = new Set(cols.filter((c) => !(c in v))); cols.forEach((c) => { const e = editor(v[c] ?? blankLike(sample[c]), ed, c); r.cells[c] = e; tr.append(h("td", {}, e.el)); }); }
-      else { r.e = key === "device_classes" ? classSelect(v, ed) : editor(v, ed, k); tr.append(h("td", {}, r.e.el)); }
+      else {
+        const sc = SCOPED.includes(key) && (k === "classes" || k === "by_class");
+        if (sc) ki.disabled = true;  // the scope rows keep their names
+        r.e = key === "device_classes" ? classSelect(v, ed) : sc && k === "classes" ? classMulti(v, ed) : sc ? byClassEditor(v, ed, o) : editor(v, ed, k);
+        tr.append(h("td", {}, r.e.el));
+      }
       tr.append(h("td", {}, delBtn(() => { rows.splice(rows.indexOf(r), 1); tr.remove(); }, ed))); r.tr = tr; rows.push(r); tb.append(tr);
       if (fresh) ki.focus();
     };
@@ -131,6 +136,60 @@
     const s = h("select", { disabled: !ed, class: "cfg-class" }, h("option", { value: "" }, "— pick a class —"), opts.map((c) => h("option", { value: c }, c)));
     s.value = v || "";
     return { el: s, get: () => { if (!s.value) { s.style.outline = "2px solid #e06a5f"; throw new Error("pick a class for every device"); } s.style.outline = ""; return s.value; } };
+  }
+
+  // Device-class scope of upload_spike / scan_thresholds / beacon (extras.SCOPED):
+  //   classes  = a drop-down of class check boxes: which device classes the rule runs for (none ticked = every device)
+  //   by_class = per-class overrides: a class picker plus the section's numbers (blank = use the section's value)
+  const SCOPED = ["upload_spike", "scan_thresholds", "beacon"];
+  const allClasses = () => [...CLASSES, "unclassified"];
+  function classMulti(v, ed) {
+    const sel = new Set(Array.isArray(v) ? v.filter((x) => x !== "*") : []);
+    const opts = [...new Set([...allClasses(), ...sel])];
+    const sum = h("summary", { class: "cfg-scope-sum" });
+    const paint = () => { sum.textContent = sel.size ? `Only: ${[...sel].join(", ")}` : "All device classes"; };
+    const boxes = opts.map((c) => {
+      const cb = h("input", { type: "checkbox", disabled: !ed, value: c, style: "accent-color:#6cc287" }); cb.checked = sel.has(c);
+      cb.addEventListener("change", () => { cb.checked ? sel.add(c) : sel.delete(c); paint(); });
+      return h("label", { class: "cdef-sw", style: "display:block" }, cb, " ", c);
+    });
+    const clr = h("button", { type: "button", class: "small", disabled: !ed, onclick: (e) => { sel.clear(); boxes.forEach((l) => { l.firstChild.checked = false; }); paint(); e.target.dispatchEvent(new Event("change", { bubbles: true })); } }, "All classes");
+    paint();
+    const el = h("details", { class: "cfg-scope", title: "Apply this rule only to devices of the ticked classes (none ticked = every device)" }, sum,
+      h("div", { style: "padding:4px 0" }, boxes, h("div", { style: "margin-top:4px" }, clr)));
+    return { el, get: () => opts.filter((c) => sel.has(c)) };
+  }
+  function byClassEditor(v, ed, sec) {
+    const fields = Object.entries(sec).filter(([k, x]) => !k.startsWith("_") && k !== "classes" && k !== "by_class" && (typeof x === "number" || typeof x === "string")).map(([k]) => k);
+    const tb = h("tbody"), rows = [];
+    const addRow = (cls, ov) => {
+      const s = h("select", { disabled: !ed }, h("option", { value: "" }, "— class —"), [...new Set([...allClasses(), ...(cls ? [cls] : [])])].map((c) => h("option", { value: c }, c)));
+      s.value = cls || "";
+      const ins = fields.map((f) => { const i = h("input", { type: "text", disabled: !ed, placeholder: String(sec[f]), title: `blank = the section's ${f} (${sec[f]})`, style: "width:6em" }); i.value = ov && f in ov ? String(ov[f]) : ""; return [f, i]; });
+      const tr = h("tr", {}, h("td", {}, s), ins.map(([, i]) => h("td", {}, i)));
+      const r = { s, ins, tr };
+      tr.append(h("td", {}, delBtn(() => { rows.splice(rows.indexOf(r), 1); tr.remove(); }, ed)));
+      rows.push(r); tb.append(tr);
+    };
+    Object.entries(isObj(v) ? v : {}).filter(([c]) => !c.startsWith("_")).forEach(([c, ov]) => addRow(c, ov));
+    const tbl = h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, h("th", {}, "Class"), fields.map((f) => h("th", {}, f)), h("th"))), tb);
+    const add = h("button", { type: "button", class: "small", disabled: !ed, onclick: () => addRow("", {}) }, "+ Class override");
+    return { el: h("div", {}, h("div", { class: "muted small" }, "Different numbers for a device class (blank = the value above)."), rows.length || ed ? tbl : "", ed ? add : ""), get: () => {
+      const out = {};
+      for (const r of rows) {
+        const vals = {};
+        for (const [f, i] of r.ins) {
+          const t = i.value.trim(); i.style.outline = "";
+          if (!t) continue;
+          if (typeof sec[f] === "number") { if (isNaN(Number(t))) { i.style.outline = "2px solid #e06a5f"; throw new Error(`${f}: "${t}" is not a number`); } vals[f] = Number(t); } else vals[f] = t;
+        }
+        if (!Object.keys(vals).length) continue;  // an empty override row is not saved
+        if (!r.s.value) { r.s.style.outline = "2px solid #e06a5f"; throw new Error("pick a class for every override"); }
+        if (r.s.value in out) { r.s.style.outline = "2px solid #e06a5f"; throw new Error(`two overrides for class ${r.s.value}`); }
+        r.s.style.outline = ""; out[r.s.value] = vals;
+      }
+      return out;
+    } };
   }
 
   // Device class definitions (policy.class_defs): add / rename / remove classes, 'behaves like', per-class alarm switches.
@@ -215,17 +274,17 @@
       const checks = [];
       // one tappable card per proposal (a <label> around the whole card: big touch target, works on phones)
       const rows = r.recommendations.map((x) => {
-        const on = x.status === "change";
+        const on = x.status === "change", opt = on && x.scope && x.title.includes("(new override)");  // a narrower alternative: offered, not pre-ticked
         // the box is only a display: the whole card is the tap target and keeps the state in JS (taps on a bare checkbox were unreliable on iOS)
         const cb = h("input", { type: "checkbox", checked: on, disabled: !on, tabindex: "-1", style: "width:18px;height:18px;min-width:18px;padding:0;margin:2px 0 0;flex:none;pointer-events:none;accent-color:#6cc287" });
-        const st = { sel: on, x };
+        const st = { sel: on && !opt, x }; if (opt) cb.checked = false;
         if (on) checks.push(st);
         const chg = on ? Object.entries(x.changes).map(([k, v]) => h("div", {}, h("b", {}, k), ": ", fmt(x.current[k]), " → ", h("b", {}, fmt(v)))) : [h("div", { class: "muted" }, x.status === "off" ? "off" : x.status === "ok" ? "Keep as is" : "No safe change")];
         const cur = Object.entries(x.current).map(([k, v]) => k + ": " + fmt(v)).join("  ·  ");
         const card = h("div", { role: on ? "checkbox" : null, "aria-checked": on ? "true" : null, style: "display:flex;gap:12px;align-items:flex-start;padding:10px;margin:6px 0;border:1px solid var(--border);border-radius:8px;-webkit-tap-highlight-color:transparent;" + (on ? "cursor:pointer" : "opacity:.75") },
           cb, h("div", { style: "min-width:0;flex:1" }, h("div", {}, h("b", {}, x.title)), h("div", { class: "muted small" }, "Current: " + cur), h("div", { style: "margin:4px 0" }, chg), h("div", { class: "small" }, x.why)));
         if (on) card.onclick = () => { st.sel = !st.sel; cb.checked = st.sel; card.setAttribute("aria-checked", String(st.sel)); card.style.borderColor = st.sel ? "#6cc287" : ""; };
-        if (on) card.style.borderColor = "#6cc287";
+        if (on && !opt) card.style.borderColor = "#6cc287";
         return card;
       });
       const apply = h("button", { type: "button", disabled: !checks.length, style: "min-height:44px" }, "Accept selected");

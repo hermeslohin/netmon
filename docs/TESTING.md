@@ -219,7 +219,8 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `cfg.host_policy` | Settings > Host policy | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48, SET-49 | 20 | 0 |
 | `cfg.known_benign` | Settings > Known benign | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48 | 18 | 0 |
 | `cfg.site` | Settings > Site | `/api/config/cfg` | STO-02, CFG-01, EVW-01, SET-40, SET-41, SET-42, SET-43, SET-48 | 41 | 2 |
-| `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67 | 5 | 3 |
+| `cfg.class_scope` | Settings > Network policy > upload_spike / scan_thresholds / beacon: classes (device class drop-down) and by_class overrides | `/api/config/cfg` | CLS-06, CLS-07, CLS-08 | 8 | 0 |
+| `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67, CLS-09 | 8 | 3 |
 | `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
 | `review.lookback` | More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait) | `/api/config/cfg` | EVW-01, EVW-02, EVW-03, EVW-04, SET-64 | 14 | 6 |
 | `push.gate` | More > Settings > Site > push_wait_for_ai / push_hold_max_minutes: wait for the AI verdict before phone alerts, longest hold | `/api/config/cfg` | PSH-01, PSH-05, PSH-06 | 6 | 0 |
@@ -254,6 +255,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_autoclose.py` | 14 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (OE-20, STO-05, STO-08, STO-12) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_cert_dns_notes.py` | 5 | Unit tests for DNS, TLS and IPs notes: TLS certificates are artifacts with notes, domain notes reach events about their (STO-13) |
+| `tests/unit/test_class_scope.py` | 11 | Device-class scope of the upload_spike / scan_thresholds / beacon rules (policy classes + by_class): config merge, (CLS-06, CLS-07, CLS-08, CLS-09) |
 | `tests/unit/test_classdefs.py` | 10 | Unit tests for device class definitions and per-class alarm switches (classdefs.py, Settings > Network policy > (CLS-01, CLS-02, CLS-03, CLS-04, CLS-05, UI-92) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
 | `tests/unit/test_config.py` | 35 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
