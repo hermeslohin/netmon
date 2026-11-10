@@ -240,6 +240,7 @@ REQUIREMENTS = {
     "POS-17": ("Posture", "Baseline findings exclude segmentation findings (own box) and show the device's Host IP even when the finding is keyed by MAC.", "USER_GUIDE.md §6 Security → Posture"),
     "POS-18": ("Posture", "Host findings show a Host column (the computer from the finding key) and a To column (remote side for outbound, this host:port with the source for inbound, empty otherwise).", "USER_GUIDE.md §6 Security → Posture"),
     "POS-19": ("Posture", "Admins and defenders read Posture data and manage check-offs and suppress rules; a User gets 403 for snapshots, sections, check-offs, ranges and suppress rules.", "ACCESS_CONTROL.md / USER_GUIDE.md §6"),
+    "POS-21": ("Posture", "A time range collected after the review job still shows the first-seen host findings (new executable, new destination, new login, new listener) that happened in it: new baseline entries on a seasoned host carry their first-seen minute and a range judges 'new' against the baseline as of its start.", "USER_GUIDE.md §6 Security → Posture"),
     "POS-20": ("Posture", "Suppress rules that are empty or would hide everything are rejected with 400 and nothing is stored.", "USER_GUIDE.md §6 Security → Posture"),
     # ---- settings (every setting: tests/settings_inventory.py) ----
     "SET-01": ("Settings: Integrations URLs", "Elasticsearch and UniFi URLs must be http:// or https:// without spaces, quotes or brackets; other values are refused and nothing is saved, and accepted URLs are stored without the trailing slash.", "SETUP.md (Integrations)"),

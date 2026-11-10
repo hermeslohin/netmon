@@ -260,6 +260,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_event_window.py` | 19 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, EVW-06, EVW-07, OPS-03) |
 | `tests/unit/test_evtime.py` | 14 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
+| `tests/unit/test_host_baseline_asof.py` | 2 | hosts.as_of / first-seen minutes: a time range collected after the review job still reports the first-seen host (POS-21) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix list (fixlist.sync / issues._eval) runs in request threads and background jobs at once; the (OPS-05) |

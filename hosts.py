@@ -494,6 +494,29 @@ def seasoned(base, host):
     return bool(first) and first < time.strftime("%Y-%m-%d")
 
 
+def _stamp(base, host, today):
+    """First-seen value for a new baseline entry: the minute (YYYY-MM-DDTHH:MMZ) on a seasoned host, so a time range
+    collected later still reports it as new (as_of); the day on a host still being seeded (that is not news)."""
+    return time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime()) if seasoned(base, host) else today
+
+
+def as_of(base, since):
+    """The baseline as it was at `since` (ISO time): entries stamped with a first-seen minute at or after it are left out,
+    so a time range reports exec-new / net-new / login-new / listen findings that the review job reported in it.
+    Day-only (older) entries are kept."""
+    if not since:
+        return base
+    cut = since[:16].replace(" ", "T")
+    out = {}
+    for h, v in base.items():
+        if not isinstance(v, dict) or h.startswith("_"):
+            out[h] = v
+            continue
+        out[h] = {k: ({e: t for e, t in d.items() if not (isinstance(t, str) and len(t) > 10 and t[:16] >= cut)}
+                      if k in ("exec", "net", "listen", "login", "sudo") and isinstance(d, dict) else d) for k, d in v.items()}
+    return out
+
+
 def update_baseline(snap):
     base = load_base()
     today = time.strftime("%Y-%m-%d")
@@ -502,23 +525,25 @@ def update_baseline(snap):
     for host, ex in (snap.get("processes") or {}).get("execs", {}).items():
         d = base.setdefault(host, {}).setdefault("exec", {})
         hs = base[host].setdefault("exec_sha", {})
+        st = _stamp(base, host, today)
         for e, v in ex.items():
-            d.setdefault(e, today)
+            d.setdefault(e, st)
             if v.get("sha256") and not e.startswith(SYS_PREFIX):
                 hs[e] = v["sha256"]
     for host, procs in ((snap.get("network") or {}).get("hosts") or {}).items():
         d = base.setdefault(host, {}).setdefault("net", {})
         ls = base[host].setdefault("listen", {})
+        st = _stamp(base, host, today)
         for p, v in procs.items():
             for dst in v["dst"] + v["dns"]:
-                d.setdefault(f"{p}->{dst}", today)
+                d.setdefault(f"{p}->{dst}", st)
             for f in v["inbound"].values():
-                ls.setdefault(f"{os.path.basename(p)}:{f['port']}", today)
+                ls.setdefault(f"{os.path.basename(p)}:{f['port']}", st)
     for l in (snap.get("auth") or {}).get("logins", []):
         if l["outcome"] == "success":
-            base.setdefault(l["host"], {}).setdefault("login", {}).setdefault(f"{l['user']}@{l['src']}/{l['via']}", today)
+            base.setdefault(l["host"], {}).setdefault("login", {}).setdefault(f"{l['user']}@{l['src']}/{l['via']}", _stamp(base, l["host"], today))
     for s in (snap.get("auth") or {}).get("sudo", []):
-        base.setdefault(s["host"], {}).setdefault("sudo", {}).setdefault(f"{s['user']}:{s['command'][:120]}", today)
+        base.setdefault(s["host"], {}).setdefault("sudo", {}).setdefault(f"{s['user']}:{s['command'][:120]}", _stamp(base, s["host"], today))
     oq = snap.get("osquery")
     if isinstance(oq, dict) and "error" not in oq:
         import osq
@@ -693,6 +718,10 @@ def collect(hours=24, update=True):
     """Nightly entry point (collect.py collect_extras job 'hosts')."""
     d = gather(hours * 60, nightly=True)
     base = load_base()
+    if not update:  # a time range / section: judge "new" against the baseline as it was when the range started
+        end = os.environ.get("NETMON_WINDOW_END")
+        t_end = __import__("calendar").timegm(time.strptime(end[:19], "%Y-%m-%dT%H:%M:%S")) if end else time.time()
+        base = as_of(base, time.strftime("%Y-%m-%dT%H:%M", time.gmtime(t_end - hours * 3600)))
     try:
         import hosts_ack
         acks = hosts_ack.load()
