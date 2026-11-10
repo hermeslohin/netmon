@@ -4,8 +4,8 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener("push", (e) => {
   let d = {};
-  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { title: "netmon", body: e.data ? e.data.text() : "" }; }
-  const title = d.title || "netmon alert";
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { title: "Syn", body: e.data ? e.data.text() : "" }; }
+  const title = d.title || "Syn alert";
   e.waitUntil(self.registration.showNotification(title, {
     body: d.body || "",
     tag: d.tag || "netmon",

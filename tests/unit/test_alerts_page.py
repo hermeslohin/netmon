@@ -506,17 +506,17 @@ class AlertsPageJsTest(unittest.TestCase):
         REQ: ALR-20"""
         out = self.run_js(feed_=feed(unread=150, unread_mine=2), steps=[])
         self.assertEqual(out["bell"], [["99+", ""], ["99+", ""]])
-        self.assertEqual(out["title"], "(150) netmon · Lab")
+        self.assertEqual(out["title"], "(150) Syn · Lab")
         out = self.run_js(feed_=feed(unread=0, unread_mine=0), steps=[])
         self.assertEqual(out["bell"][0], ["0", "none"])
-        self.assertEqual(out["title"], "netmon · Lab")
+        self.assertEqual(out["title"], "Syn · Lab")
 
     def test_bell_uses_my_devices_count_when_narrowed(self):
         """For an account alerting on chosen devices only, the bell counts the unread alerts of those devices.
         REQ: ALR-20"""
         out = self.run_js(feed_=feed(unread=40, unread_mine=3, mode="some"), steps=[])
         self.assertEqual(out["bell"][0], ["3", ""])
-        self.assertEqual(out["title"], "(3) netmon · Lab")
+        self.assertEqual(out["title"], "(3) Syn · Lab")
 
     def test_mark_all_read_button(self):
         """Mark all read posts /api/alerts/read, zeroes the bell and redraws the page; it is only offered while something is unread.

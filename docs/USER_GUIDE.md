@@ -1,12 +1,14 @@
-# netmon user guide
+# Syn user guide
 
-This guide covers everyday use of the netmon dashboard: what each page shows, how to work through alarms and findings, how notifications work, and how to use the AI features. For installation see [SETUP.md](SETUP.md). For how events are linked to each other, see [CORRELATION.md](CORRELATION.md). For who can see and change what, see [ACCESS_CONTROL.md](ACCESS_CONTROL.md). For the record of user actions and AI conversations, see [AUDIT_LOG.md](AUDIT_LOG.md). For step-by-step investigation workflows (troubleshooting, DNS tunnelling, lateral movement, insider threat and more), see [PLAYBOOKS.md](PLAYBOOKS.md).
+Syn (formerly netmon) is the network defender dashboard. Internal names (the `~/netmon` folder, `netmon-*` services and container, `netmon.db`, the `logs-netmon` index) keep the old name.
+
+This guide covers everyday use of the Syn dashboard: what each page shows, how to work through alarms and findings, how notifications work, and how to use the AI features. For installation see [SETUP.md](SETUP.md). For how events are linked to each other, see [CORRELATION.md](CORRELATION.md). For who can see and change what, see [ACCESS_CONTROL.md](ACCESS_CONTROL.md). For the record of user actions and AI conversations, see [AUDIT_LOG.md](AUDIT_LOG.md). For step-by-step investigation workflows (troubleshooting, DNS tunnelling, lateral movement, insider threat and more), see [PLAYBOOKS.md](PLAYBOOKS.md).
 
 > Screenshots in this guide come from a real dashboard with every IP address, MAC address, host name and account name replaced by placeholders (`192.0.2.x`, `host-N`, `site-N.example.com`, `alex`). Your dashboard shows your real names.
 
 ## Contents
 
-1. [What netmon does](#1-what-netmon-does)
+1. [What Syn does](#1-what-syn-does)
 2. [Signing in and your account](#2-signing-in-and-your-account)
 3. [Finding your way around](#3-finding-your-way-around)
 4. [Notifications and alerts](#4-notifications-and-alerts)
@@ -20,9 +22,9 @@ This guide covers everyday use of the netmon dashboard: what each page shows, ho
 
 ---
 
-## 1. What netmon does
+## 1. What Syn does
 
-netmon watches the home network and the computers on it and tells you what changed, what looks risky and what to fix.
+Syn watches the home network and the computers on it and tells you what changed, what looks risky and what to fix.
 
 | When | What runs | What you get |
 |---|---|---|
@@ -38,7 +40,7 @@ The data comes from:
 - **Elastic Agent** on each computer: Elastic Defend, osquery, logins and system logs.
 - **The UniFi gateway:** IPS events, firewall flows, admin sign-ins and configuration changes.
 
-netmon only reads data. It never changes the network, the gateway or Security Onion.
+Syn only reads data. It never changes the network, the gateway or Security Onion.
 
 ---
 
@@ -126,7 +128,7 @@ Every page is made of boxes (cards).
 ![Host findings table with check boxes, Ask, Related and research-note buttons](img/posture-host-findings.png)
 *Host findings on Posture: check box, 💬 Ask, Related count and the ✨ verdict button on each row.*
 
-Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Baseline findings, host findings and threat-intel hits show an **Occurred** column: when the activity actually happened, taken from the Elasticsearch records behind the row (the first and last Zeek / Suricata / endpoint / auth-log record time inside the selected range), not when netmon processed it. The times are looked up in the background and fill in a few seconds after the page opens (… while waiting, — when there is no record behind the row, such as an agent-offline or Kubernetes inventory finding). IDS signatures and gateway events already show their own record times. Baseline findings also show the **Host IP** of the device they are about.
+Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Baseline findings, host findings and threat-intel hits show an **Occurred** column: when the activity actually happened, taken from the Elasticsearch records behind the row (the first and last Zeek / Suricata / endpoint / auth-log record time inside the selected range), not when Syn processed it. The times are looked up in the background and fill in a few seconds after the page opens (… while waiting, — when there is no record behind the row, such as an agent-offline or Kubernetes inventory finding). IDS signatures and gateway events already show their own record times. Baseline findings also show the **Host IP** of the device they are about.
 
 ---
 
@@ -148,7 +150,7 @@ Detections are not pushed on their own: they appear under **Detections by verdic
 
 1. Open **Alerts**.
 2. Under **Notifications on this device**, tap **Enable** and allow notifications when the browser asks.
-   - **iPhone and iPad:** first add the dashboard to the home screen (**Share → Add to Home Screen**), open netmon from that icon, then tap Enable.
+   - **iPhone and iPad:** first add the dashboard to the home screen (**Share → Add to Home Screen**), open Syn from that icon, then tap Enable.
 3. Under **Which devices alert me**, choose **All devices** or pick only the devices you care about (for example your own laptop and phone), then **Save**. Users see **Your devices** instead: a read-only list an admin assigns on the Users page.
 
 Push is set up per browser or phone, so do it on each one you use. The device choice belongs to your account.
@@ -232,7 +234,7 @@ AI notes can be wrong. Treat them as a well-informed second opinion, and check t
 
 ### Managing notes
 
-Notes are what netmon knows about your network. The AI reads them before it judges a device or an event, so keeping them accurate directly improves its verdicts. There are two kinds, and each has its own review buttons.
+Notes are what Syn knows about your network. The AI reads them before it judges a device or an event, so keeping them accurate directly improves its verdicts. There are two kinds, and each has its own review buttons.
 
 **Who writes notes**
 
@@ -319,7 +321,7 @@ In short: **Posture is the history, Open events is the backlog.** Accepting some
 
 Everything nobody has accepted (checked off) yet, **whatever its age**. The time range in the header does not apply to this page: an unreviewed finding from last week, or last month, stays here until someone accepts it. Events do not expire. Only accepting them (by hand or through an auto-close rule you enabled) removes them; alerts also leave once cleared. Fix-list items (vulnerabilities and misconfigurations) are not on this page or in its count: they have their own page, **Fix list**. The nav item shows how many are open; the page lists at most 5000 rows, most severe and newest first.
 
-**First occurred / Last occurred** are when the activity behind the event happened: the earliest and latest Elasticsearch record (Zeek connection, DNS or TLS log, IDS alert, endpoint process/network/file event, auth log) over every window the event appeared in. They are filled in every 15 minutes. Events with no record behind them (agent offline, silent device, Kubernetes inventory, code-scan alerts), or not looked up yet, show when netmon saw them instead, greyed and marked *(seen)*. In the detail window each firing is headed by the time it happened, with "netmon saw it …" beside it.
+**First occurred / Last occurred** are when the activity behind the event happened: the earliest and latest Elasticsearch record (Zeek connection, DNS or TLS log, IDS alert, endpoint process/network/file event, auth log) over every window the event appeared in. They are filled in every 15 minutes. Events with no record behind them (agent offline, silent device, Kubernetes inventory, code-scan alerts), or not looked up yet, show when Syn saw them instead, greyed and marked *(seen)*. In the detail window each firing is headed by the time it happened, with "Syn saw it …" beside it.
 
 ![Open events: one card per type, with check boxes, Ask, Kibana pivot, Related, verdict and note buttons](img/open-events.png)
 
@@ -333,7 +335,7 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 - **Check off all.** Each card has **✓ Check all N** for what the card currently lists (after the type / severity filters at the top). It asks for confirmation; checked events move to Checked and can be restored there.
 - **Types without their own check-off** (IDS signatures, threat-intel hits, alerts) are stored as type *Other event*.
 - **Related events** come from the stored correlation verdicts, so events of any age show their Related count and popup (links, shared artifacts, the event's label) along with their notes, verdicts and classification.
-- **Where it comes from.** Every snapshot's events are saved in the netmon database (table `events`) with their first/last time and how often they were seen, so the page needs no JSON files and survives snapshots aging out.
+- **Where it comes from.** Every snapshot's events are saved in the Syn database (table `events`) with their first/last time and how often they were seen, so the page needs no JSON files and survives snapshots aging out.
 
 ![IDS signatures card on Open events](img/open-events-ids.png)
 
@@ -349,7 +351,7 @@ What happened **in the selected time range** 🕒, listed as reported: each find
 | IDS signatures / alerts | Suricata detections in the window, grouped by rule. |
 | Segmentation violations | Connections the zone policy doesn't allow, each with a **Clear** box; **show N checked** brings cleared flows back into the list. |
 | Beacon candidates | Connections that repeat on a regular timer (possible malware check-ins; usually updates or telemetry). Each row has a check box; the same list is on the device page. |
-| Threat-intel feeds | Each feed netmon downloads and its status (see Threat intel below). |
+| Threat-intel feeds | Each feed Syn downloads and its status (see Threat intel below). |
 | Inbound hits from listed IPs | Connections into the network from addresses on a threat-intel list. |
 | Outbound TI hits / newly-registered domains | Devices contacting listed IPs or domains, and domains registered in the last 90 days, with their age. |
 | Malicious JA3 / internal scans / detections | TLS client fingerprints known to belong to malware, internal devices scanning others, and other detections. |
@@ -486,7 +488,7 @@ Computers running the Elastic Agent: agent health, telemetry and auth/sudo/Defen
 
 ### Devices → Kubernetes
 
-Security monitoring of the Kubernetes cluster, built **only from Security Onion data**: what the Elastic Agent Kubernetes integration ships (container logs, Kubernetes events, API server metrics, pod/container/node metrics) plus Security Onion alerts that involve a node or pod IP. netmon never connects to the cluster (no kubectl, no API access). Choose the window (1 hour to 7 days) at the top, or use the header time picker.
+Security monitoring of the Kubernetes cluster, built **only from Security Onion data**: what the Elastic Agent Kubernetes integration ships (container logs, Kubernetes events, API server metrics, pod/container/node metrics) plus Security Onion alerts that involve a node or pod IP. Syn never connects to the cluster (no kubectl, no API access). Choose the window (1 hour to 7 days) at the top, or use the header time picker.
 
 - **Security Onion data coverage:** every Kubernetes data set with its last arrival and collector error. If *kubernetes.container_logs* is stale or missing, the log checks are blind, and a finding says so. Error rows are collectors that run but cannot reach their target (for example kube-state-metrics that is not installed).
 - **Container-log security signals:** container log lines that match reverse-shell and suspicious-command text, crypto-miner indicators, web-attack payloads (`${jndi:`, path traversal, `/etc/passwd`), private keys written to logs, authentication failures, access denied, TLS errors and crashes, by pod and container, with an example line. Namespaces whose logs legitimately contain such text (a threat-intel platform) can be exempted per pattern kind in **Settings → Endpoint policy → k8s → signal_exempt**. Exempt rows stay visible, greyed out, and raise no finding.
@@ -510,7 +512,7 @@ Kubernetes findings use keys that start with `k8s-`. The watcher (every event wi
 
 Opening a pod's logs is recorded in the audit log (`k8s.pod_logs`).
 
-**CIS Kubernetes benchmark.** This box is only filled when the read-only Kubernetes API account is set up (Configuration → Integrations → Kubernetes API; see SETUP.md 7e). netmon runs the benchmark checks that the API can answer:
+**CIS Kubernetes benchmark.** This box is only filled when the read-only Kubernetes API account is set up (Configuration → Integrations → Kubernetes API; see SETUP.md 7e). Syn runs the benchmark checks that the API can answer:
 
 - **API server, controller manager and scheduler flags** (CIS 1.2–1.4, 3.2): read from the control-plane static pods.
 - **RBAC** (5.1): who is bound to cluster-admin, who can read secrets or create pods, wildcard roles, default service accounts, mounted tokens, bind/impersonate/escalate, nodes/proxy, webhooks.
@@ -526,7 +528,7 @@ Results are:
 
 Pods in namespaces labelled `pod-security.kubernetes.io/enforce=privileged` (CNI, storage, monitoring agents that need host access) are listed but do not fail the pod-security checks. The benchmark re-runs every 6 hours with the nightly collection, and **Run now** runs it at once (admins and defenders).
 
-**Several clusters.** Add each cluster under Configuration → Integrations → Kubernetes API (one card per cluster, its own read-only token; **Remove cluster** deletes it). Every Kubernetes page has a **Cluster** selector at the top: *All clusters* or one of them. The choice is kept in your browser. Security Onion's Kubernetes data carries no cluster name, so netmon matches it to a cluster by the names of the nodes that sent it. A cluster without the Elastic Agent Kubernetes integration says *No Security Onion data for this cluster*; its CIS benchmark, images and map still work through the API. CIS findings carry the cluster in their key (`k8s-cis|<cluster>|<id>`).
+**Several clusters.** Add each cluster under Configuration → Integrations → Kubernetes API (one card per cluster, its own read-only token; **Remove cluster** deletes it). Every Kubernetes page has a **Cluster** selector at the top: *All clusters* or one of them. The choice is kept in your browser. Security Onion's Kubernetes data carries no cluster name, so Syn matches it to a cluster by the names of the nodes that sent it. A cluster without the Elastic Agent Kubernetes integration says *No Security Onion data for this cluster*; its CIS benchmark, images and map still work through the API. CIS findings carry the cluster in their key (`k8s-cis|<cluster>|<id>`).
 
 **Container images: updates and CVEs.** Every image running in the clusters is checked daily at 04:00 UTC, and on **Scan now** (admins and defenders):
 
@@ -593,7 +595,7 @@ Settings that apply to everyone. Admins can change them; network defenders see t
 
 ### More → Settings
 
-Network policy, endpoint policy, the known-benign list and your site values, edited as tables. Admins can change them; network defenders see them read-only. Everything is stored in the netmon database; there are no policy or site JSON files any more.
+Network policy, endpoint policy, the known-benign list and your site values, edited as tables. Admins can change them; network defenders see them read-only. Everything is stored in the Syn database; there are no policy or site JSON files any more.
 
 ![Settings: network policy zones and device classes as editable tables](img/settings-policy.png)
 
@@ -633,7 +635,7 @@ Full details (every recorded action, fields, Kibana queries, retention, troubles
 
 ## 7. AI features
 
-netmon uses two kinds of AI:
+Syn uses two kinds of AI:
 
 - **A cloud AI provider** of your choice (any OpenAI-compatible service or Anthropic, added by an admin on **AI pipeline configuration → AI providers**): event research when someone clicks Send to research (web search), and the Ask AI chat. The review job's event reviewer is the event reviewer's model (local by default).
 - **A local model** (served on the monitoring computer by any OpenAI-compatible model server): the event reviewer. It runs all the time and costs nothing per request. It can also be chosen for the review job or the chat.
@@ -642,7 +644,7 @@ Anything an AI wrote is labelled ✨ with the model name.
 
 ### Ask AI
 
-A chat assistant that knows the netmon data. It can look up findings, devices, alerts, endpoint data and notes, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI pipeline configuration → Models**; until one is chosen, the chat is off.
+A chat assistant that knows the Syn data. It can look up findings, devices, alerts, endpoint data and notes, and search and read the web. It is **read-only**: it cannot change anything. It uses the chat model an admin chose on **AI pipeline configuration → Models**; until one is chosen, the chat is off.
 
 - **Starting a chat:** open **More → Ask AI** and type a question. Earlier chats are listed on the left (☰ Chats on a phone).
 - **From an item:** click **💬** on any alarm, finding, alert or event. Pick one of the suggested questions or type your own. The item's details are attached, and the answer opens as a new chat. *What the AI will be given* shows exactly what is sent.
@@ -678,7 +680,7 @@ Everyone who can see the pages sees the configuration page; only admins can chan
 |---|---|
 | **Models** | The model for the **event reviewer** (also used by the review job), **event research** (used only on Send to research) and the **chat (Ask AI)**: a local server model or any model of the providers in **AI providers**. Event research and the chat are off until a model is chosen. Admins change them here, and a choice applies at once (see the cost notes below). Picking a different research model adds a dashed "Cost with <model>" line to the **Time and tokens** chart and a line under its title with the estimated cost per researched event: the recorded research's tokens re-priced at that model's price as entered on its provider (a rough guide, since another model would use a different number of tokens). Three more settings sit under the model menus (admins change them): **Elasticsearch queries · correlation review** (whether the event reviewer may run read-only searches of the Security Onion logs for more context, and the most per event, default 3), **Elasticsearch queries · event research** (the same switch for event research, used on **Send to research**), and **Notes per event** (the most host and account notes the event reviewer is given with each event; more notes mean more context and more input tokens). |
 | **Host note consolidation** (on AI pipeline monitoring → Event review) | Once a night, at the time set there (admins; your browser's time zone, default 03:00), the **event reviewer's model** reads each host's AI-written notes and merges the ones that repeat or overlap, so a host keeps a few complete notes instead of hundreds of near-duplicates. **Consolidate now** starts a run at once and shows progress. Only unreviewed AI notes are changed: notes written by a person, approved or rejected notes and correlation profiles are never touched. Notes are merged only when they are about the same artifact (the same IP, DNS name, process / file or account, not counting the host itself or a port): notes about different artifacts stay separate, so consolidation never links things the notes did not link, and a merged text that names an IP, domain, path or fingerprint none of its notes had is rejected. Every valid `[reviewer:…]` tag is kept on the merged note (malformed ones such as `[reviewer:ip:25565]` are dropped), and a merge that would drop an IP, domain, port, path, MAC or fingerprint is retried once and otherwise rejected (the notes stay as they were; counted under *Merges rejected*). Hosts whose notes have not changed since their last pass are skipped. The notes database is backed up before each run (`/state/backup-kbnotes/`, the last 7 kept). The table lists the last 10 runs: hosts, notes before and after, rejected merges and failed requests. |
-| **AI providers** (admins) | The AI services netmon calls, each with its own API key. **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint or a self-hosted vLLM; **Anthropic** takes an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer, one per line (**Fetch from provider** lists the models the key can use). After a model id you can add its prices in $ per million tokens, `model input output [cached-input]`; they drive the cost estimates and the $ limits. **Calls per hour** caps each provider's single calls (the event reviewer stops with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, they are removed from error messages, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use by the event reviewer, event research or the chat can't be deleted. Its models appear in every model menu and Compare dialog. |
+| **AI providers** (admins) | The AI services Syn calls, each with its own API key. **Add provider** asks for a name, the type (**OpenAI / OpenAI-compatible** covers OpenAI and services with the same API such as OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint or a self-hosted vLLM; **Anthropic** takes an Anthropic API key), an optional base URL (empty = the official API; plain `http://` only for LAN or loopback addresses), the key, and the models to offer, one per line (**Fetch from provider** lists the models the key can use). After a model id you can add its prices in $ per million tokens, `model input output [cached-input]`; they drive the cost estimates and the $ limits. **Calls per hour** caps each provider's single calls (the event reviewer stops with an error when it is reached), and **Extra reasoning tokens** gives models that think before answering room to do so. **Test** checks the key by listing models (no tokens used). Keys are stored on the dashboard's state volume (file mode 600), only the last 4 characters are ever shown, they are removed from error messages, and an edit that changes the type or base URL needs the key again, so a saved key is never sent to a new host. A provider in use by the event reviewer, event research or the chat can't be deleted. Its models appear in every model menu and Compare dialog. |
 | **Review limits** (admins and network defenders) | Limits what is sent to the event reviewer, with no model call for what is held back. **Classify events** (switch, only used with the decision model off; with it on, the event reviewer labels every event anyway): once every correlation of an event has been reviewed, the event reviewer also decides whether the event is *suspicious*, *benign* or *expected* and adds that flair to the event (up to 20 events per round, re-done when its links change). **Time window for the event reviewer** (minutes between correlated events, 0 = no limit; this one setting replaces any separate before/after windows) only correlates events that are within that many minutes before or after each other; links further apart are never sent to the model (events without a time, such as open vulnerabilities, always count). **Max links per event** (0-200, 0 = no cap) keeps the best-scoring links per event. **Event types** is a matrix with a review/skip cell per pair of types (e.g. alert-vuln) and its link count; click a cell to flip it, and click or hover the **i** next to a type for what it is. Types are split by severity, and segmentation (cross-zone traffic) appears as three types by port class: high, medium and low. **Discard old verdicts** (0-3650 days, 0 = keep) deletes verdicts whose pair has not been a candidate for that long; verdicts set by a person are kept. Admins and network defenders change these limits, every change is logged with the user, and links that already have a verdict are kept. **Reviews / min** and **Awaiting review** at the top show the event reviewer's speed and queue. |
 | **Clearing queues** (admins) | **Clear event queue** and **Clear review queue** under the top numbers empty what is waiting, after a warning you must confirm. Cleared events do not come back to the queue even if they recur under the same ID (Send to research still works on them); cleared links are marked "not related" without asking the model. Existing notes and verdicts are kept. **Queue (no note yet)** (admins) and **Awaiting review** (admins and defenders) open a list of what is waiting when clicked. |
 | **Send to research** (everyone who sees the event) | Open the 📝 next to any event: below the notes, **🔬 Send to research** researches the event **right away** if the AI has not researched it yet, without waiting for the queue; the review job never researches events, so this is the only way a new event gets a note. The host starts `research.py` for that event (about 1-3 minutes, roughly $0.10 with a cloud model) and the note appears when it finishes. Until then the popover shows "Research started"; if another research is running the click waits and starts as soon as it ends. It ignores queue clears and Never-send rules. Users can do this only for their own devices' events; it is logged with the user's name and counts toward the daily $ cap. At most 200 requests wait at once. |

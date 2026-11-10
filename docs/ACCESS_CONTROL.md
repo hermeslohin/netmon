@@ -1,11 +1,11 @@
-# netmon access control
+# Syn access control
 
 Every dashboard account has one of three **roles**. The server checks the role on every request; the browser only hides
 what a role can't use. Hiding a button is never the protection.
 
 | Role | Who it's for | In one line |
 |---|---|---|
-| **Admin** | whoever runs netmon | Can do everything. |
+| **Admin** | whoever runs Syn | Can do everything. |
 | **Network defender** | people who watch and work the network | Can see everything but can't change settings. |
 | **User** | household members, device owners | Can only see the events for the devices assigned to them. |
 
@@ -36,7 +36,7 @@ what a role can't use. Hiding a button is never the protection.
 | Auto-close settings, review-job schedule, "Run now" / Pause, event research limits, reopen auto-closed | ✓ | ✗ | ✗ |
 | AI providers and API keys, AI models (event reviewer / review job, event research, chat), Elasticsearch-search switches (event reviewer, event research and Ask AI), notes per event | ✓ | ✗ | ✗ |
 
-**"Settings"**, which a defender can't change, means anything that changes how netmon runs or who can use it: users,
+**"Settings"**, which a defender can't change, means anything that changes how Syn runs or who can use it: users,
 roles, device assignments, integrations, auto-close, schedules, limits, AI providers and AI models. Analyst work, such as checking items
 off, writing notes, confirming or rejecting an AI link, limiting which links the event reviewer sees (AI pipeline configuration > Review limits) and using Ask AI, is not a setting. Defenders can do it.
 
@@ -92,7 +92,7 @@ docker exec -it netmon-dashboard python /app/server.py set-password <user>
 
 | What | Where |
 |---|---|
-| Role per account | `role` field of the account in the netmon database (`users` document; the DB file is 0600) |
+| Role per account | `role` field of the account in the Syn database (`users` document; the DB file is 0600) |
 | Device assignment | `push_prefs` table in `dashboard/state/netmon.db` (the same setting that routes alerts) |
 | User-role read marker | `read_upto` field of the same account |
 | Enforcement | `dashboard/app/server.py`: `USER_GET` / `USER_POST` allow-lists for Users, `ADMIN_POST` for admin-only changes; `auth.role_of()` |

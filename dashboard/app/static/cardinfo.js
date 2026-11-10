@@ -351,7 +351,7 @@ window.CARD_INFO = {
 "what": "All notes people wrote on events, newest first."
 },
 "device|Across snapshots": {
-"source": "netmon history store (one record per collection run, twice a day, kept for about 30 days); the same history feeds the per-device baseline.",
+"source": "Syn history store (one record per collection run, twice a day, kept for about 30 days); the same history feeds the per-device baseline.",
 "use": "Look for a step change or a single spike versus its usual level. A jump in 'internet up' is the most important (possible exfiltration or a new backup/cloud sync). Empty means no history yet for this device.",
 "what": "Trend of this device's sent, received and internet-upload bytes across stored snapshots, each covering a 24 h window."
 },
@@ -371,32 +371,32 @@ window.CARD_INFO = {
 "what": "Failed authentications on this host (SSH, sudo, su, console via PAM) with counts by source, user and process."
 },
 "device|Baseline: exec": {
-"source": "netmon host baseline (SQLite store), built from Elastic Defend process events on each collection run.",
+"source": "Syn host baseline (SQLite store), built from Elastic Defend process events on each collection run.",
 "use": "This is the learned normal. After a host's first day, a new executable not in this list (and not in an allowed path) is flagged Review. Use it to check when a program first appeared.",
 "what": "Executables previously seen running on this host and the date each was first seen."
 },
 "device|Baseline: exec_sha": {
-"source": "netmon host baseline (SQLite store), from Elastic Defend process events.",
+"source": "Syn host baseline (SQLite store), from Elastic Defend process events.",
 "use": "If a binary's hash changes it is flagged 'Binary changed' (Review). That is expected after a software update, suspicious if nothing was updated.",
 "what": "SHA-256 hashes last recorded for non-system executables on this host."
 },
 "device|Baseline: listen": {
-"source": "netmon host baseline (SQLite store), from Elastic Defend network accept events.",
+"source": "Syn host baseline (SQLite store), from Elastic Defend network accept events.",
 "use": "The learned set of listening services. A new process listening on a new port is flagged; compare against what you intentionally run.",
 "what": "Program:port pairs where this host has accepted inbound connections, with first-seen date."
 },
 "device|Baseline: login": {
-"source": "netmon host baseline (SQLite store), from Elastic Agent system auth logs.",
+"source": "Syn host baseline (SQLite store), from Elastic Agent system auth logs.",
 "use": "Any successful login not in this list is flagged 'First-seen login' (Review). Remove doubts by confirming each entry is you or an expected account.",
 "what": "Successful user@source/method login combinations seen on this host, with first-seen date."
 },
 "device|Baseline: net": {
-"source": "netmon host baseline (SQLite store), from Elastic Defend network events.",
+"source": "Syn host baseline (SQLite store), from Elastic Defend network events.",
 "use": "Used to spot programs reaching new destinations. Long lists are normal for browsers; look for unexpected programs here.",
 "what": "Process-to-destination pairs (IP:port or DNS name) this host has used before, with first-seen date."
 },
 "device|Baseline: sudo": {
-"source": "netmon host baseline (SQLite store), from Elastic Agent system auth logs.",
+"source": "Syn host baseline (SQLite store), from Elastic Agent system auth logs.",
 "use": "Shows what is normal admin activity. Refused sudo attempts and suspicious commands (e.g. downloading and running scripts) are flagged regardless of the baseline.",
 "what": "user:command combinations run with sudo on this host, with first-seen date."
 },

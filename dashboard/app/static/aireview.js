@@ -290,7 +290,7 @@
   function webCacheRow(D) {
     const C = D.web_cache || { enabled: true, days: 7, limit: 30 };
     const r = document.createElement("div"); r.className = "llm-row";
-    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "netmon web cache" }));
+    r.appendChild(Object.assign(document.createElement("span"), { className: "k", textContent: "Syn web cache" }));
     const lab = r.appendChild(document.createElement("label")); lab.className = "small";
     const chk = lab.appendChild(Object.assign(document.createElement("input"), { type: "checkbox", checked: C.enabled !== false }));
     lab.append(" reuse web search / page results");
@@ -321,7 +321,7 @@
       catch (e) { msg.textContent = "error: " + e.message; }
       clr.disabled = !D.admin;
     };
-    r.title = "netmon keeps the answers to the event reviewer's web searches and page reads (e.g. an IP's ipinfo.io page) in its own database, so the same look-up for another event within this many days does not go to Firecrawl again. Off: every look-up goes to the web search service. The citations still link to the live pages.";
+    r.title = "Syn keeps the answers to the event reviewer's web searches and page reads (e.g. an IP's ipinfo.io page) in its own database, so the same look-up for another event within this many days does not go to Firecrawl again. Off: every look-up goes to the web search service. The citations still link to the live pages.";
     return r;
   }
   // Elasticsearch look-ups by the event reviewer: on/off + the most it may run for one event review (admin)

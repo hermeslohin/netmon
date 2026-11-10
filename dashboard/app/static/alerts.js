@@ -24,7 +24,7 @@
 
   function paintCount() {
     document.querySelectorAll(".alert-count").forEach((e) => { e.textContent = A.unread > 99 ? "99+" : A.unread; e.style.display = A.unread ? "" : "none"; });
-    document.title = (A.unread ? `(${A.unread}) ` : "") + "netmon" + (SITE.site_name ? " · " + SITE.site_name : "");
+    document.title = (A.unread ? `(${A.unread}) ` : "") + "Syn" + (SITE.site_name ? " · " + SITE.site_name : "");
   }
   async function poll() {
     try {

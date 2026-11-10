@@ -3,19 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>netmon</title>
+<title>Syn</title>
 <link rel="stylesheet" href="/style.css">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0b0e13">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="netmon">
+<meta name="apple-mobile-web-app-title" content="Syn">
 <link rel="apple-touch-icon" href="/icon-192.png">
 </head>
 <body>
+<!-- Loading splash: "Guardian of the Network Gate" animation until the first page has data (app.js synSplashDone);
+     prefers-reduced-motion gets the still image. -->
+<div id="synSplash" class="syn-splash" role="status" aria-label="Loading Syn">
+  <picture><source media="(prefers-reduced-motion: no-preference)" srcset="/syn-guardian.webp" type="image/webp">
+  <img class="syn-hero" src="/syn.webp" width="508" height="337" alt="Syn, guardian of the network gate"></picture>
+  <div class="muted small">Syn is opening the gate…</div>
+</div>
 <header>
   <button id="navToggle" class="hamburger" aria-label="Menu" aria-controls="nav" aria-expanded="false"><span></span><span></span><span></span></button>
-  <div class="brand"><span class="dot"></span> netmon <small></small></div>
+  <div class="brand"><span class="dot"></span> Syn <small></small></div>
   <span id="navCurrent" class="nav-current"></span>
   <nav id="nav">
     <a href="#/overview" data-r="overview">Overview</a>

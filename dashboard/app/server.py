@@ -912,7 +912,7 @@ def audit_target(body):
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript",
         ".css": "text/css", ".svg": "image/svg+xml", ".ico": "image/x-icon",
-        ".png": "image/png", ".json": "application/manifest+json"}
+        ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".mp4": "video/mp4", ".json": "application/manifest+json"}
 
 
 class H(BaseHTTPRequestHandler):
@@ -956,7 +956,8 @@ class H(BaseHTTPRequestHandler):
 
     COOKIE = "netmon_session"
     PUBLIC = {"/login", "/login.html", "/login.js", "/style.css", "/healthz", "/api/login",
-              "/sw.js", "/manifest.json", "/icon-192.png", "/icon-512.png"}  # PWA shell: no data in these
+              "/sw.js", "/manifest.json", "/icon-192.png", "/icon-512.png",
+              "/syn.webp", "/syn-guardian.webp"}  # PWA shell: no data in these
 
     def _user(self):
         c = SimpleCookie(self.headers.get("Cookie", ""))
@@ -1205,7 +1206,7 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/push/test":
                 ep = str(body.get("endpoint", ""))
                 subs = [s for s in store.push_subs() if (not ep or s["endpoint"] == ep) and (role == "admin" or s.get("user") == user)]
-                res = [pushsvc.send(s, {"title": "netmon: test notification", "body": f"Notifications are working on this device ({user}).",
+                res = [pushsvc.send(s, {"title": "Syn: test notification", "body": f"Notifications are working on this device ({user}).",
                                         "tag": "netmon-test", "url": "/#/alerts", "severity": "urgent"}) for s in subs]
                 return self._json({"sent": sum(1 for ok, _ in res if ok), "errors": [e for ok, e in res if not ok], "targets": len(subs)})
             if u.path == "/api/push/prefs":

@@ -204,7 +204,7 @@ class TestPayload(unittest.TestCase):
         """One investigate alert gives an ALERT title, its text, a per-alert tag and the alerts page.
         REQ: STO-06"""
         p = pushsvc.payload_for([self.r(7, "investigate", "x" * 500)])
-        self.assertEqual(p["title"], "netmon: ALERT")
+        self.assertEqual(p["title"], "Syn: ALERT")
         self.assertEqual(len(p["body"]), 400)
         self.assertEqual((p["tag"], p["url"], p["severity"]), ("netmon-7", "/#/alerts", "investigate"))
 
@@ -212,14 +212,14 @@ class TestPayload(unittest.TestCase):
         """One urgent alert from a report links to the reports page.
         REQ: STO-06"""
         p = pushsvc.payload_for([self.r(3, source="report")])
-        self.assertEqual((p["title"], p["url"]), ("netmon: urgent", "/#/reports"))
+        self.assertEqual((p["title"], p["url"]), ("Syn: urgent", "/#/reports"))
 
     def test_batch(self):
         """Several alerts are summarised: count, investigate count, first 4 lines and an '…and N more' tail.
         REQ: STO-06"""
         rows = [self.r(i, "investigate" if i < 2 else "urgent", f"line{i}") for i in range(6)]
         p = pushsvc.payload_for(rows)
-        self.assertEqual(p["title"], "netmon: 6 urgent alerts (2 investigate)")
+        self.assertEqual(p["title"], "Syn: 6 urgent alerts (2 investigate)")
         self.assertEqual(p["body"].count("• "), 4)
         self.assertTrue(p["body"].endswith("…and 2 more"))
         self.assertEqual((p["tag"], p["severity"]), ("netmon-batch-5", "investigate"))
@@ -228,7 +228,7 @@ class TestPayload(unittest.TestCase):
         """A batch of only urgent alerts has no investigate suffix and urgent severity.
         REQ: STO-06"""
         p = pushsvc.payload_for([self.r(1), self.r(2)])
-        self.assertEqual((p["title"], p["severity"]), ("netmon: 2 urgent alerts", "urgent"))
+        self.assertEqual((p["title"], p["severity"]), ("Syn: 2 urgent alerts", "urgent"))
         self.assertNotIn("more", p["body"])
 
 
@@ -301,8 +301,8 @@ class TestRunOnce(_Base):
         pushsvc.run_once()
         got = self.by_endpoint()
         self.assertEqual(set(got), {"1", "2"})
-        self.assertTrue(got["1"]["title"].startswith("netmon: 2 urgent alerts"))
-        self.assertEqual(got["2"]["title"], "netmon: urgent")
+        self.assertTrue(got["1"]["title"].startswith("Syn: 2 urgent alerts"))
+        self.assertEqual(got["2"]["title"], "Syn: urgent")
         self.assertIn(IPS["laptop"], got["2"]["body"])
 
     def test_defender_can_narrow(self):
@@ -313,7 +313,7 @@ class TestRunOnce(_Base):
         self._sub(1, "def1")
         pushsvc.run_once()
         (payload,) = self.by_endpoint().values()
-        self.assertEqual(payload["title"], "netmon: ALERT")
+        self.assertEqual(payload["title"], "Syn: ALERT")
         self.assertIn(IPS["camera"], payload["body"])
 
     def test_anonymous_subscription_gets_nothing(self):

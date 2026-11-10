@@ -63,12 +63,12 @@ def send(sub, payload, ttl=3600, urgency="high"):
 def payload_for(rows):
     if len(rows) == 1:
         r = rows[0]
-        return {"title": "netmon: " + ("ALERT" if r["severity"] == "investigate" else "urgent"), "body": r["text"][:400],
+        return {"title": "Syn: " + ("ALERT" if r["severity"] == "investigate" else "urgent"), "body": r["text"][:400],
                 "tag": "netmon-" + str(r["id"]), "url": "/#/reports" if r.get("source") == "report" else "/#/alerts",
                 "severity": r["severity"]}
     inv = sum(1 for r in rows if r["severity"] == "investigate")
     body = "\n".join("• " + r["text"][:140] for r in rows[:4]) + (f"\n…and {len(rows) - 4} more" if len(rows) > 4 else "")
-    return {"title": f"netmon: {len(rows)} urgent alerts" + (f" ({inv} investigate)" if inv else ""), "body": body,
+    return {"title": f"Syn: {len(rows)} urgent alerts" + (f" ({inv} investigate)" if inv else ""), "body": body,
             "tag": "netmon-batch-" + str(rows[-1]["id"]), "url": "/#/alerts", "severity": "investigate" if inv else "urgent"}
 
 

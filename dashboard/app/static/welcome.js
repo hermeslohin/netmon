@@ -2,7 +2,7 @@
 // POST /api/account/welcome clears it). Steps: welcome -> your own password -> notifications -> your devices -> finding your way.
 (() => {
   const ROLE = {
-    admin: { what: "As an <b>Admin</b> you can see everything netmon knows and change its settings, users and AI configuration.",
+    admin: { what: "As an <b>Admin</b> you can see everything Syn knows and change its settings, users and AI configuration.",
       nav: [["Overview", "overview", "The latest picture of the network: traffic, devices, findings."], ["Open events", "events", "Everything nobody has checked off yet. Click a row for every occurrence and its related events."],
         ["Posture", "security", "Findings, IDS alerts, beacons and threat intel for the chosen time range (🕒 in the header)."], ["AI pipeline monitoring", "aireview", "Models up/down, correlation, event and research review: what the pipeline is doing and what the models decided."], ["AI pipeline configuration", "aiconfig", "Models and providers, and the settings of correlation, event and research review."],
         ["Settings", "settings", "Policy and site settings. Dashboard users are managed on their own page."]] },
@@ -22,8 +22,8 @@
     try { const d = await api("/api/push/prefs"); devs = { locked: d.locked, list: d.devices || [] }; } catch (_) { /* optional */ }
     const dev = (d) => esc(d.name || d.ips?.[0] || d.mac || d.id);
     const steps = [
-      { t: "Welcome", html: () => `<p>Hi <b>${esc(me.user)}</b>, welcome to netmon${SITE.site_name ? ` for <b>${esc(SITE.site_name)}</b>` : ""}.</p>
-          <p>netmon watches the network and tells you about things that look wrong, so you don't have to read logs.</p><p>${R.what}</p>
+      { t: "Welcome", html: () => `<p>Hi <b>${esc(me.user)}</b>, welcome to Syn${SITE.site_name ? ` for <b>${esc(SITE.site_name)}</b>` : ""}.</p>
+          <p>Syn watches the network and tells you about things that look wrong, so you don't have to read logs.</p><p>${R.what}</p>
           <p class="muted small">This takes about a minute. You can skip any step and come back later from the menu.</p>` },
       { t: "Your password", html: () => `<p>Your account was created with a password someone else chose. Pick your own now.</p>
           <form class="wz-pw" autocomplete="on"><input type="text" name="username" value="${esc(me.user)}" autocomplete="username" hidden>
@@ -45,7 +45,7 @@
       { t: "Notifications", html: () => {
           const ios = P?.isIOS && !P?.standalone;
           return `<p>Get urgent alerts on this phone or computer, even when the dashboard isn't open.</p>
-            ${!P?.ok() ? (ios ? `<p>On iPhone/iPad, first install the dashboard: tap <b>Share → Add to Home Screen</b>, open netmon from the new icon, then enable notifications from <b>Alerts → Notification settings</b>.</p>`
+            ${!P?.ok() ? (ios ? `<p>On iPhone/iPad, first install the dashboard: tap <b>Share → Add to Home Screen</b>, open Syn from the new icon, then enable notifications from <b>Alerts → Notification settings</b>.</p>`
               : `<p class="muted">This browser doesn't support push notifications. The 🔔 in the header still shows new alerts while the page is open.</p>`)
               : `<button type="button" class="primary wz-push" ${st.push ? "disabled" : ""}>${st.push ? "Notifications on ✓" : "Turn on notifications"}</button><div class="wz-out small"></div>`}`; },
         bind: (b) => { const btn = b.querySelector(".wz-push"); if (!btn) return; const out = b.querySelector(".wz-out");

@@ -1606,7 +1606,7 @@ const refreshData = () => (S.snap ? loadSnap(S.snap.id) : rerender());
 async function init() {
   try {  // site-specific names/IPs come from the server after login
     Object.assign(SITE, await api("/api/site")); Object.assign(HOST_IP_HINTS, SITE.host_ips || {});
-    if (SITE.site_name) { document.querySelectorAll(".brand small").forEach((e) => (e.textContent = SITE.site_name)); document.title = "netmon · " + SITE.site_name; }
+    if (SITE.site_name) { document.querySelectorAll(".brand small").forEach((e) => (e.textContent = SITE.site_name)); document.title = "Syn · " + SITE.site_name; }
   } catch (_) { /* not signed in yet */ }
   S.me = await api("/api/me"); document.body.dataset.role = S.me.role;
   if (S.me.welcome) setTimeout(() => window.welcomeShow?.(), 0);  // brand-new account: guided setup
@@ -1653,7 +1653,13 @@ V.my = async (el) => {
   if (M.events.length) el.appendChild(card("Notes on your events", `<div class="small">Click 📝 on an event to tell the network defenders what it was (for example "that was me setting up a new TV"). A defender or admin reviews each note (⏳ until then); the AI only reads notes they approve. You see only your own notes.</div>`));
   el.appendChild(card("Urgent alerts", `<div class="small">Urgent alerts for your devices are on the <a href="#/alerts">Alerts</a> page, where you can also turn on push notifications.</div>`));
 };
-init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to load</h2><pre>${esc(e.stack || e)}</pre></div>`));
+// Loading splash (index.html #synSplash): fade out once the first page has content, init() settles, or after 15 s
+window.synSplashDone = () => { const s = document.getElementById("synSplash"); if (!s || s.classList.contains("out")) return;
+  s.classList.add("out"); setTimeout(() => s.remove(), 400); };
+{ const m = document.getElementById("main"), t0 = Date.now(), done = () => setTimeout(window.synSplashDone, Math.max(0, 500 - (Date.now() - t0)));
+  if (m) { const ob = new MutationObserver(() => { if (m.querySelector(".card, table, canvas, .empty")) { ob.disconnect(); done(); } }); ob.observe(m, { childList: true, subtree: true }); }
+  setTimeout(window.synSplashDone, 15000); }
+init().catch((e) => ($("#main").innerHTML = `<div class="card"><h2>Failed to load</h2><pre>${esc(e.stack || e)}</pre></div>`)).finally(() => setTimeout(window.synSplashDone, 300));
 
 /* ---------- suppress segmentation violations by IP address and ports ---------- */
 // close a modal by tapping its backdrop: only when the press both starts and ends on the backdrop, so a tap on a

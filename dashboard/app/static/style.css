@@ -699,3 +699,11 @@ tr.muted td { opacity: .6; }
 .vd-tap:hover>*,.why-flair.vd-tap:hover{filter:brightness(1.25);text-decoration:underline dotted}
 .vd-pop .vd-ac{margin-top:3px}
 .vd-pop .vd-reopen{font-size:11px;padding:1px 8px;margin-left:4px}
+
+/* Syn artwork: login hero + loading splash */
+.syn-hero { display: block; width: 100%; height: auto; border-radius: 10px; margin: 0 0 16px; }
+.syn-splash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 16px; background: var(--bg, #0e1116); transition: opacity .35s ease; }
+.syn-splash .syn-hero { width: min(640px, 92vw); margin: 0; }
+.syn-splash.out { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .syn-splash { transition: none; } }

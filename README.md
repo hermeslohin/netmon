@@ -1,6 +1,18 @@
-# netmon
-## The tier one security analyst for your home or small business.
-Queries Elasticsearch and Unifi to collect security events.  Presents and explains risk of events and vulnerabilities.  Allows users (my wife and kids) to subscribe to devices and get notifications of security related events near real time (Job runs every 15 minutes)
+# Syn
+
+<img src="docs/images/syn-hero.webp" width="720" alt="Syn, the Norse door-guard goddess, at the NETWORK GATE holding up a glowing shield that stops red and blue packet envelopes; SYN is written on her spear and breastplate">
+
+## Network defender: the tier one security analyst for your home or small business.
+*(formerly **netmon**)*
+
+Syn queries Elasticsearch and UniFi to collect security events, then presents and explains the risk of events and vulnerabilities. Users (my wife and kids) subscribe to devices and get near-real-time notifications of security events (the watcher runs every event window, default 10 minutes).
+
+## About the name
+In Norse myth, **Syn** is the goddess who guards the doors of the hall: she shuts them against those who should not enter, and she is called on to defend people in disputes and at trial. That is the job this app does: a tier-one analyst that watches the door of your network, turns away what does not belong, and takes your side when something looks wrong.
+
+The name is also a nod to networking: **SYN** is the first packet of every TCP connection, and **SYN-ACK** is the reply that lets it in or not. Every connection starts at Syn's door.
+
+The project was called **netmon** until November 2026. The GitHub repository was renamed from `netmon` to `syn` at the same time (GitHub redirects the old URL). Internal names still use `netmon` for now: the install folder (`~/netmon`), the `netmon-scheduler` and `netmon-broker` services, the `netmon-dashboard` container, `netmon.db` and the `logs-netmon` audit index.
 
 ## Background
 I have recently been working with an AI coding agent... and it is wild what it can do along with an LLM.  As my first test I started having it generate reports for security finding of my home network.  It pulls this information from Security Onion Solutions, LLC
@@ -22,7 +34,7 @@ Domains that were recently registered, Devices bypassing DNS and more.  I did th
 
 The goal of this is to rapidly grab events and review them. Do basic analysis of events and, on request, research them and provide suggestions what to do.  The correlation capabilities are what have impressed me so far.  It has tied failures in syslog to logs in the firewall and given me detailed instructions how to correct the situation.
 
-That then became... why don't I make an app out of it..  And it built netmon (it came up with the name... not me).  The app now is a simple web app that I vibe coded in under 24 hours.  
+That then became... why don't I make an app out of it..  And it built netmon (it came up with that name... not me; it is now called Syn, see About the name).  The app now is a simple web app that I vibe coded in under 24 hours.  
 
 Features:
 - Users (my wife and kids) can subscribe to specific devices and get push notifications to only devices they care about of events.
@@ -55,7 +67,7 @@ Way more stuff that it just sorta came up with.
 
 Is this "enterprise ready"... no probably not.  I think of most tools and they add a ton of complexity because they try to support a million different things their customer... this is designed for me.  It does things in ways that likely only make sense for me.  And perhaps that is the future of software... Significantly more customized solutions rapidly developed.  If I finding it lacking a feature... I ask for it and 10 minutes later it appears.
 
-Home-network security monitoring for the home network. netmon runs on its own: a small scheduler on the monitoring host runs the jobs, and you bring an API key for any OpenAI-compatible or Anthropic provider (or a local OpenAI-compatible model server) for the AI parts.
+Home-network security monitoring for the home network. Syn runs on its own: a small scheduler on the monitoring host runs the jobs, and you bring an API key for any OpenAI-compatible or Anthropic provider (or a local OpenAI-compatible model server) for the AI parts.
 
 ## Set it up yourself
 
