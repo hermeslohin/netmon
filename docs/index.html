@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Syn · the tier-one analyst that defends your network</title>
+<meta name="description" content="Syn watches your home or small-business network, triages every security event, explains its verdicts in plain language and pushes only what needs you to your phone.">
+<meta name="theme-color" content="#0b0b0c">
+<meta property="og:title" content="Syn · the tier-one analyst that defends your network">
+<meta property="og:description" content="Security events triaged, explained and grouped into stories, with the expected closed for you and the rest pushed to your phone. Self-hosted.">
+<meta property="og:image" content="images/syn-hero.webp">
+<link rel="icon" href="site/favicon.png">
+<link rel="apple-touch-icon" href="site/apple-touch-icon.png">
+<style>
+:root{
+  --bg:#0b0b0c; --bg2:#121214; --card:#16161a; --line:#26262b;
+  --text:#e9e7e2; --muted:#a3a3a6; --gray:#9a9c9e;
+  --gold:#d9b65d; --gold2:#f0d58a; --gold-dim:rgba(217,182,93,.14);
+  --red:#e06a5f; --green:#6cc287; --blue:#7fa8d9; --amber:#e1a948;
+  --r:16px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif}
+a{color:var(--gold2);text-decoration:none}
+a:hover{text-decoration:underline}
+img{max-width:100%;display:block}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:10;background:rgba(11,11,12,.86);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:14px;height:60px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:700;letter-spacing:.14em}
+.brand img{width:34px;height:34px;border-radius:8px}
+.nav nav{margin-left:auto;display:flex;gap:20px;font-size:15px}
+.nav nav a{color:var(--muted)}
+.nav nav a:hover{color:var(--text);text-decoration:none}
+@media (max-width:600px){.nav nav a.opt{display:none}}
+
+/* hero */
+.hero{position:relative;padding:56px 0 40px;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-20% -10% auto;height:520px;background:radial-gradient(ellipse at 70% 30%,rgba(217,182,93,.13),transparent 60%);pointer-events:none}
+.hero .wrap{display:grid;grid-template-columns:1.05fr 1fr;gap:44px;align-items:center;position:relative}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;color:var(--gold);font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.eyebrow img{width:22px;height:22px;border-radius:5px}
+h1{font-size:clamp(34px,5.2vw,56px);line-height:1.08;margin:14px 0 18px;letter-spacing:-.02em}
+h1 em{font-style:normal;color:var(--gold)}
+.lead{font-size:clamp(17px,2vw,19px);color:var(--muted);margin:0 0 26px;max-width:36em}
+.ctas{display:flex;flex-wrap:wrap;gap:12px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;border-radius:999px;font-weight:600;font-size:15px;border:1px solid var(--line);color:var(--text);background:var(--card)}
+.btn:hover{text-decoration:none;border-color:#3a3a40}
+.btn.gold{background:linear-gradient(180deg,var(--gold2),var(--gold));color:#1a1408;border-color:transparent}
+.hero-art{border-radius:20px;overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(217,182,93,.08)}
+.hero-art img{width:100%;height:auto;aspect-ratio:3/2}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.chip{font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--bg2)}
+@media (max-width:860px){.hero{padding-top:28px}.hero .wrap{grid-template-columns:1fr;gap:28px}.hero-art{order:-1}}
+
+/* sections */
+section{padding:64px 0}
+.sec-head{max-width:720px;margin-bottom:34px}
+.sec-head .k{color:var(--gold);font-size:13px;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+h2{font-size:clamp(26px,3.6vw,38px);line-height:1.15;margin:8px 0 12px;letter-spacing:-.01em}
+.sec-head p{color:var(--muted);margin:0;font-size:17px}
+.alt{background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+
+/* flow steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px}
+.step .n{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--gold-dim);color:var(--gold);font-weight:700;font-size:14px;margin-bottom:12px}
+.step h3{margin:0 0 6px;font-size:18px}
+.step p{margin:0;color:var(--muted);font-size:15px}
+@media (max-width:760px){.steps{grid-template-columns:1fr}}
+
+/* feature rows with mockups */
+.feat{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;padding:30px 0}
+.feat + .feat{border-top:1px solid var(--line)}
+.feat.rev .copy{order:2}
+.feat h3{font-size:clamp(22px,2.6vw,28px);margin:0 0 10px;line-height:1.2}
+.feat p{color:var(--muted);margin:0 0 12px}
+.feat ul{margin:0;padding:0;list-style:none}
+.feat li{position:relative;padding-left:24px;margin:7px 0;color:var(--text);font-size:15.5px}
+.feat li::before{content:"";position:absolute;left:3px;top:.62em;width:8px;height:8px;border-radius:2px;background:var(--gold);transform:rotate(45deg)}
+@media (max-width:860px){.feat{grid-template-columns:1fr;gap:22px}.feat.rev .copy{order:0}}
+
+/* mock UI */
+.mock{background:linear-gradient(180deg,#18181c,#131316);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 20px 50px rgba(0,0,0,.45);font-size:13.5px;line-height:1.45}
+.mock .bar{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin-bottom:12px}
+.mock .bar b{color:var(--text);font-size:13px}
+.mock .dots{display:flex;gap:5px;margin-right:6px}.mock .dots i{width:9px;height:9px;border-radius:50%;background:#2c2c32}
+.row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#1b1b20;margin-bottom:8px}
+.row:last-child{margin-bottom:0}
+.row .t{flex:1;min-width:0}
+.row .t b{display:block;font-weight:600;color:var(--text)}
+.row .t span{color:var(--muted);font-size:12.5px}
+.cb{width:16px;height:16px;border:1.5px solid #4a4a52;border-radius:4px;margin-top:2px;flex:none}
+.cb.on{background:var(--gold);border-color:var(--gold);position:relative}
+.cb.on::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #1a1408;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid;white-space:nowrap}
+.p-sus{color:var(--red);border-color:rgba(224,106,95,.5);background:rgba(224,106,95,.08)}
+.p-ben{color:var(--green);border-color:rgba(108,194,135,.45);background:rgba(108,194,135,.08)}
+.p-exp{color:var(--blue);border-color:rgba(127,168,217,.45);background:rgba(127,168,217,.08)}
+.p-hi{color:var(--amber);border-color:rgba(225,169,72,.45);background:rgba(225,169,72,.08)}
+.p-g{color:var(--muted);border-color:var(--line)}
+.tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.pop{border:1px solid rgba(217,182,93,.35);border-radius:14px;background:#1d1c1a;padding:14px;margin-top:10px;position:relative}
+.pop::before{content:"";position:absolute;top:-7px;left:38px;width:12px;height:12px;background:#1d1c1a;border-left:1px solid rgba(217,182,93,.35);border-top:1px solid rgba(217,182,93,.35);transform:rotate(45deg)}
+.pop h4{margin:0 0 6px;font-size:14px;display:flex;gap:8px;align-items:center}
+.pop p{margin:0 0 8px;color:#cfcac0;font-size:13px}
+.meter{height:6px;border-radius:6px;background:#2a2a30;overflow:hidden;margin:4px 0 10px}
+.meter i{display:block;height:100%;background:var(--green);width:91%}
+.src{font-size:12px;color:var(--muted)}
+.story{position:relative;padding-left:22px}
+.story::before{content:"";position:absolute;left:7px;top:14px;bottom:14px;width:2px;background:linear-gradient(var(--gold),rgba(217,182,93,.15))}
+.story .row::before{content:"";position:absolute;margin-left:-26px;margin-top:5px;width:10px;height:10px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px #131316}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:10px;background:#1b1b20}
+.kpi b{display:block;font-size:20px}
+.kpi span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.switch{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#1b1b20;margin-bottom:8px}
+.sw{width:36px;height:20px;border-radius:20px;background:#3a3a40;position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#bbb}
+.sw.on{background:var(--gold)}.sw.on::after{left:18px;background:#1a1408}
+
+/* phone mock */
+.phone{width:min(300px,100%);margin:0 auto;border-radius:42px;padding:12px;background:#050505;border:1px solid #2b2b30;box-shadow:0 30px 70px rgba(0,0,0,.6)}
+.screen{border-radius:32px;overflow:hidden;background:linear-gradient(160deg,#1c1a16,#0d0d10 60%);min-height:470px;padding:44px 12px 16px;position:relative}
+.screen .clock{text-align:center;color:#eee;font-size:54px;font-weight:300;line-height:1}
+.screen .date{text-align:center;color:#bbb;font-size:13px;margin:4px 0 22px}
+.notif{background:rgba(40,40,44,.82);border-radius:18px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;backdrop-filter:blur(6px)}
+.notif img{width:34px;height:34px;border-radius:8px;flex:none}
+.notif b{font-size:13px;display:block}
+.notif span{font-size:12.5px;color:#d0d0d0;display:block}
+.notif small{color:#888;font-size:11px;margin-left:auto;white-space:nowrap}
+.notif .h{display:flex;gap:6px;align-items:baseline}
+
+/* grid of smaller features */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px}
+.card .ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;background:var(--gold-dim);margin-bottom:12px}
+.card .ic svg{width:22px;height:22px;stroke:var(--gold);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.card h3{margin:0 0 6px;font-size:17px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+@media (max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.grid{grid-template-columns:1fr}}
+
+/* name */
+.name{display:grid;grid-template-columns:220px 1fr;gap:36px;align-items:center}
+.name img{width:220px;border-radius:18px;border:1px solid var(--line)}
+.name p{color:var(--muted);font-size:17px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--gold2);background:var(--gold-dim);padding:1px 6px;border-radius:6px;font-size:.92em}
+@media (max-width:700px){.name{grid-template-columns:1fr;justify-items:center;text-align:left}.name img{width:170px}}
+
+/* learn more */
+.links{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.lk{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;color:var(--text)}
+.lk:hover{text-decoration:none;border-color:rgba(217,182,93,.5)}
+.lk b{display:block;margin-bottom:4px}
+.lk span{color:var(--muted);font-size:14.5px}
+.lk b::after{content:" →";color:var(--gold)}
+@media (max-width:860px){.links{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.links{grid-template-columns:1fr}}
+footer{padding:36px 0 calc(36px + env(safe-area-inset-bottom));color:var(--muted);font-size:14px;border-top:1px solid var(--line)}
+footer .wrap{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+footer img{width:26px;height:26px;border-radius:6px}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="site/syn-mark.webp" alt="" width="34" height="34">SYN</a>
+    <nav>
+      <a class="opt" href="#features">Features</a>
+      <a class="opt" href="#privacy">Private</a>
+      <a href="#learn">Docs</a>
+      <a href="USER_GUIDE.html" data-gh="">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow"><img src="site/syn-mark.webp" alt="">Network defender</span>
+      <h1>The tier-one analyst that <em>defends your network.</em></h1>
+      <p class="lead">Syn watches your home or small-business network around the clock, triages every security event, explains what it thinks in plain language and only taps you on the shoulder when something really needs a person.</p>
+      <div class="ctas">
+        <a class="btn gold" href="#features">See what it does</a>
+        <a class="btn" href="USER_GUIDE.html" data-gh="blob/main/docs/USER_GUIDE.md">Read the user guide</a>
+      </div>
+      <div class="chips">
+        <span class="chip">Self-hosted</span><span class="chip">Phone-first</span><span class="chip">Push alerts</span><span class="chip">Explains every verdict</span><span class="chip">Read-only to your network</span>
+      </div>
+    </div>
+    <div class="hero-art">
+      <img src="images/syn-hero.webp" width="1200" height="800" alt="Syn, the Norse door-guard goddess, at the network gate holding up a glowing shield that stops incoming packets" fetchpriority="high">
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="k">How you use it</div>
+      <h2>Your phone buzzes only when it matters.</h2>
+      <p>Syn does the first pass on everything. You make the calls that need a human.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Syn watches and sorts</h3><p>Every few minutes it gathers what happened on your network and your computers, flags what is new or unusual and decides what is suspicious, benign or expected.</p></div>
+      <div class="step"><div class="n">2</div><h3>You get a push</h3><p>Only for serious, new events on the devices you care about. Everything else waits quietly in your queue.</p></div>
+      <div class="step"><div class="n">3</div><h3>Tap, read, decide</h3><p>Tap the verdict to read why, see the related events, then accept it, mark it suspicious or ask a follow-up question.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="k">Features</div>
+      <h2>What Syn does for you</h2>
+      <p>Everything a tier-one analyst would do on the night shift, in a dashboard built for a family or a small team.</p>
+    </div>
+
+    <div class="feat">
+      <div class="copy">
+        <h3>A queue of open events, already triaged</h3>
+        <p>Open events is your backlog: everything nobody has looked at yet, however old. It only shrinks when you (or a rule you turned on) accept something, so nothing slips away because it happened last week.</p>
+        <ul>
+          <li>Repeats collapse into one row with a "seen N times" count, so a noisy device is one item, not a hundred.</li>
+          <li>Sorted most severe and newest first, filterable by type and severity.</li>
+          <li>Check off one row or a whole card at once, and undo it later.</li>
+        </ul>
+      </div>
+      <div class="mock" aria-hidden="true">
+        <div class="bar"><span class="dots"><i></i><i></i><i></i></span><b>Open events</b><span style="margin-left:auto">12 open</span></div>
+        <div class="row"><span class="cb"></span><div class="t"><b>New program talking to the internet</b><span>Study laptop · seen 3×</span><div class="tags"><span class="pill p-hi">high</span><span class="pill p-sus">suspicious</span></div></div></div>
+        <div class="row"><span class="cb"></span><div class="t"><b>Failed admin logins</b><span>Home server · seen 7×</span><div class="tags"><span class="pill p-hi">high</span><span class="pill p-g">⏳ pending review</span></div></div></div>
+        <div class="row"><span class="cb on"></span><div class="t"><b>Upload spike to a photo backup service</b><span>Kitchen tablet · seen 22×</span><div class="tags"><span class="pill p-g">medium</span><span class="pill p-ben">benign</span></div></div></div>
+        <div class="row"><span class="cb on"></span><div class="t"><b>New streaming domain</b><span>Living-room TV · seen 4×</span><div class="tags"><span class="pill p-g">low</span><span class="pill p-exp">expected</span></div></div></div>
+      </div>
+    </div>
+
+    <div class="feat rev">
+      <div class="copy">
+        <h3>An AI reviewer that explains every verdict</h3>
+        <p>Every event gets a label (<b>suspicious</b>, <b>benign</b> or <b>expected</b>) with a confidence and a reason in plain English. Tap the label to read why.</p>
+        <ul>
+          <li>The reasoning cites what it looked at: the device, the program, the destination, your own notes.</li>
+          <li>Learns from you: notes you write on a device, address or program are read in later reviews.</li>
+          <li>Your call counts most. Mark something Expected, Benign or Suspicious and it outweighs the AI's label, for that event and its repeats.</li>
+          <li>Want a deeper look? <b>Send to research</b> gets a second opinion with sources from the web, only when you ask.</li>
+        </ul>
+      </div>
+      <div class="mock" aria-hidden="true">
+        <div class="row"><div class="t"><b>Upload spike to a photo backup service</b><span>Kitchen tablet · 38 MB vs a normal 9 MB</span><div class="tags"><span class="pill p-ben">🏷 benign · tap for why</span></div></div></div>
+        <div class="pop">
+          <h4><span class="pill p-ben">benign</span> AI reviewer · 91% confident</h4>
+          <div class="meter"><i></i></div>
+          <p>The tablet uploads to the same photo backup service every evening; tonight's larger upload follows a burst of new photos and matches your note "family tablet, auto-backup on". No other unusual activity on the device.</p>
+          <div class="src">Based on: device history · your note on Kitchen tablet · 2 related events</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat">
+      <div class="copy">
+        <h3>Related events, told as one story</h3>
+        <p>Attacks and mistakes rarely show up as one alert. Syn links events that share a device, an address, a domain, an account or a moment in time, and reviews the group together.</p>
+        <ul>
+          <li>Click the Related count on any event to see the chain and what ties it together.</li>
+          <li>The shared clues (files, programs, accounts, addresses, DNS names) are listed for each link.</li>
+          <li>One verdict for the whole story, instead of five alerts to read separately.</li>
+        </ul>
+      </div>
+      <div class="mock" aria-hidden="true">
+        <div class="bar"><b>Related events (3)</b><span style="margin-left:auto">one story</span></div>
+        <div class="story">
+          <div class="row"><div class="t"><b>Phishing-style domain looked up</b><span>Study laptop · 21:02</span></div></div>
+          <div class="row"><div class="t"><b>Unknown program downloaded and started</b><span>Study laptop · 21:03 · same browser session</span></div></div>
+          <div class="row"><div class="t"><b>Program connects to a newly registered domain</b><span>Study laptop · 21:04 · threat-intel match</span><div class="tags"><span class="pill p-sus">suspicious · group</span></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feat rev">
+      <div class="copy">
+        <h3>Closes what's expected, leaves the rest for you</h3>
+        <p>Turn on auto-close and Syn files away the events it is confident are benign or expected, so your queue holds only what needs a decision.</p>
+        <ul>
+          <li>Guard rails you control: a minimum confidence, and categories that always need a person (threat-intel hits, admin logins, new devices, new open ports and more).</li>
+          <li>If a device does something suspicious, everything else on it stays open for 24 hours so you see the whole picture.</li>
+          <li>Every automatic close is visible and can be reopened with one tap.</li>
+        </ul>
+      </div>
+      <div class="mock" aria-hidden="true">
+        <div class="bar"><b>Auto-close</b></div>
+        <div class="switch"><span>Close events the AI judged <b>expected</b></span><span class="sw on"></span></div>
+        <div class="switch"><span>Close events the AI judged <b>benign</b></span><span class="sw on"></span></div>
+        <div class="switch"><span>Minimum confidence</span><span class="pill p-g">0.80</span></div>
+        <div class="switch"><span>Never auto-close: threat intel, admin access, new devices</span><span class="sw on"></span></div>
+        <div class="switch"><span>Hold a device after a suspicious event</span><span class="pill p-g">24 h</span></div>
+        <div class="kpis" style="margin:10px 0 0"><div class="kpi"><b>214</b><span>closed</span></div><div class="kpi"><b>9</b><span>held back</span></div><div class="kpi"><b>12</b><span>for you</span></div></div>
+      </div>
+    </div>
+
+    <div class="feat">
+      <div class="copy">
+        <h3>A phone app, with push notifications</h3>
+        <p>Syn was built phone-first. Add it to your home screen and it behaves like an app, with alerts on your lock screen.</p>
+        <ul>
+          <li>Choose which devices alert you: all of them, or just your own laptop and phone.</li>
+          <li>Wide tables turn into easy-to-read cards on a small screen.</li>
+          <li>Works on iPhone, iPad, Android and desktop browsers.</li>
+        </ul>
+      </div>
+      <div class="phone" aria-hidden="true">
+        <div class="screen">
+          <div class="clock">9:41</div>
+          <div class="date">Tuesday, November 10</div>
+          <div class="notif"><img src="site/syn-mark.webp" alt=""><div style="flex:1"><div class="h"><b>Syn: new device on the network</b><small>now</small></div><span>An unknown phone joined the guest Wi-Fi.</span></div></div>
+          <div class="notif"><img src="site/syn-mark.webp" alt=""><div style="flex:1"><div class="h"><b>Syn: suspicious connection</b><small>8 min ago</small></div><span>Study laptop contacted a newly registered domain.</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="k">And more</div>
+      <h2>See everything that changes on your network</h2>
+      <p>Syn learns what normal looks like for each device and computer, then tells you what is new.</p>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div><h3>Computer findings</h3><p>New programs and changed files, new destinations, new accounts, failed and successful logins, newly opened ports and agents that stop reporting.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M12 8v5M12 16h.01"/></svg></div><h3>Intrusion detection &amp; threat intel</h3><p>IDS hits, connections to known-bad addresses and domains, newly registered domains, DNS tunnelling and malware fingerprints. Look up any IP, domain or hash.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div><h3>Unusual behaviour</h3><p>Traffic spikes, new countries, new services, devices calling home on a timer, and traffic that crosses between zones it shouldn't.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8 7.5l3 8.5M16 7.5l-3 8.5M8.5 6h7"/></svg></div><h3>Lateral movement &amp; admin logins</h3><p>Every admin login between devices (SSH, RDP, remote shells and more), successful and failed, on a map of who talks to whom.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><h3>Risk ranking &amp; fix list</h3><p>Devices ranked by how risky they are, weaknesses mapped to MITRE ATT&amp;CK, and a to-do list of misconfigurations that clears itself as you fix them.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M20 7H4M20 12H4M14 17H4"/><circle cx="18" cy="17" r="2"/></svg></div><h3>Devices by name</h3><p>Devices show up by their names from your inventory, DHCP and gateway, not as bare addresses, each with its own page of traffic, habits and findings.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>Ask AI</h3><p>A read-only chat assistant that knows your data. Tap 💬 on any event for suggested questions, or just ask what happened last night.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M17 11l2 2 3.5-4"/></svg></div><h3>Made for a household</h3><p>Admin, Network defender and User roles. Family members see and get alerts only for the devices assigned to them.</p></div>
+      <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 14H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 10h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1z"/></svg></div><h3>Configure it your way</h3><p>Zones, allowed traffic, known-benign lists, alert rules and AI spending caps are edited as simple tables in the browser. Pick your own AI provider or run a local model.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <div class="feat" style="padding:0">
+      <div class="copy">
+        <div class="sec-head" style="margin-bottom:14px"><div class="k">Private by design</div><h2>Your network data stays yours</h2></div>
+        <ul>
+          <li><b>Self-hosted.</b> Syn runs on a computer you own, alongside your existing security monitoring.</li>
+          <li><b>Read-only.</b> It never changes your network, your firewall or your computers. It watches and advises.</li>
+          <li><b>Your choice of AI.</b> The everyday reviewer can run on a local model at no cost per request; a cloud provider is optional and capped by daily spending limits you set.</li>
+          <li><b>Accountable.</b> An audit log records who did what, and every conversation with an AI.</li>
+        </ul>
+      </div>
+      <div class="mock" aria-hidden="true">
+        <div class="bar"><b>Where Syn runs</b></div>
+        <div class="kpis"><div class="kpi"><b>🏠</b><span>your hardware</span></div><div class="kpi"><b>👁</b><span>read-only</span></div><div class="kpi"><b>🔒</b><span>your database</span></div></div>
+        <div class="switch"><span>Event reviewer</span><span class="pill p-ben">local model · free</span></div>
+        <div class="switch"><span>Research on request</span><span class="pill p-g">cloud · optional</span></div>
+        <div class="switch"><span>Daily research budget</span><span class="pill p-g">$ cap you set</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap name">
+    <img src="site/syn-logo.webp" width="220" height="242" alt="Syn logo: a goddess in profile wearing a gold laurel" loading="lazy">
+    <div>
+      <div class="sec-head" style="margin-bottom:8px"><div class="k">About the name</div><h2>Every connection starts at Syn's door</h2></div>
+      <p>In Norse myth, <b>Syn</b> is the goddess who guards the doors of the hall: she shuts them against those who should not enter, and she defends people in disputes. That is the job of this app: a tier-one analyst that watches the door of your network, turns away what does not belong and takes your side when something looks wrong.</p>
+      <p>It is also a nod to networking: <span class="mono">SYN</span> is the first packet of every TCP connection, and <span class="mono">SYN-ACK</span> is the reply that lets it in, or not.</p>
+    </div>
+  </div>
+</section>
+
+<section id="learn">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="k">Learn more</div>
+      <h2>Read the docs</h2>
+      <p>The guides cover every page, setting and feature in detail. The code lives in the <a href="USER_GUIDE.html" data-gh="">Syn repository on GitHub</a>.</p>
+    </div>
+    <div class="links">
+      <a class="lk" href="USER_GUIDE.html" data-gh="blob/main/docs/USER_GUIDE.md"><b>User guide</b><span>Every page and button, notifications, phones, FAQ.</span></a>
+      <a class="lk" href="SETUP.html" data-gh="blob/main/docs/SETUP.md"><b>Set it up</b><span>Run Syn on your own network.</span></a>
+      <a class="lk" href="PLAYBOOKS.html" data-gh="blob/main/docs/PLAYBOOKS.md"><b>Investigation playbooks</b><span>What to do when something looks wrong.</span></a>
+      <a class="lk" href="ACCESS_CONTROL.html" data-gh="blob/main/docs/ACCESS_CONTROL.md"><b>Users and roles</b><span>Admins, defenders and family members.</span></a>
+      <a class="lk" href="RISK_SCORING.html" data-gh="blob/main/docs/RISK_SCORING.md"><b>Risk scores</b><span>How devices are ranked.</span></a>
+      <a class="lk" href="KUBERNETES.html" data-gh="blob/main/docs/KUBERNETES.md"><b>Kubernetes</b><span>Optional cluster monitoring.</span></a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="site/syn-mark.webp" alt="">
+    <span>Syn, network defender for the home and small business. Formerly netmon.</span>
+    <a style="margin-left:auto" href="#top">Back to top ↑</a>
+  </div>
+</footer>
+
+<script>
+/* Point links at the GitHub repo this site is published from (owner taken from the Pages host name). */
+(function(){
+  var h = location.hostname, m = h.match(/^([^.]+)\.github\.io$/i);
+  if (!m) return;
+  var repo = location.pathname.split('/')[1] || 'syn';
+  var base = 'https://github.com/' + m[1] + '/' + repo + '/';
+  document.querySelectorAll('a[data-gh]').forEach(function(a){ a.href = base + a.getAttribute('data-gh'); });
+})();
+</script>
+</body>
+</html>
