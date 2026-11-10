@@ -296,6 +296,8 @@ body.cc-drag-on{user-select:none;cursor:grabbing}
   background:linear-gradient(135deg,transparent 50%,var(--muted) 50%,var(--muted) 58%,transparent 58%,transparent 70%,var(--muted) 70%,var(--muted) 78%,transparent 78%)}
 .card:hover>.cc-rs,.cc-rs:hover{opacity:1}.card.collapsed>.cc-rs{display:none}
 body.cc-rs-on{cursor:nwse-resize;user-select:none}body.cc-rs-v{cursor:ns-resize;user-select:none}
+.cc-guide{position:fixed;z-index:60;pointer-events:none;background:var(--accent,#58a6ff);opacity:.8}
+.cc-guide-x{top:0;bottom:0;width:1px}.cc-guide-y{left:0;right:0;height:1px}
 /* box layout: title fixed, content in .cc-body; unsized boxes start a bit below the screen height */
 .card[data-cc]{display:flex;flex-direction:column;max-height:calc(100vh - 150px);max-height:var(--cc-cap,calc(100svh - 150px))}
 /* chart boxes never scroll: a canvas inside an overflow scroller flickers on iOS Safari while the page scrolls */

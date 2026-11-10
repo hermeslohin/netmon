@@ -128,19 +128,53 @@
     const c = h.parentElement; if (c.classList.contains("collapsed")) return;
     e.preventDefault(); e.stopPropagation();
     const r = c.getBoundingClientRect(), row = c.parentElement.getBoundingClientRect();
-    rsz = { c, id: e.pointerId, x: e.clientX, y: e.clientY, w: r.width, h: r.height, rowW: row.width, mob: mobile.matches };
+    rsz = { c, id: e.pointerId, x: e.clientX, y: e.clientY, w: r.width, h: r.height, rowW: row.width, mob: mobile.matches,
+      inGrid: c.parentElement.classList.contains("grid") };
     h.setPointerCapture?.(e.pointerId); document.body.classList.add(rsz.mob ? "cc-rs-v" : "cc-rs-on");
   });
+  /* Snapping: while resizing, the moving right/bottom edge snaps (within SNAP px) to the edges of the other boxes
+     on screen (their right/bottom edges, or their left/top edge minus the 14px gap), so boxes line up across rows.
+     Same-line siblings in a flex row are skipped for x (their width depends on ours). Hold Alt to resize freely. */
+  const SNAP = 12, GAP = 14;
+  const guide = (ax) => { let g = document.querySelector(".cc-guide-" + ax);
+    if (!g) { g = document.createElement("div"); g.className = "cc-guide cc-guide-" + ax; document.body.appendChild(g); } return g; };
+  const hideGuides = () => document.querySelectorAll(".cc-guide").forEach((g) => g.remove());
+  function snapTargets(c) {
+    const r = c.getBoundingClientRect(), xs = [], ys = [];
+    for (const o of boxes()) {
+      if (o === c || o.classList.contains("cc-dragging")) continue;
+      const q = o.getBoundingClientRect();
+      if (!q.width || q.bottom < -200 || q.top > innerHeight + 200) continue;
+      const sameLine = o.parentElement === c.parentElement && Math.abs(q.top - r.top) < 4;
+      if (sameLine) ys.push(q.bottom);
+      else { xs.push(q.right, q.left - GAP); ys.push(q.bottom, q.top - GAP); }
+    }
+    const row = c.parentElement.getBoundingClientRect(); xs.push(row.right);
+    return { xs, ys };
+  }
+  const nearest = (v, list) => { let b = null, d = SNAP + 1;
+    for (const t of list) { const k = Math.abs(t - v); if (k < d) { d = k; b = t; } } return b; };
   main.addEventListener("pointermove", (e) => {
     if (!rsz || e.pointerId !== rsz.id) return;
-    const z = { h: Math.max(90, Math.round(rsz.h + e.clientY - rsz.y)) };
-    if (!rsz.mob) z.w = Math.min(100, Math.max(20, Math.round(((rsz.w + e.clientX - rsz.x) / rsz.rowW) * 1000) / 10));
-    else z.w = (sizes[view()] || {})[uid().get(rsz.c)]?.w;  // phones keep the desktop width setting untouched
+    const r = rsz.c.getBoundingClientRect(), T = e.altKey ? { xs: [], ys: [] } : snapTargets(rsz.c);
+    let H = rsz.h + e.clientY - rsz.y, W = rsz.w + e.clientX - rsz.x;
+    const sy = nearest(r.top + H, T.ys); if (sy !== null) H = sy - r.top;
+    const z = { h: Math.max(90, Math.round(H)) };
+    let sx = null;
+    if (!rsz.mob) {
+      sx = nearest(r.left + W, T.xs); if (sx !== null) W = sx - r.left;
+      // grid boxes use flex-basis calc(w% - 14px); page-level boxes use width: w%
+      const px = rsz.inGrid ? W + GAP : W;
+      z.w = Math.min(100, Math.max(20, Math.round((px / rsz.rowW) * 100000) / 1000));
+    } else z.w = (sizes[view()] || {})[uid().get(rsz.c)]?.w;  // phones keep the desktop width setting untouched
     rsz.z = z; applyOne(rsz.c, z);
+    const gx = guide("x"), gy = guide("y");
+    gx.style.cssText = sx === null ? "display:none" : `left:${sx}px`;
+    gy.style.cssText = sy === null ? "display:none" : `top:${sy}px`;
   });
   const rsEnd = (e) => {
     if (!rsz || (e && e.pointerId !== rsz.id)) return;
-    const { c, z } = rsz; rsz = null; document.body.classList.remove("cc-rs-on", "cc-rs-v");
+    const { c, z } = rsz; rsz = null; document.body.classList.remove("cc-rs-on", "cc-rs-v"); hideGuides();
     if (!z) return;
     const k = uid().get(c); (sizes[view()] = sizes[view()] || {})[k] = z; saveSizes(); bar(boxes());
     setTimeout(() => window.dispatchEvent(new Event("resize")), 0);
