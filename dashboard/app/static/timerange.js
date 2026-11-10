@@ -17,7 +17,7 @@
 
   function build() {
     const box = document.getElementById("rangeBox"); if (!box) return;
-    box.innerHTML = `<button id="rangeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Time range shown on every page except alarms"><span class="rb-ic">🕒</span><span class="rb-cal">📅</span> <span id="rangeLbl">…</span><span class="rb-car"> ▾</span></button>
+    box.innerHTML = `<button id="rangeBtn" type="button" aria-haspopup="true" aria-expanded="false" title="Time range shown on every page except alarms"><span class="rb-ic"><span class="ic ic-clock" aria-hidden="true"></span></span><span class="rb-cal"><span class="ic ic-cal" aria-hidden="true"></span></span> <span id="rangeLbl">…</span><span class="rb-car"> ▾</span></button>
       <div id="rangePop" class="range-pop" hidden>
         <div class="rp-row"><label>Start <input type="datetime-local" id="rgStart" step="60"></label>
           <label>End <input type="datetime-local" id="rgEnd" step="60"></label></div>

@@ -459,7 +459,7 @@ class NetmapHostsJs(unittest.TestCase):
         """Risk colours: red from 40, amber from 20, yellow from 8, green below (as in RISK_SCORING.md).
         REQ: NET-14"""
         out = run_js("console.log(JSON.stringify([0, 7.9, 8, 19, 20, 39, 40, 99].map(nmRiskColor)));")
-        self.assertEqual(out, ["#3fb950", "#3fb950", "#e3b341", "#e3b341", "#d29922", "#d29922", "#f85149", "#f85149"])
+        self.assertEqual(out, ["#6cc287", "#6cc287", "#e3b341", "#e3b341", "#e1a948", "#e1a948", "#e06a5f", "#e06a5f"])
 
 
 RENDER = r"""
@@ -490,11 +490,11 @@ class NetmapRenderJs(unittest.TestCase):
         self.assertEqual(len(out["active"]["gN"]["children"]) - 2, 5)
         lap = next(n for n in hosts if IP["laptop"] in texts(n))
         circles = [c for c in walk(lap) if c["tag"] == "circle"]
-        self.assertEqual(circles[0]["attrs"]["fill"], "#f85149")
-        self.assertIn("#3fb950", [c["attrs"].get("fill") for c in circles])  # agent dot
+        self.assertEqual(circles[0]["attrs"]["fill"], "#e06a5f")
+        self.assertIn("#6cc287", [c["attrs"].get("fill") for c in circles])  # agent dot
         self.assertIn("2", texts(lap))  # open issues badge
         unk = next(n for n in hosts if net("iot", 60) in texts(n))
-        self.assertIn("#d29922", [c["attrs"].get("stroke") for c in walk(unk) if c["tag"] == "circle"])
+        self.assertIn("#e1a948", [c["attrs"].get("stroke") for c in walk(unk) if c["tag"] == "circle"])
         self.assertIn("not seen in this time range", texts(unk)[-1])
         dim = {n["attrs"]["style"].split("opacity:")[1] for n in out["search"]["gN"]["children"][2:]}
         self.assertEqual(dim, {"0.15", "1"})

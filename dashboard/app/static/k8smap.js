@@ -4,7 +4,7 @@
 // from Security Onion (k8s.js pod page), linked from the details panel.
 const K8M = { D: null, sec: null, sel: null, q: "", hidden: null, zoom: null };
 const K8M_SYS = /^(kube-|cattle-|calico-|tigera-|fleet-|cluster-fleet-|p-[a-z0-9]{5}$|local$|user-|cert-manager$|longhorn-system$|elastic-agent$|netmon-readonly$|traefik$)/;
-const K8M_C = { ing: "#bc8cff", svc: "#39c5cf", exp: "#ffa657", pod: "#58a6ff", bad: "#f85149", warn: "#d29922", ok: "#3fb950", dim: "#8b949e" };
+const K8M_C = { ing: "#bc8cff", svc: "#39c5cf", exp: "#ffa657", pod: "#7fa8d9", bad: "#e06a5f", warn: "#e1a948", ok: "#6cc287", dim: "#a3a3a6" };
 
 function k8mHiddenLoad(D) {
   // namespaces never seen before (a new cluster, a new app) get the default: system / empty namespaces hidden
@@ -77,9 +77,9 @@ function k8mRender(box) {
   for (const b of L.boxes) {
     const g = svgEl("g", { transform: `translate(${b.x},${b.y})`, style: `opacity:${b.hit ? 1 : 0.2}` });
     const cisN = (D.cis_ns?.[b.n.key] || []).length;
-    g.appendChild(svgEl("rect", { width: b.w, height: b.h, rx: 12, fill: K8M_C.pod, "fill-opacity": 0.04, stroke: b.n.netpols.length ? "#58a6ff" : K8M_C.warn, "stroke-opacity": 0.7, "stroke-width": 1.5, "stroke-dasharray": b.n.netpols.length ? "none" : "6 4" }));
+    g.appendChild(svgEl("rect", { width: b.w, height: b.h, rx: 12, fill: K8M_C.pod, "fill-opacity": 0.04, stroke: b.n.netpols.length ? "#7fa8d9" : K8M_C.warn, "stroke-opacity": 0.7, "stroke-width": 1.5, "stroke-dasharray": b.n.netpols.length ? "none" : "6 4" }));
     const hd = svgEl("g", { style: "cursor:pointer" }); hd.dataset.k8m = "ns:" + b.n.key;
-    txt(hd, b.n.name + (D.multi ? "  · " + b.n.cluster : ""), { x: 14, y: 22, "font-size": 15, "font-weight": 700, fill: "#e6edf3" });
+    txt(hd, b.n.name + (D.multi ? "  · " + b.n.cluster : ""), { x: 14, y: 22, "font-size": 15, "font-weight": 700, fill: "#e9e7e2" });
     txt(hd, `${b.n.pods} pods · ${b.n.services} svc · PSA ${b.n.psa || "default"} · ${b.n.netpols.length ? b.n.netpols.length + " netpol" : "no network policy"}${cisN ? ` · CIS ${cisN}` : ""}`,
       { x: b.w - 12, y: 22, "text-anchor": "end", "font-size": 11, fill: b.n.netpols.length && !cisN ? K8M_C.dim : K8M_C.warn });
     g.appendChild(hd);
@@ -90,23 +90,23 @@ function k8mRender(box) {
       if (p.kind === "ing") {
         const c = o.no_tls.length ? K8M_C.bad : K8M_C.ing;
         n.appendChild(svgEl("rect", { width: p.w, height: p.h, rx: 18, fill: c, "fill-opacity": 0.15, stroke: c, "stroke-width": 1.5, ...selS }));
-        txt(n, "⇄ " + short(o.name, 20), { x: 10, y: 16, "font-size": 12, "font-weight": 600, fill: "#e6edf3" });
+        txt(n, "⇄ " + short(o.name, 20), { x: 10, y: 16, "font-size": 12, "font-weight": 600, fill: "#e9e7e2" });
         txt(n, short((o.hosts || []).join(", ") || "*", 26) + (o.no_tls.length ? " (no TLS)" : ""), { x: 10, y: 31, "font-size": 10, fill: K8M_C.dim });
       } else if (p.kind === "svc") {
         const c = o.exposed ? K8M_C.exp : K8M_C.svc;
         n.appendChild(svgEl("rect", { width: p.w, height: p.h, rx: 6, fill: c, "fill-opacity": 0.13, stroke: c, "stroke-width": 1.5, ...selS }));
-        txt(n, "◆ " + short(o.name, 18), { x: 8, y: 16, "font-size": 12, "font-weight": 600, fill: "#e6edf3" });
+        txt(n, "◆ " + short(o.name, 18), { x: 8, y: 16, "font-size": 12, "font-weight": 600, fill: "#e9e7e2" });
         txt(n, short(`${o.type} ${o.ports.join(" ")}`, 24), { x: 8, y: 31, "font-size": 10, fill: K8M_C.dim });
       } else {
         const c = k8mPodState(o);
-        n.appendChild(svgEl("rect", { width: p.w, height: p.h, rx: 6, fill: "#161b22", stroke: c, "stroke-width": 1.5, ...selS }));
-        txt(n, short(o.name.replace(/-[a-z0-9]{8,10}-[a-z0-9]{5}$/, "-…"), 22), { x: 8, y: 16, "font-size": 11, "font-weight": 600, fill: "#e6edf3" });
+        n.appendChild(svgEl("rect", { width: p.w, height: p.h, rx: 6, fill: "#16161a", stroke: c, "stroke-width": 1.5, ...selS }));
+        txt(n, short(o.name.replace(/-[a-z0-9]{8,10}-[a-z0-9]{5}$/, "-…"), 22), { x: 8, y: 16, "font-size": 11, "font-weight": 600, fill: "#e9e7e2" });
         const hits = K8M.sec?.[o.ns + "/" + o.name];
-        if (hits) { const bdg = svgEl("g", { transform: `translate(${p.w - 12},10)` }); bdg.appendChild(svgEl("circle", { r: 8, fill: K8M_C.warn })); txt(bdg, hits > 99 ? "99" : String(hits), { "text-anchor": "middle", dy: 3, "font-size": 8, "font-weight": 700, fill: "#0d1117" }); const t = svgEl("title"); t.textContent = hits + " security hits in its container logs (Security Onion)"; bdg.appendChild(t); n.appendChild(bdg); }
+        if (hits) { const bdg = svgEl("g", { transform: `translate(${p.w - 12},10)` }); bdg.appendChild(svgEl("circle", { r: 8, fill: K8M_C.warn })); txt(bdg, hits > 99 ? "99" : String(hits), { "text-anchor": "middle", dy: 3, "font-size": 8, "font-weight": 700, fill: "#0b0b0c" }); const t = svgEl("title"); t.textContent = hits + " security hits in its container logs (Security Onion)"; bdg.appendChild(t); n.appendChild(bdg); }
         o.containers.forEach((ct, i) => {
           const r = svgEl("g", { transform: `translate(6,${24 + i * 15})` }); const cid = o.id.replace(/^pod:/, "ctr:") + "/" + ct.name; r.dataset.k8m = cid;
           r.appendChild(svgEl("rect", { width: p.w - 12, height: 13, rx: 3, fill: k8mCtrState(ct), "fill-opacity": sel === cid ? 0.5 : 0.18 }));
-          txt(r, (ct.init ? "◌ " : "▣ ") + short(ct.name, 15) + (ct.restarts ? ` ↻${ct.restarts}` : ""), { x: 4, y: 10, "font-size": 9.5, fill: "#e6edf3" });
+          txt(r, (ct.init ? "◌ " : "▣ ") + short(ct.name, 15) + (ct.restarts ? ` ↻${ct.restarts}` : ""), { x: 4, y: 10, "font-size": 9.5, fill: "#e9e7e2" });
           n.appendChild(r);
         });
       }

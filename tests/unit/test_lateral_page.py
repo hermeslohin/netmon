@@ -504,7 +504,7 @@ out({markers: defs.children.map((m) => m.attrs.id), paths: gE.children.length, d
         self.assertEqual(out["markers"], ["lm-arrow-" + k for k in lateral.ORDER])
         self.assertEqual(out["paths"], 2 * 7)
         self.assertEqual(out["dashed"], 1)  # only the never-answered RDP attempts
-        self.assertIn("#f85149", out["colours"])
+        self.assertIn("#e06a5f", out["colours"])
         self.assertIn("GW", out["texts"])
         self.assertIn(45, out["texts"])   # risk score inside the bubble (>= 8)
         self.assertEqual(out["rings"], 2)   # camera and phone are not in the device list

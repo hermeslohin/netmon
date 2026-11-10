@@ -28,7 +28,7 @@
     const t = typeof v;
     return { el: i, get: () => {
       const s = i.value;
-      if (t === "number") { if (s.trim() === "" || isNaN(Number(s))) { i.style.outline = "2px solid #f85149"; throw new Error(`"${s}" is not a number`); } i.style.outline = ""; return Number(s); }
+      if (t === "number") { if (s.trim() === "" || isNaN(Number(s))) { i.style.outline = "2px solid #e06a5f"; throw new Error(`"${s}" is not a number`); } i.style.outline = ""; return Number(s); }
       return v === null && s === "" ? null : s;
     } };
   }
@@ -100,8 +100,8 @@
       const out = {};
       for (const r of rows) {
         const k = r.ro ? r.orig : r.key.value.trim();
-        if (!k) { r.key.style.outline = "2px solid #f85149"; throw new Error("every row needs a key"); }
-        if (k in out) { r.key.style.outline = "2px solid #f85149"; throw new Error(`duplicate key "${k}"`); }
+        if (!k) { r.key.style.outline = "2px solid #e06a5f"; throw new Error("every row needs a key"); }
+        if (k in out) { r.key.style.outline = "2px solid #e06a5f"; throw new Error(`duplicate key "${k}"`); }
         r.key.style.outline = "";
         out[k] = r.ro ? r.keep : matrix ? cellsOut(cols, r) : r.e.get();
       }
@@ -113,7 +113,7 @@
   function discoverCard(reload) {
     const out = h("div", { style: "margin-top:8px" }), msg = h("span", { class: "small", style: "margin-left:10px" });
     const tbl = (cols, rows) => h("table", { class: "cfg-tbl" }, h("thead", {}, h("tr", {}, cols.map((c) => h("th", {}, c)))), h("tbody", {}, rows.map((r) => h("tr", {}, r.map((c) => h("td", {}, c ?? ""))))));
-    const call = async (body) => { msg.style.color = ""; msg.textContent = "Asking UniFi…"; try { const r = await apiPost("/api/config/discover", body); msg.textContent = ""; return r; } catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); return null; } };
+    const call = async (body) => { msg.style.color = ""; msg.textContent = "Asking UniFi…"; try { const r = await apiPost("/api/config/discover", body); msg.textContent = ""; return r; } catch (e) { msg.style.color = "#e06a5f"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); return null; } };
     const preview = h("button", { type: "button", onclick: async () => {
       const r = await call({}); if (!r) return;
       const d = r.detail, nz = d.zones.filter((z) => !z.existing).length;
@@ -136,22 +136,22 @@
     const run = h("button", { type: "button" }, "Auto-tune thresholds");
     run.onclick = async () => {
       msg.style.color = ""; msg.textContent = "Analysing history…"; out.innerHTML = "";
-      let r; try { r = await api("/api/config/tune"); } catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e); return; }
+      let r; try { r = await api("/api/config/tune"); } catch (e) { msg.style.color = "#e06a5f"; msg.textContent = String(e.message || e); return; }
       msg.textContent = "";
       const checks = [];
       // one tappable card per proposal (a <label> around the whole card: big touch target, works on phones)
       const rows = r.recommendations.map((x) => {
         const on = x.status === "change";
         // the box is only a display: the whole card is the tap target and keeps the state in JS (taps on a bare checkbox were unreliable on iOS)
-        const cb = h("input", { type: "checkbox", checked: on, disabled: !on, tabindex: "-1", style: "width:18px;height:18px;min-width:18px;padding:0;margin:2px 0 0;flex:none;pointer-events:none;accent-color:#3fb950" });
+        const cb = h("input", { type: "checkbox", checked: on, disabled: !on, tabindex: "-1", style: "width:18px;height:18px;min-width:18px;padding:0;margin:2px 0 0;flex:none;pointer-events:none;accent-color:#6cc287" });
         const st = { sel: on, x };
         if (on) checks.push(st);
         const chg = on ? Object.entries(x.changes).map(([k, v]) => h("div", {}, h("b", {}, k), ": ", fmt(x.current[k]), " → ", h("b", {}, fmt(v)))) : [h("div", { class: "muted" }, x.status === "off" ? "off" : x.status === "ok" ? "Keep as is" : "No safe change")];
         const cur = Object.entries(x.current).map(([k, v]) => k + ": " + fmt(v)).join("  ·  ");
         const card = h("div", { role: on ? "checkbox" : null, "aria-checked": on ? "true" : null, style: "display:flex;gap:12px;align-items:flex-start;padding:10px;margin:6px 0;border:1px solid var(--border);border-radius:8px;-webkit-tap-highlight-color:transparent;" + (on ? "cursor:pointer" : "opacity:.75") },
           cb, h("div", { style: "min-width:0;flex:1" }, h("div", {}, h("b", {}, x.title)), h("div", { class: "muted small" }, "Current: " + cur), h("div", { style: "margin:4px 0" }, chg), h("div", { class: "small" }, x.why)));
-        if (on) card.onclick = () => { st.sel = !st.sel; cb.checked = st.sel; card.setAttribute("aria-checked", String(st.sel)); card.style.borderColor = st.sel ? "#3fb950" : ""; };
-        if (on) card.style.borderColor = "#3fb950";
+        if (on) card.onclick = () => { st.sel = !st.sel; cb.checked = st.sel; card.setAttribute("aria-checked", String(st.sel)); card.style.borderColor = st.sel ? "#6cc287" : ""; };
+        if (on) card.style.borderColor = "#6cc287";
         return card;
       });
       const apply = h("button", { type: "button", disabled: !checks.length, style: "min-height:44px" }, "Accept selected");
@@ -159,7 +159,7 @@
         const acc = checks.filter((c) => c.sel).map((c) => ({ id: c.x.id, changes: c.x.changes }));
         if (!acc.length) { msg.textContent = "Nothing selected."; return; }
         try { const a = await apiPost("/api/config/tune-apply", { accept: acc }); alert("Applied: " + a.applied.join(", ")); reload(); }
-        catch (e) { msg.style.color = "#f85149"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); }
+        catch (e) { msg.style.color = "#e06a5f"; msg.textContent = String(e.message || e).replace(/^.*?→ \d+\s*/, ""); }
       };
       out.append(h("div", { class: "muted small" }, `Based on ${r.window_days} days of per-device history and ${r.snapshots} daily snapshots. Each proposal only makes a detection less noisy and keeps its severity. Nothing is changed until you accept.`),
         h("div", {}, rows),
@@ -188,7 +188,7 @@
       root.addEventListener("change", go);
       root.addEventListener("click", (ev) => { if (ev.target.closest && ev.target.closest('button[title="Remove this row"]')) go(); });
     };
-    const msg = (box, text, bad) => { box.textContent = text; box.style.color = bad ? "#f85149" : "#3fb950"; };
+    const msg = (box, text, bad) => { box.textContent = text; box.style.color = bad ? "#e06a5f" : "#6cc287"; };
     const save = async (path, value, box) => {
       try { await apiPost("/api/config/cfg", { doc, path, value }); msg(box, "✓ Saved " + new Date().toLocaleTimeString()); }
       catch (e) { throw new Error(String(e.message || e).replace(/^.*?→ \d+\s*/, "")); }

@@ -139,7 +139,7 @@
   }
   function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";
-    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : a.kind === "web" ? webArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind === "cert" ? "TLS certificate" : a.kind)} artifact (the AI reads them)">📝</button>${window.artSearchBtn ? artSearchBtn(a.kind, a.value) : ""}
+    return `<div class="note-arts"><b class="small">${esc(title)}</b><ul>${arts.map((a) => a.kind === "query" ? queryArtHtml(a) : a.kind === "web" ? webArtHtml(a) : `<li><span class="art-k" title="${esc(a.kind)}">${ART_ICON[a.kind] || "•"} ${esc(a.kind)}</span> <code>${esc(a.value)}</code> <button type="button" class="extnote-btn" data-extart="${esc(a.kind + ":" + a.value)}" title="Your notes on this ${esc(a.kind === "cert" ? "TLS certificate" : a.kind)} artifact (the AI reads them)"><i class="ic ic-note" aria-hidden="true"></i></button>${window.artSearchBtn ? artSearchBtn(a.kind, a.value) : ""}
       <span class="note-v v-${esc(String(a.decision).replace(/[^a-z-]/g, ""))}">${esc(a.decision)}</span> ${!a.model ? "" : aiFlare({ model: a.model, via: "correlation review", at: a.at ? new Date(a.at * 1000).toISOString() : "" })}
       ${a.relation ? `<span class="small muted">${esc(a.relation)}</span>` : ""}</li>`).join("")}</ul></div>`;
   }
@@ -215,15 +215,16 @@
       ${S.corr?.classes?.[id] ? `<div class="rel-inputs" data-inputs="${esc(id)}" style="padding:0 10px 4px"><div class="small muted">Loading the events passed in…</div></div>` : ""}
       ${(window.__oeExtra?.related_n?.[id] || 0) > rel.length ? `<div class="small muted" style="padding:4px 10px">showing the ${rel.length} most confident of ${window.__oeExtra.related_n[id]} related events</div>` : ""}
       ${tuneHtml(id) ? `<div style="padding:4px 10px">${tuneHtml(id)}</div>` : ""}
-      ${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding" }[e.type]] || [e.type, ""];
+      <div class="rel-story">${rel.map((r) => { const e = S.corr.events[r.id] || { label: r.id, type: "", link: "#" }; const [tl, tc] = TYPE[e.type] || TYPE[{ f: "finding" }[e.type]] || [e.type, ""];
         const ai = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ confirmed</span> ${clefLinkHtml(r)} ${aiFlare({ model: r.llm_model, via: "correlation review" })}`
           : `<span class="rel-ai pend" title="The decision model has not decided this link yet">AI review pending</span>`;
-        return `<a class="rel-item" href="${esc(e.link || "#")}"><span class="badge ${tc}">${esc(tl)}</span> <span class="rel-pair small muted" title="event pair">${esc(pairText(me?.type, e.type))}</span> ${ai} <span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
-          <span class="rel-time small muted">🕒 ${esc(evTime(e))}</span>
+        return `<a class="rel-item" href="${esc(e.link || "#")}"><span class="rel-l">${esc(e.label.length > 120 ? e.label.slice(0, 118) + "…" : e.label)}</span>
+          <span class="rel-time small muted">${esc(evTime(e))} · <span class="rel-pair" title="event pair">${esc(pairText(me?.type, e.type))}</span></span>
+          <span class="rel-tags"><span class="badge ${tc}">${esc(tl)}</span> ${ai}</span>
           ${tuneHtml(r.id)}
           ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}
           ${artifactsHtml(ipArts(e, r.llm_artifacts))}
-          ${(r.why || []).length ? `<span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span>` : ""}</a>`; }).join("")}
+          ${(r.why || []).length ? `<span class="rel-why small muted">${r.llm_reason ? "Script: " : ""}${esc(r.why.join(" · "))}</span>` : ""}</a>`; }).join("")}</div>
       <div class="small muted" style="padding:6px 10px">${esc(llmLine())}</div>`;
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect(), w = Math.min(520, innerWidth - 16);

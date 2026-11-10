@@ -3,15 +3,15 @@
 
 const NM_CLASS = {
   server: { g: "S", c: "#bc8cff", l: "Server" }, infra: { g: "N", c: "#39c5cf", l: "Network infra" }, k8s: { g: "K", c: "#56d4dd", l: "Kubernetes" },
-  work: { g: "W", c: "#58a6ff", l: "Work" }, personal: { g: "P", c: "#a5d6ff", l: "Personal" }, camera: { g: "C", c: "#ffa657", l: "Camera" },
-  iot: { g: "I", c: "#e3b341", l: "IoT" }, media: { g: "M", c: "#ff9bce", l: "Media" }, game: { g: "G", c: "#7ee787", l: "Game" }, "": { g: "?", c: "#8b949e", l: "Unclassified" },
+  work: { g: "W", c: "#7fa8d9", l: "Work" }, personal: { g: "P", c: "#a5d6ff", l: "Personal" }, camera: { g: "C", c: "#ffa657", l: "Camera" },
+  iot: { g: "I", c: "#e3b341", l: "IoT" }, media: { g: "M", c: "#ff9bce", l: "Media" }, game: { g: "G", c: "#7ee787", l: "Game" }, "": { g: "?", c: "#a3a3a6", l: "Unclassified" },
 };
 const NM_ZONE_ORDER = ["servers", "ai", "k8s", "dmz", "vlan3", "vlan4", "vlan21", "other", "lan"];
 // Display names where the DHCP export only has an OS hostname (from the home-network-devices inventory)
 const NM_NAMES = new Proxy({}, { get: (_, ip) => (SITE.display_names || {})[ip] });  // display-name overrides from the site settings (Settings → Policy and Site)
 const NM = { color: "risk", inactive: true, q: "", sel: null };
 
-function nmRiskColor(r) { return r >= 40 ? "#f85149" : r >= 20 ? "#d29922" : r >= 8 ? "#e3b341" : "#3fb950"; }
+function nmRiskColor(r) { return r >= 40 ? "#e06a5f" : r >= 20 ? "#e1a948" : r >= 8 ? "#e3b341" : "#6cc287"; }
 
 function nmHosts() {
   const raw = S.snap.raw, devs = raw.devices || {}, inv = raw.inventory_ips || {}, seen = S.reg.devices_seen || {};
@@ -110,61 +110,61 @@ function nmRender(box, zones) {
   // internet + gateway
   const gx = W / 2, gy = 120;
   const cloud = svgEl("g", { transform: `translate(${gx},40)` });
-  cloud.appendChild(svgEl("ellipse", { rx: 70, ry: 24, fill: "#21262d", stroke: "#8b949e", "stroke-dasharray": "4 3" }));
-  txt(cloud, "Internet", { "text-anchor": "middle", dy: 5, fill: "#8b949e", "font-size": 14 });
+  cloud.appendChild(svgEl("ellipse", { rx: 70, ry: 24, fill: "#1f1f24", stroke: "#a3a3a6", "stroke-dasharray": "4 3" }));
+  txt(cloud, "Internet", { "text-anchor": "middle", dy: 5, fill: "#a3a3a6", "font-size": 14 });
   gN.appendChild(cloud);
-  gL.appendChild(svgEl("line", { x1: gx, y1: 64, x2: gx, y2: gy - 26, stroke: "#8b949e", "stroke-width": 2, "stroke-dasharray": "4 3" }));
+  gL.appendChild(svgEl("line", { x1: gx, y1: 64, x2: gx, y2: gy - 26, stroke: "#a3a3a6", "stroke-width": 2, "stroke-dasharray": "4 3" }));
   const hl = S.snap.raw.unifi?.health || {};
   const gw = svgEl("g", { transform: `translate(${gx},${gy})`, style: "cursor:pointer" });
-  gw.appendChild(svgEl("rect", { x: -110, y: -26, width: 220, height: 52, rx: 10, fill: "#30363d", stroke: "#58a6ff", "stroke-width": 2 }));
-  txt(gw, "UniFi gateway / firewall", { "text-anchor": "middle", y: -4, fill: "#e6edf3", "font-size": 14, "font-weight": 700 });
-  txt(gw, [hl.isp, hl.wan_ip].filter(Boolean).join(" · ") || "routes all zones", { "text-anchor": "middle", y: 14, fill: "#8b949e", "font-size": 11 });
+  gw.appendChild(svgEl("rect", { x: -110, y: -26, width: 220, height: 52, rx: 10, fill: "#2c2c32", stroke: "#d9b65d", "stroke-width": 2 }));
+  txt(gw, "UniFi gateway / firewall", { "text-anchor": "middle", y: -4, fill: "#e9e7e2", "font-size": 14, "font-weight": 700 });
+  txt(gw, [hl.isp, hl.wan_ip].filter(Boolean).join(" · ") || "routes all zones", { "text-anchor": "middle", y: 14, fill: "#a3a3a6", "font-size": 11 });
   gw.onclick = (e) => { e.stopPropagation(); NM.sel = { gateway: true }; nmPanel(zones); };
   gN.appendChild(gw);
 
   // trunk + buses + uplinks
   const trunkX = 30;
-  if (!rows.length) txt(gN, "No zones or internal hosts yet: add zones in Settings (network policy) or wait for the first time range to be collected.", { "text-anchor": "middle", x: gx, y: gy + 70, fill: "#8b949e", "font-size": 13 });
+  if (!rows.length) txt(gN, "No zones or internal hosts yet: add zones in Settings (network policy) or wait for the first time range to be collected.", { "text-anchor": "middle", x: gx, y: gy + 70, fill: "#a3a3a6", "font-size": 13 });
   const lastBus = rows.length ? rows[rows.length - 1].bus : gy + 26;  // no zones (fresh install, range still loading): gateway only
-  if (rows.length) gL.appendChild(svgEl("path", { d: `M${gx},${gy + 26} V${rows[0].bus}`, stroke: "#58a6ff", "stroke-width": 2.5, fill: "none" }));
-  if (rows.length > 1) gL.appendChild(svgEl("path", { d: `M${gx},${rows[0].bus} H${trunkX} V${lastBus}`, stroke: "#58a6ff", "stroke-width": 2.5, fill: "none" }));
+  if (rows.length) gL.appendChild(svgEl("path", { d: `M${gx},${gy + 26} V${rows[0].bus}`, stroke: "#d9b65d", "stroke-width": 2.5, fill: "none" }));
+  if (rows.length > 1) gL.appendChild(svgEl("path", { d: `M${gx},${rows[0].bus} H${trunkX} V${lastBus}`, stroke: "#d9b65d", "stroke-width": 2.5, fill: "none" }));
   for (const r of rows) {
     const xs = r.map((z) => z.x + z.w / 2);
     const x1 = Math.min(...xs, rows.length > 1 ? trunkX : gx), x2 = Math.max(...xs, r === rows[0] ? gx : trunkX);
-    gL.appendChild(svgEl("line", { x1, y1: r.bus, x2, y2: r.bus, stroke: "#58a6ff", "stroke-width": 2.5 }));
+    gL.appendChild(svgEl("line", { x1, y1: r.bus, x2, y2: r.bus, stroke: "#d9b65d", "stroke-width": 2.5 }));
     for (const z of r) {
-      const cx = z.x + z.w / 2, zc = LM_ZONE_COL[z.id] || "#8b949e";
+      const cx = z.x + z.w / 2, zc = LM_ZONE_COL[z.id] || "#a3a3a6";
       gL.appendChild(svgEl("line", { x1: cx, y1: r.bus, x2: cx, y2: z.y, stroke: zc, "stroke-width": 2 }));
-      if (z.gw) txt(gL, z.gw, { x: cx + 5, y: r.bus + 17, fill: "#8b949e", "font-size": 10 });
+      if (z.gw) txt(gL, z.gw, { x: cx + 5, y: r.bus + 17, fill: "#a3a3a6", "font-size": 10 });
     }
   }
 
   // zones + hosts
   const q = NM.q.toLowerCase();
   for (const z of zones) {
-    const zc = LM_ZONE_COL[z.id] || "#8b949e";
+    const zc = LM_ZONE_COL[z.id] || "#a3a3a6";
     const g = svgEl("g", { transform: `translate(${z.x},${z.y})` });
     g.appendChild(svgEl("rect", { width: z.w, height: z.h, rx: 12, fill: zc, "fill-opacity": 0.06, stroke: zc, "stroke-opacity": 0.7, "stroke-width": 1.5 }));
     txt(g, z.id.toUpperCase(), { x: 14, y: 22, fill: zc, "font-size": 15, "font-weight": 700 });
-    txt(g, `${z.cidr}  ·  ${z.hosts.length} hosts, ${z.active} active${z.unknown ? `, ${z.unknown} unknown` : ""}`, { x: 14, y: 37, fill: "#8b949e", "font-size": 11 });
-    if (z.maxRisk >= 8) { const b = svgEl("g", { transform: `translate(${z.w - 16},20)` }); b.appendChild(svgEl("circle", { r: 11, fill: nmRiskColor(z.maxRisk) })); txt(b, Math.round(z.maxRisk), { "text-anchor": "middle", dy: 4, "font-size": 10, "font-weight": 700, fill: "#0d1117" }); const t = svgEl("title"); t.textContent = "highest host risk in zone"; b.appendChild(t); g.appendChild(b); }
+    txt(g, `${z.cidr}  ·  ${z.hosts.length} hosts, ${z.active} active${z.unknown ? `, ${z.unknown} unknown` : ""}`, { x: 14, y: 37, fill: "#a3a3a6", "font-size": 11 });
+    if (z.maxRisk >= 8) { const b = svgEl("g", { transform: `translate(${z.w - 16},20)` }); b.appendChild(svgEl("circle", { r: 11, fill: nmRiskColor(z.maxRisk) })); txt(b, Math.round(z.maxRisk), { "text-anchor": "middle", dy: 4, "font-size": 10, "font-weight": 700, fill: "#0b0b0c" }); const t = svgEl("title"); t.textContent = "highest host risk in zone"; b.appendChild(t); g.appendChild(b); }
     gZ.appendChild(g);
     const hs = z.hosts.filter(visible);
-    if (!hs.length) txt(g, "no hosts seen", { x: z.w / 2, y: HEAD + 30, "text-anchor": "middle", fill: "#6e7681", "font-size": 12, "font-style": "italic" });
+    if (!hs.length) txt(g, "no hosts seen", { x: z.w / 2, y: HEAD + 30, "text-anchor": "middle", fill: "#5c5c63", "font-size": 12, "font-style": "italic" });
     hs.forEach((h, i) => {
       const cx = z.x + PAD + (i % z.cols) * CW + CW / 2, cy = z.y + HEAD + Math.floor(i / z.cols) * CH + 22;
       const cl = NM_CLASS[h.cls] || NM_CLASS[""];
-      const fill = NM.color === "risk" ? nmRiskColor(h.risk) : NM.color === "class" ? cl.c : h.active ? "#3fb950" : "#6e7681";
+      const fill = NM.color === "risk" ? nmRiskColor(h.risk) : NM.color === "class" ? cl.c : h.active ? "#6cc287" : "#5c5c63";
       const r = 13 + (NM.color === "risk" ? Math.min(7, Math.sqrt(h.risk)) : 0);
       const hit = !q || [h.name, h.ip, h.mac, h.vendor, h.hostname, h.cls].some((v) => String(v || "").toLowerCase().includes(q));
       const n = svgEl("g", { transform: `translate(${cx},${cy})`, style: `cursor:pointer;opacity:${hit ? 1 : 0.15}` });
-      n.appendChild(svgEl("circle", { r, fill: h.active ? fill : "#161b22", "fill-opacity": h.active ? 0.9 : 1, stroke: h.active ? (NM.sel?.host?.ip === h.ip ? "#fff" : zc) : fill, "stroke-width": NM.sel?.host?.ip === h.ip ? 3 : 1.5, "stroke-dasharray": h.active ? "none" : "3 2" }));
-      txt(n, cl.g, { "text-anchor": "middle", dy: 4, "font-size": 12, "font-weight": 700, fill: h.active ? "#0d1117" : fill });
-      if (!h.known) n.appendChild(svgEl("circle", { r: r + 4, fill: "none", stroke: "#d29922", "stroke-width": 1, "stroke-dasharray": "2 2" }));
-      if (h.agent) { n.appendChild(svgEl("circle", { cx: -r + 2, cy: -r + 2, r: 5, fill: "#3fb950", stroke: "#0d1117", "stroke-width": 1.5 })); }
-      if (h.issues) { const b = svgEl("g", { transform: `translate(${r - 1},${-r + 1})` }); b.appendChild(svgEl("circle", { r: 7, fill: "#f85149", stroke: "#0d1117", "stroke-width": 1.5 })); txt(b, h.issues, { "text-anchor": "middle", dy: 3, "font-size": 9, "font-weight": 700, fill: "#fff" }); n.appendChild(b); }
-      const nm = String(h.name); txt(n, nm.length > 17 ? nm.slice(0, 16) + "…" : nm, { "text-anchor": "middle", y: r + 14, "font-size": 11, fill: h.active ? "#c9d1d9" : "#8b949e" });
-      txt(n, h.ip, { "text-anchor": "middle", y: r + 26, "font-size": 9, fill: "#6e7681" });
+      n.appendChild(svgEl("circle", { r, fill: h.active ? fill : "#16161a", "fill-opacity": h.active ? 0.9 : 1, stroke: h.active ? (NM.sel?.host?.ip === h.ip ? "#fff" : zc) : fill, "stroke-width": NM.sel?.host?.ip === h.ip ? 3 : 1.5, "stroke-dasharray": h.active ? "none" : "3 2" }));
+      txt(n, cl.g, { "text-anchor": "middle", dy: 4, "font-size": 12, "font-weight": 700, fill: h.active ? "#0b0b0c" : fill });
+      if (!h.known) n.appendChild(svgEl("circle", { r: r + 4, fill: "none", stroke: "#e1a948", "stroke-width": 1, "stroke-dasharray": "2 2" }));
+      if (h.agent) { n.appendChild(svgEl("circle", { cx: -r + 2, cy: -r + 2, r: 5, fill: "#6cc287", stroke: "#0b0b0c", "stroke-width": 1.5 })); }
+      if (h.issues) { const b = svgEl("g", { transform: `translate(${r - 1},${-r + 1})` }); b.appendChild(svgEl("circle", { r: 7, fill: "#e06a5f", stroke: "#0b0b0c", "stroke-width": 1.5 })); txt(b, h.issues, { "text-anchor": "middle", dy: 3, "font-size": 9, "font-weight": 700, fill: "#fff" }); n.appendChild(b); }
+      const nm = String(h.name); txt(n, nm.length > 17 ? nm.slice(0, 16) + "…" : nm, { "text-anchor": "middle", y: r + 14, "font-size": 11, fill: h.active ? "#d6d3cc" : "#a3a3a6" });
+      txt(n, h.ip, { "text-anchor": "middle", y: r + 26, "font-size": 9, fill: "#5c5c63" });
       const t = svgEl("title"); t.textContent = `${h.name}\n${h.ip}${h.mac ? " · " + h.mac : ""}\n${cl.l}${h.vendor ? " · " + h.vendor : ""}\n${h.active ? "active in this time range" : "not seen in this time range"}\nrisk ${h.risk}${h.issues ? ` · ${h.issues} open issues` : ""}`; n.appendChild(t);
       n.onclick = (e) => { e.stopPropagation(); NM.sel = { host: h }; nmPanel(zones); nmRender(box, zones); };
       n.ondblclick = () => S.snap.raw.devices?.[h.ip] && go("device/" + h.ip);
@@ -217,13 +217,13 @@ function nmPanel(zones) {
       <div class="chips" style="margin-bottom:6px">${Object.entries(NM_CLASS).map(([k, v]) => `<span class="chip"><b style="color:${v.c}">${v.g}</b> ${v.l}</span>`).join("")}</div>
       <div>Fill colour: ${NM.color === "risk" ? "host risk (green → red), bigger = riskier" : NM.color === "class" ? "device class" : "green = active, grey = not seen"}</div>
       <div>Dashed hollow bubble = known but not seen in this time range</div><div>Dashed amber ring = not in DHCP inventory</div>
-      <div><span style="color:#3fb950">●</span> top-left dot = Elastic agent installed</div><div><span style="color:#f85149">●</span> top-right number = open fix-list issues</div>
+      <div><span style="color:#6cc287">●</span> top-left dot = Elastic agent installed</div><div><span style="color:#e06a5f">●</span> top-right number = open fix-list issues</div>
       <div>Zone badge = highest host risk in that zone</div></div>`;
     return;
   }
   if (s.gateway) {
     el.innerHTML = `<h2>UniFi gateway</h2>${unifiHealthHtml()}<h3>Zone interfaces</h3>` +
-      zones.map((z) => `<div class="small"><b style="color:${LM_ZONE_COL[z.id] || "#8b949e"}">${esc(z.id)}</b> ${esc(z.gw)} <span class="muted">${esc(z.cidr)}</span></div>`).join("");
+      zones.map((z) => `<div class="small"><b style="color:${LM_ZONE_COL[z.id] || "#a3a3a6"}">${esc(z.id)}</b> ${esc(z.gw)} <span class="muted">${esc(z.cidr)}</span></div>`).join("");
     return;
   }
   const h = s.host, cl = NM_CLASS[h.cls] || NM_CLASS[""];
@@ -267,7 +267,7 @@ V.netmap = (el) => {
   window.addEventListener("resize", onResize);
   // zone summary + full host list
   el.appendChild(card("Zones", table(null, [
-    { k: "id", t: "Zone", fmt: (v) => `<b style="color:${LM_ZONE_COL[v] || "#8b949e"}">${esc(v)}</b>` }, { k: "cidr", t: "Subnet", cls: "mono" }, { k: "gw", t: "Gateway", cls: "mono" },
+    { k: "id", t: "Zone", fmt: (v) => `<b style="color:${LM_ZONE_COL[v] || "#a3a3a6"}">${esc(v)}</b>` }, { k: "cidr", t: "Subnet", cls: "mono" }, { k: "gw", t: "Gateway", cls: "mono" },
     { k: "n", t: "Hosts", num: true }, { k: "active", t: "Active", num: true }, { k: "unknown", t: "Unknown", num: true }, { k: "issues", t: "Open issues", num: true },
     { k: "maxRisk", t: "Max risk", num: true, fmt: (v) => (v ? riskBadge(v) : "") }, { k: "top", t: "Riskiest host", fmt: (v, z) => (v ? ipLink(v.ip) : "") , sort: (z) => z.maxRisk },
   ], zones.map((z) => ({ ...z, n: z.hosts.length, top: [...z.hosts].sort((a, b) => b.risk - a.risk)[0] })), { search: false, sort: "maxRisk" })));

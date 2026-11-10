@@ -11,8 +11,8 @@ const S = { snaps: [], snap: null, hist: [], reg: {}, charts: [], idx: null, ack
 const isAdmin = () => S.me.role === "admin", isUserRole = () => S.me.role === "user";
 const USER_VIEWS = new Set(["alerts", "my", "account"]);
 const $ = (s, r = document) => r.querySelector(s);
-const PALETTE = ["#58a6ff", "#3fb950", "#d29922", "#f85149", "#bc8cff", "#39c5cf", "#ff9bce", "#e3b341",
-  "#7ee787", "#a5d6ff", "#ffa657", "#d2a8ff", "#56d4dd", "#ff7b72", "#8b949e"];
+const PALETTE = ["#d9b65d", "#6cc287", "#e1a948", "#e06a5f", "#bc8cff", "#39c5cf", "#ff9bce", "#e3b341",
+  "#7ee787", "#a5d6ff", "#ffa657", "#d2a8ff", "#56d4dd", "#ec7d72", "#a3a3a6"];
 
 /* ---------- formatting ---------- */
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -137,7 +137,7 @@ const hfHostCol = (keyOf) => ({ k: "hf_host", t: "Host", fmt: (v, x) => { const 
 const hostLink = (h) => `<a href="#/endpoint/${encodeURIComponent(h)}">${esc(h)}</a>`;
 const DOM_RE = /\b((?:[a-z0-9-]+\.)+(?:com|net|org|io|ru|cn|xyz|top|info|biz|us|co|me|app|dev|cloud|online|site))\b/gi;
 const isInternalDom = (d) => /\.(lan|local|hades)$/i.test(d);
-const extNoteBtn = (kind, v) => `<button type="button" class="extnote-btn" data-ext${kind}="${esc(v)}" title="Your notes on ${kind === "ip" ? "external IP" : "domain"} ${esc(v)}">📝</button>`;
+const extNoteBtn = (kind, v) => `<button type="button" class="extnote-btn" data-ext${kind}="${esc(v)}" title="Your notes on ${kind === "ip" ? "external IP" : "domain"} ${esc(v)}"><i class="ic ic-note" aria-hidden="true"></i></button>`;
 const domFmt = (d) => `${esc(d)}${!isUserRole() && !isInternalDom(String(d)) ? " " + extNoteBtn("dom", String(d).toLowerCase()) : ""}`;
 function linkifyIps(text) {
   const seenIp = new Set(), seenDom = new Set(), U = isUserRole();
@@ -371,7 +371,7 @@ function kvTable(obj, keyTitle, valTitle, valFmt = fn, keyFmt = esc, opts = {}) 
 // (and the cross-snapshot history charts) do not.
 const TIME_VIEWS = new Set(["overview", "devices", "device", "endpoints", "endpoint", "security", "traffic", "dns", "tls", "netnotes", "attack", "lateral", "netmap", "threatintel"]);
 const NOT_TIMED = /snapshots?\b|Per-host trend|over time|^Open issues|^Scoring model|^Add user|^Accounts/i;
-const CLOCK = `<span class="clk" title="Filtered by the time range chosen in the header" aria-label="Time filtered">🕒</span>`;
+const CLOCK = `<span class="clk ic ic-clock" title="Filtered by the time range chosen in the header" aria-label="Time filtered"></span>`;
 function timedCard(title) { return !!title && TIME_VIEWS.has(document.getElementById("main")?.dataset.view) && !NOT_TIMED.test(String(title).replace(/<[^>]*>/g, "")); }
 function card(title, body, cls = "") { const c = document.createElement("div"); c.className = "card " + cls; c.innerHTML = title ? `<h2>${title}${timedCard(title) ? CLOCK : ""}</h2>` : "";
   if (typeof body === "string") { const w = document.createElement("div"); w.innerHTML = body; c.appendChild(w); } else if (body) c.appendChild(body);
@@ -391,7 +391,7 @@ function flushCharts() { while (_pending.length) { let [cv, cfg] = _pending.shif
   if (S._morphing) cfg = { ...cfg, options: { ...(cfg.options || {}), animation: false } };
   S.charts.push(new Chart(cv, cfg)); } }
 
-Chart.defaults.color = "#8b949e"; Chart.defaults.borderColor = "#2a323d"; Chart.defaults.font.family = "system-ui, sans-serif";
+Chart.defaults.color = "#a3a3a6"; Chart.defaults.borderColor = "#26262b"; Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Inter, Roboto, sans-serif";
 Chart.defaults.maintainAspectRatio = false; Chart.defaults.resizeDelay = 150; Chart.defaults.plugins.legend.labels.boxWidth = 12;
 const bytesAxis = { ticks: { callback: (v) => fb(v) } };
 const bytesTip = { callbacks: { label: (c) => `${c.dataset.label || c.label}: ${fb(c.parsed.y ?? c.parsed.x ?? c.parsed)}` } };
@@ -405,7 +405,7 @@ function doughnutCfg(obj, { bytes = false, top = 8, onClick } = {}) {
   const e = sortDesc(obj).map(([k, v]) => [k, typeof v === "object" ? v.bytes ?? v.conns : v]);
   const head = e.slice(0, top), rest = e.slice(top).reduce((s, [, v]) => s + v, 0);
   if (rest > 0) head.push(["other", rest]);
-  return { type: "doughnut", data: { labels: head.map((x) => x[0]), datasets: [{ data: head.map((x) => x[1]), backgroundColor: PALETTE, borderColor: "#161b22" }] },
+  return { type: "doughnut", data: { labels: head.map((x) => x[0]), datasets: [{ data: head.map((x) => x[1]), backgroundColor: PALETTE, borderColor: "#16161a" }] },
     options: { cutout: "58%", plugins: { legend: { position: "right" }, tooltip: { callbacks: { label: (c) => `${c.label}: ${bytes ? fb(c.parsed) : fn(c.parsed)}`, ...(onClick ? { footer: (it) => (it[0]?.label !== "other" ? "click to list" : "") } : {}) } } },
       ...(onClick ? { onClick: (e, els) => { const l = els.length && head[els[0].index][0]; if (l && l !== "other") onClick(l); }, onHover: (e, els) => (e.native.target.style.cursor = els.length && head[els[0].index][0] !== "other" ? "pointer" : "default") } : {}) } };
 }
@@ -571,7 +571,7 @@ function regId(map, keys, prefix, rec) {
 const ASK_K = new Map();
 function askBtn(kind, title, item) {
   const id = regId(ASK, ASK_K, "a", { kind, title: String(title || "").slice(0, 300), item });
-  return `<button type="button" class="askh" data-ask="${id}" title="Ask AI about this" aria-label="Ask AI about this">💬</button>`;
+  return `<button type="button" class="askh" data-ask="${id}" title="Ask AI about this" aria-label="Ask AI about this"><i class="ic ic-chat" aria-hidden="true"></i></button>`;
 }
 const pivBtn = (kind, x) => (typeof pivotBtn === "function" ? pivotBtn(kind, x) : "");
 const askPivCol = (kind, titleFn, piv) => ({ k: "_ask", t: "", cls: "askcell", fmt: (v, x) => askBtn(kind, titleFn(x), x) + pivBtn(piv, x) });
@@ -711,8 +711,8 @@ V.overview = (el) => {
   const hl = Object.keys(T.hourly || {}).sort();
   el.appendChild(grid("g2",
     chartCard("Traffic per hour", { type: "line", data: { labels: hl.map((k) => k.slice(11, 16)), datasets: [
-      { label: "bytes", data: hl.map((k) => T.hourly[k]), borderColor: PALETTE[0], backgroundColor: "#58a6ff33", fill: true, tension: 0.3 },
-      { label: "missed (capture loss)", data: hl.map((k) => T.hourly_missed?.[k] || 0), borderColor: PALETTE[3], backgroundColor: "#f8514922", fill: true, tension: 0.3 }] },
+      { label: "bytes", data: hl.map((k) => T.hourly[k]), borderColor: PALETTE[0], backgroundColor: "#d9b65d33", fill: true, tension: 0.3 },
+      { label: "missed (capture loss)", data: hl.map((k) => T.hourly_missed?.[k] || 0), borderColor: PALETTE[3], backgroundColor: "#e06a5f22", fill: true, tension: 0.3 }] },
       options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip } } }),
     topTalkersChart(12)));
   el.appendChild(grid("g3",
@@ -1028,7 +1028,7 @@ V.risk = (el) => {
         onHover: (e, els) => (e.native.target.style.cursor = els.length ? "pointer" : "default") } }, "", "tall"),
     chartCard("Likelihood × impact (bubble size = open vulns)", { type: "bubble", data: { datasets: [{ label: "hosts", data: H.map((h) => ({ x: h.likelihood, y: h.impact + (Math.random() - 0.5) * 0.3, r: 4 + Math.min(14, 2 * h.vulns), h })),
       pointStyle: H.map((h) => (h.k8s ? "rectRot" : "circle")),
-      backgroundColor: H.map((h) => (h.score >= 40 ? "#f85149aa" : h.score >= 20 ? "#d29922aa" : "#58a6ff88")) }] },
+      backgroundColor: H.map((h) => (h.score >= 40 ? "#e06a5faa" : h.score >= 20 ? "#e1a948aa" : "#7fa8d988")) }] },
       options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.raw.h.k8s ? "container " : ""}${c.raw.h.name}: risk ${c.raw.h.score} (L ${c.raw.h.likelihood}, I ${c.raw.h.impact})` } } },
         scales: { x: { title: { display: true, text: "likelihood" }, min: 0, max: 100 }, y: { title: { display: true, text: "impact" }, min: 0.5, max: 5.5, ticks: { stepSize: 1 } } },
         onClick: (e, els) => { if (!els.length) return; const h = H[els[0].index]; location.hash = riskHostLink(h).match(/href="([^"]+)"/)?.[1] || "#/risk"; } } }, "", "tall")));
@@ -1040,7 +1040,7 @@ V.risk = (el) => {
     { k: "drivers", t: "Top drivers", cls: "small", fmt: (v) => v.slice(0, 3).map((d) => `<span class="chip">${esc(d.type)}</span> ${esc(d.text)}`).join("<br>"), sort: (h) => h.drivers.length },
   ], H, { sort: "score", limit: 30 })));
   const tv = Vn.slice(0, 15);
-  el.appendChild(chartCard("Top 15 vulnerabilities by risk (click to drill down)", barCfg(tv.map((v) => `${v.title.slice(0, 50)} — ${String(v.target).slice(0, 22)}`), tv.map((v) => v.score), { color: tv.map((v) => (v.score >= 60 ? "#f85149" : v.score >= 30 ? "#d29922" : "#58a6ff")), onClick: (i) => drill("risk", { vuln: tv[i].title, where: tv[i].target }) }), "", "tall"));
+  el.appendChild(chartCard("Top 15 vulnerabilities by risk (click to drill down)", barCfg(tv.map((v) => `${v.title.slice(0, 50)} — ${String(v.target).slice(0, 22)}`), tv.map((v) => v.score), { color: tv.map((v) => (v.score >= 60 ? "#e06a5f" : v.score >= 30 ? "#e1a948" : "#7fa8d9")), onClick: (i) => drill("risk", { vuln: tv[i].title, where: tv[i].target }) }), "", "tall"));
   const VA = ackSplit("issue", Vn, "risk-vulns");
   el.appendChild(card(`Vulnerabilities ranked by risk (${VA.open.length})${VA.toggle}`, table(null, [
     ackCol("issue", (x) => `${x.title} — ${x.target || ""}`), askCol("vulnerability", (x) => `${x.title} — ${x.target || ""}`), { k: "rank", t: "#", num: true }, { k: "score", t: "Risk", num: true, bar: true, fmt: riskBadge }, { k: "severity", t: "Sev", fmt: badge, sort: (v) => sevRank(v.severity) },
@@ -1148,7 +1148,7 @@ V.users = async (el) => {
     { k: "role", t: "Role", fmt: (v, u) => roleSel(u) + (u.role === "user" && devCount(u.username) < 1 ? ' <span class="badge sev-medium" title="A User sees nothing until devices are assigned">no devices</span>' : "") },
     { k: "created", t: "Created", fmt: ft }, { k: "last_login", t: "Last sign-in", fmt: (v) => ft(v) || '<span class="muted">never</span>' }, { k: "pw_changed", t: "Password changed", fmt: ft },
     { k: "_d", t: "Assigned devices", sort: (u) => devCount(u.username), fmt: (v, u) => `${u.role === "user" && devCount(u.username) < 0 ? '<span class="muted">None</span>' : devSummary(u.username)}${isAdmin() ? ` <button data-dev="${esc(u.username)}" class="small">Assign…</button>` : ""}` },
-    { k: "_a", t: "", fmt: (v, u) => !isAdmin() ? "" : `<button data-pw="${esc(u.username)}">${u.username === U.me ? "Change my password" : "Reset password"}</button> ${u.username === U.me ? "" : `<button data-del="${esc(u.username)}" style="border-color:#f8514955;color:var(--bad)">Delete</button>`}` },
+    { k: "_a", t: "", fmt: (v, u) => !isAdmin() ? "" : `<button data-pw="${esc(u.username)}">${u.username === U.me ? "Change my password" : "Reset password"}</button> ${u.username === U.me ? "" : `<button data-del="${esc(u.username)}" style="border-color:#e06a5f55;color:var(--bad)">Delete</button>`}` },
   ], U.users, { search: false, sort: "username", dir: 1 }));
   const pwBox = document.createElement("div"); list.appendChild(pwBox);
   el.appendChild(list);
@@ -1431,7 +1431,7 @@ function historyHosts(el) {
   const series = [...keys].map((k) => { const pts = H.map((h) => h.devices[k]?.total || 0); const last = [...H].reverse().map((h) => h.devices[k]).find(Boolean) || {}; return { k, ip: last.ip, name: last.name || last.ip || k, pts, sum: pts.reduce((a, b) => a + b, 0), known: last.known }; }).sort((a, b) => b.sum - a.sum);
   const top = series.slice(0, 10);
   el.appendChild(chartCard("Top 10 hosts over time (total bytes, click a line to drill down)", { type: "line", data: { labels: lab, datasets: top.map((s, i) => ({ label: s.name, data: s.pts, borderColor: PALETTE[i % PALETTE.length], tension: 0.3 })) }, options: { scales: { y: bytesAxis }, plugins: { tooltip: bytesTip }, ...clickable((i, ds) => { const ip = top[ds]?.ip; if (ip && S.snap.raw.devices?.[ip]) go("device/" + ip); }) } }, "", "tall"));
-  const spark = (pts) => { const m = Math.max(1, ...pts), w = 120, hh = 24; const p = pts.map((v, i) => `${(i * w) / Math.max(1, pts.length - 1)},${hh - (v / m) * (hh - 2) - 1}`).join(" "); return `<svg class="spark" width="${w}" height="${hh}"><polyline fill="none" stroke="#58a6ff" stroke-width="1.5" points="${p}"/></svg>`; };
+  const spark = (pts) => { const m = Math.max(1, ...pts), w = 120, hh = 24; const p = pts.map((v, i) => `${(i * w) / Math.max(1, pts.length - 1)},${hh - (v / m) * (hh - 2) - 1}`).join(" "); return `<svg class="spark" width="${w}" height="${hh}"><polyline fill="none" stroke="#7fa8d9" stroke-width="1.5" points="${p}"/></svg>`; };
   el.appendChild(card("Per-host trend", table(null, [{ k: "name", t: "Host", fmt: (v, r) => (r.ip && S.snap.raw.devices?.[r.ip] ? `<a href="#/device/${r.ip}">${esc(v)}</a>` : esc(v)) }, { k: "k", t: "Key", cls: "mono small" }, { k: "pts", t: "Trend", fmt: spark, sort: (r) => r.pts[r.pts.length - 1] - r.pts[0] }, { k: "last", t: "Latest", num: true, fmt: fb }, { k: "sum", t: "Sum", num: true, bar: true, fmt: fb }],
     series.map((s) => ({ ...s, last: s.pts[s.pts.length - 1] })), { sort: "sum", limit: 25 })));
 }
@@ -1610,7 +1610,7 @@ async function init() {
   } catch (_) { /* not signed in yet */ }
   S.me = await api("/api/me"); document.body.dataset.role = S.me.role;
   if (S.me.welcome) setTimeout(() => window.welcomeShow?.(), 0);  // brand-new account: guided setup
-  { const b = document.getElementById("userBox"); if (b && S.me.user) { b.innerHTML = `<a href="#/account" title="My account / change password">👤 ${esc(S.me.user)}</a> <span class="badge sev-info" title="Your access level">${esc(S.me.role_name || S.me.role)}</span> <button id="logout">Sign out</button>`;
+  { const b = document.getElementById("userBox"); if (b && S.me.user) { b.innerHTML = `<a href="#/account" title="My account / change password"><i class="ic ic-user" aria-hidden="true"></i>${esc(S.me.user)}</a> <span class="badge sev-info" title="Your access level">${esc(S.me.role_name || S.me.role)}</span> <button id="logout">Sign out</button>`;
     document.getElementById("logout").onclick = async () => { await apiPost("/api/logout", {}).catch(() => {}); location.href = "/login"; }; } }
   if (isUserRole()) {  // assigned-devices view only: no snapshot data is loaded (the server would refuse it anyway)
     $("#nav").innerHTML = `<a href="#/my" data-r="my">My devices</a><a href="#/alerts" data-r="alerts">Alerts <span class="alert-count badge sev-high" style="display:none"></span></a>`;
@@ -1646,7 +1646,7 @@ V.my = async (el) => {
     { k: "t0", t: "When", fmt: (v) => (v ? esc(new Date(v * 1000).toLocaleString()) : '<span class="muted">ongoing</span>'), sort: (x) => x.t0 || 0 },
     { k: "label", t: "Event", fmt: (v) => esc(v) }, { k: "ips", t: "Device", cls: "mono small", fmt: (v) => esc((v || []).join(", ")) },
     { k: "id", t: "Notes", sort: false, fmt: (v) => { const ns = M.unotes?.[v] || [], p = ns.some((x) => x.status === "pending");
-      return `<button type="button" class="unote-btn${ns.length ? " has" : ""}" data-unote="${esc(v)}" title="Add a note for the network defenders">${ns.length ? `📝 ${ns.length}${p ? " ⏳" : ""}` : "📝"}</button>`; } }], M.events, { sort: "t0" })
+      return `<button type="button" class="unote-btn${ns.length ? " has" : ""}" data-unote="${esc(v)}" title="Add a note for the network defenders"><i class="ic ic-note" aria-hidden="true"></i>${ns.length ? ` ${ns.length}${p ? " ⏳" : ""}` : ""}</button>`; } }], M.events, { sort: "t0" })
     : `<div class="empty">No security events for your devices in the latest snapshot.</div>`));
   // kbnotes.js's 📝 popover reads S.corr: give it just this user's events and their own notes (a User never loads correlations)
   S.corr = { events: Object.fromEntries(M.events.map((e) => [e.id, e])), unotes: M.unotes || {} };

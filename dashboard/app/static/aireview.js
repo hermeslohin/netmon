@@ -10,8 +10,8 @@
     f: "Finding", adm: "Admin", hf: "Endpoint", iss: "Vulnerability" };
   const ago = (ts) => { if (!ts) return "never"; const s = Date.now() / 1000 - ts; return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " d ago"; };
 
-  const aiColors = (cfg) => { const C = { Confirmed: "#3fb950", Rejected: "#f85149", "Set by a person": "#58a6ff" };
-    cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => C[l] || "#8b949e"); return cfg; };
+  const aiColors = (cfg) => { const C = { Confirmed: "#6cc287", Rejected: "#e06a5f", "Set by a person": "#7fa8d9" };
+    cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => C[l] || "#a3a3a6"); return cfg; };
   // review job (review.py): settings + run state from review_cfg / review_job.json, run log + coverage from enrich.py
   const until = (ts) => { if (!ts) return "—"; const s = ts - Date.now() / 1000; return s < 0 ? "due now" : s < 5400 ? `in ${Math.round(s / 60)} min` : `in ${(s / 3600).toFixed(1)} h`; };
   const dur = (s) => (s == null ? "" : s < 90 ? `${s} s` : `${Math.round(s / 60)} min`);
@@ -90,18 +90,18 @@
         chart.appendChild(Object.assign(document.createElement("div"), { className: "chart ai-tt" })).appendChild(document.createElement("canvas"));
         const lbl = days.map((d) => new Date(d.at * 1000).toLocaleDateString([], { month: "short", day: "numeric" }));
         const cfg = { type: "bar", data: { labels: lbl, datasets: [
-          { label: "New input (M)", data: days.map((d) => M(d.fresh)), backgroundColor: "#58a6ff", stack: "t", yAxisID: "y" },
-          { label: "Cache writes (M)", data: days.map((d) => M(d.cache_write)), backgroundColor: "#d29922", stack: "t", yAxisID: "y" },
-          { label: "Input, no cache split (M)", data: days.map((d) => M(d.nosplit)), backgroundColor: "#8b949e", stack: "t", yAxisID: "y" },
+          { label: "New input (M)", data: days.map((d) => M(d.fresh)), backgroundColor: "#7fa8d9", stack: "t", yAxisID: "y" },
+          { label: "Cache writes (M)", data: days.map((d) => M(d.cache_write)), backgroundColor: "#e1a948", stack: "t", yAxisID: "y" },
+          { label: "Input, no cache split (M)", data: days.map((d) => M(d.nosplit)), backgroundColor: "#a3a3a6", stack: "t", yAxisID: "y" },
           { label: "Output (M)", data: days.map((d) => M(d.completion)), backgroundColor: "#bc8cff", stack: "t", yAxisID: "y" },
-          { label: "Cache re-reads (M)", data: days.map((d) => M(d.cache_read)), backgroundColor: "#58a6ff33", stack: "t", yAxisID: "y", hidden: true },
-          { label: "Run time (min)", type: "line", data: days.map((d) => +d.mins.toFixed(1)), borderColor: "#3fb950", backgroundColor: "#3fb950",
+          { label: "Cache re-reads (M)", data: days.map((d) => M(d.cache_read)), backgroundColor: "#7fa8d933", stack: "t", yAxisID: "y", hidden: true },
+          { label: "Run time (min)", type: "line", data: days.map((d) => +d.mins.toFixed(1)), borderColor: "#6cc287", backgroundColor: "#6cc287",
             pointRadius: 3, tension: 0.2, yAxisID: "y1" },
-          { label: "Est. cost ($)", type: "line", data: days.map((d) => (d.cost == null ? null : +d.cost.toFixed(2))), borderColor: "#f85149", backgroundColor: "#f85149",
+          { label: "Est. cost ($)", type: "line", data: days.map((d) => (d.cost == null ? null : +d.cost.toFixed(2))), borderColor: "#e06a5f", backgroundColor: "#e06a5f",
             pointRadius: 3, tension: 0.2, yAxisID: "y2" },
           { label: "Ask AI chat cost ($)", type: "line", data: days.map((d) => (d.chat.length && d.chatCost != null ? +d.chatCost.toFixed(2) : null)), borderColor: "#e3b341", backgroundColor: "#e3b341", borderDash: [2, 3],
             pointRadius: 3, tension: 0.2, yAxisID: "y2" },
-          { label: "Cost with selected model ($)", type: "line", data: days.map(() => null), borderColor: "#ff7b72", backgroundColor: "#ff7b72", borderDash: [6, 4],
+          { label: "Cost with selected model ($)", type: "line", data: days.map(() => null), borderColor: "#ec7d72", backgroundColor: "#ec7d72", borderDash: [6, 4],
             pointRadius: 2, tension: 0.2, yAxisID: "y2", hidden: true }] },
           options: { interaction: { mode: "index", intersect: false }, scales: { x: { stacked: true, ticks: { maxRotation: 50, autoSkip: true } },
             y: { stacked: true, beginAtZero: true, title: { display: true, text: "tokens per day (millions), review + research + chat" } },
@@ -693,7 +693,7 @@
       hide();
       b = document.createElement("div");
       b.textContent = el.dataset.tip;
-      b.style.cssText = "position:fixed;z-index:9999;max-width:320px;padding:8px 10px;border-radius:6px;background:#1c2128;color:#e6edf3;border:1px solid #6e7681;font-size:13px;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,.5)";
+      b.style.cssText = "position:fixed;z-index:9999;max-width:320px;padding:8px 10px;border-radius:6px;background:#1b1b20;color:#e9e7e2;border:1px solid #5c5c63;font-size:13px;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,.5)";
       document.body.appendChild(b);
       const r = el.getBoundingClientRect();
       b.style.left = Math.max(8, Math.min(innerWidth - b.offsetWidth - 8, r.left)) + "px";
@@ -1202,7 +1202,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
   function lookbackCard(D) {
     const L = D.lookback || { minutes: 10, min: 2, max: 120, daily_hour: 5, ingest_slack_s: 300 };
     const c = document.createElement("div");  // a section inside the Review job card
-    c.style.cssText = "margin-top:14px;padding-top:10px;border-top:1px solid #2a323d";
+    c.style.cssText = "margin-top:14px;padding-top:10px;border-top:1px solid #26262b";
     c.innerHTML = `<h3 style="margin:0 0 4px">Event window: <b>${esc(L.minutes)} min</b></h3>
       <div class="small muted">One setting for three things: two events only become a candidate link when they happened at most this far apart;
         each run collects everything that arrived since the previous run plus one window before it (so nothing falls between runs);
@@ -1298,7 +1298,7 @@ curl -s localhost:8091/v1/systemone -H 'content-type: application/json' \
       ["Reviews / min", `${fn(T.rate_per_min ?? 0)}`, T.rate_per_min ? "good" : ""], ["Tokens / min", fn(T.tokens_per_min ?? 0), T.tokens_per_min ? "good" : ""], ["Tokens / sec", T.tokens_per_sec == null ? "—" : T.tokens_per_sec.toFixed(1), T.tokens_per_sec ? "good" : ""], ["Avg tokens in / event", `<span title="prompt tokens per event review, last 24 h (${fn(T.event_tokens?.day?.n || 0)} reviews). All time: ${fn(T.event_tokens?.all?.in || 0)} over ${fn(T.event_tokens?.all?.n || 0)} reviews">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.in) : "—"}</span>`], ["Avg tokens out / event", `<span title="completion tokens per event review, last 24 h. All time: ${fn(T.event_tokens?.all?.out || 0)}">${T.event_tokens?.day?.n ? fn(T.event_tokens.day.out) : "—"}</span>`], ["Avg notes in / event", `<span title="notes (owner + AI: event, host, account, internet) actually in the prompt per event review (anchor + its candidates), last 24 h, after the per-event limit, de-duplication and the note character budget${T.event_tokens?.day?.notes_offered != null ? `; ${T.event_tokens.day.notes_offered} were offered before trimming` : ""}. All time: ${T.event_tokens?.all?.notes ?? "—"}. Reviews before this change counted the offered notes.">${T.event_tokens?.day?.notes != null ? T.event_tokens.day.notes : "—"}</span>`], ["Web look-ups (24 h)", D.config?.web_search?.enabled || D.web_queries?.last_day ? `<a href="#/aireview?at=ai-web" title="event reviewer web searches / page reads; ${fn(D.web_queries?.reviews_web_day || 0)} of ${fn(D.web_queries?.reviews_day || 0)} event reviews searched the web">${fn(D.web_queries?.last_day || 0)}</a>` : "off"], ["Reviews / hour", fn(T.rate_per_hour)], ["Done in", q.eta_min == null ? (q.pending ? "?" : "—") : q.eta_min < 90 ? `~${q.eta_min} min` : `~${(q.eta_min / 60).toFixed(1)} h`]]));
 
     if (st.enabled && st.error) {  // say what the Error badge means, since when, and whether it fixes itself
-      const ex = document.createElement("div"); ex.className = "card"; ex.style.cssText = "margin:8px 0;border-left:3px solid var(--bad, #f85149)";
+      const ex = document.createElement("div"); ex.className = "card"; ex.style.cssText = "margin:8px 0;border-left:3px solid var(--bad, #e06a5f)";
       const kind = { decision: "Decision model unreachable", reviewer: "Event reviewer model problem", event: "Event review failed", classify: "Classification failed", loop: "Review worker error" }[st.error_kind] || "Review problem";
       ex.innerHTML = `<b>${esc(kind)}</b>${st.error_at ? ` <span class="small muted">· since ${esc(ago(st.error_at))}</span>` : ""}
         <div class="small" style="margin-top:4px">${esc(st.error_help || "The review worker reported a problem. It retries automatically and this clears after the next clean pass.")}</div>

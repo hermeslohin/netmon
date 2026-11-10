@@ -14,9 +14,9 @@ const TLS = { certFlag: "", ja3Rare: false };
 
 // TLS certificates are artifacts (art:cert:<sha256>): 📝 notes like a host / IP / domain, 🔍 search in Elasticsearch
 const certNoteBtn = (sha) => { const n = (window.CERT_NOTES || {})[sha] || 0;
-  return `<button type="button" class="extnote-btn${n ? " has" : ""}" data-extart="cert:${esc(sha)}" title="Notes on this TLS certificate (the event reviewer and research read them)">📝${n ? " " + n : ""}</button>`; };
+  return `<button type="button" class="extnote-btn${n ? " has" : ""}" data-extart="cert:${esc(sha)}" title="Notes on this TLS certificate (the event reviewer and research read them)"><i class="ic ic-note" aria-hidden="true"></i>${n ? " " + n : ""}</button>`; };
 const domNoteBtn = (name) => { const d = String(name || "").toLowerCase().replace(/^\*\./, "");
-  return /^[a-z0-9_.-]+\.[a-z]{2,}$/.test(d) ? `<button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}${String(name).startsWith("*.") ? " and its subdomains" : ""}">📝</button>` : ""; };
+  return /^[a-z0-9_.-]+\.[a-z]{2,}$/.test(d) ? `<button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}${String(name).startsWith("*.") ? " and its subdomains" : ""}"><i class="ic ic-note" aria-hidden="true"></i></button>` : ""; };
 const certLinks = (sha) => `${certNoteBtn(sha)}${window.artSearchBtn ? artSearchBtn("cert", sha) : ""} <a class="small" href="#/netnotes/${encodeURIComponent("cert:" + sha)}">notes page</a>`;
 
 // Rendered inside the DNS, TLS and IPs view (V.dns); #/tls deep-links there and scrolls to this section.
@@ -39,7 +39,7 @@ function tlsSection(el) {
   certs.forEach((c) => { const b = expBucket(c.days_left); if (b) exp[b]++; });
   const topIss = sortDesc(iss).slice(0, 10);
   el.appendChild(grid("g4", chartCard("TLS versions (sessions)", doughnutCfg(T.versions, { onClick: (l) => drill("devices", { tls: l }) })), chartCard("Certificate key types", doughnutCfg(keys, { onClick: (l) => drill("tls", { certkey: l }) })),
-    chartCard("Certificates by days to expiry", barCfg(Object.keys(exp), Object.values(exp), { horizontal: false, color: Object.keys(exp).map((k) => (k === "expired" ? "#f85149" : k === "<7d" ? "#d29922" : "#58a6ff")), onClick: (i) => drill("tls", { expiry: Object.keys(exp)[i] }) })),
+    chartCard("Certificates by days to expiry", barCfg(Object.keys(exp), Object.values(exp), { horizontal: false, color: Object.keys(exp).map((k) => (k === "expired" ? "#e06a5f" : k === "<7d" ? "#e1a948" : "#7fa8d9")), onClick: (i) => drill("tls", { expiry: Object.keys(exp)[i] }) })),
     chartCard("Top certificate issuers", barCfg(topIss.map((x) => x[0].slice(0, 32)), topIss.map((x) => x[1]), { color: PALETTE[4], onClick: (i) => drill("tls", { issuer: topIss[i][0] }) }))));
   if ((T.malicious_ja3 || []).length) {
     const mc = card(`Malicious JA3 matches (${T.malicious_ja3.length})`, `<div class="small muted" style="margin-bottom:6px">SSLBL lists JA3 hashes of malware TLS stacks. Old entries (pre-2022) commonly collide with legitimate libraries — check the SNI/destination before worrying.</div>`);

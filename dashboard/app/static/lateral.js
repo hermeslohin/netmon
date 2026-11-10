@@ -2,10 +2,10 @@
 "use strict";
 
 const LM_LEVELS = {
-  high: { c: "#f85149", l: "High" }, medium: { c: "#d29922", l: "Medium" }, low: { c: "#e3b341", l: "Low" },
-  "allowed-admin": { c: "#58a6ff", l: "Allowed admin" }, normal: { c: "#6e7681", l: "Normal" },
+  high: { c: "#e06a5f", l: "High" }, medium: { c: "#e1a948", l: "Medium" }, low: { c: "#e3b341", l: "Low" },
+  "allowed-admin": { c: "#7fa8d9", l: "Allowed admin" }, normal: { c: "#5c5c63", l: "Normal" },
 };
-const LM_ZONE_COL = { lan: "#58a6ff", servers: "#bc8cff", ai: "#3fb950", dmz: "#f85149", k8s: "#39c5cf", vlan3: "#ffa657", vlan4: "#ff9bce", vlan21: "#d2a8ff" };
+const LM_ZONE_COL = { lan: "#7fa8d9", servers: "#bc8cff", ai: "#6cc287", dmz: "#e06a5f", k8s: "#39c5cf", vlan3: "#ffa657", vlan4: "#ff9bce", vlan21: "#d2a8ff" };
 const LM_FILTERS = [["risky", "High / medium / low risk"], ["high", "High + medium only"], ["admin", "Risky + allowed admin"], ["all", "All internal connections"]];
 const LM = { filter: "risky", gateways: false, labels: true, focus: null, sel: null, data: null, pos: {} };
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -94,7 +94,7 @@ function lmRenderGraph(box, D) {
   const root = svgEl("g"); svg.appendChild(root);
   const gZ = svgEl("g"), gE = svgEl("g"), gN = svgEl("g"); root.append(gZ, gE, gN);
   for (const [z, h] of Object.entries(hull)) {
-    const c = LM_ZONE_COL[z] || "#8b949e";
+    const c = LM_ZONE_COL[z] || "#a3a3a6";
     gZ.appendChild(svgEl("circle", { cx: h.x, cy: h.y, r: h.r, fill: c, "fill-opacity": 0.07, stroke: c, "stroke-opacity": 0.55, "stroke-width": 1.5, "stroke-dasharray": "6 4" }));
     const t = svgEl("text", { x: h.x, y: h.y - h.r - 6, "text-anchor": "middle", fill: c, "font-size": FS(14), "font-weight": 700 }); t.textContent = `${z.toUpperCase()} · ${h.n}`; gZ.appendChild(t);
   }
@@ -126,13 +126,13 @@ function lmRenderGraph(box, D) {
   const nodeEls = [];
   for (const n of nodes) {
     const g = svgEl("g", { transform: `translate(${P[n.id].x},${P[n.id].y})`, style: "cursor:pointer" });
-    const r = rad(n), rc = n.risk >= 40 ? "#f85149" : n.risk >= 20 ? "#d29922" : n.risk >= 8 ? "#e3b341" : "#3fb950";
-    const zc = LM_ZONE_COL[n.zone] || "#8b949e";
-    g.appendChild(svgEl("circle", { r, fill: n.gateway ? "#30363d" : rc, "fill-opacity": n.gateway ? 1 : 0.85, stroke: n.id === LM.focus ? "#fff" : zc, "stroke-width": n.id === LM.focus ? 3 : 2 }));
-    if (n.gateway) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": FS(10), fill: "#c9d1d9" }); t.textContent = "GW"; g.appendChild(t); }
-    else if (n.risk >= 8) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": Math.min(12, r * 0.9), "font-weight": 700, fill: "#0d1117" }); t.textContent = Math.round(n.risk); g.appendChild(t); }
-    if (!n.known && !n.gateway) g.appendChild(svgEl("circle", { r: r + 4, fill: "none", stroke: "#d29922", "stroke-width": 1, "stroke-dasharray": "2 2" }));
-    if (LM.labels) { const t = svgEl("text", { "text-anchor": "middle", y: r + 4 + FS(9), "font-size": FS(11), fill: "#c9d1d9", stroke: "#0d1117", "stroke-width": 3, "paint-order": "stroke", style: "paint-order:stroke" }); t.textContent = n.name.length > 24 ? n.name.slice(0, 23) + "…" : n.name; g.appendChild(t); }
+    const r = rad(n), rc = n.risk >= 40 ? "#e06a5f" : n.risk >= 20 ? "#e1a948" : n.risk >= 8 ? "#e3b341" : "#6cc287";
+    const zc = LM_ZONE_COL[n.zone] || "#a3a3a6";
+    g.appendChild(svgEl("circle", { r, fill: n.gateway ? "#2c2c32" : rc, "fill-opacity": n.gateway ? 1 : 0.85, stroke: n.id === LM.focus ? "#fff" : zc, "stroke-width": n.id === LM.focus ? 3 : 2 }));
+    if (n.gateway) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": FS(10), fill: "#d6d3cc" }); t.textContent = "GW"; g.appendChild(t); }
+    else if (n.risk >= 8) { const t = svgEl("text", { "text-anchor": "middle", dy: 4, "font-size": Math.min(12, r * 0.9), "font-weight": 700, fill: "#0b0b0c" }); t.textContent = Math.round(n.risk); g.appendChild(t); }
+    if (!n.known && !n.gateway) g.appendChild(svgEl("circle", { r: r + 4, fill: "none", stroke: "#e1a948", "stroke-width": 1, "stroke-dasharray": "2 2" }));
+    if (LM.labels) { const t = svgEl("text", { "text-anchor": "middle", y: r + 4 + FS(9), "font-size": FS(11), fill: "#d6d3cc", stroke: "#0b0b0c", "stroke-width": 3, "paint-order": "stroke", style: "paint-order:stroke" }); t.textContent = n.name.length > 24 ? n.name.slice(0, 23) + "…" : n.name; g.appendChild(t); }
     const title = svgEl("title"); title.textContent = `${n.name} (${n.id})\nzone ${n.zone}${n.class ? " · " + n.class : ""}\nrisk ${n.risk}${n.rank ? " (rank " + n.rank + ")" : ""}\nrisky out ${n.out_risky} · risky in ${n.in_risky}`; g.appendChild(title);
     g.onmouseenter = () => lmHighlight(n.id, edgeEls, nodeEls);
     g.onmouseleave = () => lmHighlight(null, edgeEls, nodeEls);
@@ -212,7 +212,7 @@ function lmRenderPanel(D) {
       ? "Tap a host bubble to see its connections here. Drag a bubble to move it, drag the background to pan, pinch or use + / − to zoom, ⤢ to fit."
       : "Click a host bubble or a link. Hover a host to isolate its connections, drag bubbles to rearrange, scroll or use + / − to zoom, drag the background to pan, double-click a host to open its device page."}</div>
     <h3>Legend</h3><div class="small">${Object.entries(LM_LEVELS).map(([k, v]) => `<div><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="${v.c}" stroke-width="3"/></svg> ${v.l}</div>`).join("")}
-    <div><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#8b949e" stroke-width="2" stroke-dasharray="4 3"/></svg> never answered (attempt/scan)</div>
+    <div><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#a3a3a6" stroke-width="2" stroke-dasharray="4 3"/></svg> never answered (attempt/scan)</div>
     <div style="margin-top:6px">Bubble size and colour = host risk score (number inside); outline colour = zone; dashed amber ring = not in inventory; GW = gateway interface.</div></div>`; return; }
   if (sel.edge) {
     const e = sel.edge;
@@ -262,14 +262,14 @@ function lmAdminSection(el, D) {
   const goProto = (i, ds) => drillHere({ aproto: protos[i], ...(ds === 1 ? { aout: "failed logins" } : ds === 2 ? { aout: "refused connections" } : {}), at: "admin-list" });
   el.appendChild(grid("g2",
     chartCard("Logins by protocol (click to list)", { type: "bar", data: { labels: protos, datasets: [
-      { label: "successful logins", data: per("auth_ok"), backgroundColor: "#3fb950", borderRadius: 3 },
-      { label: "failed logins", data: per("auth_fail"), backgroundColor: "#f85149", borderRadius: 3 },
-      { label: "refused / unanswered", data: per("conn_failed"), backgroundColor: "#d29922", borderRadius: 3 }] },
+      { label: "successful logins", data: per("auth_ok"), backgroundColor: "#6cc287", borderRadius: 3 },
+      { label: "failed logins", data: per("auth_fail"), backgroundColor: "#e06a5f", borderRadius: 3 },
+      { label: "refused / unanswered", data: per("conn_failed"), backgroundColor: "#e1a948", borderRadius: 3 }] },
       options: { indexAxis: "y", scales: { x: { stacked: true }, y: { stacked: true } }, ...clickable(goProto) } }),
-    chartCard("Sessions by outcome", (() => { const OC = { Failed: "#f85149", "Failed + succeeded": "#d29922", Succeeded: "#3fb950", Unknown: "#8b949e" };
+    chartCard("Sessions by outcome", (() => { const OC = { Failed: "#e06a5f", "Failed + succeeded": "#e1a948", Succeeded: "#6cc287", Unknown: "#a3a3a6" };
       const cfg = doughnutCfg(A.reduce((o, a) => ((o[LM_OUTCOME[a.outcome][0]] = (o[LM_OUTCOME[a.outcome][0]] || 0) + 1), o), {}),
         { onClick: (l) => drillHere({ aout: Object.entries(LM_OUTCOME).find(([, v]) => v[0] === l)[0], at: "admin-list" }) });
-      cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => OC[l] || "#8b949e"); return cfg; })())));
+      cfg.data.datasets[0].backgroundColor = cfg.data.labels.map((l) => OC[l] || "#a3a3a6"); return cfg; })())));
   // check-off: ack type "admin", key src|dst|protocol (stable across snapshots); checked sessions move to their own card
   const admLabel = (a) => `${a.protocol}: ${lmName(D, a.src)} → ${lmName(D, a.dst)}`;
   const admCols = () => [ackCol("admin", admLabel),

@@ -121,7 +121,7 @@
   const unoteBtn = (a) => { const ns = S.corr?.unotes?.[a.eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {};
     if (!S.corr.events[a.eid]) S.corr.events[a.eid] = { label: a.text, type: TYPE_OF[a.eid.split("|")[0]] || "alert" };
-    return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(a.eid)}" title="Add a note or verdict (Expected / Benign / Suspicious), or send to research">${n ? `📝 ${n}${p ? " ⏳" : ""}` : "📝"}</button>`; };
+    return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(a.eid)}" title="Add a note or verdict (Expected / Benign / Suspicious), or send to research"><i class="ic ic-note" aria-hidden="true"></i>${n ? ` ${n}${p ? " ⏳" : ""}` : ""}</button>`; };
   const artCell = (a) => { const L = X().art_notes?.[a.eid] || [], T = X().art_note_text || {};
     return L.length ? `<span class="small" title="${esc(L.map((r) => (T[r.id]?.subject || "") + ": " + String(T[r.id]?.text || "").slice(0, 120)).join("\n"))}">🏷 ${L.length}</span>` : `<span class="muted small">–</span>`; };
   const sevOf = (v) => (v === "investigate" ? "high" : "medium");

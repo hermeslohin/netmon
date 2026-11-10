@@ -89,7 +89,7 @@
   // your notes on an event (kbnotes.js popover: add a note or a verdict, send to research); also used in the detail window
   function noteBtn(eid) {
     const ns = S.corr?.unotes?.[eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
-    return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(eid)}" title="Add a note or verdict on this event (the AI reads approved notes)">${n ? `📝 ${n}${p ? " ⏳" : ""}` : "📝"}</button>`;
+    return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(eid)}" title="Add a note or verdict on this event (the AI reads approved notes)"><i class="ic ic-note" aria-hidden="true"></i>${n ? ` ${n}${p ? " ⏳" : ""}` : ""}</button>`;
   }
   const kindOf = (t) => TYPES.find((r) => r[0] === t) || [];
 
@@ -119,10 +119,10 @@
     for (const a of [...own, ...rel.flatMap((r) => r.llm_artifacts || [])]) { const k = a.kind + ":" + a.value; if (seenA.has(k)) continue; seenA.add(k); (a.kind === "query" ? qs : a.kind === "web" ? webs : arts).push(a); }
     const relHtml = rel.length ? rel.map((r) => { const e = EV[r.id] || { label: r.id, type: "", link: "" };
       const conf = r.llm === "yes" ? `<span class="rel-ai yes" title="Confirmed link (confidence ${Math.round((r.llm_conf || 0) * 100)}%)">✓ ${Math.round((r.llm_conf || 0) * 100)}%</span>` : `<span class="rel-ai pend">pending</span>`;
-      return `<div class="oe-rel"><span class="badge">${esc(e.type || "")}</span> ${conf} <span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
-        ${e.link ? `<a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${Number(r.variants)} occurrences</span>` : ""}
+      return `<div class="oe-rel"><span class="rel-l">${esc(e.label.length > 140 ? e.label.slice(0, 138) + "…" : e.label)}</span>
+        <span class="rel-tags"><span class="badge">${esc(e.type || "")}</span> ${conf}${e.link ? ` <a class="small" href="${esc(e.link)}" title="Open this event's source page">open ↗</a>` : ""}${r.variants > 1 ? ` <span class="small muted">${Number(r.variants)} occurrences</span>` : ""}</span>
         ${r.llm_reason ? `<span class="rel-why small">${esc(r.llm_reason)}</span>` : ""}</div>`; }).join("") : `<div class="small muted">${win ? "None linked during this firing." : "None yet - the event reviewer adds them as it links events."}</div>`;
-    return `<details class="oe-det oe-sub"${openRel ? " open" : ""}><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${relHtml}</details>
+    return `<details class="oe-det oe-sub"${openRel ? " open" : ""}><summary>${rel.length} related event${rel.length === 1 ? "" : "s"}</summary>${rel.length ? `<div class="rel-story">${relHtml}</div>` : relHtml}</details>
       <details class="oe-det oe-sub"><summary>${arts.length} artifact${arts.length === 1 ? "" : "s"}</summary>${arts.length && U.artifactsHtml ? U.artifactsHtml(arts, "Click 📝 on an artifact to add a note") : `<div class="small muted">None yet.</div>`}</details>
       <details class="oe-det oe-sub"><summary>${qs.length} Elasticsearch ${qs.length === 1 ? "query" : "queries"} used</summary>${qs.length && U.artifactsHtml ? U.artifactsHtml(qs, "Click a query to open it in Kibana") : `<div class="small muted">None yet.</div>`}</details>
       ${webs.length && U.artifactsHtml ? `<details class="oe-det oe-sub"><summary>${webs.length} web ${webs.length === 1 ? "source" : "sources"} used</summary>${U.artifactsHtml(webs, "Pages the event reviewer relied on")}</details>` : ""}`;
@@ -184,9 +184,9 @@
   // event's artifacts (IPs, domains, processes, users: X.art_notes, filled by the Alerts page)
   const safeUrl = (u) => /^https?:\/\//i.test(String(u || "")) ? u : "";
   const subjBtn = (s) => { const [k, ...r] = String(s || "").split(":"), v = r.join(":");
-    return k === "ip" ? `<button type="button" class="extnote-btn" data-extip="${esc(v)}" title="Notes on ${esc(v)}">📝</button>`
-      : k === "dom" ? `<button type="button" class="extnote-btn" data-extdom="${esc(v)}" title="Notes on ${esc(v)}">📝</button>`
-      : k === "art" ? `<button type="button" class="extnote-btn" data-extart="${esc(v)}" title="Notes on this artifact">📝</button>` : ""; };
+    return k === "ip" ? `<button type="button" class="extnote-btn" data-extip="${esc(v)}" title="Notes on ${esc(v)}"><i class="ic ic-note" aria-hidden="true"></i></button>`
+      : k === "dom" ? `<button type="button" class="extnote-btn" data-extdom="${esc(v)}" title="Notes on ${esc(v)}"><i class="ic ic-note" aria-hidden="true"></i></button>`
+      : k === "art" ? `<button type="button" class="extnote-btn" data-extart="${esc(v)}" title="Notes on this artifact"><i class="ic ic-note" aria-hidden="true"></i></button>` : ""; };
   const subjSearch = (s) => { const [k, ...r] = String(s || "").split(":"), v = r.join(":"); if (!window.artSearchBtn) return "";
     return k === "ip" ? artSearchBtn("ip", v) : k === "net" ? artSearchBtn("net", v) : k === "dom" ? artSearchBtn("dns", v) : k === "art" ? artSearchBtn(r[0], r.slice(1).join(":")) : ""; };
   function researchHtml(eid, X) {

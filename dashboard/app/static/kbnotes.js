@@ -130,7 +130,7 @@
       else el.insertAdjacentHTML("beforeend", `<div class="small muted" style="margin:6px 0">Not seen in the selected time range: pick a range in which it was seen for subject, issuer and names.</div>`);
       el.appendChild(kbCard([`art:cert:${sha}`], `art:cert:${sha}`));
       const names = c ? [...new Set([...(c.sni || []), ...(c.san_dns || []).map((d) => d.replace(/^\*\./, ""))])].slice(0, 30) : [];
-      if (names.length) el.appendChild(card(`Its names: domain and subdomain notes (${names.length})`, `<div class="small muted" style="margin-bottom:6px">Notes on a name apply to every event about it; a note on a domain also covers its subdomains.</div>` + names.map((d) => `<div><a href="#/netnotes/${encodeURIComponent("dom:" + d)}" class="mono">${esc(d)}</a> <button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}">📝</button>${srch("dns", d)}</div>`).join("")));
+      if (names.length) el.appendChild(card(`Its names: domain and subdomain notes (${names.length})`, `<div class="small muted" style="margin-bottom:6px">Notes on a name apply to every event about it; a note on a domain also covers its subdomains.</div>` + names.map((d) => `<div><a href="#/netnotes/${encodeURIComponent("dom:" + d)}" class="mono">${esc(d)}</a> <button type="button" class="extnote-btn" data-extdom="${esc(d)}" title="Notes on ${esc(d)}"><i class="ic ic-note" aria-hidden="true"></i></button>${srch("dns", d)}</div>`).join("")));
       return;
     }
     if (ip.startsWith("dom:")) {  // one domain / subdomain: its notes, the parent domains' notes that cover it, and subdomains with their own notes
@@ -214,7 +214,7 @@
   const close = () => { pop?.remove(); pop = null; };
   function refreshBtns(eid) {
     const ns = S.corr?.unotes?.[eid] || [], n = ns.length, p = ns.some((x) => x.status === "pending");
-    document.querySelectorAll(".unote-btn").forEach((b) => { if (b.dataset.unote === eid) { b.textContent = n ? `📝 ${n}${p ? " ⏳" : ""}` : "📝"; b.classList.toggle("has", n > 0); } });
+    document.querySelectorAll(".unote-btn").forEach((b) => { if (b.dataset.unote === eid) { b.innerHTML = `<i class="ic ic-note" aria-hidden="true"></i>${n ? ` ${Number(n)}${p ? " ⏳" : ""}` : ""}`; b.classList.toggle("has", n > 0); } });
   }
   function render(btn) {
     const eid = btn.dataset.unote, me = S.corr?.events?.[eid], ns = S.corr?.unotes?.[eid] || [], U = isUserRole();
