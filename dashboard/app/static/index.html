@@ -14,11 +14,14 @@
 </head>
 <body>
 <!-- Loading splash: "Guardian of the Network Gate" animation until the first page has data (app.js synSplashDone);
-     prefers-reduced-motion gets the still image. -->
+     prefers-reduced-motion gets the still image. The overlay is transparent and click-through so the app shell
+     (header, nav, skeleton cards) shows around it; the art is a full scene, so it sits in a rounded, shadowed card. -->
 <div id="synSplash" class="syn-splash" role="status" aria-label="Loading Syn">
+  <figure class="syn-splash-card">
   <picture><source media="(prefers-reduced-motion: no-preference)" srcset="/syn-guardian.webp" type="image/webp">
   <img class="syn-hero" src="/syn.webp" width="508" height="337" alt="Syn, guardian of the network gate"></picture>
-  <div class="muted small">Syn is opening the gate…</div>
+  <figcaption class="muted small">Syn is opening the gate…</figcaption>
+  </figure>
 </div>
 <header>
   <button id="navToggle" class="hamburger" aria-label="Menu" aria-controls="nav" aria-expanded="false"><span></span><span></span><span></span></button>
@@ -67,7 +70,7 @@
   <div id="userBox" class="snap" style="margin-left:8px"></div>
 </header>
 <div id="navScrim" class="nav-scrim"></div>
-<main id="main"><div class="loading">Loading…</div></main>
+<main id="main"><div class="loading">Loading…</div><div class="skel-grid" aria-hidden="true"><div class="skel-kpi"></div><div class="skel-kpi"></div><div class="skel-kpi"></div><div class="skel-kpi"></div><div class="skel-panel"></div><div class="skel-panel"></div></div></main>
 <footer id="foot"></footer>
 <script src="/chart.umd.min.js"></script>
 <script src="/app.js"></script>

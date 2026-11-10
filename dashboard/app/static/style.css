@@ -702,8 +702,15 @@ tr.muted td { opacity: .6; }
 
 /* Syn artwork: login hero + loading splash */
 .syn-hero { display: block; width: 100%; height: auto; border-radius: 10px; margin: 0 0 16px; }
-.syn-splash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; padding: 16px; background: var(--bg, #0e1116); transition: opacity .35s ease; }
-.syn-splash .syn-hero { width: min(640px, 92vw); margin: 0; }
-.syn-splash.out { opacity: 0; pointer-events: none; }
+.syn-splash { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: transparent; pointer-events: none; transition: opacity .35s ease; }
+.syn-splash-card { margin: 0; padding: 0; width: min(640px, 92vw); border-radius: 14px; overflow: hidden; background: var(--panel);
+  border: 1px solid var(--border); box-shadow: 0 18px 50px rgba(0,0,0,.55), 0 4px 14px rgba(0,0,0,.35); }
+.syn-splash .syn-hero { width: 100%; margin: 0; border-radius: 0; }
+.syn-splash figcaption { padding: 8px 12px; text-align: center; }
+.syn-splash.out { opacity: 0; }
+/* App-shell skeleton shown behind the transparent splash until the first page renders (replaced by #main content) */
+.skel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-top: 12px; }
+.skel-kpi, .skel-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; height: 64px; }
+.skel-panel { grid-column: 1 / -1; height: 180px; }
 @media (prefers-reduced-motion: reduce) { .syn-splash { transition: none; } }
