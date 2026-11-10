@@ -198,10 +198,11 @@ def gkey(eid):
     return str(eid)
 
 
-def open_events(types=None, sev=None, q=None, limit=2000, merge=False, exclude=None):
+def open_events(types=None, sev=None, q=None, limit=2000, merge=False, exclude=None, ids_only=False):
     """Unchecked, unresolved events (any age), most severe then newest first. Repeats of one condition are one row.
     exclude: event types left out entirely (rows, counts and total), e.g. {'vuln'} for the Open events page, whose
-    Fix-list items live on the Fix list page instead."""
+    Fix-list items live on the Fix list page instead.
+    ids_only: just [{"eid", "members", "last_sid"}] of every row (the event reviewer's work list, corr_llm.open_rows)."""
     c = _c()
     acks = store.acks_load(c)
     alert_ok = {r[0] for r in c.execute("SELECT id FROM alerts WHERE cleared=0 AND held=0 AND source!='review'")}
@@ -243,7 +244,9 @@ def open_events(types=None, sev=None, q=None, limit=2000, merge=False, exclude=N
             todo += [x for x in ack_refs(m["eid"])[:1] if not (grp and x[0] == "event")]
         out.append({"eid": newest["eid"], "type": newest["type"], "label": newest["label"], "sev": newest["sev"], "link": newest["link"],
                     "t0": newest["t0"], "t1": newest["t1"], "item": d.get("item"), "members": [m["eid"] for m in g["members"][-12:]], "first_seen": g["first"], "last_seen": newest["last_seen"], "n": g["n"],
-                    "et0": _emin(g["members"]), "et1": _emax(g["members"]), "repeats": len(g["members"]), "ips": d.get("ips") or [], "acks": [{"type": t, "key": k} for t, k in dict.fromkeys(todo)]})
+                    "et0": _emin(g["members"]), "et1": _emax(g["members"]), "repeats": len(g["members"]), "last_sid": newest["last_sid"], "ips": d.get("ips") or [], "acks": [{"type": t, "key": k} for t, k in dict.fromkeys(todo)]})
+    if ids_only:
+        return [{"eid": x["eid"], "members": x["members"], "last_sid": x["last_sid"]} for x in out]
     if merge:
         out = merge_flows(out)
     out.sort(key=lambda e: (SEV_RANK.get((e["sev"] or "").lower(), 2), -(e["t1"] or 0), e["eid"]))

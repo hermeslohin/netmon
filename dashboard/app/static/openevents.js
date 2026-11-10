@@ -80,7 +80,7 @@
   const vcls = (v) => String(v || "").replace(/[^a-z-]/g, "");
   function chips(x) {
     const X = window.__oeExtra || {}, c = X.classes?.[x.eid], n = X.notes?.[x.eid], rn = X.related_n?.[x.eid] || 0;
-    return (c?.label === "pending" ? pendBadge(c) + " " : c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ${c.pending ? pendBadge(c, true) + " " : ""}` : "")
+    return (c?.label === "pending" ? pendBadge(c) + " " : c?.label === "unreviewed" ? unrevBadge(c) + " " : c ? `<span class="note-v v-${vcls(c.label)}" title="AI classification: ${esc(c.reason || "")}">${esc(c.label)}</span> ${c.pending ? pendBadge(c, true) + " " : ""}` : "")
       + (c?.sources?.length ? `<span class="small" title="the event reviewer cited ${c.sources.length} web page${c.sources.length === 1 ? "" : "s"} (open the event to see them)">🌍${c.sources.length}</span> ` : "")
       + (n && n.verdict ? `<span class="note-v v-${vcls(n.verdict)}" title="Research note verdict">📝 ${esc(n.verdict)}</span> ` : "")
       + (rn ? `<span class="muted small" title="related events">${rn} related</span>` : "");
@@ -230,7 +230,7 @@
     const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".askdlg-scrim, dialog[open]")) close(); };
     document.addEventListener("keydown", onKey, true); addEventListener("hashchange", close);
     const verdictHtml = (c || n) ? `<div class="oe-verdict">
-        ${c?.label === "pending" ? `<div>${pendBadge(c)}<div class="small muted">${esc(pendTitle(c.pending))}</div></div>` : c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${c.pending ? pendBadge(c) : ""}
+        ${c?.label === "pending" ? `<div>${pendBadge(c)}<div class="small muted">${esc(pendTitle(c.pending))}</div></div>` : c?.label === "unreviewed" ? `<div>${unrevBadge(c)}</div>` : c ? `<div><span class="note-v v-${vcls(c.label)}">${esc(c.label)}</span> <span class="small muted">AI classification · confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${c.pending ? pendBadge(c) : ""}
           ${c.owner && window.relUi?.ownerHtml ? `<div>${window.relUi.ownerHtml(c)}</div>` : ""}
           ${c.reason ? `<div class="small">${/^Decision model:/.test(c.reason) ? "" : aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) + " "}${window.relUi?.reasonHtml ? window.relUi.reasonHtml(c.reason, c.sources) : esc(c.reason)}</div>` : ""}
           ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}

@@ -98,12 +98,13 @@
     for (const [k, v] of Object.entries(e || {})) W[k] = v && typeof v === "object" && !Array.isArray(v) ? { ...(W[k] || {}), ...v } : v;
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(e?.unotes || {}) }; };
   const vChip = (a) => a.verdict === "pending" ? pendBadge(X().classes?.[a.eid] || { pending: {} })
-    : a.verdict === "unreviewed" || !a.verdict ? `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`
+    : a.verdict === "unreviewed" || !a.verdict ? (X().classes?.[a.eid]?.label === "unreviewed" ? unrevBadge(X().classes[a.eid]) : `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`)
     : `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>${a.vsrc === "ai" ? ` <span class="small muted">AI ${Math.round((X().classes?.[a.eid]?.confidence || 0) * 100)}%</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
   // the event reviewer's paragraph (context + why the verdict + what research found), shown in full under the alert for every role
   const revOf = (a) => a.review || X().classes?.[a.eid];
   const revBlock = (a) => { const c = revOf(a), r = String(c?.reason || "");
     if (c?.label === "pending") return `<div class="ai-rev small">${pendBadge(c)}</div>`;
+    if (c?.label === "unreviewed") return `<div class="ai-rev small">${unrevBadge(c)}</div>`;
     if (!r || /^Decision model:/.test(r)) return "";
     const body = window.relUi?.reasonHtml ? window.relUi.reasonHtml(r, c.sources) : esc(r);
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";

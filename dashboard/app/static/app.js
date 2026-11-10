@@ -170,15 +170,19 @@ const clickable = (fn) => ({ onClick: (e, els) => els.length && fn(els[0].index,
 // c = a classes[] entry; c.pending = {settles (epoch), links (a link is still undecided), rereview (it has an older label), n (group size)}
 const pendSettles = (p) => (p?.settles ? new Date(p.settles * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
 function pendTitle(p) {
+  if (p?.queued) return "Pending review: this event opened after the event reviewer's last pass; it is queued and its correlated group is labelled once it settles.";
   const at = pendSettles(p);
   return `Pending review: the event reviewer labels this event's correlated group${p?.n > 1 ? ` (${p.n} events)` : ""} once, when its newest event is one event window old`
     + ` (More > Settings > Site > event_window_minutes, plus 5 min for late log arrivals) and no link is still undecided.`
     + (p?.links ? " Some of its links are still being decided, so it may settle later than shown." : "")
     + (at ? ` Settles at ${at}.` : "") + (p?.rereview ? " It has an earlier label (shown) and gained new events since." : "");
 }
+// c.label "unreviewed" + c.unreviewed = the reason the event reviewer will never label this event as things stand
+const unrevBadge = (c) => (c?.label === "unreviewed" ? `<span class="unrev-flair small muted" title="${esc(c.reason || "")}">⊘ Not reviewed: ${esc(c.unreviewed || "no reason recorded")}</span>` : "");
 function pendBadge(c, short) {
   const p = c?.pending; if (!p) return "";
   const at = pendSettles(p);
+  if (p.queued) return `<span class="pend-flair" title="${esc(pendTitle(p))}">⏳ Pending review</span>${short ? "" : ` <span class="small muted" title="${esc(pendTitle(p))}">queued</span>`}`;
   return `<span class="pend-flair" title="${esc(pendTitle(p))}">⏳ Pending review</span>${!short && at ? ` <span class="small muted" title="${esc(pendTitle(p))}">settles at ${esc(at)}${p.links ? " (links deciding)" : ""}</span>` : ""}`;
 }
 

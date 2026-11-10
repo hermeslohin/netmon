@@ -69,7 +69,7 @@
       const cl = S.corr.classes?.[b.dataset.rel]; const pre = nb || b; let cb = pre.nextElementSibling?.classList.contains("cls-btn") ? pre.nextElementSibling : null;
       if (cl && !cb) { cb = document.createElement("button"); cb.type = "button"; cb.className = "cls-btn"; cb.dataset.cls = b.dataset.rel; pre.after(cb); }
       if (!cl && cb) cb.remove();
-      if (cl && cb) { const pd = cl.label === "pending", t = pd ? "⏳ Pending review" : "🏷 " + cl.label; if (cb.textContent !== t) cb.textContent = t;
+      if (cl && cb) { const pd = cl.label === "pending", un = cl.label === "unreviewed", t = pd ? "⏳ Pending review" : un ? "⊘ Not reviewed" : "🏷 " + cl.label; if (cb.textContent !== t) cb.textContent = t;
         cb.className = "cls-btn v-" + String(cl.label).replace(/[^a-z-]/g, "") + (cl.pending ? " pend" : ""); cb.title = pd || cl.pending ? pendTitle(cl.pending) : (cl.reason || "AI classification").slice(0, 200); }
       // people's notes on this event (kbnotes.js opens them): a 📝 button after the AI note, on every event row
       const after = (b.parentNode.querySelector(`.cls-btn[data-cls="${CSS.escape(b.dataset.rel)}"]`)) || nb || b; let ub = after.nextElementSibling?.classList.contains("unote-btn") ? after.nextElementSibling : null;
@@ -85,7 +85,7 @@
       // "settles at HH:MM": the event's correlated group has not settled yet (its label button above says Pending review)
       const pp = cl?.pending, isP = !!pp || pendingEv(b.dataset.rel); let pf = ub.nextElementSibling?.classList.contains("pend-flair") ? ub.nextElementSibling : null;
       if (isP && !pf) { pf = document.createElement("span"); pf.className = "pend-flair"; ub.after(pf); }
-      if (isP && pf) { const t = pp?.settles ? `settles at ${pendSettles(pp)}` : "⏳ links deciding"; if (pf.textContent !== t) pf.textContent = t;
+      if (isP && pf) { const t = pp?.settles ? `settles at ${pendSettles(pp)}` : pp?.queued ? "queued" : "⏳ links deciding"; if (pf.textContent !== t) pf.textContent = t;
         pf.title = pp ? pendTitle(pp) : "The decision model has not decided this event's candidate links yet"; }
       if (!isP && pf) pf.remove();
     });
@@ -267,7 +267,7 @@
     pop = document.createElement("div"); pop.className = "rel-pop note-pop"; pop.setAttribute("role", "dialog");
     pop.innerHTML = `<div class="rel-head"><b>AI classification</b> ${aiFlare({ model: c.model, via: "event classification", at: c.at ? new Date(c.at * 1000).toISOString() : "" })}
         <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
-      <div class="note-body"><div>${c.label === "pending" ? pendBadge(c) : `<span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${pendBadge(c)}`}</div>
+      <div class="note-body"><div>${c.label === "pending" ? pendBadge(c) : c.label === "unreviewed" ? unrevBadge(c) : `<span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${pendBadge(c)}`}</div>
         ${c.pending ? `<div class="small muted" style="margin-top:4px">${esc(pendTitle(c.pending))}</div>` : ""}
         ${c.owner ? `<div style="margin-top:4px">${ownerHtml(c)}</div>` : ""}
         <p>${reasonHtml(c.reason, c.sources)}</p>

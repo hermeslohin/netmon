@@ -916,6 +916,10 @@ def _schema(c):
     # events waiting for their group to settle (rewritten by every event pass): settles = epoch the group is due,
     # links = 1 while a link of the group is still undecided, rereview = 1 when the event already has an older label
     c.execute("CREATE TABLE IF NOT EXISTS review_pending (eid TEXT PRIMARY KEY, settles REAL, links INTEGER, rereview INTEGER, n INTEGER, ts REAL)")
+    try:  # why = set (settles NULL) for an open event the event reviewer will never label as things stand: the reason
+        c.execute("ALTER TABLE review_pending ADD COLUMN why TEXT")
+    except sqlite3.OperationalError:
+        pass
     c.execute("CREATE TABLE IF NOT EXISTS review_tokens (ts REAL, tokens INTEGER)")
     # decision model (clef) answers per pair: p_related always, p_suspicious for pairs it judged related; ms = call time
     # retired: the decision model's own event label (it now decides links only); kept for older determinations' history
@@ -2185,7 +2189,11 @@ def classes(eids, pending=False):
                 if e in out:
                     out[e].setdefault("sources", []).append({"url": u, "title": t, "id": w or ""})
             if pending:
-                for e, st, lk, rr, n in c.execute("SELECT eid, settles, links, rereview, n FROM review_pending WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(ch),)):
+                for e, st, lk, rr, n, why in c.execute("SELECT eid, settles, links, rereview, n, why FROM review_pending WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(ch),)):
+                    if why:
+                        if e not in out:
+                            out[e] = {"label": "unreviewed", "unreviewed": why, "confidence": None, "model": "", "at": None, "reason": f"Not reviewed: {why}."}
+                        continue
                     p = {"settles": st, "links": bool(lk), "rereview": e in out, "n": n}
                     if e in out:
                         out[e]["pending"] = p
@@ -2193,7 +2201,79 @@ def classes(eids, pending=False):
                         out[e] = {"label": "pending", "confidence": None, "model": "", "at": None, "pending": p,
                                   "reason": "Pending review: the event reviewer labels the whole correlated group once it has settled"
                                             + (" (links still being decided)" if lk else "") + "."}
+    if pending:  # an open event the event reviewer has not reached yet (opened since its last pass): queued, never blank
+        miss = [e for e in eids if e not in out]
+        if miss:
+            off, opn = reviewer_off(), open_members()
+            for e in miss:
+                if e in opn:
+                    out[e] = ({"label": "unreviewed", "unreviewed": off, "confidence": None, "model": "", "at": None, "reason": f"Not reviewed: {off}."} if off else
+                              {"label": "pending", "confidence": None, "model": "", "at": None, "pending": {"settles": None, "links": False, "rereview": False, "n": 1, "queued": True},
+                               "reason": "Pending review: queued for the event reviewer's next pass."})
     return out
+
+
+def reviewer_off():
+    """Why no event gets an event reviewer label at all right now, or None when the reviewer is running."""
+    if not ENABLED:
+        return "the event reviewer is off (NETMON_LLM)"
+    try:
+        import clef
+        if not clef.config()["enabled"] and not limits()["classify"]:
+            return "event labelling is off (AI pipeline configuration)"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+_OPEN = {"t": 0.0, "rows": [], "m": set()}
+
+
+def open_rows(max_age=60):
+    """The Open events rows the event reviewer must label: [{"eid", "members", "last_sid"}] (Fix-list weaknesses excluded:
+    they are tracked on the Fix list, not labelled). Cached for max_age seconds."""
+    if time.time() - _OPEN["t"] > max_age:
+        try:
+            import eventstore
+            rows = eventstore.open_events(exclude={"vuln"}, ids_only=True)
+        except Exception as e:  # noqa: BLE001 - the pages and the reviewer work without it
+            print(f"open_rows: {type(e).__name__}: {e}", file=sys.stderr)
+            rows = _OPEN["rows"]
+        _OPEN.update(t=time.time(), rows=rows, m={m for r in rows for m in [r["eid"], *r["members"]]})
+    return _OPEN["rows"]
+
+
+def open_members():
+    open_rows()
+    return _OPEN["m"]
+
+
+REVIEW_RUNS_MAX = 12  # older review runs merged into the event reviewer's base (only runs holding open unlabelled events)
+
+
+def review_base(get_base, latest_sid, rows=None):
+    """What the event reviewer labels: the newest review run plus every kept older run that holds an open event with no
+    label yet (a run covers one event window, so a group usually settles after the next run has replaced it).
+    Returns (base, focus, open_ids, older_sids): focus = event ids whose groups are reviewed (newest run's events + open
+    unlabelled rows), open_ids = the open unlabelled rows."""
+    rows = open_rows() if rows is None else rows
+    ids = {m for r in rows for m in r["members"]} | {r["eid"] for r in rows}
+    with _db() as c:
+        lab = {e for (e,) in c.execute("SELECT eid FROM event_class WHERE eid IN (SELECT value FROM json_each(?))", (json.dumps(sorted(ids)),))}
+    todo = {r["eid"]: r.get("last_sid") for r in rows if not ({r["eid"], *r["members"]} & lab)}
+    sids = sorted({s for s in todo.values() if s and s != latest_sid}, reverse=True)[:REVIEW_RUNS_MAX]
+    nb = get_base(latest_sid) if latest_sid else None
+    base = dict(nb or {})
+    E, R = dict(base.get("events") or {}), {a: list(lst) for a, lst in (base.get("related") or {}).items()}
+    for sid in sids:  # newest first; the newest run's copy of an event wins
+        b = get_base(sid) or {}
+        for k, v in (b.get("events") or {}).items():
+            E.setdefault(k, v)
+        for a, lst in (b.get("related") or {}).items():
+            have = {r["id"] for r in R.get(a, [])}
+            R.setdefault(a, []).extend(r for r in lst if r["id"] not in have)
+    base.update(events=E, related=R)
+    return base, set((nb or {}).get("events") or {}) | set(todo), set(todo), sids
 
 
 DECISION_INPUTS_KEEP = 30
@@ -2673,11 +2753,12 @@ def _ev_newest(ev):
     return None if ev.get("vuln") or t is None else float(t)
 
 
-def groups_of(base, V=None, keep=None):
+def groups_of(base, V=None, keep=None, singles=()):
     """Correlated groups of a correlation map: connected components of the decided RELATED links between its events.
     Returns [{"members": [eid, ...], "newest": epoch | None, "undecided": bool}] for every event that has at least one
     decided link (an event whose links are all undecided is a group of its own with undecided=True).
-    keep(a, b) -> False drops an undecided link from the count (review limits: skipped / test-mode / cleared pairs)."""
+    keep(a, b) -> False drops an undecided link from the count (review limits: skipped / test-mode / cleared pairs).
+    singles: events (open ones) that become a group of their own when they have no link at all, so they are labelled too."""
     rel, E = base.get("related") or {}, base.get("events") or {}
     V = verdicts({pair(a, r["id"]) for a, lst in rel.items() for r in lst}) if V is None else V
     par = {}
@@ -2711,6 +2792,9 @@ def groups_of(base, V=None, keep=None):
     for ms in comps.values():
         ts = [t for t in (_ev_newest(E[m]) for m in ms) if t is not None]
         out.append({"members": sorted(ms), "newest": max(ts) if ts else None, "undecided": any(m in und for m in ms)})
+    for s in sorted(set(singles) - set(par)):
+        if s in E:
+            out.append({"members": [s], "newest": _ev_newest(E[s]), "undecided": False})
     return out
 
 
@@ -2732,17 +2816,20 @@ def _cov(raw):
         return None
 
 
-def event_pass(base, now=None):
+def event_pass(base, now=None, focus=None, open_ids=()):
     """Stage 2, one event reviewer call per correlated GROUP once it has settled: its newest event is older than the event
     window plus ingest slack (settle_s(), Settings > Site > event_window_minutes) and none of its links is undecided.
     The label is stored on every member. A labelled group is reviewed again only when it gains a member (or a person's
     verdict / threat-intel hit on a member changes), and then again only after it settles. Unsettled events are written
     to review_pending (the pages show "Pending review, settles at HH:MM"). High-severity events with no label at all
     get a provisional label at once (FAST_PER_PASS), so alarms do not wait; their group review follows the settle.
-    At most CLASS_PER_PASS groups per pass."""
+    At most CLASS_PER_PASS groups per pass. focus (review_base): only groups with a member in it are reviewed; open_ids:
+    open unlabelled events - linkless ones become groups of their own, and those never to be labelled get a reason
+    (review_pending.why, shown as "Not reviewed: <reason>")."""
     import hashlib
     rel, E = base.get("related") or {}, base.get("events") or {}
-    if not rel:
+    open_ids = set(open_ids or ())
+    if not rel and not open_ids:
         return 0
     now = time.time() if now is None else now
     V = verdicts({pair(a, r["id"]) for a, lst in rel.items() for r in lst})
@@ -2753,8 +2840,17 @@ def event_pass(base, now=None):
     pulled, period = _pulled_to()  # end of the newest committed Elasticsearch pull (watcher arrival bookmark)
     with _db() as c:
         have = {e: (sg, _cov(cv)) for e, sg, cv in c.execute("SELECT eid, sig, covered FROM event_class")}
-        first = dict(c.execute("SELECT eid, ts FROM review_pending"))  # when each event started waiting (kept across passes)
-    G = [g for g in groups_of(base, V, keep) if any(m not in CL and not skipped.bad(m) for m in g["members"])]
+        first = dict(c.execute("SELECT eid, ts FROM review_pending WHERE why IS NULL"))  # when each event started waiting (kept across passes)
+    why = {}
+    for m in open_ids:
+        if m not in E:
+            why[m] = "its review run was removed before the event reviewer reached it"
+        elif m in CL:
+            why[m] = "a person cleared it, so the event reviewer skips it"
+        elif skipped.bad(m):
+            why[m] = "excluded from review (AI review limits or a suppress rule)"
+    G = [g for g in groups_of(base, V, keep, singles=open_ids & set(E))
+         if any(m not in CL and not skipped.bad(m) for m in g["members"]) and (focus is None or any(m in focus for m in g["members"]))]
     OV = owner_verdicts([m for g in G for m in g["members"]], E)
     todo, fast, pend = [], [], []
     for g in G:
@@ -2785,6 +2881,7 @@ def event_pass(base, now=None):
         ready = (not g["undecided"] and pull_ok and settles <= now) or overdue
         f = _REVIEW_FAILS.get("group|" + gs)
         if ready and f and f[1] >= REVIEW_RETRIES and f[0] == tuple(sorted(tok.items())):
+            why.update({m: f"the event reviewer failed on it {REVIEW_RETRIES} times; it tries again when the event changes" for m in ms if m not in have})
             continue  # the event reviewer failed this group too often: wait until it changes
         if ready:
             todo.append((ms, gs, cov, tok, overdue, settles))
@@ -2795,6 +2892,8 @@ def event_pass(base, now=None):
     with _lock, _db() as c:
         c.execute("DELETE FROM review_pending")
         c.executemany("INSERT OR REPLACE INTO review_pending (eid, settles, links, rereview, n, ts) VALUES (?,?,?,?,?,?)", pend)
+        c.executemany("INSERT OR IGNORE INTO review_pending (eid, settles, links, rereview, n, ts, why) VALUES (?,NULL,0,0,1,?,?)",
+                      [(m, now, w) for m, w in why.items()])
     todo.sort(key=lambda t: (all(m in have for m in t[0]), -max(_SEV_RANK.get(sev_of(E[m]), 0) for m in t[0]), -len(t[0])))
     todo = todo[:CLASS_PER_PASS]
     fast = fast[:FAST_PER_PASS]
@@ -2858,7 +2957,7 @@ def clef_overview():
         ev_min = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ?", (now - 600,)).fetchone()[0] / 10
         own = c.execute("SELECT COUNT(*) FROM event_class WHERE ts >= ? AND owner LIKE '%\"applied\": true%'", (now - 86400,)).fetchone()[0]
         pn, pl, prr, pnext, pover = c.execute("SELECT COUNT(*), COALESCE(SUM(links),0), COALESCE(SUM(rereview),0), MIN(settles), "
-                                              "COALESCE(SUM(settles <= ? AND links = 0),0) FROM review_pending", (now - 60,)).fetchone()
+                                              "COALESCE(SUM(settles <= ? AND links = 0),0) FROM review_pending WHERE why IS NULL", (now - 60,)).fetchone()
         calls, labelled, dly, dmax = c.execute("SELECT COUNT(*), COALESCE(SUM(COALESCE(members,1)),0), AVG(delay), MAX(delay) FROM review_events WHERE ts >= ?", (now - 3600,)).fetchone()
     pend = {"events": pn, "links_undecided": pl, "rereview": prr, "next_settle": pnext, "past_settle": pover,
             "window_minutes": round(_event_window_min()), "settle_s": settle_s(),
@@ -2873,6 +2972,12 @@ def run_once(get_base, latest_sid):
     With the decision model on: clef decides every undecided link (clef_pass); once none is left, the selected event reviewer
     makes one call per event with all its related events and notes (event_pass) - it never decides a link itself."""
     sids = [latest_sid] + [s for s, t in sorted(_wanted.items(), key=lambda x: -x[1]) if s != latest_sid and time.time() - t < 3600][:2]
+    try:  # older runs still holding open unlabelled events: their links are decided too, then their groups labelled (review_base)
+        rb = review_base(get_base, latest_sid) if latest_sid else None
+    except Exception as e:  # noqa: BLE001
+        print(f"review_base: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        rb = None
+    sids += [s for s in (rb[3] if rb else []) if s not in sids]
     model = _target()
     STATUS.update(model=model["model"], provider=model["provider"], busy=True, decided_this_run=0, es_queries_this_run=0, classified_this_run=0,
                   clef_related_this_run=0, clef_stage="", clef_todo=0, review_failed_this_run=0,
@@ -2921,7 +3026,10 @@ def run_once(get_base, latest_sid):
     if use_clef and latest_sid:  # stage 2 only when the decision model has decided every link of the newest snapshot
         try:
             b = get_base(latest_sid)
-            if b and b.get("related"):  # each correlated group is labelled once it settles (event_pass), not when the whole snapshot is decided
+            if rb:  # each correlated group is labelled once it settles (event_pass), not when the whole snapshot is decided;
+                # open events whose run is no longer the newest are labelled too (review_base)
+                done += event_pass(rb[0], focus=rb[1], open_ids=rb[2])
+            elif b and b.get("related"):
                 done += event_pass(b)
             if b:
                 sync_alarms(b)

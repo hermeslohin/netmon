@@ -146,7 +146,12 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    then makes **one** event reviewer call for the whole group — the most severe, best-connected member is the anchor,
    the other members are its candidates — and stores the label and reason on **every member** (each weighed against
    its own person's verdict). Until then the group's events show **⏳ Pending review · settles at HH:MM** on every
-   page that shows a label (table `review_pending`, rewritten each pass). A labelled group is reviewed again only when
+   page that shows a label (table `review_pending`, rewritten each pass). The reviewer works on the newest review run
+   plus every kept older run that still holds an open event with no label (a run covers one window, so a group
+   usually settles after the next run replaced it); an open event with no link at all is a group of its own. An open
+   event that will not be labelled (cleared by a person, excluded from review, its run removed, 3 failed calls, the
+   reviewer off) shows **⊘ Not reviewed: reason** (`review_pending.why`); one opened since the last pass shows
+   Pending review (queued). A labelled group is reviewed again only when
    it **gains a member** (or a member's person's verdict / threat-intel hit changes), and then again only after it
    settles. Because an event can reach Elasticsearch up to one window after it happened, a group also waits until the
    watcher (the Elasticsearch pull, once per event window) has committed a pull whose arrival window ends after its
