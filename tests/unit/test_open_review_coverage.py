@@ -114,6 +114,21 @@ class TestOpenEventsCoverage(unittest.TestCase):
             self.assertIn("off", corr_llm.classes(["fresh"], pending=True)["fresh"]["unreviewed"])
         self.assertIsNone(corr_llm.classes(["fresh"], pending=False).get("fresh"))  # auto-close never sees a placeholder
 
+    def test_event_of_a_pruned_run_is_rebuilt_from_the_event_store(self):
+        """An open event whose review run's documents were pruned is rebuilt from the events table and labelled.
+        REQ: EVW-08"""
+        import eventstore
+        now = time.time()
+        with eventstore._c() as c:
+            c.execute("INSERT INTO events (eid, type, label, sev, link, t0, t1, first_seen, last_seen, last_sid, n, resolved, doc) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", ("hf|exec-new|h|/usr/bin/x", "host", "New executable x", "medium", "#", now - 4000,
+                                                              now - 4000, "a", "b", "pruned", 1, 0, '{"ips": ["10.0.0.5"]}'))
+        rows = [{"eid": "hf|exec-new|h|/usr/bin/x", "members": ["hf|exec-new|h|/usr/bin/x"], "last_sid": "pruned"}]
+        base, focus, open_ids, _ = corr_llm.review_base({"new": {"events": {}, "related": {}}}.get, "new", rows)
+        self.assertEqual(base["events"]["hf|exec-new|h|/usr/bin/x"]["type"], "host")
+        self.assertEqual(corr_llm.event_pass(base, now=now, focus=focus, open_ids=open_ids), 1)
+        self.assertEqual(self.badge("hf|exec-new|h|/usr/bin/x"), "verdict")
+
 
 if __name__ == "__main__":
     unittest.main()

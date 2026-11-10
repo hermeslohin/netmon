@@ -148,7 +148,7 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    its own person's verdict). Until then the group's events show **⏳ Pending review · settles at HH:MM** on every
    page that shows a label (table `review_pending`, rewritten each pass). The reviewer works on the newest review run
    plus every kept older run that still holds an open event with no label (a run covers one window, so a group
-   usually settles after the next run replaced it); an open event with no link at all is a group of its own. An open
+   usually settles after the next run replaced it; an event whose run was pruned is rebuilt from the event store); an open event with no link at all is a group of its own. An open
    event that will not be labelled (cleared by a person, excluded from review, its run removed, 3 failed calls, the
    reviewer off) shows **⊘ Not reviewed: reason** (`review_pending.why`); one opened since the last pass shows
    Pending review (queued). A labelled group is reviewed again only when

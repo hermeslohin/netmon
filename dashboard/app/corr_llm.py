@@ -2272,6 +2272,17 @@ def review_base(get_base, latest_sid, rows=None):
         for a, lst in (b.get("related") or {}).items():
             have = {r["id"] for r in R.get(a, [])}
             R.setdefault(a, []).extend(r for r in lst if r["id"] not in have)
+    lost = [e for e in todo if e not in E]
+    if lost:  # its run's documents are gone (only the newest runs are kept): rebuild the event from the event store
+        try:
+            import eventstore
+            for r in eventstore._c().execute("SELECT eid, type, label, sev, link, t0, t1, doc FROM events WHERE eid IN (SELECT value FROM json_each(?))",
+                                             (json.dumps(lost),)):
+                d = json.loads(r["doc"] or "{}")
+                E[r["eid"]] = {**{k: v for k, v in d.items() if k != "item"}, "type": r["type"], "label": r["label"], "sev": r["sev"],
+                               "link": r["link"], "t0": r["t0"], "t1": r["t1"]}
+        except Exception as e:  # noqa: BLE001
+            print(f"review_base: event store: {type(e).__name__}: {e}", file=sys.stderr)
     base.update(events=E, related=R)
     return base, set((nb or {}).get("events") or {}) | set(todo), set(todo), sids
 
