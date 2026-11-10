@@ -125,7 +125,6 @@ Every page is made of boxes (cards).
 
 ![Baseline findings table with Host IP, Last seen and the filter box](img/posture-baseline-findings.png)
 
-![Host findings table with check boxes, Ask, Related and research-note buttons](img/posture-host-findings.png)
 *Host findings on Posture: check box, 💬 Ask, Related count and the ✨ verdict button on each row.*
 
 Tables with many rows (baseline findings, host findings, IDS signatures, Zeek weird) have a filter box above them. Baseline findings, host findings and threat-intel hits show an **Occurred** column: when the activity actually happened, taken from the Elasticsearch records behind the row (the first and last Zeek / Suricata / endpoint / auth-log record time inside the selected range), not when Syn processed it. The times are looked up in the background and fill in a few seconds after the page opens (… while waiting, — when there is no record behind the row, such as an agent-offline or Kubernetes inventory finding). IDS signatures and gateway events already show their own record times. Baseline findings also show the **Host IP** of the device they are about.
@@ -343,7 +342,6 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 
 What happened **in the selected time range** 🕒, listed as reported: each finding has its own row with that window's numbers, and repeats are **not** collapsed. Events older than the range are not shown here; if nobody accepted them they are still on [Open events](#open-events-vs-posture). Check-offs made here count everywhere (see [Open events vs Posture](#open-events-vs-posture)).
 
-
 | Box | What it is |
 |---|---|
 | Baseline findings | Things a device did differently from its own normal: new ports or services, traffic spikes, new countries or ASNs, new DNS habits, new TLS fingerprints. Needs 3 days of history. Columns include the **Device** (its name from the device registry, inventory or DHCP; the MAC address only when no name is known, otherwise on hover), its **Host IP** and **Last seen**; a filter box searches the table. |
@@ -387,8 +385,6 @@ Hosts and vulnerabilities ranked by the risk they pose to the whole network. Hos
 
 **Show** switches between hosts and containers, hosts only, or containers only. **Container vulnerabilities ranked by risk** lists what to fix per workload. Click a container to pivot into its pod's logs and events. See [KUBERNETES.md](KUBERNETES.md#risk-page).
 
-![Hosts and containers ranked by risk](img/k8s-risk.png)
-
 ### Security → Fix list
 
 Misconfigurations and security suggestions from all snapshots, such as SSH password logins, legacy TLS or exposed admin ports. Each issue shows when it was first and last seen. Segmentation violations are not listed here; they are on Posture and Lateral movement.
@@ -416,7 +412,6 @@ Host-to-host connections inside the network, compared against the zone policy.
 - **Cleared segmentation** lists the flows you cleared; uncheck one to bring it back.
 
 ![Lateral movement map](img/lateral-movement.png)
-
 
 **Several time periods.** In the time picker at the top, press **+ Add period** under *Also include these periods* (up to 8 in total) and Apply. The graph, tables, charts and admin-session lists on this page then combine all periods: connection and login counts are added up and each link keeps its worst risk. A custom range, or any extra period, is queried straight from Security Onion's Elasticsearch (internal connections, admin logins, segmentation violations), so the page does not wait for the full range to be collected. Other pages show the main range only.
 
@@ -542,8 +537,6 @@ Click an image to list its CVEs, with links to NVD and whether each one is gone 
 **Kubernetes events in Open events.** Every Kubernetes warning event (BackOff, Unhealthy, FailedMount, Evicted…) and every container-log hit that is not already a finding (authentication failures, access denied, TLS errors, crashes) is an *Info* host finding (`k8s-ev|…`, `k8s-log|…`). It shows in Open events with low severity, where it can be checked off, correlated and reviewed like any other event. Info events come from the 15-minute snapshot only and never raise a watcher alert. Security-relevant events (forbidden, PodSecurity) stay Review findings and do raise alerts.
 
 ### Devices → Kubernetes map
-
-![Kubernetes map with an ingress selected](img/k8s-map.png)
 
 A live map of the cluster, read through the read-only Kubernetes API account. Each namespace is a box holding its ingresses (⇄, red when a host has no TLS), its services (◆, orange when NodePort or LoadBalancer makes them reachable from outside the cluster) and its pods, with one row per container. Lines go from an ingress to its backend service and from a service to the pods it selects.
 

@@ -13,8 +13,6 @@ checks. A cluster without an API account still gets the log, event and alert mon
 netmon never changes a cluster. It does not read secrets, ConfigMaps or pod logs through the API (logs come only from
 Elasticsearch), and it cannot exec into pods.
 
-![Devices → Kubernetes: cluster selector, KPIs and Kubernetes findings](img/k8s-overview.png)
-
 ## Setup
 
 ### Logs, events and metrics (Elasticsearch)
@@ -80,11 +78,7 @@ verified. Each configured cluster has its own card, and **Remove cluster** delet
 - **Warning events** and **Security Onion alerts** on node and pod IPs.
 - **New images:** an image not seen in the nightly baseline.
 
-![Container-log security signals from Elasticsearch](img/k8s-signals.png)
-
 **Pod pivot.** Click a pod anywhere to open its page. It shows the pod notes, links to Kibana, the log volume (stderr marked) and the newest container logs with text, container and stream filters, plus its security hits, warning events and alerts. A workload name (from a pod note or the Risk page) shows all its pods.
-
-![Pod pivot page: pod notes, log volume and container logs](img/k8s-pod.png)
 
 ### Through the API
 
@@ -108,12 +102,6 @@ verified. Each configured cluster has its own card, and **Remove cluster** delet
   - which CVEs updating would fix, and which critical/high CVEs a rebuild alone would fix (fixed package versions).
 
   Results are cached per digest for 24 hours. The Trivy database is kept in `~/netmon-trivy-cache` (about 3 GB).
-
-![CIS Kubernetes benchmark for one cluster](img/k8s-cis.png)
-
-![Kubernetes map with an ingress selected](img/k8s-map.png)
-
-![Container images: updates and CVEs](img/k8s-images.png)
 
 ## Risk page
 
@@ -139,10 +127,6 @@ the same list. **Show** switches between hosts and containers, hosts only, and c
 
 **Container vulnerabilities ranked by risk** lists each weakness per workload, with how to fix it. Workloads with an
 ingress or an external service weigh 1.4×. Workload names link to the pod pivot page.
-
-![Hosts and containers ranked by risk](img/k8s-risk.png)
-
-![Container vulnerabilities ranked by risk](img/k8s-risk-vulns.png)
 
 ## Pod notes
 
@@ -190,8 +174,6 @@ Failed CIS checks and container images with critical/high CVEs fixed by an avail
 events. They go to **Security → Fix list** (`k8s-cis|<cluster>|<id>`, `k8s-imgcve|<repo>`, with how to fix them), not to
 endpoint findings or Open events. Accepted checks (`k8s.cis_accept`) are
 left out, and a check that passes again moves to *Fixed*.
-
-![Fix list filtered to the failed CIS checks](img/k8s-fixlist.png)
 
 ## Several clusters
 
