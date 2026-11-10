@@ -210,11 +210,50 @@ class SmallHelperTests(unittest.TestCase):
         t = today[k]
         self.assertEqual(t["ja4"], ["t13d_x"])
         self.assertEqual(t["software"], ["CamFW"])
-        self.assertEqual(t["iot"], {"domains": ["cloud.example"], "asns": {"AS64500": 10}, "raw_ips": [F.EXT["bad"]]})
+        self.assertEqual(t["iot"], {"domains": ["cloud.example"], "asns": {"AS64500": 10}, "raw_ips": [F.EXT["bad"]], "sni": []})
         self.assertEqual(t["internal_peers"], [f"{IP['server']}:554/tcp"])
         self.assertEqual(t["beacons"], ["cloud.example:443"])
         self.assertEqual(set(today), {k})
 
+
+    def _dest_findings(self, policy, cls_cam="camera", cls_laptop="personal"):
+        """Run extras_findings with 3 days of history in which both devices only used a.example / a.example TLS,
+        and today they use b.example (DNS) and b.example (TLS). Returns {(device key, kind)}."""
+        import extras, store
+        kc, kl = F.mac(3), F.mac(1)
+        devs = {IP["camera"]: {"mac": kc}, IP["laptop"]: {"mac": kl}}
+        store.cfg_save("policy", {**policy, "device_classes": {kc: cls_cam, kl: cls_laptop}})
+        old = {"domains": ["a.example"], "asns": {}, "raw_ips": [], "sni": ["a.example"]}
+        new = {"domains": ["a.example", "b.example"], "asns": {}, "raw_ips": [], "sni": ["a.example", "tls.b.example"]}
+        history = [{"devices": {kc: {"iot": old}, kl: {"iot": old}}} for _ in range(3)]
+        today = {kc: {"ip": IP["camera"], "iot": new}, kl: {"ip": IP["laptop"], "iot": new}}
+        got = set()
+        analyze.extras_findings({"devices": devs}, today, {IP["camera"]: kc, IP["laptop"]: kl}, history, 3, {},
+                                lambda sev, k, kind, detail: got.add((k, kind)))
+        return got, kc, kl
+
+    def test_new_destination_findings_follow_policy_classes(self):
+        """new_domain_classes / new_tls_classes pick which device classes get iot-new-domain and new-tls-server
+        findings: default iot only, a custom list, '*' for every device, [] = off; collect.py gathers
+        destinations for the union of both lists.
+        REQ: ANA-30"""
+        import extras
+        got, kc, kl = self._dest_findings({})
+        self.assertEqual(got, set())  # default iot only: a camera and a personal device get neither
+        got, kc, kl = self._dest_findings({}, cls_cam="iot")
+        self.assertEqual(got, {(kc, "iot-new-domain"), (kc, "new-tls-server")})
+        got, kc, kl = self._dest_findings({"new_domain_classes": ["camera"], "new_tls_classes": ["camera"]})
+        self.assertEqual(got, {(kc, "iot-new-domain"), (kc, "new-tls-server")})
+        got, kc, kl = self._dest_findings({"new_domain_classes": ["personal"], "new_tls_classes": []})
+        self.assertEqual(got, {(kl, "iot-new-domain")})
+        got, kc, kl = self._dest_findings({"new_domain_classes": [], "new_tls_classes": ["*"]})
+        self.assertEqual(got, {(kc, "new-tls-server"), (kl, "new-tls-server")})
+        got, kc, kl = self._dest_findings({"new_tls_classes": ["unclassified"]}, cls_laptop=None)
+        self.assertIn((kl, "new-tls-server"), got)
+        self.assertEqual(extras.new_dest_classes({"new_tls_classes": "iot"}, "tls"), set(extras.NEW_DEST_CLASSES))  # invalid -> default
+        self.assertTrue(extras.new_dest_applies(None, {"unclassified"}))
+        src = open(os.path.join(_env.REPO, "collect.py"), encoding="utf-8").read()
+        self.assertEqual(src.count('extras.new_dest_classes(pol, w)) for w in ("domain", "tls")'), 2)
 
 if __name__ == "__main__":
     unittest.main()

@@ -513,6 +513,24 @@ BEACON = {"min_conns": 36, "min_score": 0.75, "min_coverage": 0.4, "min_interval
           "ignore_ports": [3478, 19302]}  # defaults; policy "beacon" overrides (Settings > Network policy)
 
 
+# "new destination" findings (allowlist learned per device): which device classes they apply to (policy.new_domain_classes /
+# policy.new_tls_classes). A list of classes; "*" = every device, "unclassified" = devices with no class, [] = off.
+NEW_DEST_CLASSES = ["iot"]
+
+
+def new_dest_classes(pol=None, what="domain"):
+    """Set of device classes the new-domain (what="domain") or new-TLS-server-name (what="tls") findings apply to;
+    {"*"} = all devices. A missing or invalid value falls back to NEW_DEST_CLASSES."""
+    v = (pol if pol is not None else load_policy()).get("new_domain_classes" if what == "domain" else "new_tls_classes")
+    if not isinstance(v, list) or any(not isinstance(x, str) for x in v):
+        return set(NEW_DEST_CLASSES)
+    return {x.strip() for x in v if x.strip()}
+
+
+def new_dest_applies(cls, classes):
+    return "*" in classes or (cls or "unclassified") in classes
+
+
 def beacon_cfg(pol=None):
     """policy.beacon merged over BEACON; values of the wrong type fall back to the default."""
     p = (pol if pol is not None else load_policy()).get("beacon") or {}

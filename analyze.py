@@ -141,7 +141,7 @@ def enrich_today(snap, today, ip2key):
     for ip, d in (snap.get("iot_dest") or {}).items():
         if ip in ip2key:
             today[ip2key[ip]]["iot"] = {"domains": list(d.get("domains", {})), "asns": d.get("asns", {}),
-                                        "raw_ips": d.get("no_asn_ips", [])}
+                                        "raw_ips": d.get("no_asn_ips", []), "sni": list(d.get("sni", {}))}
     for f in (snap.get("internal") or {}).get("flows", []):
         if f["src"] in ip2key and f["answered"] >= 3:
             today[ip2key[f["src"]]].setdefault("internal_peers", []).append(f"{f['dst']}:{f['port']}/{f['proto']}")
@@ -245,13 +245,23 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
             if new and past_of(k):
                 add("low", k, "new-internal-peer", f"{len(new)} new internal destinations: {', '.join(new[:5])}")
 
-    # --- IoT destination allowlist ---
+    # --- destination allowlist (new domains / new TLS server names), for the device classes in policy
+    #     new_domain_classes / new_tls_classes (default iot, camera, media, game; "*" = every device) ---
+    dom_cls, tls_cls = extras.new_dest_classes(pol, "domain"), extras.new_dest_classes(pol, "tls")
     if ready:
         for k, t in today.items():
             if "iot" not in t:
                 continue
             past = [p["iot"] for p in past_of(k) if p.get("iot")]
             if not past:
+                continue
+            kc = klass(t["ip"])
+            if extras.new_dest_applies(kc, tls_cls) and any("sni" in p for p in past):
+                ss = set().union(*[set(p.get("sni", [])) for p in past])
+                ns = [x for x in t["iot"].get("sni", []) if x and x not in ss]
+                if ns:
+                    add("medium", k, "new-tls-server", f"TLS to server names (certificates) outside its learned list: {', '.join(ns[:6])}")
+            if not extras.new_dest_applies(kc, dom_cls):
                 continue
             sd = set().union(*[set(p["domains"]) for p in past])
             sa = set().union(*[set(p["asns"]) for p in past])

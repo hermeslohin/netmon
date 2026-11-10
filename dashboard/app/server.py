@@ -479,6 +479,25 @@ def tuning_info():
 DEVICE_CLASSES = ("iot", "camera", "media", "game", "personal", "work", "server", "k8s", "infra")  # settings_docs / discover.py
 
 
+def cfg_with_defaults(doc, data):
+    """Settings added after an install show on the Settings page with their default value and note (saved on the next edit)."""
+    if doc != "policy":
+        return data
+    import extras
+    out = dict(data)
+    try:
+        import settings_docs
+        notes = settings_docs.DOCS.get("policy", {})
+    except Exception:  # noqa: BLE001 - notes are optional
+        notes = {}
+    for k in ("new_domain_classes", "new_tls_classes"):
+        if k not in out:
+            out[k] = list(extras.NEW_DEST_CLASSES)
+            if notes.get(k) and "_doc_" + k not in out:
+                out["_doc_" + k] = notes[k]
+    return out
+
+
 def cfg_validate(doc, data):
     """Reject a settings change that would break a job (bad regex, wrong shape). Returns an error text or None."""
     try:
@@ -509,6 +528,12 @@ def cfg_validate(doc, data):
                 for d, c in dc.items():
                     if not str(d).startswith("_") and c not in DEVICE_CLASSES:
                         return f"device_classes[{d}] must be one of {', '.join(DEVICE_CLASSES)}"
+            for k in ("new_domain_classes", "new_tls_classes"):
+                v = data.get(k)
+                if v is not None:
+                    ok = ("*", "unclassified", *DEVICE_CLASSES)
+                    if not isinstance(v, list) or any(not isinstance(x, str) or x.strip() not in ok for x in v):
+                        return f"{k} must be a list of device classes ({', '.join(ok)}; * = every device)"
             for k in ("sensitive_ports", "discovery_ports", "gateway_ports"):
                 v = data.get(k)
                 if v is not None and (not isinstance(v, list) or any(isinstance(x, bool) or not isinstance(x, int) or not 0 < x < 65536 for x in v)):
@@ -1781,7 +1806,7 @@ class H(BaseHTTPRequestHandler):
                 doc = (q.get("doc") or ["policy"])[0]
                 if doc not in store.CFG_DOCS:
                     return self._json({"error": "unknown settings document"}, 404)
-                return self._json({"doc": doc, "docs": list(store.CFG_DOCS), "data": store.cfg_load(doc), "admin": admin})
+                return self._json({"doc": doc, "docs": list(store.CFG_DOCS), "data": cfg_with_defaults(doc, store.cfg_load(doc)), "admin": admin})
             if path == "/api/config/triage":
                 inp = autoclose_inputs()
                 return self._json({**(autoclose.run(*inp, dry=True) if inp else {"settings": autoclose.settings()}), "review": review_job(),

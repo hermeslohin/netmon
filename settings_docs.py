@@ -19,6 +19,13 @@ DOCS = {
         "device_classes": "What kind of device each one is: MAC address (preferred, survives DHCP changes) or IP -> class. Classes: iot, camera, media, game, personal, work, server, k8s, infra. "
                           "The class sets a device's risk impact (infra/server 5, k8s/work 4, personal 3, camera/media/game/iot 2) and drives rules: iot and camera devices must not reach protected zones or use admin ports. "
                           "A device with no class is 'unclassified' and takes its zone's impact. 'Discover from UniFi' guesses classes from UniFi fingerprints; review them.",
+        "new_domain_classes": "Which device classes get 'new domain' findings (iot-new-domain, plus new networks and IPs with no ASN): netmon learns the domains each such device looks up "
+                              "and flags ones outside that learned list. A list of classes from device_classes (iot, camera, media, game, personal, work, server, k8s, infra), "
+                              "'unclassified' for devices with no class, or '*' for every device. Default iot only (single-purpose devices with a stable set of destinations); add camera, media or game the same way; "
+                              "PCs and phones visit new domains all day, so adding personal or work is noisy. An empty list turns the finding off. Applies from the next collection.",
+        "new_tls_classes": "Which device classes get 'new TLS server' findings (new-tls-server): netmon learns the TLS server names (the names on the certificates) each such device connects to "
+                           "and flags ones outside that learned list, which also catches look-ups that bypass your DNS. Same values as new_domain_classes "
+                           "(classes, 'unclassified', '*'; empty = off). Default iot only. Applies from the next collection.",
         "sensitive_ports": "Admin / remote-control / lateral-movement ports (SSH 22, SMB 445, RDP 3389, databases, Docker and Kubernetes APIs...). "
                            "A successful internal connection to one of these that is not covered by an allow rule is a segmentation violation, and its severity is HIGH. "
                            "Add a port here to treat it as administrative; netmon also has a built-in list of admin ports that is always included.",

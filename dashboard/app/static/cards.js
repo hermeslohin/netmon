@@ -69,16 +69,23 @@
   }
   const scrollers = (c) => { const b = c.querySelector(":scope > .cc-body"); return b ? [b, ...b.querySelectorAll(".tblwrap, pre")] : []; };
   function cue(c) {
-    let more = null;
+    let more = null, can = false;
     for (const s of scrollers(c)) {
-      const vy = s.scrollHeight - s.clientHeight > 4, vx = s.scrollWidth - s.clientWidth > 4;
+      // only a real scroller counts: a table wrapper with overflow-y visible is taller than its box but scrolls with the
+      // body, so it must not keep "More below" on after the body reaches its end
+      const oy = s === scrollers(c)[0] || /auto|scroll/.test(getComputedStyle(s).overflowY);
+      const vy = oy && s.scrollHeight - s.clientHeight > 4, vx = s.scrollWidth - s.clientWidth > 4;
       const xm = vx && s.scrollWidth - s.clientWidth - s.scrollLeft > 12, w = s.parentElement;
       if (w && w.classList.contains("cc-tw") && w.classList.contains("sc-x-more") !== xm) w.classList.toggle("sc-x-more", xm);
+      if (vy && s.offsetParent) can = true;
       if (!more && vy && s.offsetParent && s.scrollHeight - s.clientHeight - s.scrollTop > 12) more = s;
     }
     if (c._more !== more) { c._more?.classList.remove("sc-more-y"); more?.classList.add("sc-more-y"); }
     c._more = more; const hm = !!more && !c.classList.contains("collapsed");
     if (c.classList.contains("cc-has-more") !== hm) c.classList.toggle("cc-has-more", hm);  // only touch the DOM on change
+    // "More below" stays in the layout while the box can scroll and fades out at the bottom (cc-has-more off), instead of jumping away
+    const cm = can && !c.classList.contains("collapsed");
+    if (c.classList.contains("cc-can-more") !== cm) c.classList.toggle("cc-can-more", cm);
   }
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver((es) => es.forEach((e) => { const c = e.target.closest(".card[data-cc]"); if (c) cue(c); })) : null;
   function watchScroll(c) {

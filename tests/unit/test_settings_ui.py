@@ -86,5 +86,20 @@ class SuppressButtonGold(unittest.TestCase):
         self.assertGreaterEqual(n, 5)
 
 
+class MoreBelowFades(unittest.TestCase):
+    def test_more_below_fades_out_at_the_bottom(self):
+        """The 'More below' flair stays in the layout while a box can scroll (cc-can-more) and fades out by opacity when
+        the box is scrolled to the bottom (cc-has-more off) instead of disappearing at once; reduced motion turns the fade off.
+        REQ: UI-91"""
+        js, css = _read("cards.js"), _read("style.css")
+        self.assertIn('c.classList.toggle("cc-can-more", cm)', js)
+        self.assertIn("if (vy && s.offsetParent) can = true;", js)
+        self.assertIn("/auto|scroll/.test(getComputedStyle(s).overflowY)", js)  # a non-scrolling table wrapper never keeps it on
+        self.assertRegex(css, r"\.cc-more\{[^}]*opacity:0;visibility:hidden;pointer-events:none;transition:opacity")
+        self.assertIn(".card.cc-can-more>.cc-more,.card.cc-has-more>.cc-more{display:block}", css)
+        self.assertRegex(css, r"\.card\.cc-has-more>\.cc-more\{opacity:\.9;visibility:visible")
+        self.assertRegex(css, r"prefers-reduced-motion:reduce\)\{\.cc-more")
+
+
 if __name__ == "__main__":
     unittest.main()

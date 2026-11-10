@@ -190,6 +190,25 @@ class CfgValidate(unittest.TestCase):
         for sev in ("high", "medium", "low", "off"):
             self.assertIsNone(cfg_validate("policy", self.pol(upload_spike={**base, "severity": sev, "min_mb": 0, "mad_factor": 2.5})))
 
+    def test_new_destination_class_lists(self):
+        """new_domain_classes / new_tls_classes accept lists of device classes, 'unclassified', '*' and [];
+        anything else (unknown class, a string, a number) is refused.
+        REQ: ANA-30"""
+        for k in ("new_domain_classes", "new_tls_classes"):
+            for good in (["iot", "camera"], ["*"], ["unclassified", "personal"], []):
+                self.assertIsNone(cfg_validate("policy", self.pol(**{k: good})))
+            for bad in (["toaster"], "iot", [1], {"iot": 1}):
+                with self.subTest(key=k, value=bad):
+                    self.bad("policy", self.pol(**{k: bad}))
+        import server
+        shown = server.cfg_with_defaults("policy", {"zones": {}})
+        self.assertEqual(shown["new_tls_classes"], ["iot"])
+        self.assertTrue(shown["_doc_new_domain_classes"])
+        self.assertEqual(server.cfg_with_defaults("policy", {"new_tls_classes": ["*"]})["new_tls_classes"], ["*"])
+        t = template("policy")
+        self.assertEqual(t["new_domain_classes"], ["iot"])
+        self.assertEqual(t["new_tls_classes"], ["iot"])
+
     def test_spike_threshold_values(self):
         """spike_thresholds rejects an unknown detection, a non-table row, bad severity, negative or text numbers and unknown columns.
         REQ: SET-45"""

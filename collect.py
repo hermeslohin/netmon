@@ -427,7 +427,7 @@ def collect_extras(devs):
     pol = extras.load_policy()
     cls = pol.get("device_classes", {})
     iot_ips = [ip for ip, d in devs.items() if SITE.is_internal(ip)
-               and cls.get(d.get("mac") or "", cls.get(ip)) in ("iot", "camera", "media", "game")]
+               and any(extras.new_dest_applies(cls.get(d.get("mac") or "", cls.get(ip)), extras.new_dest_classes(pol, w)) for w in ("domain", "tls"))]
     out, errors = {}, {}
     jobs = {"threat_intel": lambda: extras.threat_intel(HOURS), "beacons": lambda: extras.beacons(HOURS),
             "internal": lambda: extras.internal_traffic(HOURS), "admin_access": lambda: extras.admin_access(HOURS), "iot_dest": lambda: extras.iot_destinations(iot_ips, HOURS),
@@ -567,7 +567,7 @@ def section(name):
         pol = extras.load_policy()
         cls = pol.get("device_classes", {})
         iot_ips = [ip for ip, d in devs.items() if SITE.is_internal(ip)
-                   and cls.get(d.get("mac") or "", cls.get(ip)) in ("iot", "camera", "media", "game")]
+                   and any(extras.new_dest_applies(cls.get(d.get("mac") or "", cls.get(ip)), extras.new_dest_classes(pol, w)) for w in ("domain", "tls"))]
         return {name: extras.iot_destinations(iot_ips, HOURS)}
     jobs = {"threat_intel": lambda: extras.threat_intel(HOURS), "beacons": lambda: extras.beacons(HOURS),
             "internal": lambda: extras.internal_traffic(HOURS), "admin_access": lambda: extras.admin_access(HOURS),
