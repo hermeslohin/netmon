@@ -1,6 +1,6 @@
-"""Auto-tune recommendations for the detection thresholds (policy: scan_thresholds, beacon, upload_spike, spike_thresholds).
+"""Auto-tune recommendations for the detection thresholds (policy: scan_thresholds, beacon, upload_spike, volume_spike, spike_thresholds).
 
-Device classes: upload_spike, scan_thresholds and beacon are tuned per scope - the section's own numbers (devices of the
+Device classes: upload_spike, volume_spike, scan_thresholds and beacon are tuned per scope - the section's own numbers (devices of the
 classes the rule runs for, without an override) and one proposal per by_class override (id <section>@<class>, written to
 by_class[<class>]). When one class causes most of a section-wide change, a narrower 'class only' override is offered too.
 
@@ -19,12 +19,13 @@ import store
 
 MB = 1024 * 1024
 WINDOW_DAYS = 14
-BUDGET = {"upload_spike": 0.5, "spike": 1.0, "beacon": 2.0, "scan": 0.5}  # findings per day the proposal aims at
+BUDGET = {"upload_spike": 0.5, "volume_spike": 0.5, "spike": 1.0, "beacon": 2.0, "scan": 0.5}  # findings per day the proposal aims at
 DEFAULT_SCAN = {"hosts": 20, "ports": 40}
 
-# (rec id, history field, policy spike name or None for upload, unit divisor, label)
+# (rec id, history field, policy spike name or None for a policy section of its own (upload_spike / volume_spike), unit divisor, label)
 SERIES = (
     ("upload_spike", "sent", None, MB, "Upload spike"),
+    ("volume_spike", "total", None, MB, "Volume spike"),
     ("fan_out", "ext_peers", "fan_out", 1, "External fan-out"),
     ("failed_conns", "rejected", "failed_conns", 1, "Failed connections"),
     ("dns_volume", "dns_q", "dns_volume", 1, "DNS query volume"),
@@ -242,17 +243,17 @@ def recommend():
                 if len(v) >= 2:
                     out.append(v)
             return out
-        if name is None:  # upload spike: one proposal per device-class scope (class filter + by_class)
-            for cls, keep in _scopes(pol, "upload_spike"):
-                u = extras.upload_cfg(cls, pol) if cls else extras.upload_cfg(pol=pol)
+        if name is None:  # upload / volume spike: one proposal per device-class scope (class filter + by_class)
+            for cls, keep in _scopes(pol, rid):
+                u = extras._spike_section_cfg(rid, cls, pol) if cls else extras._spike_section_cfg(rid, pol=pol)
                 cur = {"min": u["min_mb"], "times_normal": u["times_normal"], "mad_factor": u["mad_factor"], "min_days": u["min_days"], "severity": u["severity"]}
-                r = _spike_rec(rid, label, series_of(keep), days, cur, BUDGET["upload_spike"])
+                r = _spike_rec(rid, label, series_of(keep), days, cur, BUDGET[rid])
                 r["unit"] = "MB"
                 if "changes" in r:
                     r["changes"] = {({"min": "min_mb"}.get(k, k)): v for k, v in r["changes"].items()}
                 r["current"] = {({"min": "min_mb"}.get(k, k)): v for k, v in r["current"].items()}
-                r["target"] = {"section": "upload_spike"}
-                recs.append(_scoped_rec(r, "upload_spike", cls, u))
+                r["target"] = {"section": rid}
+                recs.append(_scoped_rec(r, rid, cls, u))
         else:
             r = _spike_rec(rid, label, series_of(lambda c: True), days, spk[name], BUDGET["spike"])
             r["target"] = {"section": "spike_thresholds", "name": name}
@@ -320,7 +321,8 @@ def apply(accepted):
         if not r:
             continue
         t = r["target"]
-        sec = pol.setdefault(t["section"], {})
+        import extras
+        sec = pol.setdefault(t["section"], dict(extras.SPIKE_SECTIONS.get(t["section"], {})))  # a section not saved yet starts from its defaults
         if "name" in t:
             sec = sec.setdefault(t["name"], {})
         if t.get("class"):  # a device-class scope: written as that class's override (by_class), the rest untouched

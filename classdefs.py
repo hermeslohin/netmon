@@ -277,7 +277,7 @@ def rename(pol, old, new):
     return _rescope(out, old, new)
 
 
-SCOPED = ("upload_spike", "scan_thresholds", "beacon")  # threshold sections with a device-class scope (extras.SCOPED)
+SCOPED = ("upload_spike", "volume_spike", "scan_thresholds", "beacon")  # threshold sections with a device-class scope (extras.SCOPED)
 
 
 def _rescope(pol, old, new, removed=False):

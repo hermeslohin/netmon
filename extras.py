@@ -453,14 +453,19 @@ def _robust(vals):
 
 
 UPLOAD_SPIKE = {"min_mb": 25, "times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "high"}  # defaults; policy "upload_spike" overrides
+# volume-spike (a device's total traffic, sent + received, far above its own normal): policy "volume_spike" overrides.
+# The defaults are the numbers analyze.py used before the section existed (50 MB floor, 3x normal, normal + 6 MAD, 3 days, medium).
+VOLUME_SPIKE = {"min_mb": 50, "times_normal": 3, "mad_factor": 6, "min_days": 3, "severity": "medium"}
 
 
 # Device-class scope of a threshold section (policy upload_spike / scan_thresholds / beacon, Settings > Network policy):
 #   classes   which device classes the rule runs for ([] / absent / "*" = every device; "unclassified" = devices with no class)
 #   by_class  {class: {setting: value}} per-class overrides of the section's numbers (missing = the section's value)
-SCOPED = ("upload_spike", "scan_thresholds", "beacon")
+SCOPED = ("upload_spike", "volume_spike", "scan_thresholds", "beacon")
 SCOPE_KEYS = ("classes", "by_class")
+SPIKE_SECTIONS = {"upload_spike": UPLOAD_SPIKE, "volume_spike": VOLUME_SPIKE}  # same shape: min_mb, times_normal, mad_factor, min_days, severity
 SCOPE_FIELDS = {"upload_spike": ("min_mb", "times_normal", "mad_factor", "min_days", "severity"),
+                "volume_spike": ("min_mb", "times_normal", "mad_factor", "min_days", "severity"),
                 "scan_thresholds": ("hosts", "ports"),
                 "beacon": ("min_conns", "min_score", "min_coverage", "min_intervals", "unlabelled_min_score")}  # ignore_ports stays global (ES query)
 
@@ -511,14 +516,15 @@ def _scoped(sec, cls, out, conv):
     return out
 
 
-def upload_cfg(cls=None, pol=None):
-    """policy.upload_spike merged over the defaults (bad values fall back to the default). cls given: that device class's
-    overrides applied and 'applies' = whether the rule runs for the class at all."""
+def _spike_section_cfg(section, cls=None, pol=None):
+    """policy.<section> (upload_spike / volume_spike) merged over its defaults (bad values fall back to the default).
+    cls given: that device class's overrides applied and 'applies' = whether the rule runs for the class at all."""
+    dflt = SPIKE_SECTIONS[section]
     try:
-        p = (pol if pol is not None else load_policy()).get("upload_spike") or {}
+        p = (pol if pol is not None else load_policy()).get(section) or {}
     except Exception:  # noqa: BLE001
         p = {}
-    out = dict(UPLOAD_SPIKE)
+    out = dict(dflt)
     conv = lambda k, v: v if k == "severity" else float(v)  # noqa: E731
     for k, v in p.items():
         if k in out and not k.startswith("_"):
@@ -529,8 +535,18 @@ def upload_cfg(cls=None, pol=None):
     if cls is not None:
         out = _scoped(p, cls, out, conv)
     if out["severity"] not in ("high", "medium", "low", "off"):
-        out["severity"] = "high"
+        out["severity"] = dflt["severity"]
     return out
+
+
+def upload_cfg(cls=None, pol=None):
+    """policy.upload_spike merged over UPLOAD_SPIKE (see _spike_section_cfg)."""
+    return _spike_section_cfg("upload_spike", cls, pol)
+
+
+def volume_cfg(cls=None, pol=None):
+    """policy.volume_spike merged over VOLUME_SPIKE (see _spike_section_cfg)."""
+    return _spike_section_cfg("volume_spike", cls, pol)
 
 
 SCAN = {"hosts": 20, "ports": 40}  # defaults; policy "scan_thresholds" overrides

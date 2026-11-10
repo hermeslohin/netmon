@@ -115,6 +115,29 @@ def upload_cfg_for(pol, key, t, cache=None):
     return cache[cls]
 
 
+def volume_cfg_for(pol, key, t, cache=None):
+    """volume_spike settings for one device (same class lookup as upload_cfg_for)."""
+    import classdefs
+    import extras
+    cls = classdefs.class_of(pol, t.get("ip"), key if key != t.get("ip") else None)
+    cache = {} if cache is None else cache
+    if cls not in cache:
+        cache[cls] = extras.volume_cfg(cls, pol)
+    return cache[cls]
+
+
+def volume_finding(pol, key, t, past, cache=None):
+    """The volume-spike check for one device: (severity, detail) or None. Thresholds from policy volume_spike
+    (Settings > Network policy; defaults = the former hardcoded 50 MB / 3x normal / normal + 6 MAD / 3 days / medium),
+    with the device class's by_class overrides and class filter."""
+    vo = volume_cfg_for(pol, key, t, cache)
+    hist = [p["total"] for p in past]
+    if not vo["applies"] or vo["severity"] == "off" or not spike(t["total"], hist, vo["min_mb"] * MB, mult=vo["times_normal"],
+                                                                 madf=vo["mad_factor"], min_days=vo["min_days"]):
+        return None
+    return vo["severity"], f"total {t['total']/MB:.0f} MB vs normal {med(hist)/MB:.0f} MB"
+
+
 _SP = None
 
 
@@ -406,15 +429,14 @@ def main():
         print(f"(new-device alarms not added to findings: {_e})", file=sys.stderr)
 
     # --- per-device deviation vs baseline ---
-    _pol, _upc = _ex.load_policy(), {}
+    _pol, _upc, _voc = _ex.load_policy(), {}, {}
     for key, t in today.items():
         past = [h["devices"][key] for h in history if key in h.get("devices", {})]
         if not past:  # brand-new devices are reported via the registry below
             continue
         UP = upload_cfg_for(_pol, key, t, _upc)  # per device class: class filter + by_class overrides
-        if spike(t["total"], [p["total"] for p in past], 50 * MB):
-            add("medium", key, "volume-spike",
-                f"total {t['total']/MB:.0f} MB vs normal {med([p['total'] for p in past])/MB:.0f} MB")
+        if (vf := volume_finding(_pol, key, t, past, _voc)):
+            add(vf[0], key, "volume-spike", vf[1])
         if UP["applies"] and UP["severity"] != "off" and spike(t["sent"], [p["sent"] for p in past], UP["min_mb"] * MB, mult=UP["times_normal"], madf=UP["mad_factor"], min_days=UP["min_days"]):
             add(UP["severity"], key, "upload-spike",
                 f"sent {t['sent']/MB:.0f} MB vs normal {med([p['sent'] for p in past])/MB:.0f} MB (possible exfil/backup)")

@@ -457,6 +457,7 @@ def seg_filter(analysis):
 
 TUNING = (  # finding-kind regex -> (policy setting, title, defaults). Event ids look like f|<kind>|<device>|<detail>.
     (r"^upload-spike", "upload_spike", "Upload spike sensitivity"),
+    (r"^volume-spike", "volume_spike", "Volume spike sensitivity"),
     (r"^beacon", "beacon", "Beacon detection thresholds"),
     (r"^internal-scan", "scan_thresholds", "Scan thresholds"),
 )
@@ -466,7 +467,7 @@ def tuning_info():
     """Current values + description of every tunable detection, for the event cards (read-only; edit under More > Settings)."""
     import extras
     pol = store.cfg_load("policy")
-    eff = {"upload_spike": extras.upload_cfg(pol=pol), "beacon": extras.beacon_cfg(pol), "scan_thresholds": extras.scan_cfg(pol)}
+    eff = {"upload_spike": extras.upload_cfg(pol=pol), "volume_spike": extras.volume_cfg(pol=pol), "beacon": extras.beacon_cfg(pol), "scan_thresholds": extras.scan_cfg(pol)}
     for k in extras.SCOPED:  # device-class scope shown on the event cards too
         sec = pol.get(k) or {}
         eff[k] = {**eff[k], **{sk: sec[sk] for sk in extras.SCOPE_KEYS if sec.get(sk)}}
@@ -511,6 +512,8 @@ def cfg_with_defaults(doc, data):
     if notes.get("class_defs") and "_doc_class_defs" not in out:
         out["_doc_class_defs"] = notes["class_defs"]
     import extras
+    if "volume_spike" not in out:  # added after installs: shown with the former hardcoded numbers until first edited
+        out["volume_spike"] = dict(extras.VOLUME_SPIKE)
     for sname in extras.SCOPED:  # device-class scope: shown as 'every device' / no overrides until first edited
         sec = out.get(sname)
         if isinstance(sec, dict) and not all(k in sec for k in extras.SCOPE_KEYS):
@@ -643,21 +646,23 @@ def cfg_validate(doc, data):
                         return f"scan_thresholds: unknown setting {k} (hosts, ports)"
                     if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 1:
                         return f"scan_thresholds {k} must be a number of 1 or more"
-            us = data.get("upload_spike")
-            if us is not None:
+            for sname in ("upload_spike", "volume_spike"):  # same shape (extras.SPIKE_SECTIONS)
+                us = data.get(sname)
+                if us is None:
+                    continue
                 if not isinstance(us, dict):
-                    return "upload_spike must be a table of name -> value"
+                    return f"{sname} must be a table of name -> value"
                 for k, v in us.items():
                     if k.startswith("_"):
                         continue
                     if k == "severity":
                         if v not in ("high", "medium", "low", "off"):
-                            return "upload_spike severity must be high, medium, low or off"
+                            return f"{sname} severity must be high, medium, low or off"
                     elif k in ("min_mb", "times_normal", "mad_factor", "min_days"):
                         if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
-                            return f"upload_spike {k} must be a number of 0 or more"
+                            return f"{sname} {k} must be a number of 0 or more"
                     else:
-                        return f"upload_spike: unknown setting {k} (min_mb, times_normal, mad_factor, min_days, severity)"
+                        return f"{sname}: unknown setting {k} (min_mb, times_normal, mad_factor, min_days, severity)"
             st = data.get("spike_thresholds")
             if st is not None:
                 import extras as _ex

@@ -138,10 +138,10 @@
     return { el: s, get: () => { if (!s.value) { s.style.outline = "2px solid #e06a5f"; throw new Error("pick a class for every device"); } s.style.outline = ""; return s.value; } };
   }
 
-  // Device-class scope of upload_spike / scan_thresholds / beacon (extras.SCOPED):
+  // Device-class scope of upload_spike / volume_spike / scan_thresholds / beacon (extras.SCOPED):
   //   classes  = a drop-down of class check boxes: which device classes the rule runs for (none ticked = every device)
   //   by_class = per-class overrides: a class picker plus the section's numbers (blank = use the section's value)
-  const SCOPED = ["upload_spike", "scan_thresholds", "beacon"];
+  const SCOPED = ["upload_spike", "volume_spike", "scan_thresholds", "beacon"];
   const allClasses = () => [...CLASSES, "unclassified"];
   function classMulti(v, ed) {
     const sel = new Set(Array.isArray(v) ? v.filter((x) => x !== "*") : []);

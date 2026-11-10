@@ -219,8 +219,9 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `cfg.host_policy` | Settings > Host policy | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48, SET-49 | 20 | 0 |
 | `cfg.known_benign` | Settings > Known benign | `/api/config/cfg` | STO-02, SET-40, SET-41, SET-42, SET-43, SET-48 | 18 | 0 |
 | `cfg.site` | Settings > Site | `/api/config/cfg` | STO-02, CFG-01, EVW-01, SET-40, SET-41, SET-42, SET-43, SET-48 | 41 | 2 |
-| `cfg.class_scope` | Settings > Network policy > upload_spike / scan_thresholds / beacon: classes (device class drop-down) and by_class overrides | `/api/config/cfg` | CLS-06, CLS-07, CLS-08 | 8 | 0 |
-| `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67, CLS-09 | 8 | 3 |
+| `cfg.class_scope` | Settings > Network policy > upload_spike / volume_spike / scan_thresholds / beacon: classes (device class drop-down) and by_class overrides | `/api/config/cfg` | CLS-06, CLS-07, CLS-08, VOL-03, VOL-04 | 10 | 0 |
+| `cfg.volume_spike` | Settings > Network policy > volume_spike: min_mb, times_normal, mad_factor, min_days, severity (volume-spike finding) | `/api/config/cfg` | VOL-01, VOL-02, VOL-05 | 5 | 0 |
+| `cfg.tune` | Settings > Auto-tune thresholds (recommend, accept) | `/api/config/tune-apply` | SET-51, SET-52, SET-67, CLS-09, VOL-05 | 11 | 3 |
 | `cfg.discover` | Settings > Network policy > Discover from UniFi | `/api/config/discover` | SET-53, SET-54, SET-55 | 8 | 0 |
 | `review.lookback` | More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait) | `/api/config/cfg` | EVW-01, EVW-02, EVW-03, EVW-04, SET-64 | 14 | 6 |
 | `push.gate` | More > Settings > Site > push_wait_for_ai / push_hold_max_minutes: wait for the AI verdict before phone alerts, longest hold | `/api/config/cfg` | PSH-01, PSH-05, PSH-06 | 6 | 0 |
@@ -308,6 +309,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |
 | `tests/unit/test_unifi_cache.py` | 5 | Unit tests for the UniFi pre-warm cache (unifi.py): it lives in netmon.db (unifi_rows/unifi_streams + docs unifi/*), (SEC-06, STO-16) |
+| `tests/unit/test_volume_spike.py` | 7 | volume-spike thresholds in the policy (Settings > Network policy > volume_spike): defaults equal the former hardcoded (VOL-01, VOL-02, VOL-03, VOL-04, VOL-05) |
 | `tests/unit/test_vulnhist.py` | 4 | vulnhist.py: daily vulnerability counts (Fix list, CIS, image CVEs) and the series the line charts read. (KUBE-13) |
 | `tests/unit/test_websearch_audit.py` | 2 |  (AUD-06) |
 | `tests/unit/test_webtools.py` | 6 | Unit tests for the web search integration: integrations.py (web section) and webtools.py Firecrawl (cloud / self-hosted). (WEB-01, WEB-02, WEB-03, WEB-04, WEB-05, WEB-06) |
