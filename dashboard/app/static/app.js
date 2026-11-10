@@ -179,6 +179,11 @@ function pendTitle(p) {
 }
 // c.label "unreviewed" + c.unreviewed = the reason the event reviewer will never label this event as things stand
 const unrevBadge = (c) => (c?.label === "unreviewed" ? `<span class="unrev-flair small muted" title="${esc(c.reason || "")}">⊘ Not reviewed: ${esc(c.unreviewed || "no reason recorded")}</span>` : "");
+// any AI verdict badge (label, Pending review, Not reviewed): tap opens the verdict pop-up (related.js openVerdict, GET /api/verdict)
+function vdTap(eid, html, t, k) {
+  if (!html || (!eid && !(t && k)) || S.me?.role === "user") return html || "";
+  return `<span class="vd-tap" role="button" tabindex="0" data-vd="${esc(eid || "")}"${t && k ? ` data-vdt="${esc(t)}" data-vdk="${esc(k)}"` : ""}>${html}</span>`;
+}
 function pendBadge(c, short) {
   const p = c?.pending; if (!p) return "";
   const at = pendSettles(p);
@@ -508,6 +513,7 @@ function ackWhy(t, k, a) {
   else if ((m = n.match(/^suppressed: rule (\d+)?/))) { cls = "why-sup"; txt = `🚫 Suppress rule${m[1] ? " " + m[1] : ""}`; }
   else if (n.startsWith("auto-closed")) { cls = "why-ai"; txt = "🤖 Auto-closed"; }
   if (t === "event" && k.startsWith("grp|")) txt += " · all repeats";
+  if (cls === "why-ai" || n.startsWith("auto-closed: analyst")) return ` <span class="why-flair ${cls} vd-tap" role="button" tabindex="0" data-vd="" data-vdt="${esc(t)}" data-vdk="${esc(k)}" title="${esc(n + when)} · tap for the verdict details">${esc(txt)}</span>`;
   return ` <span class="why-flair ${cls}" title="${esc((n || (t === "event" && k.startsWith("grp|") ? "Checked off on Open events: covers every repeat of this condition" : "Checked off by hand")) + when)}">${esc(txt)}</span>`;
 }
 const onPosture = () => /^#\/security\b/.test(location.hash);

@@ -55,6 +55,33 @@ class AutoCloseOpenEvents(unittest.TestCase):
         left = {e["eid"] for e in eventstore.open_events()["events"]}
         self.assertEqual(left, {BAD_IDS})
 
+    def test_verdict_popup_info_and_reopen(self):
+        """The verdict pop-up (GET /api/verdict) finds an auto-closed check-off's event from its (type, key), returns the
+        reviewer's label, confidence, reason, model and time plus the auto-close log; Reopen un-checks it for good;
+        an open event with no label yet is Pending review (queued).
+        REQ: OE-20
+        """
+        _classify(IDS, "expected")
+        t, k = self.refs(IDS)[0]
+        autoclose.run({}, {}, [], trigger="test")
+        V = autoclose.verdict_info("", t, k)
+        self.assertEqual(V["eid"], IDS)
+        self.assertEqual((V["class"]["label"], V["class"]["confidence"], V["class"]["reason"], V["class"]["model"]), ("expected", 0.9, "test reason", "test-model"))
+        self.assertTrue(V["class"]["at"])
+        ac = V["autoclose"][0]
+        self.assertEqual((ac["state"], ac["verdict"], ac["checked"], ac["can_reopen"]), ("closed", "expected", True, True))
+        self.assertIn(ac["source"], ("reviewer", "person"))  # kb.db is shared across unit tests: a person's verdict may outrank
+        self.assertIn(V["event"]["label"], ("IDS: ET POLICY Example signature 12 x3",))
+        self.assertEqual(autoclose.reopen_one(t, k, "test"), 1)
+        self.assertFalse(_acked(t, k))
+        self.assertEqual(autoclose.verdict_info(IDS)["autoclose"][0]["state"], "reopened")
+        autoclose.run({}, {}, [], trigger="test")  # a person's reopen holds
+        self.assertFalse(_acked(t, k))
+        corr_llm._OPEN["t"] = 0  # open-rows cache
+        g = autoclose.verdict_info(GW)["class"]  # open, no label yet: Pending review (queued), or Not reviewed + why when the reviewer is off
+        self.assertIn(g["label"], ("pending", "unreviewed"))
+        self.assertTrue(g["reason"].startswith(("Pending review", "Not reviewed: ")))
+
     def test_dry_run_and_disabled_option_change_nothing(self):
         """A preview (dry) or a verdict whose option is off never checks anything off.
         REQ: STO-08

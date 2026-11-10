@@ -1629,6 +1629,11 @@ class H(BaseHTTPRequestHandler):
                 its = [i for i in its if i[0] and i[1]]
                 with _ack_lock:
                     return self._json(store.ack_set_many(its, bool(body.get("checked")), by=user or ""))
+            if u.path == "/api/verdict/reopen":  # the verdict pop-up's Reopen: un-check one auto-closed item, never auto-closed again
+                typ, key = str(body.get("type", ""))[:40], str(body.get("key", ""))[:600]
+                with _ack_lock:
+                    n = autoclose.reopen_one(typ, key, user or "")
+                return self._json({"reopened": n})
             if u.path == "/api/acks":
                 typ, key = str(body.get("type", ""))[:40], str(body.get("key", ""))[:600]
                 if not typ or not key:
@@ -1739,6 +1744,8 @@ class H(BaseHTTPRequestHandler):
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]
                 return self._json(eventstore.detail(e_) if e_ else {"occurrences": [], "related": []})
+            if path == "/api/verdict":  # AI verdict badge tapped: reviewer label, reason, pending/unreviewed reason, auto-close log
+                return self._json(autoclose.verdict_info((q.get("e") or [""])[0][:600], (q.get("t") or [""])[0][:40], (q.get("k") or [""])[0][:600]))
             if path == "/api/events/inputs":  # the events passed in to an event's AI determinations (Posture / Alerts pop-ups)
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]

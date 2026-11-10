@@ -249,7 +249,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_analyze.py` | 18 | Unit tests for the pure helpers of analyze.py (device keys, baseline records, deviation statistics). (ANA-01, RISK-03) |
 | `tests/unit/test_audit.py` | 46 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03, AUD-05) |
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
-| `tests/unit/test_autoclose.py` | 13 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (STO-05, STO-08, STO-12) |
+| `tests/unit/test_autoclose.py` | 14 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (OE-20, STO-05, STO-08, STO-12) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_cert_dns_notes.py` | 5 | Unit tests for DNS, TLS and IPs notes: TLS certificates are artifacts with notes, domain notes reach events about their (STO-13) |
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |

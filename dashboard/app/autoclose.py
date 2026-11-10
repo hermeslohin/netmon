@@ -624,6 +624,56 @@ def reopen_all(user, kind=None):
         return n
 
 
+def reopen_one(typ, key, user):
+    """Un-check one auto-closed item (and the keys closed with it); like reopen_all it is not auto-closed again."""
+    with _lock:
+        c = _c()
+        r = c.execute("SELECT type, key, refs FROM autoclose_log WHERE type=? AND key=? AND state='closed'", (typ, key)).fetchone()
+        if not r:
+            return 0
+        acks, n = store.acks_load(c), 0
+        for i, (t, k) in enumerate(dict.fromkeys([(r["type"], r["key"]), *_refs_of(r)])):
+            a = (acks.get(t) or {}).get(k)
+            if a and str(a.get("note") or "").startswith(PREFIXES):
+                store.ack_set(t, k, False, c=c)
+                n += 1 if i == 0 else 0
+        with store.tx(c):
+            c.execute("UPDATE autoclose_log SET state='reopened', at=? WHERE type=? AND key=?", (store.now_iso(), typ, key))
+        print(f"autoclose: {user} reopened auto-closed {typ}|{key[:80]}", file=sys.stderr)
+        return n
+
+
+def verdict_info(eid="", typ="", key=""):
+    """Everything behind one AI verdict badge (loaded on tap): the event reviewer's label for the event (or why it is
+    pending / not reviewed) and what auto-close did with it. eid may be empty when only the check-off (typ, key) is known."""
+    import corr_llm
+    c = _c()
+    rows = []
+    if typ and key:
+        rows = [dict(r) for r in c.execute("SELECT * FROM autoclose_log WHERE type=? AND key=?", (typ, key))]
+    eid = eid or (rows[0]["eid"] if rows else "")
+    if eid:
+        have = {(r["type"], r["key"]) for r in rows}
+        rows += [dict(r) for r in c.execute("SELECT * FROM autoclose_log WHERE eid=?", (eid,)) if (r["type"], r["key"]) not in have]
+    acks = store.acks_load(c)
+    ac = []
+    for r in rows:
+        a = (acks.get(r["type"]) or {}).get(r["key"]) or {}
+        ac.append({"type": r["type"], "key": r["key"], "verdict": r["verdict"], "source": r["source"] or "researcher", "model": r["model"] or "",
+                   "at": r["at"], "closed_at": r.get("closed_at"), "state": r["state"], "refs": len(_refs_of(r)),
+                   "checked": bool(a), "note": str(a.get("note") or "")[:600] if a else "",
+                   "can_reopen": r["state"] == "closed" and bool(a) and str(a.get("note") or "").startswith(PREFIXES)})
+    cls = corr_llm.classes([eid], pending=True).get(eid) if eid else None
+    ev = {}
+    if eid:
+        try:
+            import eventstore
+            ev = eventstore._ev_view([eid]).get(eid) or {}
+        except Exception as e:  # noqa: BLE001
+            print(f"verdict_info: event: {type(e).__name__}: {e}", file=sys.stderr)
+    return {"eid": eid, "event": {k: ev.get(k) for k in ("type", "label", "link", "t0", "t1")}, "class": cls, "autoclose": ac}
+
+
 if __name__ == "__main__":
     # `python /app/autoclose.py run [trigger]` - called by enrich.sh put right after the review job stores its notes
     if sys.argv[1:2] != ["run"]:

@@ -260,29 +260,59 @@
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
     pop.querySelector(".rel-x").onclick = close;
   }
-  function openClass(btn) {
-    close();
-    const id = btn.dataset.cls, c = S.corr?.classes?.[id], me = S.corr?.events?.[id];
-    if (!c) return;
-    pop = document.createElement("div"); pop.className = "rel-pop note-pop"; pop.setAttribute("role", "dialog");
-    pop.innerHTML = `<div class="rel-head"><b>AI classification</b> ${aiFlare({ model: c.model, via: "event classification", at: c.at ? new Date(c.at * 1000).toISOString() : "" })}
+  // AI verdict pop-up: the 🏷 label button, and every tappable verdict badge (.vd-tap: label, Pending review, Not reviewed,
+  // Posture's "🤖 AI reviewer: expected" check-off flair). Shows what the page already has at once, then GET /api/verdict
+  // (loaded on tap only) adds the stored label for rows outside the loaded data and what auto-close did with the event.
+  const isoAt = (t) => (t ? new Date(t * 1000).toISOString() : "");
+  const AC_STATE = { closed: "checked off (closed)", reopened: "reopened by a person", "reopened-verdict": "reopened: the verdict changed", expired: "reopened: the AI closure expired (the event repeated)", suppressed: "now suppressed by a rule" };
+  function verdictBody(id, c, me, V) {
+    const ac = V?.autoclose || [], canAck = ["admin", "defender"].includes(S.me?.role);
+    const head = !c ? `<div class="small muted">${V ? "The event reviewer has not labelled this event." : "Loading…"}</div>`
+      : `<div>${c.label === "pending" ? pendBadge(c) : c.label === "unreviewed" ? unrevBadge(c) : `<span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>${c.confidence != null ? ` <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span>` : ""} ${pendBadge(c)}`}</div>`;
+    const when = c && c.at ? `<div class="small muted" style="margin-top:4px">Reviewed ${esc(ft(isoAt(c.at)))}${c.model ? " · " + esc(String(c.model).split(" + ").pop()) + " (event reviewer)" : ""}</div>` : "";
+    const why = !c ? "" : c.label === "pending" ? `<div class="small" style="margin-top:4px"><b>Why pending:</b> ${esc(pendTitle(c.pending))}${c.pending?.queued ? " Queued: the event opened after the event reviewer's last pass." : ""}</div>`
+      : c.label === "unreviewed" ? `<div class="small" style="margin-top:4px"><b>Why not reviewed:</b> ${esc(c.unreviewed || c.reason || "no reason recorded")}</div>`
+      : `${c.pending ? `<div class="small muted" style="margin-top:4px">${esc(pendTitle(c.pending))}</div>` : ""}${c.owner ? `<div style="margin-top:4px">${ownerHtml(c)}</div>` : ""}<p>${reasonHtml(c.reason, c.sources)}</p>${sourcesHtml(c.sources)}`;
+    const acHtml = !V ? "" : !ac.length ? `<div class="small muted" style="margin-top:6px">Auto-close: has not acted on this event.</div>`
+      : `<div class="small" style="margin-top:6px"><b>Auto-close</b>${ac.map((r) => `<div class="vd-ac">${r.state === "closed" ? "🤖" : "↩"} ${esc(AC_STATE[r.state] || r.state)} · ${esc(ft(r.state === "expired" ? r.closed_at || r.at : r.at))}
+          · verdict <b>${esc(r.verdict || "")}</b> from the ${r.source === "person" ? "person's verdict" : r.source === "reviewer" ? "event reviewer" : "research note"}${r.refs ? ` · ${r.refs} grouped item${r.refs === 1 ? "" : "s"}` : ""}
+          ${r.can_reopen && canAck ? ` <button type="button" class="vd-reopen" data-t="${esc(r.type)}" data-k="${esc(r.key)}" title="Un-check it: back to the open findings; auto-close will not close it again">Reopen</button>` : ""}</div>`).join("")}</div>`;
+    const ev = V?.event?.label ? `<div class="small muted">${V.event.link ? `<a href="${esc(V.event.link)}">${esc(V.event.label.slice(0, 120))}</a>` : esc(V.event.label.slice(0, 120))}</div>` : "";
+    const eid = V?.eid || id;
+    return `<div class="rel-head"><b>AI verdict</b> ${c && c.model ? aiFlare({ model: String(c.model).split(" + ").pop(), via: "event reviewer", at: isoAt(c.at) }) : ""}
         <span class="muted small">${esc(me ? me.label.slice(0, 90) : "")}</span><button type="button" class="rel-x" aria-label="Close">✕</button></div>
-      <div class="note-body"><div>${c.label === "pending" ? pendBadge(c) : c.label === "unreviewed" ? unrevBadge(c) : `<span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span> <span class="small muted">confidence ${Math.round((c.confidence || 0) * 100)}%</span> ${pendBadge(c)}`}</div>
-        ${c.pending ? `<div class="small muted" style="margin-top:4px">${esc(pendTitle(c.pending))}</div>` : ""}
-        ${c.owner ? `<div style="margin-top:4px">${ownerHtml(c)}</div>` : ""}
-        <p>${reasonHtml(c.reason, c.sources)}</p>
-        ${sourcesHtml(c.sources)}
-        <div class="rel-inputs" data-inputs="${esc(id)}"><div class="small muted">Loading the events passed in…</div></div>
-        <div class="small muted">Label and reason from the event reviewer once all of this event's links were decided by the decision model; a person's verdict outweighs it. Verify before acting.</div></div>`;
-    document.body.appendChild(pop);
-    const r = btn.getBoundingClientRect(), w = Math.min(460, innerWidth - 16);
+      <div class="note-body">${ev}${head}${when}${why}${acHtml}
+        ${eid ? `<div class="rel-inputs" data-inputs="${esc(eid)}"><div class="small muted">Loading the events reviewed together…</div></div>` : ""}
+        <div class="small muted">Label and reason from the event reviewer once all of this event's links were decided; it labels the whole correlated group (listed above) in one call. A person's verdict outweighs it. Verify before acting.</div></div>`;
+  }
+  function place(btn, w0) {
+    const r = btn.getBoundingClientRect(), w = Math.min(w0, innerWidth - 16);
     pop.style.width = w + "px";
     pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
     const below = r.bottom + 6, h = pop.offsetHeight;
     pop.style.top = (below + h > innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : Math.min(below, innerHeight - Math.min(h, innerHeight - 16) - 8)) + "px";
-    pop.querySelector(".rel-x").onclick = close;
-    loadInputs(pop);
   }
+  function openVerdict(btn) {
+    close();
+    const id = btn.dataset.cls || btn.dataset.vd || "", t = btn.dataset.vdt || "", k = btn.dataset.vdk || "";
+    const X = window.__oeExtra || {}, c0 = S.corr?.classes?.[id] || X.classes?.[id], me = S.corr?.events?.[id];
+    pop = document.createElement("div"); pop.className = "rel-pop note-pop vd-pop"; pop.setAttribute("role", "dialog"); pop._for = btn;
+    const draw = (c, V) => { pop.innerHTML = verdictBody(id, c, me, V); pop.querySelector(".rel-x").onclick = close; place(btn, 460); loadInputs(pop); };
+    document.body.appendChild(pop);
+    draw(c0, null);
+    const mine = pop;
+    api(`/api/verdict?e=${encodeURIComponent(id)}&t=${encodeURIComponent(t)}&k=${encodeURIComponent(k)}`).then((V) => {
+      if (pop !== mine) return;
+      draw(V.class || c0, V);
+    }).catch((e) => { if (pop === mine) pop.querySelector(".note-body").insertAdjacentHTML("beforeend", `<div class="small muted">Could not load the stored verdict: ${esc(e.message || e)}</div>`); });
+  }
+  window.openVerdict = openVerdict;
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest?.(".vd-reopen"); if (!b) return;
+    e.preventDefault(); e.stopPropagation(); b.disabled = true;
+    try { await apiPost("/api/verdict/reopen", { type: b.dataset.t, key: b.dataset.k }); S.acks = await api("/api/acks"); b.replaceWith(Object.assign(document.createElement("span"), { className: "muted", textContent: "reopened ✓" })); rerender(); }
+    catch (err) { b.disabled = false; alert(String(err.message || err)); }
+  }, true);
   // ---- event pair label ("Alarm – IDS") and "never send to the AI" rules for watcher alerts (shared with alerts.js / aireview.js)
   const PAIR_NAME = { alert: "Alert", finding: "Finding", f: "Finding", ids: "IDS", admin: "Admin", adm: "Admin", host: "Endpoint", hf: "Endpoint", ti: "Threat intel", vuln: "Vulnerability", iss: "Vulnerability", gw: "Gateway", alarm: "Triage alarm" };
   window.pairText = (a, b) => `${PAIR_NAME[a] || a} – ${PAIR_NAME[b] || b}`;
@@ -412,8 +442,8 @@
       if (b && !b.disabled) open(b); else go.classList.add("nomatch");
       return;
     }
-    const cbt = e.target.closest(".cls-btn");
-    if (cbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === cbt) return close(); openClass(cbt); if (pop) pop._for = cbt; return; }
+    const cbt = e.target.closest(".cls-btn, .vd-tap");
+    if (cbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === cbt) return close(); openVerdict(cbt); return; }
     const nbt = e.target.closest(".note-btn");
     if (nbt) { e.stopPropagation(); e.preventDefault(); if (pop && pop._for === nbt) return close(); openNote(nbt); if (pop) pop._for = nbt; return; }
     if (pop && pop.classList.contains("note-pop") && e.target.closest(".note-pop a")) return;
@@ -422,7 +452,8 @@
     if (pop && !e.target.closest(".rel-pop")) close();
     if (e.target.closest(".rel-item")) close();
   }, true);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close();
+    const v = (e.key === "Enter" || e.key === " ") && e.target.closest?.(".vd-tap"); if (v) { e.preventDefault(); openVerdict(v); } });
   addEventListener("scroll", close, { passive: true });
   addEventListener("hashchange", close);
   let q = false;

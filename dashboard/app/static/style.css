@@ -694,3 +694,8 @@ tr.muted td { opacity: .6; }
 .note-v.v-pending,.cls-btn.v-pending{color:var(--warn,#d9a400);border-color:var(--warn,#d9a400)}
 .cls-btn.pend:not(.v-pending){box-shadow:inset 0 -2px 0 var(--warn,#d9a400)}
 .unrev-flair{display:inline-block;font-size:10.5px;line-height:1.5;padding:0 7px;margin-left:4px;border-radius:9px;white-space:nowrap;vertical-align:middle;border:1px dashed var(--muted-foreground,#888)}
+/* AI verdict badges open the verdict pop-up (related.js openVerdict); cursor:pointer also makes iOS Safari deliver the tap */
+.vd-tap{cursor:pointer;-webkit-tap-highlight-color:rgba(122,162,255,.25)}
+.vd-tap:hover>*,.why-flair.vd-tap:hover{filter:brightness(1.25);text-decoration:underline dotted}
+.vd-pop .vd-ac{margin-top:3px}
+.vd-pop .vd-reopen{font-size:11px;padding:1px 8px;margin-left:4px}

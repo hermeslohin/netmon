@@ -1,5 +1,6 @@
 // Urgent alerts: in-app feed (#/alerts), unread bell, and browser/phone push notifications (service worker sw.js).
 (() => {
+  const vdT = (e, h) => (typeof vdTap === "function" ? vdTap(e, h) : h);  // tappable AI verdict badge (app.js)
   const A = { list: [], unread: 0, lastTop: null, mode: "all", showAll: false };
   const b64ToU8 = (s) => { const p = "=".repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
   const pushOK = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -97,18 +98,18 @@
   const mergeExtra = (e) => { const W = window.__oeExtra = window.__oeExtra || {};
     for (const [k, v] of Object.entries(e || {})) W[k] = v && typeof v === "object" && !Array.isArray(v) ? { ...(W[k] || {}), ...v } : v;
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(e?.unotes || {}) }; };
-  const vChip = (a) => a.verdict === "pending" ? pendBadge(X().classes?.[a.eid] || { pending: {} })
-    : a.verdict === "unreviewed" || !a.verdict ? (X().classes?.[a.eid]?.label === "unreviewed" ? unrevBadge(X().classes[a.eid]) : `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`)
-    : `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>${a.vsrc === "ai" ? ` <span class="small muted">AI ${Math.round((X().classes?.[a.eid]?.confidence || 0) * 100)}%</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
+  const vChip = (a) => a.verdict === "pending" ? vdT(a.eid, pendBadge(X().classes?.[a.eid] || { pending: {} }))
+    : a.verdict === "unreviewed" || !a.verdict ? (X().classes?.[a.eid]?.label === "unreviewed" ? vdT(a.eid, unrevBadge(X().classes[a.eid])) : `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`)
+    : `${vdT(a.eid, `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>`)}${a.vsrc === "ai" ? ` <span class="small muted">AI ${Math.round((X().classes?.[a.eid]?.confidence || 0) * 100)}%</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
   // the event reviewer's paragraph (context + why the verdict + what research found), shown in full under the alert for every role
   const revOf = (a) => a.review || X().classes?.[a.eid];
   const revBlock = (a) => { const c = revOf(a), r = String(c?.reason || "");
-    if (c?.label === "pending") return `<div class="ai-rev small">${pendBadge(c)}</div>`;
-    if (c?.label === "unreviewed") return `<div class="ai-rev small">${unrevBadge(c)}</div>`;
+    if (c?.label === "pending") return `<div class="ai-rev small">${vdT(a.eid, pendBadge(c))}</div>`;
+    if (c?.label === "unreviewed") return `<div class="ai-rev small">${vdT(a.eid, unrevBadge(c))}</div>`;
     if (!r || /^Decision model:/.test(r)) return "";
     const body = window.relUi?.reasonHtml ? window.relUi.reasonHtml(r, c.sources) : esc(r);
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";
-    return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · <span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>` : ""}</span>${c.pending ? " " + pendBadge(c) : ""} ${fl} ${body}</div>`; };
+    return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · ${vdT(a.eid, `<span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>`)}` : ""}</span>${c.pending ? " " + vdT(a.eid, pendBadge(c)) : ""} ${fl} ${body}</div>`; };
   const alertText = (v, x) => `<span style="${x.read === 0 ? "font-weight:600" : ""}">${linkifyIps(v)}</span>${revBlock(x)}`;
   const researchCell = (a) => { const c = X().classes?.[a.eid], n = X().notes?.[a.eid], src = c?.sources?.length || 0;
     const r = String(c?.reason || "");
