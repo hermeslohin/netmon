@@ -154,31 +154,47 @@ class WindowTimesTest(unittest.TestCase):
     def setUp(self):
         _env.fresh_db()
 
-    def test_cache_and_queue(self):
-        """Uncached events go to the broker queue (pending), direct types answer at once, cached ones come back.
+    def raw(self):
+        return ({"generated": "2026-01-02T00:00:00Z", "hours": 24, "devices": {IP["laptop"]: {"mac": DEV}},
+                 "hosts": {"findings": [{"key": "exec-new|host-a|/usr/bin/tool", "text": "host-a: new program"}]},
+                 "threat_intel": {"ip_hits_in": [{"ip": EXT["bad"]}], "domain_hits": [{"domain": "bad.example"}]}},
+                {"findings": [{"kind": "port-spike", "device": DEV, "detail": "port 443/tcp: 9 conns vs normal 0"}]})
+
+    def test_posture_items_match_page_ids(self):
+        """Posture rows become items with the page's ids, the range's window and the device's IP.
         REQ: EVT-03"""
-        eid = f"ti|in|{EXT['bad']}"
-        corr = {"events": {eid: {"type": "ti", "label": "x", "t0": 1000, "t1": 2000},
-                           "ids|sig": {"type": "ids", "label": "y", "t0": 1500, "t1": 1600},
-                           "iss|x": {"type": "vuln", "label": "z", "t0": None, "t1": None}}, "items": {}}
+        items = eventstore.posture_items(*self.raw())
+        self.assertEqual([x["eid"] for x in items], [f"f|port-spike|{DEV}|port 443/tcp: 9 conns vs normal 0", "hf|exec-new|host-a|/usr/bin/tool",
+                                                     f"ti|in|{EXT['bad']}", "ti|dom|bad.example"])
+        self.assertEqual(items[0]["host_ips"], [IP["laptop"]])
+        self.assertEqual(items[0]["t1"] - items[0]["t0"], 86400)
+        self.assertEqual(eventstore.posture_items({}, {}), [])
+
+    def test_cache_and_queue(self):
+        """Uncached rows go to the broker queue (pending); once looked up they come back from the cache, nothing queued.
+        REQ: EVT-03"""
+        items = eventstore.posture_items(*self.raw())
         sent = []
-        out, pending = eventstore.window_times(corr, queue=sent.extend)
-        self.assertEqual((out, pending), ({"ids|sig": [1500, 1600]}, 1))
-        self.assertEqual([x["eid"] for x in sent], [eid])
-        es = FakeES([("logs-zeek-so", {"event.dataset": "zeek.conn", "source.ip": EXT["bad"]}, 1400)])
+        out, pending = eventstore.window_times(items, queue=sent.extend)
+        self.assertEqual((out, pending, len(sent)), ({}, 4, 4))
+        w1 = items[0]["t1"]
+        es = FakeES([("logs-zeek-so", {"event.dataset": "zeek.conn", "source.ip": EXT["bad"]}, w1 - 100),
+                     ("logs-zeek-so", {"event.dataset": "zeek.conn", "source.ip": IP["laptop"], "destination.port": 443}, w1 - 50)])
         got, left = evtime.window_times(sent, q=es, log=lambda m: None)
-        self.assertEqual((got, left), ({eid: [1400, 1400]}, 0))
-        out, pending = eventstore.window_times(corr, queue=lambda x: self.fail("nothing to queue"))
-        self.assertEqual((out[eid], pending), ([1400, 1400], 0))
+        self.assertEqual(left, 0)
+        out, pending = eventstore.window_times(items, queue=lambda x: self.fail("nothing to queue"))
+        self.assertEqual(pending, 0)
+        self.assertEqual(out[f"ti|in|{EXT['bad']}"], [w1 - 100, w1 - 100])
+        self.assertEqual(out[items[0]["eid"]], [w1 - 50, w1 - 50])
+        self.assertEqual(out["ti|dom|bad.example"], [None, None])  # no record: answered, shown as —
 
     def test_broker_down_still_answers(self):
         """A broker failure never breaks the page: the cached times are returned and the rest stay pending.
         REQ: EVT-03"""
         def boom(items):
             raise RuntimeError("broker down")
-        corr = {"events": {"ti|in|x": {"type": "ti", "label": "x", "t0": 1, "t1": 2}}, "items": {}}
         with mock.patch("sys.stderr"):
-            self.assertEqual(eventstore.window_times(corr, queue=boom), ({}, 1))
+            self.assertEqual(eventstore.window_times([{"eid": "ti|in|x", "type": "ti", "t0": 1, "t1": 2}], queue=boom), ({}, 1))
 
 
 class ApiTest(unittest.TestCase):
@@ -193,7 +209,7 @@ class ApiTest(unittest.TestCase):
         with open(os.path.join(_env.APP, "server.py")) as f:
             src = f.read()
         i = src.index('if path == "/api/events/times"')
-        self.assertIn("eventstore.window_times(", src[i:i + 600])
+        self.assertIn("eventstore.window_times(eventstore.posture_items(", src[i:i + 800])
 
 
 if __name__ == "__main__":

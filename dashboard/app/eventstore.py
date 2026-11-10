@@ -626,31 +626,61 @@ def detections(limit=300, verdict=None):
     return {"alerts": shown, "total": len(rows), "matching": len(pick), "counts": counts, "extra": X2}
 
 
-WT_TYPES = ("finding", "host", "ti", "alert", "ids", "admin", "gw")
-_WT_DIRECT = ("ids", "admin", "gw")  # their t0/t1 already are record times
+def posture_items(raw, analysis):
+    """The rows of one Posture page (a snapshot or time range) that get an Occurred time, as evtime items: baseline
+    findings (f|...), host findings (hf|...) and threat-intel hits (ti|...), with the range's window. Ids match the
+    page's evId()s. Built from the range's own data: a time range's correlation map is its nightly report's, which
+    lists other rows."""
+    raw, analysis = raw or {}, analysis or {}
+    gen = _ts_iso(raw.get("generated"))
+    if not gen:
+        return []
+    w0, w1 = gen - 3600 * float(raw.get("hours") or 24), gen
+    devices = raw.get("devices") or {}
+    mac2ip = {str(d.get("mac", "")).lower(): ip for ip, d in devices.items() if d.get("mac")}
+    out = []
+    for f in analysis.get("findings") or []:
+        dev = str(f.get("device") or "")
+        ip = dev if re.fullmatch(r"[\d.]+", dev) else mac2ip.get(dev.lower(), "")
+        out.append({"eid": f"f|{f.get('kind')}|{dev}|{f.get('detail', '')}", "type": "finding", "label": f.get("detail", ""),
+                    "t0": w0, "t1": w1, "host_ips": [ip] if ip else [], "item": None})
+    for f in (raw.get("hosts") or {}).get("findings") or []:
+        out.append({"eid": f"hf|{f.get('key', '')}", "type": "host", "label": f.get("text", ""), "t0": w0, "t1": w1, "host_ips": [], "item": None})
+    ti = raw.get("threat_intel") or {}
+    for h in ti.get("ip_hits_in") or []:
+        out.append({"eid": f"ti|in|{h.get('ip')}", "type": "ti", "label": "", "t0": w0, "t1": w1, "host_ips": [], "item": None})
+    for h in ti.get("ip_hits_out") or []:
+        out.append({"eid": f"ti|out|{h.get('ip')}", "type": "ti", "label": "", "t0": w0, "t1": w1, "host_ips": [], "item": None})
+    for h in [*(ti.get("domain_hits") or []), *(ti.get("new_domains") or [])]:
+        if h.get("domain"):
+            out.append({"eid": f"ti|dom|{h.get('domain')}", "type": "ti", "label": "", "t0": w0, "t1": w1, "host_ips": [], "item": None})
+    return out
 
 
-def window_times(corr, queue=None):
-    """Posture: when each event of one time range happened -> ({eid: [et0, et1]}, pending). Record times come from the
-    event_times cache (filled by evtime.py on the host); missing ones are queued at the host broker (POST /evtime) and
-    show up on a later call. IDS signatures, admin sessions and gateway events carry their record times already."""
-    E, I = (corr or {}).get("events") or {}, (corr or {}).get("items") or {}
+def _ts_iso(v):
+    from datetime import datetime, timezone
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def window_times(items, queue=None):
+    """Posture: when each row of one time range happened -> ({eid: [et0, et1]}, pending). items: posture_items().
+    Record times come from the event_times cache (filled by evtime.py on the host); missing ones are queued at the host
+    broker (POST /evtime) and show up on a later call; a row with no record gets [None, None]."""
     c = _c()
     out, miss = {}, []
-    for eid, ev in E.items():
-        typ = ev.get("type")
-        if typ not in WT_TYPES or ev.get("t1") is None:
+    for it in items or []:
+        if it.get("t1") is None:
             continue
-        if typ in _WT_DIRECT:
-            out[eid] = [ev.get("t0"), ev.get("t1")]
-            continue
-        w0 = int(ev["t0"] if ev.get("t0") is not None else ev["t1"])
-        r = c.execute("SELECT et0, et1 FROM event_times WHERE eid=? AND w0=? AND w1=?", (eid, w0, int(ev["t1"]))).fetchone()
+        r = c.execute("SELECT et0, et1 FROM event_times WHERE eid=? AND w0=? AND w1=?",
+                      (it["eid"], int(it["t0"] if it.get("t0") is not None else it["t1"]), int(it["t1"]))).fetchone()
         if r:
-            out[eid] = [r[0], r[1]]
+            out[it["eid"]] = [r[0], r[1]]
         else:
-            miss.append({"eid": eid, "type": typ, "label": ev.get("label") or "", "t0": ev.get("t0"), "t1": ev.get("t1"),
-                         "host_ips": ev.get("host_ips") or [], "item": _slim(I[eid]) if I.get(eid) is not None else None})
+            miss.append(it)
     if miss:
         try:
             (queue or _queue_broker)(miss)

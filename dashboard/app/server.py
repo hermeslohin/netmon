@@ -1736,7 +1736,8 @@ class H(BaseHTTPRequestHandler):
                 if sid == "latest":
                     s_ = snapshots()
                     sid = s_[-1]["id"] if s_ else ""
-                times, pending = eventstore.window_times(correlation(sid) if sid else None)
+                res_ = snapshot(sid) if sid else None  # the range's own rows (its correlation map is the nightly report's)
+                times, pending = eventstore.window_times(eventstore.posture_items(res_.get("raw"), res_.get("analysis")) if res_ else [])
                 return self._json({"times": times, "pending": pending})
             if path == "/api/events/detail":  # Open events modal: all occurrences of one event + its related events
                 import eventstore
