@@ -237,6 +237,7 @@
           ${window.relUi?.sourcesHtml ? window.relUi.sourcesHtml(c.sources) : ""}</div>` : ""}
         ${n ? `<div style="margin-top:6px"><span class="note-v v-${vcls(n.verdict)}">📝 ${esc(n.verdict || "note")}</span> <span class="small muted">research note${n.priority ? " · priority " + esc(n.priority) : ""}</span>
           ${n.summary ? `<div class="small"><b>${esc(n.summary)}</b></div>` : ""}</div>` : ""}</div>` : "";
+    const advHtml = X.advice?.[x.eid] && window.relUi?.adviceDetails ? window.relUi.adviceDetails(X.advice[x.eid]) : "";
     const extraHtml = researchHtml(x.eid, X);
     const mb = (role, m, cls) => m ? `<span class="oe-ai ${cls || ""}" title="${esc(role)}: ${esc(m)}"><span class="oe-ai-r">${esc(role)}</span>${esc(String(m).replace(/^.*[:/]/, ""))}</span>` : "";
     const aiBadges = [mb("classified by", c?.model), mb("researched by", n?.model, "rs")].filter(Boolean).join("");
@@ -248,6 +249,7 @@
           <button type="button" class="oe-x" aria-label="Close">✕</button></div></div>
       ${aiBadges ? `<div class="oe-ais">${aiBadges}</div>` : ""}
       ${verdictHtml}
+      ${advHtml}
       ${extraHtml}
       <div class="oe-sum"></div>
       <div class="oe-body"><div class="loading">Loading…</div></div></div>`;

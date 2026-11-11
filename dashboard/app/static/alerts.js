@@ -104,6 +104,7 @@
     : `${vdT(a.eid, `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>`)}${a.vsrc === "ai" ? ` <span class="small muted">AI${revOf(a)?.confidence ? " " + Math.round(revOf(a).confidence * 100) + "%" : ""}</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
   // the inline detail under a clicked alert (no modal): one flat panel - the event reviewer's verdict and paragraph with its
   // cited pages, then (admin / defender) the research note, people's notes and notes on the alert's artifacts, and the hosts
+  const ADV_ORD = ["no_action", "watch", "update", "password", "stop_site", "stop_app", "stop_device"];
   const vClass = (v) => String(v || "").replace(/[^a-z-]/g, "");
   const revPanel = (a) => { const c = revOf(a), r = String(c?.reason || ""), U = window.relUi || {};
     if (c?.label === "pending") return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer ${vdT(a.eid, pendBadge(c))}</div><div class="small muted">Waiting for its related events to settle; the reviewer labels it then.</div></div>`;
@@ -112,10 +113,17 @@
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";
     return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer ${c.label ? vdT(a.eid, `<span class="note-v v-${vClass(c.label)}">${esc(c.label)}</span>`) : ""}${c.confidence ? ` <span class="small muted">${Math.round(c.confidence * 100)}%</span>` : ""} ${fl}</div>
       <p class="al-x-p">${U.reasonHtml ? U.reasonHtml(r, c.sources) : esc(r)}</p>${U.sourcesHtml ? U.sourcesHtml(c.sources) : ""}</div>`; };
+  // the analyst's advice for the device owner (advice.py): a separate verdict in plain language - what to do
+  const advOf = (a) => a.advice || X().advice?.[a.eid];
+  const advCell = (a) => { const v = advOf(a), U = window.relUi || {};
+    return v && U.advChip ? `${U.advChip(v)}${isUserRole() ? ` <b class="adv-hl">${esc(v.headline || "")}</b>` : ""}` : `<span class="muted small" title="The analyst writes the advice after reviewing the alert">advice coming</span>`; };
+  const advPanel = (a) => { const v = advOf(a), U = window.relUi || {};
+    return v && U.adviceHtml ? `<div class="al-x-adv"><div class="al-x-t">💬 ${isUserRole() ? "What to do" : "Advice for the device owner"}</div>${U.adviceHtml(v)}</div>` : ""; };
   const xPanel = (a) => { const rich = !isUserRole(), n = rich ? X().notes?.[a.eid] : null, un = rich ? S.corr?.unotes?.[a.eid] || [] : [];
     const an = rich ? X().art_notes?.[a.eid] || [] : [], AT = X().art_note_text || {}, ips = (a.targets || []).filter((t) => typeof t === "string").map((t) => t.replace(/^ip:/, "")).filter((t) => /^[\d.:a-f]+$/i.test(t));
     const sec = (t, b) => `<div class="al-x-s"><div class="al-x-t">${t}</div>${b}</div>`;
-    return `<div class="al-x">${revPanel(a)}
+    const user = isUserRole();
+    return `<div class="al-x">${user ? advPanel(a) + (advOf(a) ? sec("Analyst's notes", revPanel(a)) : revPanel(a)) : revPanel(a) + (advOf(a) ? sec("💬 Advice for the device owner", (window.relUi?.adviceHtml || (() => ""))(advOf(a))) : "")}
       ${n ? sec("📝 Research", `<span class="note-v v-${vClass(n.verdict)}">${esc(n.verdict || "note")}</span> ${n.summary ? `<b class="small">${esc(n.summary)}</b>` : ""}${n.research ? `<div class="small al-x-p">${linkifyIps(n.research)}</div>` : ""}`) : ""}
       ${un.length ? sec(`Notes by people (${un.length})`, un.map((u) => `<div class="small">${window.kbVBadge ? kbVBadge(u) : ""}<b>${esc(u.author || "")}</b> ${esc(u.text || "")}</div>`).join("")) : ""}
       ${an.length ? sec(`Notes on its artifacts (${an.length})`, an.map((r) => { const t = AT[r.id] || r; return `<div class="small"><span class="mono">${esc(t.subject || "")}</span> ${linkifyIps(t.text || "")}</div>`; }).join("")) : ""}
@@ -149,7 +157,7 @@
     { k: "_an", t: "Artifact notes", num: true, fmt: (v, a) => artCell(a), sort: (a) => (X().art_notes?.[a.eid] || []).length }];
 
   V.alerts = async (el) => {
-    el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Kept 30 days.</div>
+    el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">${isUserRole() ? "Security problems seen on your devices, with what our analyst recommends you do. Tap an alert for the steps and why." : "Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Each comes with the analyst's advice for the device owner. Kept 30 days."}</div>
       <button id="alSetBar" class="settings-bar" aria-expanded="${A.setOpen ? "true" : "false"}" aria-controls="alSet"><span>⚙ Notification settings</span><span class="sb-sum muted small"></span><span class="sb-chev">▾</span></button>
       <div id="alSet" class="slide ${A.setOpen ? "open" : ""}"><div class="slide-in"></div></div>`;
     const bar = el.querySelector("#alSetBar"), slide = el.querySelector("#alSet"), inner = slide.querySelector(".slide-in");
@@ -222,7 +230,8 @@
       rows.length ? table(null, [
         ...(rich ? [askCol("alert", (x) => x.text)] : []), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
-        ...(hasV ? rcCols().slice(0, 1) : []),
+        ...(hasV && rich ? rcCols().slice(0, 1) : []),
+        ...(hasV ? [{ k: "_adv", t: "What to do", fmt: (v, a) => advCell(a), sort: (a) => ADV_ORD.indexOf(advOf(a)?.action) }] : []),
         { k: "text", t: "Alert", fmt: (v, x) => `<span style="${x.read ? "" : "font-weight:600"}">${linkifyIps(v)}</span>` },
         ...(rich && hasV ? rcCols().slice(1) : [])],
         rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(rich ? { evId: (x) => `alert|${x.id}`, filter: true } : {}),

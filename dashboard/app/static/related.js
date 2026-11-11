@@ -193,7 +193,14 @@
       if (pop && root === pop) { const r = pop.getBoundingClientRect(); if (r.bottom > innerHeight - 8) pop.style.top = Math.max(8, innerHeight - r.height - 8) + "px"; }
     }).catch((e) => { ph.innerHTML = `<div class="small muted">${esc(e.message || e)}</div>`; });
   }
-  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml, inputsHtml, ownerHtml };  // used by the Open events window (openevents.js)
+  // the analyst's advice for the device owner (advice.py): action chip, headline, steps, why
+  const ADV = { no_action: ["✅", "ok"], watch: ["👀", "low"], update: ["⬆️", "low"], password: ["🔑", "low"], stop_site: ["🚫", "high"], stop_app: ["🚫", "high"], stop_device: ["⛔", "crit"] };
+  const advChip = (v) => { const [i, l] = ADV[v?.action] || ["💬", "low"]; return `<span class="adv-a adv-${l}">${i} ${esc(v?.label || v?.action || "")}</span>`; };
+  const advBody = (v) => `${(v.steps || []).length ? `<ol class="adv-steps">${v.steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}${v.why ? `<div class="small adv-why"><b>Why:</b> ${esc(v.why)}</div>` : ""}`;
+  const adviceHtml = (v) => v ? `<div class="adv"><div class="adv-h">${advChip(v)} <b>${esc(v.headline || "")}</b></div>${advBody(v)}</div>` : "";
+  // Open events: one collapsed arrow (summary = chip + headline)
+  const adviceDetails = (v) => v ? `<details class="oe-det oe-sub adv-det"><summary>💬 Advice for the device owner: ${advChip(v)} ${esc(v.headline || "")}</summary><div class="adv">${advBody(v)}${typeof aiFlare === "function" && v.model ? `<div class="small muted">${aiFlare({ model: v.model, via: "advice for the device owner", at: v.at ? new Date(v.at * 1000).toISOString() : "" })}</div>` : ""}</div></details>` : "";
+  window.relUi = { artifactsHtml, ipArts, queryArtHtml, sourcesHtml, reasonHtml, inputsHtml, ownerHtml, advChip, adviceHtml, adviceDetails };  // used by the Open events window (openevents.js)
   const loadingRel = new Set();
   function openStored(btn) {  // Open events row outside the loaded snapshot: fetch its stored links, then open
     const id = btn.dataset.rel; if (loadingRel.has(id)) return; loadingRel.add(id);

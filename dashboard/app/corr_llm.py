@@ -3046,6 +3046,7 @@ def run_once(get_base, latest_sid):
                 sync_alarms(b)
         except Exception as e:  # noqa: BLE001
             _set_error("event", f"event review: {type(e).__name__}: {str(e)[:200]}")
+        _advice_pass()
         STATUS.update(busy=False, last_run=time.time())
         return done
     if limits()["classify"] and latest_sid:
@@ -3057,8 +3058,18 @@ def run_once(get_base, latest_sid):
                 sync_alarms(b)
         except Exception as e:  # noqa: BLE001
             _set_error("classify", f"classify: {type(e).__name__}: {str(e)[:200]}")
+    _advice_pass()
     STATUS.update(busy=False, last_run=time.time())
     return done
+
+
+def _advice_pass():
+    """Advice for the device owner on the newest alerts (advice.py): after the alarms follow the new verdicts."""
+    try:
+        import advice
+        advice.pass_()
+    except Exception as e:  # noqa: BLE001 - the review pass itself already finished
+        print(f"advice pass: {type(e).__name__}: {str(e)[:300]}", file=sys.stderr, flush=True)
 
 
 def _safe_review(model, aid, base, todo):

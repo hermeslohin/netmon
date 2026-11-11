@@ -410,6 +410,8 @@ const ctx = {
   apiPost: async (u, b) => { POSTS.push([u, b]); return { ok: true }; },
 };
 ctx.window = ctx; ctx.oeOpenDetail = (o) => OPENED.push(o);
+ctx.relUi = { advChip: (v) => `ADVCHIP:${v.action}`, adviceHtml: (v) => `ADV:${v.headline}|${(v.steps || []).join(";")}|${v.why || ""}`,
+              reasonHtml: (r) => ctx.esc(r), sourcesHtml: () => "" };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const dump = (x) => {
   if (!x || typeof x !== "object") return x;
@@ -559,14 +561,14 @@ class AlertsPageJsTest(unittest.TestCase):
         self.assertEqual(t["sortKeys"][col], [4, 0, 2, 1], "sorted suspicious, expected, benign, (pending), unreviewed")
 
     def test_alarm_columns_by_role(self):
-        """Admins and defenders get Ask, When, Level, Verdict, Alert, Research, Notes, Artifact notes, row links and filter; a User gets When, Level, Alert only.
+        """Admins and defenders get Ask, When, Level, Verdict, What to do, Alert, Research, Notes, Artifact notes, row links and filter; a User gets When, Level, Alert only (no event id: nothing to open).
         REQ: ALR-22"""
         rows_ = [feed_row(1, "a", sev="investigate")]
         for role in ("admin", "defender"):
             with self.subTest(role=role):
                 out = self.run_js(role=role, feed_=feed(rows_), extra={"alerts": rows_, "extra": {}}, held=NO_HELD)
                 t = self.card(out["steps"][0], "Recent alerts")["body"]
-                self.assertEqual(t["cols"], ["Ask", "When", "Level", "Verdict", "Alert", "Research", "Notes", "Artifact notes"])
+                self.assertEqual(t["cols"], ["Ask", "When", "Level", "Verdict", "What to do", "Alert", "Research", "Notes", "Artifact notes"])
                 self.assertTrue(t["onclick"] and t["filter"])
                 self.assertEqual(t["evId"], ["alert|1"])
                 self.assertIn("sev-high", t["cells"][0][2])
@@ -632,13 +634,20 @@ class AlertsPageJsTest(unittest.TestCase):
         REQ: ALR-22, ALR-23"""
         r1 = dict(feed_row(1, "my laptop alert"), review={"label": "suspicious", "reason": "Talks to a known-bad host [W1].", "sources": [{"id": "W1", "url": "https://x.example/a"}]})
         r1.pop("verdict"); r1.pop("vsrc")
-        f = {"alerts": [r1], "unread": 1, "unread_mine": 1, "mode": "some"}
+        r1["advice"] = {"action": "stop_app", "label": "Stop using this app", "headline": "Stop using FreeVPN", "steps": ["Uninstall FreeVPN"], "why": "It talks to a bad server."}
+        r2 = dict(feed_row(2, "no advice yet"), review={"label": "pending"}); r2.pop("verdict"); r2.pop("vsrc")
+        f = {"alerts": [r1, r2], "unread": 1, "unread_mine": 1, "mode": "some"}
         out = self.run_js(role="user", feed_=f, prefs=USER_PREFS, steps=[{"do": "render"}, {"do": "expand", "i": 0}])
         t = self.card(out["steps"][0], "Alerts for my devices")["body"]
-        self.assertEqual(t["cols"], ["When", "Level", "Verdict", "Alert"])
+        self.assertEqual(t["cols"], ["When", "Level", "What to do", "Alert"], "a User gets the advice, not the analyst's verdict")
         self.assertTrue(t["onclick"])
-        self.assertIn('class="note-v v-suspicious"', t["cells"][0][2])
+        self.assertIn("ADVCHIP:stop_app", t["cells"][0][2])
+        self.assertIn("Stop using FreeVPN", t["cells"][0][2], "Users see the headline in the row")
+        self.assertIn("advice coming", t["cells"][1][2])
         p = out["steps"][1]["panel"]
+        self.assertIn("What to do", p)
+        self.assertLess(p.index("ADV:Stop using FreeVPN|Uninstall FreeVPN|It talks to a bad server."), p.index("Analyst&#39;s notes") if "Analyst&#39;s notes" in p else p.index("Analyst's notes"),
+                        "the advice comes first, the analyst's reasoning below")
         self.assertIn("Talks to a known-bad host", p)
         for bad in ("ack-cb", "unote", "📝 Research", "<details"):
             self.assertNotIn(bad, p)
@@ -653,7 +662,7 @@ class AlertsPageJsTest(unittest.TestCase):
         a = self.card(out["steps"][0], "Alerts for my devices")
         self.assertIn("(1, 1 new)", a["title"])
         self.assertIn("show all 2", a["title"])
-        self.assertEqual(a["body"]["cells"][0][4].count("mine"), 1)
+        self.assertEqual(a["body"]["cells"][0][5].count("mine"), 1)
         b = self.card(out["steps"][2], "Recent alerts")
         self.assertIn("(2, 1 new)", b["title"])
         self.assertIn("only my devices", b["title"])

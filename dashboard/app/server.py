@@ -2148,8 +2148,10 @@ class H(BaseHTTPRequestHandler):
                     try:  # the event reviewer's paragraph (label, reason, cited pages) on the user's own alerts - nothing else of the AI extras
                         import eventstore
                         rows, ex = eventstore.alert_view(rows, related=False, art_limit=0)
-                        CL = (ex or {}).get("classes") or {}
+                        CL, AD = (ex or {}).get("classes") or {}, (ex or {}).get("advice") or {}
                         for r in rows:
+                            if AD.get(r.get("eid")):  # the analyst's advice for the device owner: what to do
+                                r["advice"] = {k: AD[r["eid"]].get(k) for k in ("action", "label", "headline", "steps", "why", "target", "at")}
                             c = CL.get(r.get("eid"))
                             if c:
                                 r["review"] = {"label": c.get("label"), "reason": c.get("reason"), "at": c.get("at"), "model": c.get("model"),

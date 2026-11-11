@@ -151,6 +151,21 @@ The watcher (every event window, default 10 min) records a **detection** for thi
 
 Detections are not pushed or listed on their own (the IDS hits, threat-intel matches and findings behind them stay on **Open events**); only those the review finds suspicious at medium or high severity are promoted to **Recent alerts** (bell, push). Tap an alert to open the event reviewer's verdict and explanation right under it (admins and defenders also see research and notes there). The Alerts page is read-only: nothing is checked off from it. The watcher mutes a repeat of the same detection for 12 hours.
 
+### What to do (advice for the device owner)
+
+Every reviewed alert also gets a second, separate verdict: advice written as a security analyst would give it to the person who uses the device, in plain language. The **What to do** column shows the action, and tapping the alert shows the steps and why:
+
+| Action | When |
+|---|---|
+| ✅ Nothing to do | harmless, or the team handles it |
+| 👀 Keep an eye out | keep using the device, watch for one specific thing |
+| ⬆️ Update your device | an update or patch fixes it |
+| 🔑 Change a password | an account may be exposed |
+| 🚫 Stop visiting this site / Stop using this app | a named site or app is the problem |
+| ⛔ Stop using this device | only when the device itself looks compromised and the analyst verdict is suspicious with at least 85% confidence; otherwise it is softened to Keep an eye out |
+
+Users see the advice first (the analyst's reasoning sits below it as Analyst's notes); admins and defenders see it as its own section under the reviewer's verdict. On **Open events**, an event that raised an alert shows the same advice as a collapsed **💬 Advice for the device owner** arrow in its detail window. The advice is written by the event reviewer model after each review pass (a few alerts per pass, newest first) and rewritten when the alert, the verdict or the research changes; until then the column says *advice coming*.
+
 ### Getting push notifications
 
 1. Open **Alerts**.

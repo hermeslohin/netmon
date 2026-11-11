@@ -355,6 +355,24 @@ def extras(rows):
         out["related_n"] = {k: len(v) for k, v in R.items()}
     except Exception as e:  # noqa: BLE001 - the page works without them
         print(f"eventstore related: {e}", file=sys.stderr)
+    out["advice"] = advice_for(rows)
+    return out
+
+
+def advice_for(rows):
+    """Advice for the device owner (advice.py) keyed by each row's event id (a grouped row takes its newest variant's)."""
+    try:
+        import advice
+        A = advice.get([m for r in rows for m in r["members"]])
+    except Exception as e:  # noqa: BLE001 - the page works without it
+        print(f"eventstore advice: {e}", file=sys.stderr)
+        return {}
+    out = {}
+    for r in rows:
+        for m in reversed(r["members"]):
+            if m in A:
+                out[r["eid"]] = A[m]
+                break
     return out
 
 
@@ -593,6 +611,7 @@ def alert_view(alerts, related=True, art_limit=6):
     for ns in (X.get("unotes") or {}).values():  # the page shows text, author, verdict, status only
         for n in ns:
             n.pop("artifacts", None); n.pop("label", None)
+    X["advice"] = advice_for(rows) if not related else X.get("advice", {})  # (extras() already added it)
     for a in alerts:
         a["verdict"], a["vsrc"] = alert_verdict(a["eid"], X)
     return alerts, X

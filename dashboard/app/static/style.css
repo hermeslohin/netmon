@@ -884,3 +884,18 @@ tr.al-xrow > td { padding: 0 8px 10px; white-space: normal; }
 .as-list tr.al-xrow { margin-top: 0; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; padding-top: 0; }
 .as-list tr.al-xrow > td { padding: 0; }
 .as-list tr.al-xrow .al-x { border-left: 0; border-top: 1px solid var(--border, rgba(127,127,127,.25)); padding: 8px 0 2px; }
+/* the analyst's advice for the device owner (advice.py): action chip, headline, steps */
+.adv-a { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid currentColor; }
+.adv-ok { color: var(--good); }
+.adv-low { color: var(--warn); }
+.adv-high { color: var(--bad); }
+.adv-crit { color: #fff; background: var(--bad); border-color: var(--bad); }
+.adv-hl { display: block; margin-top: 2px; font-size: 13px; }
+.adv-h { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.adv-steps { margin: 6px 0 0 1.3em; padding: 0; line-height: 1.45; }
+.adv-steps li + li { margin-top: 2px; }
+.adv-why { margin-top: 6px; }
+.al-x-adv { margin-bottom: 8px; }
+.al-x-adv .adv-h b { font-size: 15px; }
+.adv-det > summary .adv-a { margin: 0 4px; }
+.adv-det > .adv { padding: 2px 14px 6px; }
