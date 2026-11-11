@@ -47,7 +47,7 @@ _FPAT = re.compile(r"^\[(?:file|artifact):hashes\.(?:'([A-Za-z0-9-]+)'|([A-Za-z0
 _NPAT = re.compile(r"^\[file:name\s*=\s*'([^'\\]+)'\]$")
 _UPAT = re.compile(r"^\[url:value\s*=\s*'([^'\\]+)'\]$")
 SAMPLE_SCORE = 90          # a malware sample observable (MalwareBazaar) without a score of its own
-PULL_VERSION = 5           # bump when the list format changes: forces one full rebuild
+PULL_VERSION = 6           # bump when the list format changes: forces one full rebuild
 SEV_RANK = {"low": 1, "medium": 2, "high": 3, "urgent": 4}
 OCTI_SEV = {"urgent": "critical", "high": "high", "medium": "medium", "low": "low"}
 NEW_INCIDENTS_PER_RUN = 25
@@ -124,7 +124,7 @@ LISTS = {"opencti_ips": "ips", "opencti_high_ips": "ips", "opencti_hosts": "host
 SHARED_HOSTS = ("github.com", "githubusercontent.com", "gitlab.com", "bitbucket.org", "google.com", "googleapis.com",
                 "googleusercontent.com", "drive.google.com", "docs.google.com", "dropbox.com", "dropboxusercontent.com",
                 "onedrive.live.com", "1drv.ms", "sharepoint.com", "microsoft.com", "windows.net", "amazonaws.com",
-                "cloudfront.net", "discord.com", "discordapp.com", "discordapp.net", "cdn.discordapp.com",
+                "cloudfront.net", "discord.com", "discord.gg", "discord.media", "discordapp.com", "discordapp.net", "cdn.discordapp.com",
                 "telegram.org", "t.me", "pastebin.com", "paste.ee", "mediafire.com", "mega.nz", "transfer.sh",
                 "cloudflare.com", "archive.org", "bit.ly", "tinyurl.com", "yandex.ru", "apple.com", "icloud.com",
                 "facebook.com", "youtube.com", "microsoftonline.com", "microsoftonline-p.com", "live.com", "office.com",
