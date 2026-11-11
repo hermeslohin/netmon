@@ -1081,7 +1081,7 @@ class H(BaseHTTPRequestHandler):
     COOKIE = "netmon_session"
     PUBLIC = {"/login", "/login.html", "/login.js", "/style.css", "/healthz", "/api/login",
               "/sw.js", "/manifest.json", "/valk-icon-192.png", "/valk-icon-512.png",
-              "/syn.webp", "/syn-guardian.webp", "/valk-head.png", "/valk-wordmark.webp"}  # PWA shell: no data in these
+              "/syn.webp", "/syn-guardian.webp", "/syn-login-glow.webp", "/valk-head.png", "/valk-wordmark.webp"}  # PWA shell: no data in these
 
     def _user(self):
         c = SimpleCookie(self.headers.get("Cookie", ""))

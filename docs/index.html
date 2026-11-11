@@ -52,6 +52,7 @@ h1 em{font-style:normal;color:var(--gold)}
 .btn:hover{text-decoration:none;border-color:#3a3a40}
 .btn.gold{background:linear-gradient(180deg,var(--gold2),var(--gold));color:#1a1408;border-color:transparent}
 .hero-art{border-radius:20px;overflow:hidden;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(217,182,93,.08)}
+.hero-art picture{display:block}
 .hero-art img{width:100%;height:auto;aspect-ratio:3/2}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
 .chip{font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:var(--bg2)}
@@ -197,7 +198,8 @@ footer img{width:26px;height:26px;border-radius:6px}
       </div>
     </div>
     <div class="hero-art">
-      <img src="images/syn-hero.webp" width="1200" height="800" alt="Syn, the Norse door-guard goddess, at the network gate holding up a glowing shield that stops incoming packets" fetchpriority="high">
+      <picture><source media="(prefers-reduced-motion: no-preference)" srcset="images/syn-hero-glow.webp" type="image/webp">
+      <img src="images/syn-hero.webp" width="1200" height="800" alt="Syn, the Norse door-guard goddess, at the network gate holding up a glowing shield that stops incoming packets" fetchpriority="high"></picture>
     </div>
   </div>
 </section>

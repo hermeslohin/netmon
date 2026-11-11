@@ -112,7 +112,7 @@ def _prompt(a, cl, note, dev):
 
 def _sig(a, cl, note):
     raw = json.dumps([a.get("text"), cl.get("label"), cl.get("reason"), (note or {}).get("verdict"), (note or {}).get("summary")])
-    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def advise(target, a, cl, note=None, dev=""):
