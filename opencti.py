@@ -566,9 +566,14 @@ def report_incidents(cli, cfg, st, ident):
     for ev in candidates(cfg):
         k = ev["gkey"]
         if k in known:
-            if known[k].get("last_seen") != ev["last_seen"]:
-                cli.q("mutation($id:ID!, $i:[EditInput]!){ stixDomainObjectEdit(id:$id){ fieldPatch(input:$i){ id } } }",
-                      {"id": known[k]["id"], "i": [{"key": "last_seen", "value": [_iso(ev["last_seen"])]}]})
+            # only ever move last_seen forward: another member of the group may be older than the incident's first_seen
+            if str(ev["last_seen"] or "") > str(known[k].get("last_seen") or ""):
+                try:
+                    cli.q("mutation($id:ID!, $i:[EditInput]!){ stixDomainObjectEdit(id:$id){ fieldPatch(input:$i){ id } } }",
+                          {"id": known[k]["id"], "i": [{"key": "last_seen", "value": [_iso(ev["last_seen"])]}]})
+                except GraphQLError as e:  # one incident OpenCTI refuses must not stop the rest of the report
+                    print(f"opencti: incident {known[k]['id']} not updated: {e}", file=sys.stderr)
+                    continue
                 known[k]["last_seen"] = ev["last_seen"]
                 updated += 1
             continue
