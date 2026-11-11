@@ -1125,11 +1125,6 @@ window.CARD_INFO = {
 "use": "On the dashboard host run the shown docker exec command with the username to set a new password or create the account. Failed sign-ins are also throttled (8 per 5 minutes per client), so waiting 5 minutes may be enough.",
 "what": "Recovery instructions for when nobody can sign in, for example after a forgotten password or too many failed attempts."
 },
-"alerts|Detections by verdict": {
-"source": "The urgent-alert feed (watcher (every event window, default 10 min), scans, account checks; last 30 days) joined with verdicts: a person's verdict, else the event reviewer's label.",
-"use": "Click a verdict chip or a KPI tile to filter. A person's verdict (👤) wins over the event reviewer (AI). Click a row for the research, web research and notes behind it.",
-"what": "Every detection that was not promoted to an alarm, with the verdict it got. Only detections reviewed as suspicious at medium or high severity become alarms."
-},
 "alerts|Alerts for my devices": {
 "source": "The urgent-alert feed, filtered to the devices chosen under Notification settings > Which devices alert me.",
 "use": "Use 'show all' to see every alert; Mark all read clears the 🔔 counter.",

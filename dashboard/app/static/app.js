@@ -316,7 +316,7 @@ function table(id, cols, rows, opts = {}) {
   const inp = wrap.querySelector("input"); if (inp && st.q) inp.value = st.q;
   if (inp) inp.oninput = () => { st.q = inp.value; render(); };
   wrap.addEventListener("click", (e) => { if (e.target.closest(".more button")) { st.showAll = !st.showAll; render(); return; }
-    if (opts.onclick && !e.target.closest("a, input, button, summary")) { const tr = e.target.closest("tr[data-i]"); if (tr) opts.onclick(rows[+tr.dataset.i]); } });
+    if (opts.onclick && !e.target.closest("a, input, button, summary")) { const tr = e.target.closest("tr[data-i]"); if (tr) opts.onclick(rows[+tr.dataset.i], tr); } });
   if (opts.loadMore) {
     pageEnd = opts.total ? rows.length >= opts.total() : false;
     sentinel = document.createElement("div"); sentinel.className = "tbl-more";

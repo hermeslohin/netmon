@@ -864,3 +864,23 @@ i.ic{font-style:normal}
 @media (max-width:900px){.cdef-tbl,.cdef-tbl tbody,.cdef-tbl tr,.cdef-tbl td{display:block;width:auto;min-width:0}.cdef-tbl thead{display:none}
  .cdef-tbl tr{padding:6px 0;border-bottom:1px solid var(--border)}.cdef-tbl td{border:0;padding:2px 0}.cdef-tbl td:nth-child(2)::before{content:"Behaves like ";color:var(--muted);font-size:12px}
  .cdef-sw{justify-content:flex-start}.cdef-sw input{flex:none}}
+
+/* Alerts page: the inline detail under a clicked alert (no modal, one flat panel) */
+tr.al-open > td { border-bottom-color: transparent; }
+tr.al-xrow > td { padding: 0 8px 10px; white-space: normal; }
+.al-x { border-left: 3px solid var(--gold, var(--accent, #c9a227)); padding: 6px 12px; max-width: 110ch; line-height: 1.4; }
+.al-x-h { font-weight: 600; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.al-x-p { margin: 4px 0 0; white-space: pre-wrap; }
+.al-x-s { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border, rgba(127,127,127,.25)); }
+.al-x-t { font-size: .8em; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 2px; }
+.al-x-s > div + div { margin-top: 3px; }
+/* iOS Safari zooms the page when a focused field's text is under 16px (event 📝 note box was 13px).
+   Force 16px on every text field on touch/phone screens, beating per-class and inline sizes. */
+@media (max-width:900px), (pointer:coarse){
+  input,select,textarea{font-size:16px!important}
+}
+/* phones (list layout): the panel continues the alert's own card instead of being a second card */
+.as-list tr.al-open { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.as-list tr.al-xrow { margin-top: 0; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; padding-top: 0; }
+.as-list tr.al-xrow > td { padding: 0; }
+.as-list tr.al-xrow .al-x { border-left: 0; border-top: 1px solid var(--border, rgba(127,127,127,.25)); padding: 8px 0 2px; }

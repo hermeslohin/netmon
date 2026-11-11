@@ -1,6 +1,6 @@
 """Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher
-(watch.py) raising alerts from synthetic Elasticsearch answers, and alerts.js (bell, verdict chips, columns, detections
-card, device picker, empty states) under node."""
+(watch.py) raising alerts from synthetic Elasticsearch answers, and alerts.js (bell, verdict chips, columns, inline
+review panel, device picker, empty states) under node."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E702,E402
 
 import contextlib  # noqa: E402
@@ -369,11 +369,12 @@ JS_HARNESS = r"""
 const fs = require("fs"), vm = require("vm");
 const [src, dataPath] = process.argv.slice(2);
 const D = JSON.parse(fs.readFileSync(dataPath, "utf8"));
-const ALL = [], CALLS = [], POSTS = [], OPENED = [];
+const ALL = [], CALLS = [], POSTS = [], OPENED = [], TABLES = [];
 let RERENDER = 0;
 class Elem {
   constructor(sel) { this.sel = sel; this.children = []; this.html = []; this._q = {}; this.handlers = {}; this.style = {}; this.dataset = {};
-    this.attrs = {}; this.classList = { toggle() {}, add() {}, remove() {} }; this.innerHTML = ""; this.textContent = ""; }
+    this.attrs = {}; this.classList = { toggle() {}, add() {}, remove() {}, contains: (c) => String(this.className || "").split(" ").includes(c) }; this.innerHTML = ""; this.textContent = ""; }
+  remove() { this.removed = true; }
   querySelector(s) { if (!this._q[s]) { const e = new Elem(s); this._q[s] = e; ALL.push(e); } return this._q[s]; }
   querySelectorAll(s) { return ((D.qa || {})[s] || []).map((d) => { const e = new Elem(s); e.dataset = { ...d }; ALL.push(e); return e; }); }
   addEventListener(t, f) { this.handlers[t] = f; }
@@ -401,7 +402,7 @@ const ctx = {
   kpis: (l) => "KPIS:" + JSON.stringify(l), askCol: () => ({ k: "_ask", t: "Ask" }), isUserRole: () => S.me.role === "user",
   hq: () => new URLSearchParams(D.hq || ""), rerender: () => { RERENDER++; },
   card: (title, body) => { const c = new Elem("card"); c.title = title; c.body = body; ALL.push(c); return c; },
-  table: (id, cols, rows, opts) => ({ _table: true, cols: cols.map((c) => c.t), keys: cols.map((c) => c.k),
+  table: (id, cols, rows, opts) => (TABLES.push({ rows, opts }), { _table: true, cols: cols.map((c) => c.t), keys: cols.map((c) => c.k),
     cells: rows.map((r) => cols.map((c) => (c.fmt ? c.fmt(r[c.k], r) : String(r[c.k] ?? "")))), rowClass: rows.map((r) => (opts.rowClass ? opts.rowClass(r) : "")),
     sort: opts.sort, filter: !!opts.filter, onclick: !!opts.onclick, evId: opts.evId ? rows.map(opts.evId) : null,
     sortKeys: cols.map((c) => (c.sort ? rows.map((r) => c.sort(r)) : null)) }),
@@ -434,6 +435,13 @@ vm.runInContext(fs.readFileSync(src, "utf8"), ctx);
       await (e.handlers.click || e.onclick)({ target: e });
       for (let i = 0; i < 5; i++) await tick();
       out.push({ clicked: st.sel });
+    } else if (st.do === "expand") {  // click row i of the last table twice: the inline panel opens under it, then closes
+      const T = TABLES[TABLES.length - 1], tr = { children: { length: 5 }, nextElementSibling: null, classList: { add() {}, remove() {} },
+        after(x) { this.nextElementSibling = x; }, closest() { return { querySelectorAll: () => (tr.nextElementSibling && !tr.nextElementSibling.removed ? [tr.nextElementSibling] : []) }; } };
+      T.opts.onclick(T.rows[st.i], tr);
+      const x = tr.nextElementSibling, panel = x ? x.innerHTML : null, cls = x ? x.className : null;
+      T.opts.onclick(T.rows[st.i], tr);
+      out.push({ panel, cls, closed: !!(x && x.removed) });
     } else if (st.do === "mute-rm") {
       const c = [...ALL].reverse().find((x) => x.sel === "card" && String(x.title).startsWith("Alert mute rules"));
       const b = { dataset: { id: String(st.id) }, disabled: false };
@@ -581,7 +589,8 @@ class AlertsPageJsTest(unittest.TestCase):
               "web": {"alert|1": [{"kind": "search", "query": "updater domain"}]},
               "unotes": {"alert|1": [{"status": "pending"}, {"status": "approved"}]},
               "art_notes": {"alert|1": [{"id": "n1"}]}, "art_note_text": {"n1": {"subject": "updater", "text": "fine"}}}
-        out = self.run_js(feed_=feed(rows_), extra={"alerts": rows_, "extra": ex}, held=NO_HELD)
+        out = self.run_js(feed_=feed(rows_), extra={"alerts": rows_, "extra": ex}, held=NO_HELD,
+                          steps=[{"do": "render"}, {"do": "expand", "i": 0}, {"do": "expand", "i": 1}])
         t = self.card(out["steps"][0], "Recent alerts")["body"]
         c = {k: [r[t["cols"].index(k)] for r in t["cells"]] for k in ("Research", "Notes", "Artifact notes", "Alert")}
         for s in ("📝 benign", "🤖 reviewed", "🌍2", 'ic-search web-n" aria-hidden="true"></i>1'):
@@ -593,47 +602,46 @@ class AlertsPageJsTest(unittest.TestCase):
         self.assertIn('data-unote="alert|2"', c["Notes"][1])
         self.assertIn("🏷 1", c["Artifact notes"][0])
         self.assertIn("–", c["Artifact notes"][1])
-        self.assertIn("Routine update traffic.", c["Alert"][0])
-        self.assertIn("🤖 Event reviewer", c["Alert"][0])
-        self.assertNotIn("Event reviewer", c["Alert"][1])
+        self.assertNotIn("Event reviewer", c["Alert"][0], "the reviewer's paragraph lives in the row's panel, not the cell")
+        p0, p1 = out["steps"][1], out["steps"][2]
+        self.assertEqual((p0["cls"], p0["closed"]), ("al-xrow", True), "a second click closes the panel")
+        for s_ in ("🤖 Event reviewer", 'class="note-v v-benign">benign', "90%", "Routine update traffic.", "📝 Research", "known updater",
+                   "Notes by people (2)", "Notes on its artifacts (1)", "updater</span> fine", "Hosts"):
+            self.assertIn(s_, p0["panel"])
+        self.assertNotIn("<details", p0["panel"], "one flat panel, nothing nested")
+        self.assertNotIn("modal", p0["panel"])
+        self.assertIn("not reviewed yet", p1["panel"])
+        self.assertNotIn("📝 Research", p1["panel"])
+        self.assertEqual(out["steps"][0]["calls"].count("/api/alerts?limit=200&extra=1"), 1)
+        self.assertFalse(any("held=1" in u for u in out["steps"][0]["calls"]), "the page no longer loads detections")
 
-    def test_detections_card_kpis_and_chips(self):
-        """The detections card lists held detections with verdict chips and counts; KPI tiles add alarms and detections per verdict.
+    def test_no_detections_card_or_verdict_tiles(self):
+        """The Alerts page lists alerts only: no Detections by verdict card, no verdict KPI tiles, no held=1 request, no modal.
         REQ: ALR-23"""
-        det = [feed_row(5, "held one", verdict="benign", vsrc="ai"), feed_row(6, "held two", sev="low")]
-        held = {"alerts": det, "total": 7, "matching": 7, "counts": counts({"suspicious": 1}, {"benign": 4, "unreviewed": 3}), "extra": {}}
-        out = self.run_js(extra={"alerts": [], "extra": {}}, held=held)
+        rows_ = [feed_row(1, "a", verdict="suspicious", vsrc="ai")]
+        out = self.run_js(feed_=feed(rows_), extra={"alerts": rows_, "extra": {}}, held={"alerts": [], "total": 3, "matching": 3, "counts": counts({}, {"benign": 3}), "extra": {}},
+                          steps=[{"do": "render"}, {"do": "expand", "i": 0}])
         st = out["steps"][0]
-        kp = json.loads(next(h for h in st["html"] if h.startswith("KPIS:"))[5:])
-        self.assertEqual([k[0] for k in kp], ["Suspicious", "Expected", "Benign", "Pending review", "Not reviewed"])
-        self.assertIn('>1</a> <span class="small muted">1 alarm</span>', kp[0][1])
-        self.assertEqual((kp[0][2], kp[1][2], kp[2][2], kp[3][2], kp[4][2]), ("bad", "good", "good", "", ""))
-        self.assertIn(">4</a>", kp[2][1])
-        self.assertIn(">0</a>", kp[3][1])  # pending review
-        self.assertIn(">3</a>", kp[4][1])
-        dc = self.card(st, "Detections by verdict")
-        self.assertEqual(dc["title"], "Detections by verdict (7, newest 2 shown)")
-        self.assertIn('class="vf-chip on" data-v="">All (7)', dc["body"])
-        self.assertIn('data-v="benign">Benign (4)', dc["body"])
-        self.assertIn('data-v="suspicious">Suspicious (0)', dc["body"])
-        t = dc["children"][0]
-        self.assertEqual(t["cols"], ["When", "Level", "Verdict", "Detection", "Research", "Notes", "Artifact notes"])
-        self.assertIn("sev-medium", t["cells"][0][1])
-        self.assertIn("sev-low", t["cells"][1][1])
-        self.assertTrue(t["onclick"] and t["filter"])
+        self.assertEqual([c["title"].split(" (")[0] for c in st["cards"]], ["Recent alerts"])
+        self.assertFalse(any(h.startswith("KPIS:") for h in st["html"]))
+        self.assertFalse(any("held=1" in u for u in st["calls"]))
+        self.assertIsNotNone(out["steps"][1]["panel"])
 
-    def test_detections_verdict_filter_round_trip(self):
-        """Clicking a verdict chip re-requests the detections with v=<verdict> and titles the card with the match count; no match says so.
-        REQ: ALR-23, ALR-25"""
-        held = {"alerts": [], "total": 3, "matching": 0, "counts": counts({}, {"benign": 3}), "extra": {}}
-        out = self.run_js(extra={"alerts": [], "extra": {}}, held=held, qa={".vf-chip": [{"v": "suspicious"}]},
-                          steps=[{"do": "render"}, {"do": "click", "sel": ".vf-chip", "v": "suspicious"}, {"do": "render"}])
-        self.assertIn("/api/alerts?held=1&limit=200", out["steps"][0]["calls"])
-        self.assertIn("/api/alerts?held=1&limit=200&v=suspicious", out["steps"][2]["calls"])
-        dc = self.card(out["steps"][2], "Detections by verdict")
-        self.assertEqual(dc["title"], "Detections by verdict (0 suspicious)")
-        self.assertIn('class="vf-chip on" data-v="suspicious"', dc["body"])
-        self.assertEqual((dc["children"][0]["sel"], dc["children"][0]["text"]), ("div", "No detections with this verdict."))
+    def test_user_gets_read_only_inline_review(self):
+        """A User's alerts carry the reviewer's label as the Verdict and open the reviewer's paragraph inline; no check-off, Ask, research or notes.
+        REQ: ALR-22, ALR-23"""
+        r1 = dict(feed_row(1, "my laptop alert"), review={"label": "suspicious", "reason": "Talks to a known-bad host [W1].", "sources": [{"id": "W1", "url": "https://x.example/a"}]})
+        r1.pop("verdict"); r1.pop("vsrc")
+        f = {"alerts": [r1], "unread": 1, "unread_mine": 1, "mode": "some"}
+        out = self.run_js(role="user", feed_=f, prefs=USER_PREFS, steps=[{"do": "render"}, {"do": "expand", "i": 0}])
+        t = self.card(out["steps"][0], "Alerts for my devices")["body"]
+        self.assertEqual(t["cols"], ["When", "Level", "Verdict", "Alert"])
+        self.assertTrue(t["onclick"])
+        self.assertIn('class="note-v v-suspicious"', t["cells"][0][2])
+        p = out["steps"][1]["panel"]
+        self.assertIn("Talks to a known-bad host", p)
+        for bad in ("ack-cb", "unote", "📝 Research", "<details"):
+            self.assertNotIn(bad, p)
 
     def test_only_my_devices_toggle(self):
         """An admin alerting on chosen devices sees only their alerts with a show all N link; the toggle shows every alert; ?ev= skips the filter.
@@ -702,7 +710,7 @@ class AlertsPageJsTest(unittest.TestCase):
         self.assertNotIn("mute name", "".join(mc["html"]))
 
     def test_empty_states(self):
-        """With no alerts the feed says so; an empty detections list and an empty cleared view say so too.
+        """With no alerts the feed says so; an empty cleared view says so too.
         REQ: ALR-25"""
         out = self.run_js(extra={"alerts": [], "extra": {}}, held=NO_HELD,
                           mutes={"mutes": [{"id": 1, "name": "x", "host": "", "by": "a", "at": NOW, "cleared": 0}]},
@@ -711,9 +719,6 @@ class AlertsPageJsTest(unittest.TestCase):
         ac = self.card(st, "Recent alerts")
         self.assertEqual(ac["body"], '<div class="empty">No urgent alerts in the last 30 days.</div>')
         self.assertNotIn("markRead", ac["title"])
-        dc = self.card(st, "Detections by verdict")
-        self.assertEqual(dc["title"], "Detections by verdict (0)")
-        self.assertEqual(dc["children"][0]["text"], "No detections with this verdict.")
         self.assertIn("No cleared alerts in the last 30 days.", self.card(out["steps"][2], "Cleared alerts")["body"])
 
     def test_older_server_falls_back_to_plain_feed(self):

@@ -78,11 +78,12 @@ class CardInfoKeysTest(unittest.TestCase):
             self.assertEqual(len(re.findall(r"partHead\(el, \d", body)), 4, fn)
             self.assertIn("consolidate(el)", body, fn)
 
-    def test_detections_by_verdict_has_info(self):
-        """The new Alerts box "Detections by verdict" has its own ⓘ text instead of the generic fallback.
+    def test_recent_alerts_has_info_and_no_detections_box(self):
+        """The Alerts box "Recent alerts" has its own ⓘ text; the removed "Detections by verdict" box left no stale text behind.
         REQ: FEAT-11"""
-        self.assertIn("Detections by verdict", _read("alerts.js"))
-        self.assertIsNotNone(lookup(info_keys(), "alerts", "Detections by verdict (12)"))
+        self.assertNotIn("Detections by verdict", _read("alerts.js"))
+        self.assertNotIn("alerts|Detections by verdict", _read("cardinfo.js"))
+        self.assertIsNotNone(lookup(info_keys(), "alerts", "Recent alerts (12)"))
 
     def test_auto_close_has_info(self):
         """The Configuration page box "Auto-close" (renamed from Security Triage) has its ⓘ text.

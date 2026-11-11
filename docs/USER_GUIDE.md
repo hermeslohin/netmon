@@ -72,6 +72,8 @@ Syn only reads data. It never changes the network, the gateway or Security Onion
 | 🔔 | Unread urgent alerts. Click to open Alerts. |
 | **🕒 Time range** | The start and end of the time you are looking at (your local time). The last 24 hours are shown by default. Click it to set a **Start** and **End** date and time, or use a quick button (**Last 1h / 6h / 24h / 3d / 7d / 30d**). See [Choosing a time range](#choosing-a-time-range). ⟳ reloads the data (on the default window it moves to the newest last-24-hours). |
 
+**Back button.** When a window, popup or the phone menu is open, the browser **Back** button (or the back swipe on a phone) closes it and leaves you on the same page; in the welcome setup it goes back one step. With nothing open, Back goes to the previous page as usual.
+
 ### Choosing a time range
 
 Every page except Alerts shows the selected time range: Overview, Posture's findings, Threat intel, ATT&CK, Risk,
@@ -147,7 +149,7 @@ The watcher (every event window, default 10 min) records a **detection** for thi
 - failed admin logins;
 - a serious problem on a computer, such as an agent going offline or a suspicious process.
 
-Detections are not pushed on their own: they appear under **Detections by verdict**, and only those the review finds suspicious at medium or high severity are promoted to **Recent alerts** (bell, push). The watcher mutes a repeat of the same detection for 12 hours.
+Detections are not pushed or listed on their own (the IDS hits, threat-intel matches and findings behind them stay on **Open events**); only those the review finds suspicious at medium or high severity are promoted to **Recent alerts** (bell, push). Tap an alert to open the event reviewer's verdict and explanation right under it (admins and defenders also see research and notes there). The Alerts page is read-only: nothing is checked off from it. The watcher mutes a repeat of the same detection for 12 hours.
 
 ### Getting push notifications
 

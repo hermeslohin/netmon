@@ -34,7 +34,7 @@
       // a new alert: refresh the page in place (rerender builds it off-screen and swaps only the boxes that changed, so
       // nothing blanks or flashes); never while a detail window is open or the tab is hidden
       if (location.hash.startsWith("#/alerts") && top !== A.lastTop && A.lastTop !== null) A.stale = true;
-      if (A.stale && location.hash.startsWith("#/alerts") && !document.hidden && !document.querySelector(".oe-back, .modal-back")) { A.stale = false; rerender(); }
+      if (A.stale && location.hash.startsWith("#/alerts") && !document.hidden && !document.querySelector(".oe-back, .modal-back, .al-xrow")) { A.stale = false; rerender(); }
       A.lastTop = top;
     } catch (_) { /* logged out / offline */ }
   }
@@ -91,26 +91,44 @@
     return `Push on this device: <b>${sub ? "on" : "off"}</b> · Alerting on: <b>${A.myMode === "some" ? `${A.myN} device${A.myN === 1 ? "" : "s"}` : "all devices"}</b>`; };
   async function paintBar() { const s = document.querySelector("#alSetBar .sb-sum"); if (s) s.innerHTML = await barSummary(); }
 
-  // ---- verdicts, research and notes per alert (admin / defender): /api/alerts?extra=1 (alarm feed), ?held=1&v= (detections) ----
+  // ---- verdicts, research and notes per alert (admin / defender: /api/alerts?extra=1; a User gets the reviewer's label + paragraph in the plain feed) ----
   const VORD = ["suspicious", "expected", "benign", "pending", "unreviewed"], VSRC = { person: "a person's verdict", ai: "event reviewer (AI)" };
   const TYPE_OF = { f: "finding", hf: "host", ids: "ids", ti: "ti", adm: "admin", iss: "vuln", gw: "gw", alert: "alert" };
   const X = () => window.__oeExtra || {};
   const mergeExtra = (e) => { const W = window.__oeExtra = window.__oeExtra || {};
     for (const [k, v] of Object.entries(e || {})) W[k] = v && typeof v === "object" && !Array.isArray(v) ? { ...(W[k] || {}), ...v } : v;
     S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(e?.unotes || {}) }; };
+  const revOf = (a) => a.review || X().classes?.[a.eid];
   const vChip = (a) => a.verdict === "pending" ? vdT(a.eid, pendBadge(X().classes?.[a.eid] || { pending: {} }))
     : a.verdict === "unreviewed" || !a.verdict ? (X().classes?.[a.eid]?.label === "unreviewed" ? vdT(a.eid, unrevBadge(X().classes[a.eid])) : `<span class="muted small" title="No verdict yet from a person or the event reviewer">not reviewed</span>`)
-    : `${vdT(a.eid, `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>`)}${a.vsrc === "ai" ? ` <span class="small muted">AI ${Math.round((X().classes?.[a.eid]?.confidence || 0) * 100)}%</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
-  // the event reviewer's paragraph (context + why the verdict + what research found), shown in full under the alert for every role
-  const revOf = (a) => a.review || X().classes?.[a.eid];
-  const revBlock = (a) => { const c = revOf(a), r = String(c?.reason || "");
-    if (c?.label === "pending") return `<div class="ai-rev small">${vdT(a.eid, pendBadge(c))}</div>`;
-    if (c?.label === "unreviewed") return `<div class="ai-rev small">${vdT(a.eid, unrevBadge(c))}</div>`;
-    if (!r || /^Decision model:/.test(r)) return "";
-    const body = window.relUi?.reasonHtml ? window.relUi.reasonHtml(r, c.sources) : esc(r);
+    : `${vdT(a.eid, `<span class="note-v v-${esc(a.verdict)}" title="${esc(VSRC[a.vsrc] || "")}">${a.vsrc === "person" ? "👤 " : ""}${esc(a.verdict)}</span>`)}${a.vsrc === "ai" ? ` <span class="small muted">AI${revOf(a)?.confidence ? " " + Math.round(revOf(a).confidence * 100) + "%" : ""}</span>` : a.vsrc === "model" ? ` <span class="small muted">model</span>` : ""}`;
+  // the inline detail under a clicked alert (no modal): one flat panel - the event reviewer's verdict and paragraph with its
+  // cited pages, then (admin / defender) the research note, people's notes and notes on the alert's artifacts, and the hosts
+  const vClass = (v) => String(v || "").replace(/[^a-z-]/g, "");
+  const revPanel = (a) => { const c = revOf(a), r = String(c?.reason || ""), U = window.relUi || {};
+    if (c?.label === "pending") return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer ${vdT(a.eid, pendBadge(c))}</div><div class="small muted">Waiting for its related events to settle; the reviewer labels it then.</div></div>`;
+    if (!c || c.label === "unreviewed" || !r || /^Decision model:/.test(r))
+      return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer <span class="muted small">${c?.label === "unreviewed" ? "not reviewed" : r ? "decision model only" : "not reviewed yet"}</span></div></div>`;
     const fl = typeof aiFlare === "function" ? aiFlare({ model: String(c.model || "").split(" + ").pop(), via: "event reviewer", at: c.at ? new Date(c.at * 1000).toISOString() : "" }) : "";
-    return `<div class="ai-rev small"><span class="ai-rev-h">🤖 Event reviewer${c.label ? ` · ${vdT(a.eid, `<span class="note-v v-${esc(String(c.label).replace(/[^a-z-]/g, ""))}">${esc(c.label)}</span>`)}` : ""}</span>${c.pending ? " " + vdT(a.eid, pendBadge(c)) : ""} ${fl} ${body}</div>`; };
-  const alertText = (v, x) => `<span style="${x.read === 0 ? "font-weight:600" : ""}">${linkifyIps(v)}</span>${revBlock(x)}`;
+    return `<div class="al-x-rev"><div class="al-x-h">🤖 Event reviewer ${c.label ? vdT(a.eid, `<span class="note-v v-${vClass(c.label)}">${esc(c.label)}</span>`) : ""}${c.confidence ? ` <span class="small muted">${Math.round(c.confidence * 100)}%</span>` : ""} ${fl}</div>
+      <p class="al-x-p">${U.reasonHtml ? U.reasonHtml(r, c.sources) : esc(r)}</p>${U.sourcesHtml ? U.sourcesHtml(c.sources) : ""}</div>`; };
+  const xPanel = (a) => { const rich = !isUserRole(), n = rich ? X().notes?.[a.eid] : null, un = rich ? S.corr?.unotes?.[a.eid] || [] : [];
+    const an = rich ? X().art_notes?.[a.eid] || [] : [], AT = X().art_note_text || {}, ips = (a.targets || []).filter((t) => typeof t === "string").map((t) => t.replace(/^ip:/, "")).filter((t) => /^[\d.:a-f]+$/i.test(t));
+    const sec = (t, b) => `<div class="al-x-s"><div class="al-x-t">${t}</div>${b}</div>`;
+    return `<div class="al-x">${revPanel(a)}
+      ${n ? sec("📝 Research", `<span class="note-v v-${vClass(n.verdict)}">${esc(n.verdict || "note")}</span> ${n.summary ? `<b class="small">${esc(n.summary)}</b>` : ""}${n.research ? `<div class="small al-x-p">${linkifyIps(n.research)}</div>` : ""}`) : ""}
+      ${un.length ? sec(`Notes by people (${un.length})`, un.map((u) => `<div class="small">${window.kbVBadge ? kbVBadge(u) : ""}<b>${esc(u.author || "")}</b> ${esc(u.text || "")}</div>`).join("")) : ""}
+      ${an.length ? sec(`Notes on its artifacts (${an.length})`, an.map((r) => { const t = AT[r.id] || r; return `<div class="small"><span class="mono">${esc(t.subject || "")}</span> ${linkifyIps(t.text || "")}</div>`; }).join("")) : ""}
+      ${ips.length ? sec("Hosts", ips.map((ip) => (typeof ipLink === "function" ? ipLink(ip) : esc(ip))).join(" ")) : ""}</div>`; };
+  // click a row: open / close its panel right under it (one open at a time)
+  const toggleRow = (a, tr) => { if (!tr) return;
+    const nx = tr.nextElementSibling, was = nx?.classList.contains("al-xrow");
+    tr.closest("tbody")?.querySelectorAll("tr.al-xrow").forEach((r) => { r.previousElementSibling?.classList.remove("al-open"); r.remove(); });
+    if (was) { A.openEid = ""; return; }
+    const x = document.createElement("tr"); x.className = "al-xrow";
+    x.innerHTML = `<td colspan="${tr.children.length}">${xPanel(a)}</td>`;
+    if (tr.closest?.(".as-list") && typeof getComputedStyle === "function") x.style.borderLeftColor = getComputedStyle(tr).borderLeftColor;  // phones: one card
+    tr.after(x); tr.classList.add("al-open"); A.openEid = a.eid; };
   const researchCell = (a) => { const c = X().classes?.[a.eid], n = X().notes?.[a.eid], src = c?.sources?.length || 0;
     const r = String(c?.reason || "");
     return (n ? `<span class="note-v v-${esc(String(n.verdict || "").replace(/[^a-z-]/g, ""))}" title="Research note: ${esc(n.summary || "")}">📝 ${esc(n.verdict || "researched")}</span> ` : "")
@@ -124,15 +142,11 @@
     return `<button type="button" class="unote-btn${n ? " has" : ""}" data-unote="${esc(a.eid)}" title="Add a note or verdict (Expected / Benign / Suspicious), or send to research"><i class="ic ic-note" aria-hidden="true"></i>${n ? ` ${n}${p ? " ⏳" : ""}` : ""}</button>`; };
   const artCell = (a) => { const L = X().art_notes?.[a.eid] || [], T = X().art_note_text || {};
     return L.length ? `<span class="small" title="${esc(L.map((r) => (T[r.id]?.subject || "") + ": " + String(T[r.id]?.text || "").slice(0, 120)).join("\n"))}">🏷 ${L.length}</span>` : `<span class="muted small">–</span>`; };
-  const sevOf = (v) => (v === "investigate" ? "high" : "medium");
-  const openAlert = (a) => window.oeOpenDetail && window.oeOpenDetail({ eid: a.eid, type: TYPE_OF[a.eid.split("|")[0]] || "alert", label: a.text, sev: sevOf(a.severity),
-    first_seen: new Date(a.ts * 1000).toISOString(), last_seen: new Date(a.ts * 1000).toISOString(), n: 1, repeats: 1, ips: (a.targets || []).filter((t) => typeof t === "string"), link: "", t0: a.ts, t1: a.ts });
   const rcCols = () => [
     { k: "verdict", t: "Verdict", fmt: (v, a) => vChip(a), sort: (a) => VORD.indexOf(a.verdict) },
     { k: "_res", t: "Research", fmt: (v, a) => researchCell(a), sort: (a) => (X().notes?.[a.eid] ? 100 : 0) + (X().classes?.[a.eid] ? 50 : 0) + (X().web?.[a.eid] || []).length },
     { k: "_un", t: "Notes", fmt: (v, a) => unoteBtn(a), sort: (a) => (S.corr?.unotes?.[a.eid] || []).length },
     { k: "_an", t: "Artifact notes", num: true, fmt: (v, a) => artCell(a), sort: (a) => (X().art_notes?.[a.eid] || []).length }];
-  const vLabel = { suspicious: "Suspicious", expected: "Expected", benign: "Benign", pending: "Pending review", unreviewed: "Not reviewed" };
 
   V.alerts = async (el) => {
     el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Kept 30 days.</div>
@@ -197,45 +211,23 @@
     }
     const filt = A.mode === "some" && !A.showAll && !hq().has("ev");  // a drill-down to one alert must find it
     const rich = !isUserRole();
-    let D = null;
-    if (rich) {
-      try { const R = await api("/api/alerts?limit=200&extra=1"); A.list = R.alerts; mergeExtra(R.extra); } catch (_) { /* older server: plain feed */ }
-      try { D = await api("/api/alerts?held=1&limit=200" + (A.vf ? "&v=" + encodeURIComponent(A.vf) : "")); mergeExtra(D.extra); } catch (_) { D = null; }
-    }
-    if (rich && D?.counts) {
-      const C = D.counts, tot = (v) => (C.alarms[v] || 0) + (C.detections[v] || 0);
-      const tile = (v) => [`${vLabel[v]}${v === "unreviewed" ? "" : ""}`, `<a href="javascript:void 0" class="vf-kpi" data-v="${v}" title="Show the ${vLabel[v].toLowerCase()} detections">${fn(tot(v))}</a>${C.alarms[v] ? ` <span class="small muted">${fn(C.alarms[v])} alarm${C.alarms[v] === 1 ? "" : "s"}</span>` : ""}`, v === "suspicious" ? "bad" : v === "unreviewed" || v === "pending" ? "" : "good"];
-      el.insertAdjacentHTML("beforeend", kpis(VORD.map(tile)));
-      el.querySelectorAll(".vf-kpi").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v; A.jump = true; rerender(); }));
-    }
-    const rows = A.list.filter((a) => !filt || a.mine).map((a) => ({ ...a, _t: a.ts }));
+    if (rich) { try { const R = await api("/api/alerts?limit=200&extra=1"); A.list = R.alerts; mergeExtra(R.extra); } catch (_) { /* older server: plain feed */ } }
+    // a User's rows carry only the event reviewer's own label (review): that is their verdict
+    const vOfUser = (a) => (a.review?.label ? { verdict: a.review.label === "pending" ? "pending" : a.review.label, vsrc: a.review.label === "pending" || a.review.label === "unreviewed" ? "" : "ai" } : { verdict: "unreviewed", vsrc: "" });
+    const rows = A.list.filter((a) => !filt || a.mine).map((a) => ({ ...a, ...(rich || a.verdict ? {} : vOfUser(a)), _t: a.ts }));
+    const hasV = rows.some((a) => a.eid);
     const clTog = canMute && mutes.length ? ` <a href="javascript:void 0" id="clTog" class="ack-toggle small">show cleared (${nCleared})</a>` : "";
-    const tog = A.mode === "some" && !isUserRole() ? `<a href="javascript:void 0" id="fTog" class="ack-toggle small">${filt ? `show all ${A.list.length}` : "only my devices"}</a>` : "";
+    const tog = A.mode === "some" && rich ? `<a href="javascript:void 0" id="fTog" class="ack-toggle small">${filt ? `show all ${A.list.length}` : "only my devices"}</a>` : "";
     const ac = card(`${filt ? "Alerts for my devices" : "Recent alerts"} (${rows.length}${A.unread ? `, ${A.unread} new` : ""}) ${tog}${clTog} ${A.unread ? `<button id="markRead" class="ack-toggle">Mark all read</button>` : ""}`,
       rows.length ? table(null, [
-        ...(isUserRole() ? [] : [askCol("alert", (x) => x.text)]), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
+        ...(rich ? [askCol("alert", (x) => x.text)] : []), { k: "_t", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
         { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : "sev-medium"}">${esc(v)}</span>` },
-        ...(rich && rows[0]?.eid ? rcCols().slice(0, 1) : []),
-        { k: "text", t: "Alert", fmt: (v, x) => alertText(v, { ...x, read: x.read ? 1 : 0 }) },
-        ...(rich && rows[0]?.eid ? rcCols().slice(1) : [])],
-        rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(isUserRole() ? {} : { evId: (x) => `alert|${x.id}`, filter: true }),
-          ...(rich && rows[0]?.eid ? { onclick: openAlert } : {}) }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
+        ...(hasV ? rcCols().slice(0, 1) : []),
+        { k: "text", t: "Alert", fmt: (v, x) => `<span style="${x.read ? "" : "font-weight:600"}">${linkifyIps(v)}</span>` },
+        ...(rich && hasV ? rcCols().slice(1) : [])],
+        rows, { sort: "_t", rowClass: (x) => (x.read ? "" : "unread"), ...(rich ? { evId: (x) => `alert|${x.id}`, filter: true } : {}),
+          ...(hasV ? { onclick: toggleRow } : {}) }) : `<div class="empty">No urgent alerts in the last 30 days.</div>`);
     el.appendChild(ac);
-    if (rich && D) {  // detections the watcher / scans raised that were not promoted to alarms, by verdict
-      const C = D.counts.detections, chip = (v, l) => `<button type="button" class="vf-chip${(A.vf || "") === v ? " on" : ""}" data-v="${v}">${esc(l)}${v ? ` (${fn(C[v] || 0)})` : ` (${fn(D.total)})`}</button>`;
-      const dc = card(`Detections by verdict (${A.vf ? `${fn(D.matching)} ${vLabel[A.vf].toLowerCase()}` : fn(D.total)}${D.alerts.length < D.matching ? `, newest ${D.alerts.length} shown` : ""})`,
-        `<div class="small muted">Everything the 15-minute watcher, scans and account checks raised in the last 30 days. Only detections reviewed as suspicious at medium or high severity become alarms (above); the rest stay here with their verdict. A person's verdict (👤) wins over the event reviewer (AI), which wins over the decision model. 🔎 = web look-ups the AI ran. Click a row for the research, web research, notes and notes on its artifacts.</div>
-        <div class="fchips vf-bar" style="margin:6px 0">${chip("", "All")}${VORD.map((v) => chip(v, vLabel[v])).join("")}</div>`);
-      dc.id = "al-detections";
-      dc.appendChild(D.alerts.length ? table(null, [
-        { k: "ts", t: "When", fmt: (v) => esc(new Date(v * 1000).toLocaleString()), sort: (x) => x.ts },
-        { k: "severity", t: "Level", fmt: (v) => `<span class="badge ${v === "investigate" ? "sev-high" : v === "urgent" ? "sev-medium" : "sev-low"}">${esc(v)}</span>` },
-        rcCols()[0], { k: "text", t: "Detection", fmt: (v, x) => alertText(v, x) }, ...rcCols().slice(1)],
-        D.alerts, { sort: "ts", filter: true, onclick: openAlert }) : (() => { const d = document.createElement("div"); d.className = "empty"; d.textContent = "No detections with this verdict."; return d; })());
-      el.appendChild(dc);
-      dc.querySelectorAll(".vf-chip").forEach((b) => b.addEventListener("click", () => { A.vf = b.dataset.v || ""; A.jump = true; rerender(); }));
-      if (A.jump) { A.jump = false; dc.scrollIntoView({ block: "start" }); }
-    }
     ac.querySelector("#clTog")?.addEventListener("click", () => { A.showCleared = true; rerender(); });
     ac.querySelector("#fTog")?.addEventListener("click", () => { A.showAll = !A.showAll; rerender(); });
     ac.querySelector("#markRead")?.addEventListener("click", async () => { await apiPost("/api/alerts/read", {}); A.unread = 0; A.list.forEach((a) => (a.read = 1)); paintCount(); rerender(); });
