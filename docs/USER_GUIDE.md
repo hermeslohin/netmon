@@ -162,7 +162,7 @@ Every reviewed alert also gets a second, separate verdict: advice written as a s
 | ⬆️ Update your device | an update or patch fixes it |
 | 🔑 Change a password | an account may be exposed |
 | 🚫 Stop visiting this site / Stop using this app | a named site or app is the problem |
-| ⛔ Stop using this device | only when the device itself looks compromised and the analyst verdict is suspicious with at least 85% confidence; otherwise it is softened to Keep an eye out |
+| ⛔ Stop using this device | only when the device itself looks compromised and the analyst verdict is suspicious with at least 85% confidence; otherwise the analyst picks a milder action and writes the message to match |
 
 Users see the advice first (the analyst's reasoning sits below it as Analyst's notes); admins and defenders see it as its own section under the reviewer's verdict. On **Open events**, an event that raised an alert shows the same advice as a collapsed **💬 Advice for the device owner** arrow in its detail window. The advice is written by the event reviewer model after each review pass (a few alerts per pass, newest first) and rewritten when the alert, the verdict or the research changes; until then the column says *advice coming*.
 

@@ -20,7 +20,7 @@ LABELS = {"no_action": "Nothing to do", "watch": "Keep an eye out", "update": "U
 MAX_PER_PASS = 4
 STOP_DEVICE_CONF = 0.85  # "stop using this device" needs a suspicious verdict at least this confident, else it becomes "watch"
 MAX_AGE_S = 30 * 86400
-PROMPT_VER = 2  # part of the input signature: bump when SYSTEM changes so every alert's advice is rewritten
+PROMPT_VER = 3  # part of the input signature: bump when SYSTEM changes so every alert's advice is rewritten
 
 SYSTEM = """You are a SOC analyst at a home network's security team. Another analyst has already reviewed one security alert
 (their verdict and reason are in the user message). Your job now is different: write advice for the PERSON WHO USES THE
@@ -128,17 +128,28 @@ def _sig(a, cl, note):
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def advise(target, a, cl, note=None, dev=""):
-    """One model call for one alert -> (action, headline, steps, why, target) or None."""
-    txt = corr_llm._complete(target, SYSTEM, _prompt(a, cl, note, dev), 500, purpose="user-advice", actor="netmon (advice for the device owner)",
+def _ask(target, a, cl, note, dev, extra=""):
+    txt = corr_llm._complete(target, SYSTEM + extra, _prompt(a, cl, note, dev), 600, purpose="user-advice", actor="netmon (advice for the device owner)",
                              schemas=(SCHEMA, SCHEMA), fmts=(FMT, FMT))[0]
     try:
-        d = corr_llm._json(txt)
+        return _clean(corr_llm._json(txt))
     except Exception:  # noqa: BLE001
         return None
-    r = _clean(d)
+
+
+NO_STOP = ("\n\nFOR THIS ALERT stop_device is NOT allowed: the analyst is not confident enough that the device itself is "
+           "compromised. Pick the right milder action and make the message match it - do not tell them to stop using or "
+           "disconnect the device.")
+
+
+def advise(target, a, cl, note=None, dev=""):
+    """One model call for one alert -> (action, headline, steps, message, target) or None. Guard rail: "stop using this
+    device" only on a confident suspicious verdict; otherwise the model is asked again with that action ruled out, so the
+    message never tells them to stop using a device the advice does not (a second refusal falls back to watch)."""
+    r = _ask(target, a, cl, note, dev)
     if r and r[0] == "stop_device" and (cl.get("label") != "suspicious" or float(cl.get("confidence") or 0) < STOP_DEVICE_CONF):
-        r = ("watch",) + r[1:]  # guard rail: "stop using your phone" only on a confident suspicious verdict
+        r2 = _ask(target, a, cl, note, dev, NO_STOP)
+        r = r2 if r2 and r2[0] != "stop_device" else None
     return r
 
 

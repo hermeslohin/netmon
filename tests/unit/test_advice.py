@@ -72,13 +72,20 @@ class AdviceTest(unittest.TestCase):
             self.assertEqual(m.call_count, 0)
 
     def test_stop_device_guard_rail(self):
-        """"Stop using this device" needs a confident suspicious verdict; otherwise it is softened to "Keep an eye out".
+        """"Stop using this device" needs a confident suspicious verdict; otherwise the model is asked again with it ruled out
+        (so the message matches the milder action), and a second stop_device answer stores nothing.
         REQ: ALR-26"""
         cl = {"label": "suspicious", "confidence": 0.8, "reason": "x"}
-        with mock.patch.object(corr_llm, "_complete", return_value=_answer(action="stop_device")):
-            self.assertEqual(advice.advise(TARGET, {"text": "t"}, cl)[0], "watch")
+        stop, watch = _answer(action="stop_device", message="Syn detected... please stop using it."), _answer(action="watch", message="Syn detected... keep an eye out.")
+        with mock.patch.object(corr_llm, "_complete", side_effect=[stop, watch]) as m:
+            r = advice.advise(TARGET, {"text": "t"}, cl)
+            self.assertEqual((r[0], r[3]), ("watch", "Syn detected... keep an eye out."))
+            self.assertIn("stop_device is NOT allowed", m.call_args_list[1][0][1])
+        with mock.patch.object(corr_llm, "_complete", side_effect=[stop, stop]):
+            self.assertIsNone(advice.advise(TARGET, {"text": "t"}, {**cl, "label": "expected", "confidence": 0.99}))
+        with mock.patch.object(corr_llm, "_complete", return_value=stop) as m:
             self.assertEqual(advice.advise(TARGET, {"text": "t"}, {**cl, "confidence": 0.9})[0], "stop_device")
-            self.assertEqual(advice.advise(TARGET, {"text": "t"}, {**cl, "label": "expected", "confidence": 0.99})[0], "watch")
+            self.assertEqual(m.call_count, 1)
 
     def test_bad_answers_are_dropped(self):
         """An unknown action, an empty headline, an empty message or non-JSON text stores nothing; steps are capped at 4.
