@@ -1867,6 +1867,9 @@ class H(BaseHTTPRequestHandler):
                 res_ = snapshot(sid) if sid else None  # the range's own rows (its correlation map is the nightly report's)
                 times, pending = eventstore.window_times(eventstore.posture_items(res_.get("raw"), res_.get("analysis")) if res_ else [])
                 return self._json({"times": times, "pending": pending})
+            if path == "/api/events/one":  # Posture row clicked: its stored event as an Open events row (+ extras)
+                import eventstore
+                return self._json(eventstore.one([e[:600] for e in (q.get("e") or [])[:4]]))
             if path == "/api/events/detail":  # Open events modal: all occurrences of one event + its related events
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]

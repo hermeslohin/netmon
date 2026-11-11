@@ -432,6 +432,39 @@ def detail(eid):
             "inputs_since": corr_llm.decision_inputs_since()}
 
 
+def one(cands):
+    """Posture row clicked: the stored event of the first candidate id that exists, as an Open events row (all variants
+    of its condition grouped, checked off or not), with its extras, so the Open events window can show it. A candidate
+    \"seg|<src>|<dst>|<port>\" (segmentation violation) matches the segmentation finding of that flow."""
+    c = _c()
+    for cand in [str(x) for x in cands if x]:
+        gk = gkey(cand)
+        p = cand.split("|")
+        if p[0] == "seg" and len(p) >= 4:
+            pre = f"f|segmentation|{p[1]}|"
+        elif p[0] == "f" and len(p) >= 4:
+            pre = "|".join(p[:3]) + "|"
+        else:
+            pre = None
+        q = ("SELECT * FROM events WHERE eid >= ? AND eid < ? ORDER BY COALESCE(t1,0), last_seen", (pre, pre + "\uffff")) if pre \
+            else ("SELECT * FROM events WHERE eid = ?", (cand,))
+        ms = [r for r in c.execute(*q) if r["eid"] == cand or (r["resolved"] == 0 and gkey(r["eid"]) == gk)]
+        if not ms:
+            continue
+        newest = next((r for r in ms if r["eid"] == cand), None) if not p[0] == "seg" else None
+        live = [r for r in ms if r["resolved"] == 0] or ms
+        newest = newest or live[-1]
+        d = json.loads(newest["doc"] or "{}")
+        row = {"eid": newest["eid"], "type": newest["type"], "label": newest["label"], "sev": newest["sev"], "link": newest["link"],
+               "t0": newest["t0"], "t1": newest["t1"], "item": d.get("item"), "members": [m["eid"] for m in ms[-12:]],
+               "first_seen": min(m["first_seen"] for m in ms), "last_seen": newest["last_seen"], "n": sum(m["n"] for m in ms),
+               "et0": _emin(ms), "et1": _emax(ms), "repeats": len(ms), "last_sid": newest["last_sid"], "ips": d.get("ips") or [], "acks": []}
+        if newest["eid"] not in row["members"]:
+            row["members"].append(newest["eid"])
+        return {"event": row, "extra": extras([row])}
+    return {"event": None, "extra": {}}
+
+
 def decision_inputs(eid):
     """Posture / Alerts classification pop-up: the events passed in to this event's determinations, with their records."""
     import corr_llm

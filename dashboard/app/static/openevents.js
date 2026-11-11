@@ -275,6 +275,20 @@
   }
   window.oePaintCount = paintCount;
   window.oeOpenDetail = openDetail;  // the Alerts page opens its rows in the same window
+  // Posture rows open in the same window: look the row's event up in the store (first candidate id found) with its
+  // extras; a row with no stored event still opens, from the fallback row the page passes
+  window.oeOpenEvent = async (ids, fb) => {
+    let r = {};
+    try { r = await api("/api/events/one?" + ids.filter(Boolean).map((e) => "e=" + encodeURIComponent(e)).join("&")); } catch (_) { /* fall back */ }
+    const x = r.event || (fb && { n: 0, repeats: 1, members: [], ips: [], acks: [], ...fb });
+    if (!x || !x.eid) return;
+    const X = (window.__oeExtra = window.__oeExtra || {});
+    for (const [k, v] of Object.entries(r.extra || {})) if (v && typeof v === "object" && !Array.isArray(v)) X[k] = { ...(X[k] || {}), ...v };
+    S.corr = S.corr || {}; S.corr.events = S.corr.events || {}; S.corr.unotes = { ...(S.corr.unotes || {}), ...(r.extra?.unotes || {}) };
+    if (!S.corr.events[x.eid]) S.corr.events[x.eid] = { label: x.label, type: x.type };
+    window.__oeMembers = { ...(window.__oeMembers || {}), [x.eid]: x.members || [] };
+    openDetail(x);
+  };
   setInterval(paintCount, 120000); paintCount();
 
   V.events = async (el) => {
