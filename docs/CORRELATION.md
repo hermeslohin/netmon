@@ -143,8 +143,8 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    alike — stored with model name `cloudflare_clef`. 4 questions run in parallel (full clef: ~3 s each, ~70 links/min).
 2. **Events — one event reviewer call per settled correlated group.** Events joined by decided *related* links form a
    **correlated group** (connected component). A group **settles** once its newest event is one **event window** old
-   (plus 5 min for late Elasticsearch arrivals) and none of its links is undecided; the worker loop (every 5-60 s)
-   then makes **one** event reviewer call for the whole group — the most severe, best-connected member is the anchor,
+   and none of its links is undecided (late Elasticsearch arrivals are covered by the pull gate below, not a fixed
+   slack); the worker loop then makes **one** event reviewer call for the whole group — the most severe, best-connected member is the anchor,
    the other members are its candidates — and stores the label and reason on **every member** (each weighed against
    its own person's verdict). Until then the group's events show **⏳ Pending review · settles at HH:MM** on every
    page that shows a label (table `review_pending`, rewritten each pass). The reviewer works on the newest review run
@@ -157,7 +157,11 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    settles. Because an event can reach Elasticsearch up to one window after it happened, a group also waits until the
    watcher (the Elasticsearch pull, once per event window) has committed a pull whose arrival window ends after its
    newest event + one window (`window.bookmark("watch")`), so no later pull can add a member after the review; the
-   shown settle time includes that pull. **Late arrivals:** the pull reads by arrival time (`event.ingested`) from its
+   shown settle time includes that pull. A group made **only of streamed events** (Suricata alerts, watched syslog,
+   host alerts — see *Event stream* below) uses the stream's bookmark instead (`window.bookmark("stream")`, which
+   trails now by about 75 s), so it is labelled about a minute after the window ends rather than at the next pull slot.
+   The worker does not sleep through that moment: when idle it checks every 5 s and starts a pass as soon as a new
+   alert arrives or a pending group's settle time is reached (`_idle`). **Late arrivals:** the pull reads by arrival time (`event.ingested`) from its
    bookmark, so an event that reaches Elasticsearch late is picked up by the next pull and never dropped. A watcher alert
    keeps when it happened (`alerts.event_ts`, the Elasticsearch `@timestamp`; IDS alerts today, other checks fall back
    to the pull time) and is placed and linked at that time; it belongs to the correlation of the pull that stored it.
@@ -669,6 +673,36 @@ configuration holds every setting. The boxes:
 | **Decisions** | Filters: verdict (confirmed, rejected, set by a person), event type, event pair, confidence, this snapshot only. Per decision **✓ / ✗** overrides the model (stored as `manual:<user>`, never overwritten), **↻** deletes the verdict so the model reviews that link again |
 | **Event reviewer searches** / **Event research searches** | The newest Elasticsearch searches of each AI |
 
+### Event stream (`stream.py`)
+
+Elasticsearch has no change feed, so netmon tails it: `stream.py` (a long-running child of the scheduler) reads
+**every 15 s** the documents that **arrived** (`event.ingested`) since its bookmark (`meta` `arrival:stream`), up to
+now − 60 s (two index refreshes). Windows touch end to end, so every document is read by exactly one tick however
+late it reaches Elasticsearch; a tick with a failed check keeps the bookmark and the next tick reads the span again.
+
+| Streamed | Index | Alert key (same as the watcher) |
+|---|---|---|
+| Suricata alerts: severity 1 or a malware / C2 / exploit category, not known-benign | `logs-suricata.alerts-so` | `ids|<signature>|[<src>]` |
+| Watched syslog patterns (host policy `syslog_patterns` with `"watch": true`), one search for all patterns | `logs-system.syslog-default` | `host|syslog|<host>|<pattern>` |
+| Elastic Defend alerts | `logs-endpoint.alerts-*` | `host|defend|…` |
+| Security Onion detections (Sigma rules: SOC / grid login failures, …); high / critical = ALERT | `logs-detections.alerts-so` | `host|detect|<host>|<rule>` |
+
+The checks live in `streamchecks.py` and the watcher runs the same IDS check (its host check still covers syslog
+and Defend), so the watcher stays the fallback when the stream is down. Both share the 12-hour mute (`watch_mute`), so
+an event is stored once, by whichever saw it first. Streamed alerts are stored with source `stream`, **held** (events
+for correlation and the event reviewer, never an alarm or push by themselves) and with the event time (`event_ts`).
+A new alert wakes the dashboard's event-store ingest (within 10 s, otherwise every 5 min) and the event reviewer
+(within 5 s), and a high-severity one gets its provisional label at once (fast path).
+
+**Timeline** (event window 10 min): a Suricata alert at 12:00:00 reaches Elasticsearch at about 12:00:30, is read by
+the stream by about 12:01:45, is on the Alerts page and in the correlation a few seconds later, and its group (if
+nothing else joins) is labelled at about 12:11:15 — the window, plus the stream's lag. Before the stream it waited for
+the next watcher pull (up to 10 min) and then for a pull past 12:10 + 2 min margin, i.e. about 12:21–12:30.
+
+Run `python3 stream.py status` for the bookmark and the last tick (`docs` `state/stream`: span, counts per check,
+new alerts, errors) and `python3 stream.py once` for one tick by hand; log `logs/stream.log`. Load: three small
+searches per tick (~0.6 s), about 17,000 a day.
+
 ## 4. Working through it on the dashboard
 
 - **Related column** on every event list (Alerts, Posture findings, IDS, Admin sessions, Endpoint findings, Threat
@@ -1060,6 +1094,7 @@ event reviewer (7.2) as an `<ai_note>` *research verdict …* on that event's ne
 | Note characters | 6000 (1000–100000) | `llm_config` → `context_notes.chars` |
 | Review limits: link-type modes, default mode | review (skip on a brand-new deployment) | `llm_config` → `review_limits.pair_modes`, `pair_default` |
 | Event window (minutes): correlation window, review coverage, settle wait | 2-120, default 10 | cfg table `site` / `event_window_minutes` (`lookback.py`) |
+| Event stream tick / margin | 15 s / 60 s | `NETMON_STREAM_S` (environment of the scheduler unit) / `window.STREAM_MARGIN_S` |
 | Review limits: max links per event | 0 = no cap, max 200 | `review_limits.max_links` |
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |
 | Review limits: classify events | off | `review_limits.classify` |

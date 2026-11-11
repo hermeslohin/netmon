@@ -309,6 +309,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_settings_ui.py` | 5 | Unit tests for small Settings / theme UI pieces: the learned host name in the device classes editor (settings.js (SET-71, UI-90, UI-91) |
 | `tests/unit/test_static_assets.py` | 15 | Static checks of dashboard/app/static: referenced assets exist and app.js fnv() matches correlate.fnv (no node needed). (CFG-06, COR-02, DASH-01, DASH-06) |
 | `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
+| `tests/unit/test_stream.py` | 7 | Event stream (stream.py + streamchecks.py): Suricata / syslog / host alerts tailed every few seconds by arrival time, (EVW-09, EVW-10) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |
 | `tests/unit/test_unifi_cache.py` | 5 | Unit tests for the UniFi pre-warm cache (unifi.py): it lives in netmon.db (unifi_rows/unifi_streams + docs unifi/*), (SEC-06, STO-16) |
 | `tests/unit/test_volume_spike.py` | 7 | volume-spike thresholds in the policy (Settings > Network policy > volume_spike): defaults equal the former hardcoded (VOL-01, VOL-02, VOL-03, VOL-04, VOL-05) |

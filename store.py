@@ -613,7 +613,7 @@ def mutes(c=None):
 
 
 # ------------------------------------------------------------------ urgent alerts feed + web-push subscriptions
-HELD_SOURCES = ("watcher", "secscan", "account", "report")  # detections: kept as events for the correlation / AI review, but not an alarm until promoted
+HELD_SOURCES = ("watcher", "stream", "secscan", "account", "report")  # detections: kept as events for the correlation / AI review, but not an alarm until promoted
 
 
 def alerts_add(items, source="watcher", c=None):
@@ -920,7 +920,7 @@ def alerts_hold(ids, c=None):
     with tx(c):
         n = 0
         for i in ids:
-            n += c.execute("UPDATE alerts SET held=1, read=1, pushed=1 WHERE id=? AND held=0 AND source IN ('watcher','secscan','account','report')", (i,)).rowcount
+            n += c.execute("UPDATE alerts SET held=1, read=1, pushed=1 WHERE id=? AND held=0 AND source IN ('watcher','stream','secscan','account','report')", (i,)).rowcount
     return n
 
 

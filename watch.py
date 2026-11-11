@@ -84,55 +84,13 @@ def alert(key, text, at=None, kind=None, ip=None, mac=None):
         EVENT_TS.setdefault(key, float(at))
 
 
-def bucket_time(b):
-    """Epoch of a bucket's first event (its "t0" min @timestamp aggregation), or None."""
-    try:
-        v = (b.get("t0") or {}).get("value")
-        return float(v) / 1000 if v else None
-    except (TypeError, ValueError, AttributeError):
-        return None
-
-
 def is_benign_sig(sig):
     return any(k.lower() in sig.lower() for k in benign.get("signatures", {}))
 
 
-def late_note(b):
-    """' (happened <time>, arrived N h late)' when the first event of a bucket reached ES more than LATE_S late."""
-    try:
-        t0, t1 = (b.get("t0") or {}).get("value"), (b.get("in") or {}).get("value")
-        if t0 and t1 and (t1 - t0) / 1000 > window.LATE_S:
-            return f" (happened {(b['t0'].get('value_as_string') or '')[:16].replace('T', ' ')} UTC, arrived {(t1 - t0) / 3.6e6:.1f} h late)"
-    except (TypeError, ValueError, AttributeError) as e:
-        print(f"(late note: {e})", file=sys.stderr)
-    return ""
-
-
-# 1. IDS
-r = q("logs-suricata.alerts-so", {"size": 0, "query": {"bool": {"filter": [R], "should": [
-    {"term": {"rule.severity": 1}},
-    {"terms": {"rule.category": ["A Network Trojan was detected", "Malware Command and Control Activity Detected",
-                                 "Exploit Kit Activity Detected", "Successful Administrator Privilege Gain",
-                                 "Successful User Privilege Gain", "Targeted Malicious Activity was Detected",
-                                 "Domain Observed Used for C2 Detected", "Crypto Currency Mining Activity Detected"]}}],
-    "minimum_should_match": 1}},
-    "aggs": {"s": {"terms": {"field": "rule.name", "size": 20},
-                   "aggs": {"src": {"terms": {"field": "source.ip", "size": 2}}, "dst": {"terms": {"field": "destination.ip", "size": 2}},
-                            "mt": {"terms": {"field": "rule.metadata.mitre_technique_id", "size": 2}},
-                            "t0": {"min": {"field": "@timestamp"}}, "in": {"max": {"field": "event.ingested"}}}}}})
-for b in buckets(r["aggregations"]["s"]):
-    if is_benign_sig(b["key"]):
-        continue
-    src = [x["key"] for x in buckets(b["src"])]
-    dst = [x["key"] for x in buckets(b["dst"])]
-    mt = [x["key"] for x in buckets(b.get("mt") or {})]
-    try:
-        import mitre
-        mt = " [ATT&CK " + ", ".join(f"{i} {mitre.tech(i).get('name', '')}" for i in mt) + "]" if mt else ""
-    except Exception:
-        mt = ""
-    alert(f"ids|{b['key']}|{src[:1]}", f"**IDS:** {b['key']} x{b['doc_count']} - {', '.join(map(nm, src))} -> {', '.join(map(nm, dst))}{mt}{late_note(b)}", at=bucket_time(b),
-          kind="ids", ip=(src or [None])[0])
+# 1. IDS (streamchecks.py: the stream runs the same check every few seconds; the shared key makes the mute drop the twin)
+import streamchecks  # noqa: E402
+streamchecks.ids(q, R, alert, is_benign_sig, nm)
 
 # 2. New devices
 known_ips = {ip for r_ in registry.values() for ip in r_.get("ips", [])}

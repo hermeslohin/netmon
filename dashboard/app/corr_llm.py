@@ -386,9 +386,11 @@ def _event_window_min():
 
 
 def settle_s():
-    """Seconds a correlated group must stay unchanged (after its newest member) before the event reviewer labels it."""
+    """Seconds a correlated group must stay unchanged (after its newest member) before the event reviewer labels it: one
+    event window. Late Elasticsearch arrivals are covered by the pull gate in event_pass (a committed arrival bookmark past
+    newest + window), not by a fixed slack, so a group is labelled as soon as both hold."""
     import correlate
-    return correlate.window_s() + correlate.INGEST_SLACK_S
+    return correlate.window_s()
 
 
 def limits():
@@ -2859,6 +2861,25 @@ def _pulled_to():
         return None, period
 
 
+# alert keys the stream (stream.py, every few seconds) produces: a group made only of these settles on the stream's bookmark
+STREAM_KEYS = ("ids|", "host|syslog|", "host|defend|", "host|detect|")
+STREAM_LAG_S = 75  # stream bookmark trails now by its margin (60 s) + one tick (15 s)
+
+
+def _streamed():
+    """(eids of watcher/stream alerts with a streamed key, end of the newest committed pull covering them or None).
+    The stream and the watcher both run these checks, so either bookmark covers them: the later one counts."""
+    try:
+        import window
+        bm = [b for b in (window.bookmark("stream"), window.bookmark("watch")) if b]
+        with store.connect() as c:
+            ids = {f"alert|{i}" for (i, k) in c.execute("SELECT id, key FROM alerts WHERE ts > ?", (time.time() - 14 * 86400,))
+                   if str(k).startswith(STREAM_KEYS)}
+        return ids, (max(bm) if bm else None)
+    except Exception:  # noqa: BLE001 - /netmon not mounted (tests of this module alone): watcher bookmark only
+        return set(), None
+
+
 def _cov(raw):
     try:
         v = json.loads(raw) if raw else None
@@ -2889,6 +2910,7 @@ def event_pass(base, now=None, focus=None, open_ids=()):
     wait = settle_s()
     win = _event_window_min() * 60
     pulled, period = _pulled_to()  # end of the newest committed Elasticsearch pull (watcher arrival bookmark)
+    s_ids, s_pulled = _streamed()  # stream-checked alerts and the newest bookmark covering them (stream.py ~every 15 s)
     with _db() as c:
         have = {e: (sg, _cov(cv)) for e, sg, cv in c.execute("SELECT eid, sig, covered FROM event_class")}
         first = dict(c.execute("SELECT eid, ts FROM review_pending WHERE why IS NULL"))  # when each event started waiting (kept across passes)
@@ -2924,8 +2946,12 @@ def event_pass(base, now=None, focus=None, open_ids=()):
         # a late event can reach Elasticsearch up to one window after it happened: settled only once a pull has committed
         # arrivals past newest + window (so no later pull adds a member after the review)
         need_pull = g["newest"] + win if g["newest"] is not None else None
-        pull_ok = need_pull is None or pulled is None or pulled >= need_pull
-        if not pull_ok:  # expected: the first pull slot whose window ends after need_pull (+ ingest margin), plus its run time
+        streamed = bool(s_pulled) and all(m in s_ids for m in ms)  # every member comes from the stream's checks
+        gp = s_pulled if streamed else pulled
+        pull_ok = need_pull is None or gp is None or gp >= need_pull
+        if not pull_ok and streamed:  # the stream tick that reads past need_pull: ~its margin + one tick later
+            settles = max(settles, need_pull + STREAM_LAG_S)
+        elif not pull_ok:  # expected: the first pull slot whose window ends after need_pull (+ ingest margin), plus its run time
             settles = max(settles, (need_pull + 120) // period * period + period + 60)
         since = min([first.get(m) or now for m in ms])
         overdue = now - since >= wait * MAX_WAIT_FACTOR  # keeps changing (a recurring event): review it anyway
@@ -3151,6 +3177,38 @@ def _log_pass(t0, n, crashed=None):
         print(f"review log failed: {e}", file=sys.stderr)
 
 
+def _wake_mark():
+    """Newest alert id (a streamed / watcher event arrived) - compared by _idle()."""
+    try:
+        with store.connect() as c:
+            return (c.execute("SELECT MAX(id) FROM alerts").fetchone() or [0])[0] or 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _next_settle(after):
+    """Earliest settle time after `after` of a group still waiting (review_pending), or None."""
+    try:
+        with _db() as c:
+            return c.execute("SELECT MIN(settles) FROM review_pending WHERE why IS NULL AND links = 0 AND settles > ?", (after,)).fetchone()[0]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _idle(every, mark, step=5):
+    """Sleep up to `every` s between idle passes, but start the next pass within `step` s when a new alert arrived (a
+    high-severity one gets its provisional label at once) or a waiting group's settle time comes during the wait, so a
+    group is labelled right after its event window ends instead of up to a minute later. A settle time that had already
+    passed when the wait began (a group held back for another reason) does not wake it."""
+    t0 = time.time()
+    end = t0 + every
+    while time.time() < end:
+        time.sleep(step)
+        ns = _next_settle(t0)
+        if (ns is not None and ns <= time.time()) or _wake_mark() != mark:
+            return
+
+
 def start(get_base, latest_sid_fn, every=60):
     if not ENABLED:
         return
@@ -3168,9 +3226,13 @@ def start(get_base, latest_sid_fn, every=60):
                     except Exception as e:  # noqa: BLE001 - never stop the event reviewer for housekeeping
                         print(f"verdict prune failed: {e}", file=sys.stderr)
                 t0 = time.time()
+                mark = _wake_mark()
                 n = run_once(get_base, latest_sid_fn())
                 _log_pass(t0, n)
-                time.sleep(5 if n else every)
+                if n:
+                    time.sleep(5)
+                else:
+                    _idle(every, mark)
             except Exception as e:  # noqa: BLE001 - LM Studio down / model unloading: back off and retry
                 print(f"event reviewer loop error: {type(e).__name__}: {str(e)[:400]}", file=sys.stderr, flush=True)
                 STATUS.update(busy=False); _set_error("loop", f"{type(e).__name__}: {str(e)[:200]}")

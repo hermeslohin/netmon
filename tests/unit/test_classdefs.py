@@ -91,11 +91,12 @@ class Switches(unittest.TestCase):
         """watch.py live alerts for a device (IDS, new device, inbound port, threat intel, admin access) name their alarm
         kind and device, so alert() can drop the ones switched off for the device's class.
         REQ: CLS-02"""
-        src = open(os.path.join(_env.REPO, "watch.py"), encoding="utf-8").read()
+        src = "".join(open(os.path.join(_env.REPO, f), encoding="utf-8").read() for f in ("watch.py", "streamchecks.py"))  # IDS: shared with stream.py
         for kind in ("ids", "new-device-dhcp", "new-device", "inbound-port", "ti-domain", "ti-ip-out", "admin-access"):
             self.assertIn(f'kind="{kind}"', src)
             self.assertIn(kind, classdefs.ALARM_IDS)
         self.assertIn("if kind and (ip or mac) and not alarm_on(kind, ip, mac):", src)
+        self.assertIn("if kind and (ip or mac) and not ctx.alarm_on(kind, ip, mac):", open(os.path.join(_env.REPO, "stream.py"), encoding="utf-8").read())
 
 
 class Edits(unittest.TestCase):

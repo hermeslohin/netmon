@@ -29,6 +29,7 @@ import os
 import time
 
 ARRIVAL_MARGIN_S = 120     # > index refresh (30 s on the SO data streams) + bulk latency; single-node cluster, no clock skew
+STREAM_MARGIN_S = 60       # the stream (stream.py) tails closer to now: 2 x the 30 s refresh, few-second bulk latency
 MAX_CATCHUP_H = 7 * 24     # a scheduler outage longer than this restarts from now - MAX_CATCHUP_H
 LATE_S = 30 * 60           # an event that arrives more than this after it happened is "late" (lag stats, alert notes)
 _ARR = {}                  # active arrival window: job, frm, to (epoch s), nominal (minutes)
@@ -53,11 +54,12 @@ def bookmark(job):
         return None
 
 
-def arrival(job, minutes, overlap=False, now=None, back=0):
+def arrival(job, minutes, overlap=False, now=None, back=0, margin=None):
     """Switch every since() of this process to arrival time. Returns the window {job, from, to, nominal, first}.
     job None = a manual run: arrival window of `minutes`, no bookmark read or written.
-    back = seconds re-read before the bookmark (overlap mode; the review job passes the event window)."""
-    to = (time.time() if now is None else now) - ARRIVAL_MARGIN_S
+    back = seconds re-read before the bookmark (overlap mode; the review job passes the event window).
+    margin = seconds kept back from now (default ARRIVAL_MARGIN_S; the stream passes STREAM_MARGIN_S)."""
+    to = (time.time() if now is None else now) - (ARRIVAL_MARGIN_S if margin is None else float(margin))
     nominal = max(1.0, float(minutes))
     prev = bookmark(job) if job else None
     if prev is None or prev >= to:

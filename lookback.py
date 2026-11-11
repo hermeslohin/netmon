@@ -6,7 +6,8 @@
   * review job    - each run collects every event that arrived since the previous run PLUS one window before
                     that (window.arrival back=), so a new event always meets the events of the window before it;
   * settle wait   - a correlated group is labelled by the event reviewer once, after its newest member is this
-                    old (plus INGEST_SLACK_S for late Elasticsearch arrivals) and none of its links is undecided.
+                    old and none of its links is undecided; late Elasticsearch arrivals are covered by waiting for a
+                    committed pull past that point (the stream's bookmark for stream-only groups, else the watcher's).
 
 Stored in the SQLite cfg table, settings document "site", key "event_window_minutes" (More > Settings > Site). Read
 live: every caller asks minutes() (cfg_load re-checks the DB every couple of seconds), so a change applies to the
@@ -86,7 +87,7 @@ def minutes():
 
 def settle_s():
     """Seconds after a group's newest member before the event reviewer labels it."""
-    return minutes() * 60 + INGEST_SLACK_S
+    return minutes() * 60
 
 
 def get():

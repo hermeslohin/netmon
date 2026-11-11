@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """netmon scheduler: runs the pipeline's recurring jobs on the host (systemd user unit netmon-scheduler.service).
 
+  stream         always running              stream.py: Suricata alerts, watched syslog, host alerts tailed every 15 s
+                 (restarted within 20 s)     (arrival bookmark "arrival:stream"; exits hourly to pick up code changes)
   watcher        every event window          watch.py: the Elasticsearch pull (urgent alerts -> dashboard + Web Push);
                  (default 10 min)            period = lookback.minutes() (Settings > Site > event_window_minutes), live
   review job     grid set on the dashboard   review.py (review_cfg: interval, anchored at 05:00 UTC; on/off)
@@ -32,6 +34,7 @@ LOGS = os.path.join(NM, "logs")
 STATE = os.path.join(RC.STATE, "scheduler.json")
 JOBS = {
     "watch": [PY, os.path.join(NM, "watch.py")],
+    "stream": [PY, os.path.join(NM, "stream.py")],  # long-running: Suricata / syslog / host alerts every 15 s (exits hourly, restarted here)
     "review": [PY, os.path.join(NM, "review.py"), "--trigger", "schedule"],
     "weekly": [os.path.join(NM, "weekly_rebuild.sh")],
     "unifi": [PY, os.path.join(NM, "unifi.py"), "--prewarm"],  # keeps the UniFi cache in netmon.db warm so ranges/snapshots skip the slow cloud calls
@@ -78,6 +81,10 @@ def reap():
         if rc is not None:
             print(f"{n} finished with exit code {rc}", flush=True)
             del running[n]
+            if n == "stream":
+                st = _state()
+                st["stream_rc"] = rc
+                _save(st)
 
 
 def _kube_wanted():
@@ -113,6 +120,12 @@ def tick(now=None):
     s = _state()
     # watcher (the Elasticsearch pull): once per event window (lookback.py, Settings > Site > event_window_minutes, read
     # live; default 10 min). Its arrival bookmark makes the pulls touch end to end whatever the spacing (no gap, no overlap).
+    # stream (stream.py): one long-running process; restarted at once after its hourly exit, after a crash only a
+    # minute after the last start (no tight restart loop when Elasticsearch or the store is down)
+    sp = running.get("stream")
+    if not (sp and sp.poll() is None) and (now - float(s.get("stream_at") or 0) >= 60 or s.get("stream_rc") == 0):
+        if start("stream", why="(continuous)"):
+            s["stream_at"], s["stream_rc"] = now, None
     wp = watch_period()
     wst = (now // wp) * wp
     if float(s.get("watch_at") or 0) < wst:
@@ -197,7 +210,13 @@ def status():
     wk = (t + dt.timedelta(days=days)).replace(hour=3, minute=0, second=0, microsecond=0)
     if wk <= t:
         wk += dt.timedelta(days=7)
-    return {"watch": nxt_q, "watch_period_minutes": wp / 60, "review": RC.next_run(), "review_interval_minutes": cfg["interval_minutes"],
+    try:
+        import window
+        sbm = window.bookmark("stream")
+    except Exception:  # noqa: BLE001
+        sbm = None
+    return {"stream_bookmark": sbm, "stream_lag_s": round(now - sbm) if sbm else None,
+            "watch": nxt_q, "watch_period_minutes": wp / 60, "review": RC.next_run(), "review_interval_minutes": cfg["interval_minutes"],
             "review_interval_effective": cfg["interval_effective"],
             "review_enabled": cfg["enabled"], "weekly": wk.timestamp(), "last": _state()}
 

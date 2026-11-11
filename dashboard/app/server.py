@@ -2289,7 +2289,11 @@ def main():
                         autoclose.run(*inp, trigger="timer")
             except Exception as e:  # noqa: BLE001
                 print(f"autoclose timer: {e}", file=sys.stderr)
-            time.sleep(300)
+            mark, end = corr_llm._wake_mark(), time.time() + 300
+            while time.time() < end:  # every 5 min, or within 10 s of a new alert (stream.py): open events and the reviewer see it at once
+                time.sleep(10)
+                if corr_llm._wake_mark() != mark:
+                    break
     threading.Thread(target=_ingest, daemon=True, name="eventstore-ingest").start()
 
     def _notes_nightly():  # host note consolidation at the time set on AI review (notes_consolidate.py) + hourly expiry of unused host notes

@@ -71,6 +71,7 @@ decision model; the event reviewer's local URL may also be a LAN address. Every 
 |---|---|---|---|---|
 | `scheduler.py` | systemd user unit `netmon-scheduler` | always on | `review_cfg`, job state | starts jobs, `logs/<job>.log` |
 | `vulnhist.py record` | child of the scheduler | daily from 06:00 UTC | Fix list (dashboard issue tracker), saved CIS runs, image scan doc | SQLite table `vuln_hist` (Fix list / Kubernetes line charts) |
+| `stream.py` (event stream) | child of the scheduler, long-running (exits hourly, restarted; one at a time by lock) | every 15 s | Elasticsearch (read-only): Suricata alerts, watched syslog, Defend + SO detection alerts by arrival time | `alerts` table (source `stream`, held) |
 | `watch.py` (watcher, the Elasticsearch pull) | child of the scheduler | every event window (default 10 min, `event_window_minutes`, live) | Elasticsearch (read-only), intel lists, device registry | `alerts` table |
 | `unifi.py --prewarm` | child of the scheduler | every 5 min | UniFi Site Manager API | `netmon.db`: tables `unifi_rows` + `unifi_streams` (log/flow rows), docs `unifi/*` (clients, settings, networks, health, console id) |
 | `opencti.py` | child of the scheduler | every 15 min (+5 min offset), only when configured | OpenCTI indicators | SQLite tables `ti_local` / `ti_lists` (the `opencti_*` lists), sightings/incidents back to OpenCTI |
@@ -149,7 +150,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
 4. **Correlate.** `correlate.py` proposes links between events (shared hosts, IPs, accounts, ATT&CK, same problem)
    that happened at most one **event window** apart (More > Settings > Site > `event_window_minutes`, default 10 min).
    Continuously, in the dashboard's correlation worker (every 5-60 s), the decision model answers one yes/no question
-   per link; once a correlated group has settled (its newest event one window + 5 min old, no link undecided) the
+   per link; once a correlated group has settled (its newest event one window old, a pull past that point committed, no link undecided) the
    event reviewer model makes ONE call for the group, labels every member suspicious, benign or expected and writes
    an analyst write-up (Why it fired / Verdict) plus link artifacts. Until then the events show "Pending review, settles at HH:MM". A person's
    verdict on the event, or on artifacts it shows, outweighs the reviewer's label. Verdicts live in `corr_llm.db`.

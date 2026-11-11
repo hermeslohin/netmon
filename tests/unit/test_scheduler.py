@@ -131,9 +131,10 @@ class SchedulerStatusTest(unittest.TestCase):
         RC._meta_put(RC.KEY, None)
 
     def test_jobs_defined(self):
-        """The watch, review, weekly, unifi, rangewarm, k8simages, vulnhist, evtime and opencti jobs (event research is never a scheduled job) are configured with the expected scripts.
+        """The stream, watch, review, weekly, unifi, rangewarm, k8simages, vulnhist, evtime and opencti jobs (event research is never a scheduled job) are configured with the expected scripts.
         REQ: OPS-03"""
-        self.assertEqual(set(scheduler.JOBS), {"watch", "review", "weekly", "unifi", "rangewarm", "opencti", "k8simages", "vulnhist", "evtime"})
+        self.assertEqual(set(scheduler.JOBS), {"stream", "watch", "review", "weekly", "unifi", "rangewarm", "opencti", "k8simages", "vulnhist", "evtime"})
+        self.assertTrue(scheduler.JOBS["stream"][-1].endswith("stream.py"))
         self.assertTrue(scheduler.JOBS["evtime"][-1].endswith("evtime.py"))
         self.assertTrue(scheduler.JOBS["rangewarm"][-1].endswith("range_warm.py"))
         self.assertTrue(scheduler.JOBS["k8simages"][1].endswith("kube_images.py"))

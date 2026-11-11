@@ -43,7 +43,7 @@ class TestEventWindowSetting(unittest.TestCase):
         REQ: EVW-01"""
         g = lookback.get()
         self.assertEqual((g["minutes"], g["default"], g["min"], g["max"], g["set"]), (10, 10, 2, 120, False))
-        self.assertEqual(lookback.settle_s(), 10 * 60 + lookback.INGEST_SLACK_S)
+        self.assertEqual(lookback.settle_s(), 10 * 60)  # late arrivals: the pull gate, not a fixed slack
         self.assertEqual(lookback.put(" 25 ", "admin")["minutes"], 25)
         self.assertEqual(store.cfg_load("site")["event_window_minutes"], 25)
         self.assertTrue(lookback.get()["set"])
@@ -65,7 +65,7 @@ class TestEventWindowSetting(unittest.TestCase):
         _set_window(5)
         self.assertEqual(lookback.minutes(), 5)
         self.assertEqual(correlate.window_s(), 300)
-        self.assertEqual(corr_llm.settle_s(), 300 + correlate.INGEST_SLACK_S)
+        self.assertEqual(corr_llm.settle_s(), 300)
         self.assertEqual(corr_llm.limits()["window_minutes"], 5)
         _set_window(10)
         self.assertEqual(correlate.window_s(), 600)
