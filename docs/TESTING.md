@@ -294,7 +294,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_related_view.py` | 1 | Open events page: related events of rows older than the loaded snapshot come from the stored verdicts (STO-10) |
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |
 | `tests/unit/test_review_noai.py` | 6 | Unit tests for the review / research split: review.py never researches, research.py runs only for a person's click. (OPS-06) |
-| `tests/unit/test_reviewer_output.py` | 5 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-09) |
+| `tests/unit/test_reviewer_output.py` | 6 | Unit tests for the event reviewer's one-paragraph output contract, the decision state's kept count and the (FEAT-07, FEAT-09, REV-01) |
 | `tests/unit/test_reviewlog.py` | 7 | Review log (reviewlog.py) and the daily audit indices (audit.index_for) - no Elasticsearch needed. (AIR-02, AUD-04) |
 | `tests/unit/test_risk.py` | 40 | Unit tests for dashboard/app/risk.py (vulnerability and host risk scoring, zones, segmentation keys). (ISS-02, LAT-01, RISK-01, RISK-02, RISK-03, RISK-04) |
 | `tests/unit/test_risk_k8s.py` | 4 | Risk: Kubernetes workloads ranked with hosts (risk.k8s_rows). (KUBE-11) |
@@ -306,7 +306,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_settings_integrations.py` | 40 | Unit tests for the Integrations settings (integrations.py) sections elasticsearch, unifi and audit, plus the audit on/off switches end to end. (SET-01, SET-02, SET-03, SET-04, SET-05, SET-06, SET-07, SET-08, SET-09, SET-10, SET-11, SET-12, SET-13, SET-14, SET-15) |
 | `tests/unit/test_settings_inventory.py` | 5 | Settings coverage guard: every setting found in the code is in tests/settings_inventory.py and covered by a test. (SET-90) |
 | `tests/unit/test_settings_site.py` | 38 | Unit tests for the Settings page documents: settings_docs catalog vs templates, store cfg round trip, server.cfg_validate (ANA-30, SET-40, SET-41, SET-42, SET-43, SET-44, SET-45, SET-46, SET-47, SET-48, SET-49, SET-50, SET-51, SET-52, SET-53, SET-54, SET-55) |
-| `tests/unit/test_settings_ui.py` | 4 | Unit tests for small Settings / theme UI pieces: the learned host name in the device classes editor (settings.js (SET-71, UI-90, UI-91) |
+| `tests/unit/test_settings_ui.py` | 5 | Unit tests for small Settings / theme UI pieces: the learned host name in the device classes editor (settings.js (SET-71, UI-90, UI-91) |
 | `tests/unit/test_static_assets.py` | 15 | Static checks of dashboard/app/static: referenced assets exist and app.js fnv() matches correlate.fnv (no node needed). (CFG-06, COR-02, DASH-01, DASH-06) |
 | `tests/unit/test_store.py` | 66 | Unit tests for store.py: docs, cfg, acks, mutes, suppress rules, alerts, push, findings, registry, history, ops. (AC-06, DASH-05, OPS-04, RISK-04, SEC-06, STO-01, STO-02, STO-03, STO-04, STO-05, STO-06, STO-07) |
 | `tests/unit/test_ti_trend.py` | 1 | Threat-intel trend endpoint: built one snapshot at a time (never all snapshots in memory). (DASH-07) |

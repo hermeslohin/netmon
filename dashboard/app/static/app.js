@@ -1456,7 +1456,7 @@ function auditView(h) { if (h === _lastView) return; _lastView = h;
    moved back from the old page in place of its freshly built twin. Only boxes that really changed are swapped, so they
    update one at a time; unchanged boxes keep their charts, scroll position, sort order, filters and open/closed state.
    The scroll position is kept. A real page change (route() without keep) still renders straight into #main. */
-const MORPH_DECOR = ".cc-grip,.cc-rs,.cc-more,.cc-fade,.ci-btn,.note-btn,.cls-btn,.unote-btn,.seen-flair,.pend-flair";
+const MORPH_DECOR = ".cc-grip,.cc-rs,.cc-more,.cc-above,.cc-fade,.ci-btn,.note-btn,.cls-btn,.unote-btn,.seen-flair,.pend-flair";
 const MORPH_CLS = /^(cc-|sc-)|^(collapsed|has)$/;
 // Content fingerprint of one box: its HTML without what cards.js / cardinfo_ui.js / related.js add afterwards, plus the
 // data of its charts (a <canvas> has no data in its HTML).

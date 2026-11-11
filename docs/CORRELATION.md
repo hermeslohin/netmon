@@ -168,9 +168,10 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    pass) so alarms do not wait; its group review replaces it after the settle. Each call is one `review_events` row
    with `members` (events labelled), `kind` (group / fast / overdue) and `delay` (seconds from settling to the review).
    The call carries all clef-related events, owner / AI / artifact notes and (if enabled) Elasticsearch and web look-ups. It gives the event's **label** (suspicious / benign / expected) with a
-   confidence and writes the **reason**: one managerial paragraph (context of the event, why it chose that label,
-   what the look-ups, web research and notes found; related events, artifacts and notes only when they bear on the
-   label). It writes no per-link reason - each related event keeps clef's verdict text - and gives only the link's
+   confidence and writes the **reason**: an analyst's write-up of up to two paragraphs headed *Why it fired:* (the
+   detector / feed and exact value, then what the device actually did: domains, SNI, certificates, owners, web research)
+   and *Verdict:* (the deciding reason, what to check); related events, artifacts and notes only when they bear on the
+   label. It writes no per-link reason - each related event keeps clef's verdict text - and gives only the link's
    **artifacts** (file, process, user, IP, DNS name; each benign / expected / suspicious). It never decides a link.
    - **A person's verdict.** When a person's verdict applies to the event (see *People's verdicts* below), the prompt
      ends with `PERSON'S VERDICT: <verdict> (…)` and the reviewer is told to follow it unless concrete evidence of
@@ -927,9 +928,12 @@ When the state is too long, owner notes go first, then descriptions are cut to 2
    event shows all of them). <note text>` is added: follow it unless concrete evidence of harm (a threat-intel hit, a
    known-bad indicator, an unknown actor) contradicts it, and say so in the reason. Matching scoped verdict notes
    written on other events are added to the anchor's owner notes.
-3. Write the anchor's **reason**: **one short paragraph (40–90 words) in plain prose for a manager** — the context of
-   the event (which device or account, what happened, when) and why it chose that label, saying what the research
-   found (Elasticsearch look-ups, web results cited as `[Wn]`, notes). Mention a related event, artifact or note only
+3. Write the anchor's **reason**: **an analyst's write-up of up to two short paragraphs (80–180 words)**, separated by a
+   blank line: **Why it fired:** which detector, rule or feed raised it on exactly which value (feed, score, device,
+   time), then what the device actually did (domains / TLS SNI / certificates / processes, who runs them, volumes, web
+   results cited as `[Wn]`); **Verdict:** the label, the deciding evidence or note, and what to check. Stored up to 2400
+   characters; the UI keeps the paragraphs and bolds the headings; alarm titles and phone pushes use the Verdict
+   paragraph. Mention a related event, artifact or note only
    when it supports or undermines the label; **never describe why each related event is or is not linked**.
 4. For every candidate give **only artifacts** (no reason text): up to 6 files, processes, users, IPs or DNS names that
    tie the two events together, each with a relation (under 15 words) and benign / expected / suspicious; optionally a

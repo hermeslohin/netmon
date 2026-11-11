@@ -93,7 +93,7 @@ class ClefStageTest(unittest.TestCase):
         self.assertNotIn("DECISION MODEL LABEL", calls[0][1])
         v = corr_llm.verdicts({corr_llm.pair("a", "b")})[corr_llm.pair("a", "b")]
         self.assertTrue(v["related"]); self.assertFalse(v["reason"].startswith("same ssh target nas"))  # no link note written
-        self.assertIn("ONE short paragraph", calls[0][1])
+        self.assertIn("up to two short paragraphs", calls[0][1])
         with corr_llm._db() as c:
             self.assertEqual(c.execute("SELECT label, confidence, model FROM event_class WHERE eid='a'").fetchone(), ("benign", 0.8, "reviewer"))
             self.assertEqual(c.execute("SELECT COUNT(*) FROM clef_event").fetchone()[0], 0)

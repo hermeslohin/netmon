@@ -135,7 +135,10 @@
     const by = {}, loose = [];
     for (const x of srcs || []) if (safeUrl(x.url)) (x.id ? (by[x.id] = x) : loose.push(x));
     for (const id of [...new Set((String(reason || "").match(/\[W\d+\]/g) || []).map((m) => m.slice(1, -1)))]) if (!by[id] && loose.length) by[id] = loose.shift();  // older rows: no stored id, match in order
-    return esc(reason || "").replace(/\[(W\d+)\]/g, (m, id) => by[id] ? `<a href="${esc(by[id].url)}" target="_blank" rel="noopener noreferrer" title="${esc(by[id].title || by[id].url)}">[${id}]</a>` : m);
+    return esc(reason || "").replace(/\[(W\d+)\]/g, (m, id) => by[id] ? `<a href="${esc(by[id].url)}" target="_blank" rel="noopener noreferrer" title="${esc(by[id].title || by[id].url)}">[${id}]</a>` : m)
+      // analyst write-up: paragraphs kept, the three section headings in bold
+      .replace(/(^|\n)\s*(Why it fired|What it actually was|Verdict):/g, (m, nl, h) => `${nl}<b>${h}:</b>`)
+      .replace(/\n{2,}/g, "<br><br>").replace(/\n/g, "<br>");
   }
   function artifactsHtml(arts, title = "Correlated artifacts") {
     if (!arts?.length) return "";

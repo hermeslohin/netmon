@@ -91,7 +91,11 @@ def verdict_of(eid):
 
 
 def _line(s, n=140):
-    s = " ".join(str(s or "").split())
+    s = str(s or "")
+    if "Verdict:" in s:  # the reviewer's write-up: its verdict paragraph, cut on a word (its first sentence is often just the label)
+        s = " ".join(s[s.rindex("Verdict:") + len("Verdict:"):].split())
+        return s if len(s) <= n else s[:n - 1].rsplit(" ", 1)[0] + "…"
+    s = " ".join(s.split())
     for cut in (". ", "; "):
         if cut in s[:n]:
             s = s[:s.index(cut, 0, n) + 1]

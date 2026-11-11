@@ -100,6 +100,18 @@ class MoreBelowFades(unittest.TestCase):
         self.assertRegex(css, r"\.card\.cc-has-more>\.cc-more\{opacity:\.9;visibility:visible")
         self.assertRegex(css, r"prefers-reduced-motion:reduce\)\{\.cc-more")
 
+    def test_more_above_fades_in_when_scrolled_down(self):
+        """A 'More above' flair sits above the body while a box can scroll and fades in once it is scrolled down
+        (cc-has-above), with a top edge shadow; clicking scrolls up. REQ: UI-91"""
+        js, css = _read("cards.js"), _read("style.css")
+        self.assertIn('ma.className = "cc-above"', js)
+        self.assertIn("s.scrollTop > 12) up = s;", js)
+        self.assertIn('c.classList.toggle("cc-has-above", ha)', js)
+        self.assertRegex(css, r"\.cc-above\{[^}]*opacity:0;visibility:hidden;pointer-events:none;transition:opacity")
+        self.assertIn(".card.cc-can-more>.cc-above{display:block}", css)
+        self.assertRegex(css, r"\.card\.cc-has-above>\.cc-above\{opacity:\.9;visibility:visible")
+        self.assertIn(".card.cc-has-above .sc-up-y{box-shadow:inset 0 14px", css)
+
 
 if __name__ == "__main__":
     unittest.main()

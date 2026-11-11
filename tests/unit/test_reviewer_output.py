@@ -29,12 +29,12 @@ class ReviewerParagraphContractTest(unittest.TestCase):
         self.assertIn("reason", item["properties"])  # the anchor's paragraph is still allowed
         self.assertIn("link", item["properties"]["label"]["enum"])
 
-    def test_prompt_asks_for_one_managerial_paragraph(self):
-        """The event reviewer prompt asks for ONE paragraph for a manager and artifacts only (no reason) per candidate.
+    def test_prompt_asks_for_analyst_write_up(self):
+        """The event reviewer prompt asks for an analyst write-up (up to two headed paragraphs) and artifacts only (no reason) per candidate.
         REQ: FEAT-07"""
         s = corr_llm.EVENT_SYSTEM
-        self.assertIn("ONE short paragraph", s)
-        self.assertIn("manager", s)
+        self.assertIn("up to two short paragraphs", s)
+        self.assertIn("security analyst", s)
         self.assertIn("only its", s.replace("\n", " ").replace("   ", " "))
         self.assertIn("no reason text", s)
         self.assertNotIn('"reason", "artifacts"}', corr_llm.EFMT)
@@ -112,3 +112,20 @@ class EventsProcessedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnalystWriteUp(unittest.TestCase):
+    def test_write_up_format_and_summaries(self):
+        """Two headed paragraphs are asked for, stored long enough, and the Verdict paragraph feeds alarms and pushes.
+        REQ: REV-01"""
+        import corr_llm
+        import pushgate
+        for h in ("Why it fired: ", "Verdict: "):
+            self.assertIn(h, corr_llm.EVENT_SYSTEM)
+            self.assertIn(h, corr_llm.CLASS_SYSTEM)
+        self.assertGreaterEqual(corr_llm.REASON_MAX, 2000)
+        r = ("Why it fired: OpenCTI lists 141.193.213.10 (Phishunt, score 60); the iPad reached www.clever.com on it, a WP Engine "
+             "address shared by many sites.\n\nVerdict: Expected. The site is Clever, a school login portal. Nothing to do.")
+        self.assertEqual(corr_llm.reason_summary(r), "Expected. The site is Clever, a school login portal. Nothing to do.")
+        self.assertEqual(pushgate._line(r), "Expected. The site is Clever, a school login portal. Nothing to do.")
+        self.assertTrue(corr_llm.reason_summary("x " * 200).endswith("…"))
