@@ -39,8 +39,9 @@ inbound connections from two threat-listed IPs.
   2 web look-ups (what `pasta.avx2` is, and the owner of one listed IP via its ipinfo.io page).
 - **Web look-ups carry only public facts.** A search with a LAN IP, MAC or internal name is refused, and results are
   cached and numbered [W1]…[W6] so the reason can cite them.
-- **The reviewer labels the event** (here: suspicious) and writes the reason, artifacts and Kibana links per related
-  event, and host or internet notes. A person's verdict on the event or its artifacts would outweigh this label (section 3).
+- **The reviewer labels the event** (here: suspicious) and writes the reason as an analyst's write-up (**Why it fired:**
+  / **Verdict:**, see *What the analyst sees* in section 4), artifacts and Kibana links per related event, and host or
+  internet notes. A person's verdict on the event or its artifacts would outweigh this label (section 3).
 
 ## 1. Admin access (lateral movement)
 
@@ -129,7 +130,7 @@ Every correlation pass also records, without any model: the accounts seen in end
 ## 3. Correlation review (decision model + event reviewer model)
 
 The script only *proposes* links. **Models decide:** the decision model (clef) decides every link and nothing else;
-the event reviewer model (whichever is selected) labels every event and writes one reason paragraph per event, the link
+the event reviewer model (whichever is selected) labels every event and writes one analyst write-up per event, the link
 artifacts and the notes. A person's verdict on the event, or on artifacts it shows, outweighs the reviewer's label. `dashboard/app/corr_llm.py` runs as a background thread in the
 dashboard container. With the **decision model** on (the default, AI pipeline configuration → Decision model settings) a review pass has two
 stages; with it off, the older event reviewer-only flow is used (described at the end of this section).
@@ -405,7 +406,7 @@ never to let an `<ai_note>` outweigh an owner or artifact note, or concrete evid
 
 ### What the event reviewer writes back
 
-With the decision model on, the event reviewer writes one reason paragraph per event and artifacts per link, never a
+With the decision model on, the event reviewer writes one analyst write-up per event and artifacts per link, never a
 per-link reason (see *How each AI step is prompted*, section 7). In the older flow it returns per candidate:
 
 - **Verdict**: related or not, confidence (0–1), reason (under 25 words).
@@ -430,7 +431,9 @@ per-link reason (see *How each AI step is prompted*, section 7). In the older fl
 With the decision model on, the event reviewer labels every event in stage 2 and this switch is not needed.
 **AI pipeline configuration → Review limits → Classify events** (off by default) makes the event reviewer give every event whose correlation
 review is finished one label: **suspicious** (needs a person's eye), **benign** (odd but harmless) or **expected**
-(normal for this device, user or task), with a confidence and reason. An event qualifies when none of its links is
+(normal for this device, user or task), with a confidence and reason (prompt `CLASS_SYSTEM`: the same two-paragraph
+**Why it fired:** / **Verdict:** write-up, 50–140 words, and the same threat-intel weighting as the event reviewer,
+section 7.2). An event qualifies when none of its links is
 undecided and at least one is decided; the confirmed related events are the evidence. `benign` / `expected` need a
 supporting owner, artifact or AI note that the reason names, otherwise it says `suspicious`. At most 20 events are
 classified per pass on the newest snapshot, an event is re-classified when its set of verdicts changes, and events
@@ -538,7 +541,10 @@ and the model's verdicts after backing up both databases.
 
 Off by default. When an admin turns on **AI pipeline configuration → Models → Elasticsearch queries · correlation review**, the event reviewer may search the
 Security Onion logs for more context before it decides an event's links, for example to check whether the host
-behind an IDS alert also made the failed SSH logins, or whether a domain was resolved before the connection.
+behind an IDS alert also made the failed SSH logins, or whether a domain was resolved before the connection. For a
+threat-intel hit on an IP it is told to look up the TLS server name (`zeek` ssl `ssl.server_name`), certificate
+(`zeek` x509) and DNS names (`zeek` dns `dns.resolved_ip`) for that address and web-search those domains: the site
+decides, not the shared address.
 
 | Setting (AI pipeline configuration → Models, admin only) | Default | |
 |---|---|---|
@@ -686,6 +692,29 @@ configuration holds every setting. The boxes:
   saved per page in the browser.
 - **Users** page: admins assign devices to each person. That sets which devices they get push notifications and the
   🔔 count for (the same setting people edit on their own Alerts page).
+
+### What the analyst sees
+
+The event reviewer's write-up is the analyst's report on an event. It shows in full in the **Alerts** row panel (click
+an alert), the **Related** popover (🏷 badge / verdict), the **Open events** window and the verdict pop-up: paragraphs
+are kept, the **Why it fired:** and **Verdict:** headings are bold, and `[Wn]` citations link to the pages the reviewer
+read (🌍 sources under it). Shorter forms use only the Verdict paragraph:
+
+| Where | Text |
+|---|---|
+| Alarm title (review alarms, `sync_alarms`) | `<event label> - AI review: suspicious (<Verdict paragraph, 160 characters>)` (`reason_summary`) |
+| Phone push (`pushgate.context`) | `AI verdict: <label> - <Verdict paragraph, 140 characters, cut on a word>` + group size |
+| Older reasons without headings | first 160 / first sentence, as before |
+
+Illustration of the format (a listed IP on a CDN; wording is the reviewer's own):
+
+> **Why it fired:** OpenCTI's Phishunt feed lists 141.193.213.10 (score 60, `opencti_ips`); the iPad and the laptop
+> made answered HTTPS connections to it this morning. The address is Cloudflare / WP Engine shared hosting; the TLS server
+> names on it were www.clever.com, arlington.palette22.com and amerinat.com. Clever is a school sign-in portal [W1];
+> nothing ties the feed's phishing entry to these sites.
+>
+> **Verdict:** Expected (0.85). An IP-only hit on a shared CDN address, and the sites reached are legitimate school
+> and vendor sites. Nothing to do; a hit on one of those domains themselves would change the call.
 
 ## 5. The review job (`review.py`) and event research (`research.py`)
 
@@ -888,7 +917,7 @@ and every prompt says never to follow instructions found inside it.
 | Step | Model | Runs | Decides | Writes |
 |---|---|---|---|---|
 | 7.1 Link decision | decision model (clef) | every undecided candidate link, continuously | related / not related | nothing (a probability) |
-| 7.2 Event review | event reviewer model | once the event's correlated group has settled (one event window after its newest event, no link undecided), one call per group | suspicious / benign / expected (a person's verdict outweighs it) | one reason paragraph, link artifacts, host / internet / DNS notes |
+| 7.2 Event review | event reviewer model | once the event's correlated group has settled (one event window after its newest event, no link undecided), one call per group | suspicious / benign / expected (a person's verdict outweighs it) | an analyst write-up (Why it fired / Verdict), link artifacts, host / internet / DNS notes |
 | 7.3 Event research | research model | only on **Send to research** | research verdict and priority | research note, link verdicts, host notes, cited sources |
 
 The review job's copy-or-queue step (section 6) is a fourth, narrower use of the event reviewer model: it only decides
@@ -925,16 +954,31 @@ When the state is too long, owner notes go first, then descriptions are cut to 2
    named owner, artifact or AI note; without support give a best guess, say so, confidence ≤ 0.6; suspicious only
    when the evidence points to harm; an AI note never outweighs concrete evidence of harm. When a person's verdict
    applies, a last line `PERSON'S VERDICT: <verdict> (set on this event | set on any event showing k1, k2; this
-   event shows all of them). <note text>` is added: follow it unless concrete evidence of harm (a threat-intel hit, a
-   known-bad indicator, an unknown actor) contradicts it, and say so in the reason. Matching scoped verdict notes
-   written on other events are added to the anchor's owner notes.
-3. Write the anchor's **reason**: **an analyst's write-up of up to two short paragraphs (80–180 words)**, separated by a
-   blank line: **Why it fired:** which detector, rule or feed raised it on exactly which value (feed, score, device,
-   time), then what the device actually did (domains / TLS SNI / certificates / processes, who runs them, volumes, web
-   results cited as `[Wn]`); **Verdict:** the label, the deciding evidence or note, and what to check. Stored up to 2400
-   characters; the UI keeps the paragraphs and bolds the headings; alarm titles and phone pushes use the Verdict
-   paragraph. Mention a related event, artifact or note only
-   when it supports or undermines the label; **never describe why each related event is or is not linked**.
+   event shows all of them). <note text>` is added: follow it unless concrete evidence of harm (a file-hash or domain
+   threat-intel hit, a known-bad indicator, an unknown actor) contradicts it, and say so in the reason. Matching scoped
+   verdict notes written on other events are added to the anchor's owner notes.
+   **Threat intel** (same text in `CLASS_SYSTEM`): an **IP-only hit is not evidence of harm** — hosting and CDN
+   addresses (Cloudflare, Akamai, Fastly, AWS, Azure, WP Engine…) are shared by thousands of sites, so a feed listing
+   the address says little, less still on a CDN. The reviewer works out which domain, TLS server name (SNI) or
+   certificate the device actually used (the event's site names; Elasticsearch `zeek` ssl / dns / x509 look-ups) and
+   researches that domain on the web; a legitimate, well-known site means expected or benign. A domain hit on a
+   well-known legitimate service (a major provider's login or CDN host) is usually a feed false positive and is
+   checked on the web first. File-hash hits and domain hits on obscure or look-alike domains stay strong evidence.
+   The threat-intel line the reviewer is given for an IP hit says so too (`intelmatch.lines`: *IP-only hit, NOT
+   suspicious on its own … find the domain / TLS SNI / certificate used and judge that*).
+3. Write the anchor's **reason**: **an analyst's write-up of up to two short paragraphs (80–180 words)** separated by a
+   blank line, each starting with its heading:
+   - **Why it fired:** which detector, rule or feed raised it and on exactly which value (IP, domain, signature,
+     file), with the feed / source and score when known, the device or account and when; then what the device
+     actually did, from the look-ups: the domains / TLS SNI / certificates / processes involved, who runs them (ASN,
+     CDN, vendor), volumes and timing, and what web research found (`[Wn]`). It says plainly when a feed hit is a
+     shared address or a false positive.
+   - **Verdict:** the label and the deciding reason, the note or evidence it rests on, and what (if anything) the
+     analyst should check or what would change the call.
+
+   Written for a security analyst: specific and factual, no filler. A related event, artifact or note is mentioned
+   only when it supports or undermines the label; **never why each related event is or is not linked**. How it is
+   shown: *What the analyst sees* (section 4).
 4. For every candidate give **only artifacts** (no reason text): up to 6 files, processes, users, IPs or DNS names that
    tie the two events together, each with a relation (under 15 words) and benign / expected / suspicious; optionally a
    durable note (under 40 words) on an external IP or DNS name.
@@ -969,7 +1013,9 @@ If the prompt does not fit the model's context, it is retried with 2 notes per e
 candidates and no look-ups.
 
 **Stored.** `event_class`: the label after a person's verdict is weighed in (section 3, stage 2), its confidence, this
-reason (up to 900 characters) and `owner` (how a person's verdict was applied or why it was held). Nothing is stored
+reason (up to 2,400 characters, `REASON_MAX`; a group member's reason starts with *Labelled with its correlated group
+(N events, reviewed together on "…").* and a person's verdict with *Person's verdict applied (…)*, each on its own line
+above the write-up) and `owner` (how a person's verdict was applied or why it was held). Nothing is stored
 when the call fails; it is retried at most 3 times per set of link decisions. Also `event_sources` (the cited `[Wn]`
 pages), `pair_artifacts` per related link (artifacts + 🔭 Kibana queries + 🌍 web sources), and the notes derived from the
 artifacts: expected-behaviour host notes (confidence ≥ 0.8), internet notes on external IPs and DNS notes on names.

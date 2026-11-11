@@ -151,7 +151,7 @@ from `netmon_mcp.py`, which open SQLite read-only. It has no terminal, file or m
    Continuously, in the dashboard's correlation worker (every 5-60 s), the decision model answers one yes/no question
    per link; once a correlated group has settled (its newest event one window + 5 min old, no link undecided) the
    event reviewer model makes ONE call for the group, labels every member suspicious, benign or expected and writes
-   one reason paragraph plus link artifacts. Until then the events show "Pending review, settles at HH:MM". A person's
+   an analyst write-up (Why it fired / Verdict) plus link artifacts. Until then the events show "Pending review, settles at HH:MM". A person's
    verdict on the event, or on artifacts it shows, outweighs the reviewer's label. Verdicts live in `corr_llm.db`.
 5. **Review job.** For events in a "review" category without a note, the event reviewer copies a matching earlier
    note (marked as copied). It never writes new notes. Everything else waits on **AI pipeline monitoring → Queue**.
@@ -168,7 +168,7 @@ The urgent path is separate and has no AI: watcher → `alerts` table → `webpu
 | Stage | Model | Where chosen | Input | Output |
 |---|---|---|---|---|
 | Correlation link decision | decision model (System One API, probabilities only) | AI pipeline configuration → Decision model settings | the two events + the script's evidence | related / not related per link |
-| Event pass | event reviewer model | AI pipeline configuration → Models | a settled correlated group (anchor + members) + notes + intel hits + a person's verdict that applies | suspicious / benign / expected on every member (a person's verdict outweighs it), one reason paragraph per group, link artifacts |
+| Event pass | event reviewer model | AI pipeline configuration → Models | a settled correlated group (anchor + members) + notes + intel hits + a person's verdict that applies | suspicious / benign / expected on every member (a person's verdict outweighs it), an analyst write-up per group (Why it fired / Verdict), link artifacts |
 | Review job | event reviewer model | AI pipeline configuration → Models | queued events + earlier notes | copied note or left queued |
 | Event research | research model | AI pipeline configuration → Models | one event, web, optional Elasticsearch | research note with verdict |
 | Ask AI | chat model | AI pipeline configuration → Models | user question + read-only tools | answer |
