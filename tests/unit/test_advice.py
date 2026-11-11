@@ -23,7 +23,7 @@ def _classify(eid, label="suspicious", conf=0.9, reason="Beacons to a known C2 s
 
 def _answer(**kw):
     d = {"action": "stop_app", "headline": "Stop using the FreeVPN app", "steps": ["Open Settings", "Uninstall FreeVPN"],
-         "why": "It sent your traffic to a server known for malware.", "target": "FreeVPN"}
+         "message": "Syn detected your laptop sending traffic through the FreeVPN app. FreeVPN is known for routing traffic to malware servers. Please stop using it and uninstall it.", "target": "FreeVPN"}
     d.update(kw)
     return (json.dumps(d), {"prompt": 10, "completion": 10}, 0.1)
 
@@ -53,6 +53,7 @@ class AdviceTest(unittest.TestCase):
             self.assertEqual(m.call_count, 1)
             sys_prompt, prompt = m.call_args[0][1], m.call_args[0][2]
             self.assertIn("PERSON WHO USES THE", sys_prompt)
+            self.assertIn('starts with "Syn detected"', sys_prompt)
             self.assertIn("Beacons to a known C2 server.", prompt)
             self.assertEqual(m.call_args[1]["purpose"], "user-advice")
             _classify(eid, reason="Now also a malware file hash.")
@@ -60,6 +61,7 @@ class AdviceTest(unittest.TestCase):
         v = advice.get([eid])[eid]
         self.assertEqual((v["action"], v["label"], v["headline"], v["target"]), ("stop_app", "Stop using this app", "Stop using the FreeVPN app", "FreeVPN"))
         self.assertEqual(v["steps"], ["Open Settings", "Uninstall FreeVPN"])
+        self.assertTrue(v["message"].startswith("Syn detected your laptop"))
 
     def test_unreviewed_alerts_wait(self):
         """An alert without an event reviewer label (or a pending one) gets no advice yet and costs no model call.
@@ -79,13 +81,22 @@ class AdviceTest(unittest.TestCase):
             self.assertEqual(advice.advise(TARGET, {"text": "t"}, {**cl, "label": "expected", "confidence": 0.99})[0], "watch")
 
     def test_bad_answers_are_dropped(self):
-        """An unknown action, an empty headline or non-JSON text stores nothing; steps are capped at 4.
+        """An unknown action, an empty headline, an empty message or non-JSON text stores nothing; steps are capped at 4.
         REQ: ALR-26"""
-        for txt in (_answer(action="format_disk"), _answer(headline="  "), ("not json", {}, 0)):
+        for txt in (_answer(action="format_disk"), _answer(headline="  "), _answer(message=" "), ("not json", {}, 0)):
             with mock.patch.object(corr_llm, "_complete", return_value=txt):
                 self.assertIsNone(advice.advise(TARGET, {"text": "t"}, {"label": "suspicious", "confidence": 0.9}))
         with mock.patch.object(corr_llm, "_complete", return_value=_answer(steps=["1", "2", "3", "4", "5", " "])):
             self.assertEqual(advice.advise(TARGET, {"text": "t"}, {"label": "suspicious", "confidence": 0.9})[2], ["1", "2", "3", "4"])
+
+    def test_prompt_change_rewrites_advice(self):
+        """Bumping PROMPT_VER changes every alert's input signature, so all advice is rewritten with the new prompt.
+        REQ: ALR-26"""
+        a, eid = self._alert()
+        cl = {"label": "suspicious", "reason": "r"}
+        s1 = advice._sig(a, cl, None)
+        with mock.patch.object(advice, "PROMPT_VER", advice.PROMPT_VER + 1):
+            self.assertNotEqual(advice._sig(a, cl, None), s1)
 
     def test_model_error_does_not_stop_the_pass(self):
         """A failing model call is logged and retried next pass; nothing is stored.

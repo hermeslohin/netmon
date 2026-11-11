@@ -2151,7 +2151,7 @@ class H(BaseHTTPRequestHandler):
                         CL, AD = (ex or {}).get("classes") or {}, (ex or {}).get("advice") or {}
                         for r in rows:
                             if AD.get(r.get("eid")):  # the analyst's advice for the device owner: what to do
-                                r["advice"] = {k: AD[r["eid"]].get(k) for k in ("action", "label", "headline", "steps", "why", "target", "at")}
+                                r["advice"] = {k: AD[r["eid"]].get(k) for k in ("action", "label", "headline", "message", "steps", "target", "at")}
                             c = CL.get(r.get("eid"))
                             if c:
                                 r["review"] = {"label": c.get("label"), "reason": c.get("reason"), "at": c.get("at"), "model": c.get("model"),

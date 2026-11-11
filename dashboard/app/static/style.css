@@ -894,7 +894,7 @@ tr.al-xrow > td { padding: 0 8px 10px; white-space: normal; }
 .adv-h { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .adv-steps { margin: 6px 0 0 1.3em; padding: 0; line-height: 1.45; }
 .adv-steps li + li { margin-top: 2px; }
-.adv-why { margin-top: 6px; }
+.adv-msg { margin: 6px 0 0; line-height: 1.5; max-width: 75ch; }
 .al-x-adv { margin-bottom: 8px; }
 .al-x-adv .adv-h b { font-size: 15px; }
 .adv-det > summary .adv-a { margin: 0 4px; }

@@ -153,7 +153,7 @@ Detections are not pushed or listed on their own (the IDS hits, threat-intel mat
 
 ### What to do (advice for the device owner)
 
-Every reviewed alert also gets a second, separate verdict: advice written as a security analyst would give it to the person who uses the device, in plain language. The **What to do** column shows the action, and tapping the alert shows the steps and why:
+Every reviewed alert also gets a second, separate verdict: advice written as a security analyst would give it to the person who uses the device, in plain language. The **What to do** column shows the action, and tapping the alert shows a 2-4 sentence message, for example: *"Syn detected your laptop going to the site secure-login-paypa1.com. This site is a known phishing website that pretends to be PayPal to steal passwords. Please be careful and stop going to this site; if you typed your PayPal password there, change it now."* Extra steps follow when the message does not already cover them.
 
 | Action | When |
 |---|---|

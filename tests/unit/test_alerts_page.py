@@ -410,7 +410,7 @@ const ctx = {
   apiPost: async (u, b) => { POSTS.push([u, b]); return { ok: true }; },
 };
 ctx.window = ctx; ctx.oeOpenDetail = (o) => OPENED.push(o);
-ctx.relUi = { advChip: (v) => `ADVCHIP:${v.action}`, adviceHtml: (v) => `ADV:${v.headline}|${(v.steps || []).join(";")}|${v.why || ""}`,
+ctx.relUi = { advChip: (v) => `ADVCHIP:${v.action}`, adviceHtml: (v) => `ADV:${v.headline}|${(v.steps || []).join(";")}|${v.message || ""}`,
               reasonHtml: (r) => ctx.esc(r), sourcesHtml: () => "" };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const dump = (x) => {
@@ -634,7 +634,7 @@ class AlertsPageJsTest(unittest.TestCase):
         REQ: ALR-22, ALR-23"""
         r1 = dict(feed_row(1, "my laptop alert"), review={"label": "suspicious", "reason": "Talks to a known-bad host [W1].", "sources": [{"id": "W1", "url": "https://x.example/a"}]})
         r1.pop("verdict"); r1.pop("vsrc")
-        r1["advice"] = {"action": "stop_app", "label": "Stop using this app", "headline": "Stop using FreeVPN", "steps": ["Uninstall FreeVPN"], "why": "It talks to a bad server."}
+        r1["advice"] = {"action": "stop_app", "label": "Stop using this app", "headline": "Stop using FreeVPN", "steps": ["Uninstall FreeVPN"], "message": "It talks to a bad server."}
         r2 = dict(feed_row(2, "no advice yet"), review={"label": "pending"}); r2.pop("verdict"); r2.pop("vsrc")
         f = {"alerts": [r1, r2], "unread": 1, "unread_mine": 1, "mode": "some"}
         out = self.run_js(role="user", feed_=f, prefs=USER_PREFS, steps=[{"do": "render"}, {"do": "expand", "i": 0}])
