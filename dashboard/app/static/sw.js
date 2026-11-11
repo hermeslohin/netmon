@@ -11,8 +11,8 @@ self.addEventListener("push", (e) => {
     tag: d.tag || "netmon",
     renotify: true,
     requireInteraction: d.severity === "investigate",
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
+    icon: "/valk-icon-192.png",
+    badge: "/valk-icon-192.png",
     data: { url: d.url || "/#/alerts" },
   }));
 });
