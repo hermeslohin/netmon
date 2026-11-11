@@ -83,8 +83,8 @@ def verdict_of(eid):
             r = d.execute("SELECT covered FROM event_class WHERE eid=?", (eid,)).fetchone()
         cov = json.loads(r[0]) if r and r[0] else {}
         n, fast = len(cov.get("m") or []) or 1, bool(cov.get("fast"))
-    except Exception:  # noqa: BLE001 - group size is decoration
-        pass
+    except Exception as e:  # noqa: BLE001 - group size is decoration
+        print(f"pushgate: group size for {eid}: {e}", file=sys.stderr)
     if fast:  # provisional single-event label: the group review replaces it
         return {"state": "pending", "label": lab, "reason": "provisional label"}
     return {"state": "final", "label": lab, "confidence": c.get("confidence"), "reason": c.get("reason") or "", "n": n}
@@ -125,8 +125,8 @@ def _check(eid, row):
             with corr_llm._db() as d:
                 r = d.execute("SELECT covered FROM event_class WHERE eid=?", (eid,)).fetchone()
             mem = (json.loads(r[0]) if r and r[0] else {}).get("m") or []
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001 - members only narrow the check
+            print(f"pushgate: group members for {eid}: {e}", file=sys.stderr)
         pc = autoclose.push_check(eid, [m for m in mem if m != eid])
         if pc["ok"]:
             return "suppress", v, f"push suppressed by AI verdict: {pc['verdict']} ({pc['source'] or 'reviewer'}), all guard rails passed"

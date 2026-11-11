@@ -492,8 +492,8 @@ def ip_classes(pol=None):
             mac = d.get("mac") or (k if ":" in str(k) else None)
             for ip in d.get("ips") or ([d["ip"]] if d.get("ip") else []):
                 out[ip] = classdefs.class_of(pol, ip, mac)
-    except Exception:  # noqa: BLE001 - no registry: classes by IP only
-        pass
+    except Exception as e:  # noqa: BLE001 - no registry: classes by IP only
+        print(f"extras: device registry unavailable, classing by IP only: {e}", file=sys.stderr)
     return out
 
 

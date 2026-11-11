@@ -254,6 +254,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_audit.py` | 46 | Unit tests for dashboard/app/audit.py: secret redaction, entry building, spooling while Elasticsearch is down. (AUD-01, AUD-02, AUD-03, AUD-05) |
 | `tests/unit/test_auth.py` | 44 | Unit tests for dashboard/app/auth.py: password hashing, user management, roles, sessions and sign-in throttling. (AC-02, AC-05, AC-07, AC-08, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, AUTH-08, DASH-03, SEC-06) |
 | `tests/unit/test_autoclose.py` | 14 | Unit tests for dashboard/app/autoclose.py: AI-verdict auto-close of open events (Open events page, any type/age). (OE-20, STO-05, STO-08, STO-12) |
+| `tests/unit/test_backclose.py` | 1 | Back button / back gesture closes the open modal (static/backclose.js) - run under node with a tiny fake DOM + history. (UI-93) |
 | `tests/unit/test_cardinfo_keys.py` | 7 | Static checks: every top-level box title on the AI pipeline and Alerts pages has an info (ⓘ) text in cardinfo.js. (FEAT-10, FEAT-11) |
 | `tests/unit/test_cert_dns_notes.py` | 5 | Unit tests for DNS, TLS and IPs notes: TLS certificates are artifacts with notes, domain notes reach events about their (STO-13) |
 | `tests/unit/test_class_scope.py` | 11 | Device-class scope of the upload_spike / scan_thresholds / beacon rules (policy classes + by_class): config merge, (CLS-06, CLS-07, CLS-08, CLS-09) |

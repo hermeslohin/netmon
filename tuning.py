@@ -234,7 +234,7 @@ def recommend():
         last.update(h.get("devices", {}))
     dcls = {d: _dev_class(pol, d, last.get(d)) for d in devs}
     for rid, field, name, div, label in SERIES:
-        def series_of(keep):
+        def series_of(keep, field=field, div=div):
             out = []
             for dev in devs:
                 if not keep(dcls[dev]):
@@ -277,7 +277,7 @@ def recommend():
                 for x in (s.get("internal") or {}).get("scans", []):
                     if keep(ccls(x["src"])):
                         byc[ccls(x["src"])] = byc.get(ccls(x["src"]), 0) + 1
-            alt = _suggest_class(r, "scan_thresholds", byc, scoped, lambda c: _scan_rec(sub(lambda x: x == c), cur))
+            alt = _suggest_class(r, "scan_thresholds", byc, scoped, lambda c, sub=sub, cur=cur: _scan_rec(sub(lambda k: k == c), cur))
             if alt:
                 recs.append(alt)
     scoped = extras.scoped_classes(pol, "beacon")
@@ -298,7 +298,7 @@ def recommend():
                     if keep(ccls(c["src"])):
                         byc[ccls(c["src"])] = byc.get(ccls(c["src"]), 0) + 1
 
-            def alt_fn(c):
+            def alt_fn(c, sub=sub, bc=bc):
                 a = _beacon_rec(sub(lambda x: x == c), bc, benign)
                 if "changes" in a:
                     a["changes"].pop("ignore_ports", None)
