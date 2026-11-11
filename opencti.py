@@ -89,7 +89,8 @@ class Client:
         self.ctx = ssl.create_default_context(cadata=cfg["ca_pem"]) if cfg.get("ca_pem") else ssl.create_default_context()
 
     def q(self, query, variables=None, timeout=60):
-        req = urllib.request.Request(self.url + "/graphql",  # noqa: S310 - __init__ allows http(s) only json.dumps({"query": query, "variables": variables or {}}).encode(),
+        req = urllib.request.Request(self.url + "/graphql",  # noqa: S310 - __init__ allows http(s) only
+                                     json.dumps({"query": query, "variables": variables or {}}).encode(),
                                      {"Content-Type": "application/json", "Authorization": "Bearer " + self.key,
                                       "User-Agent": "netmon/1.0"}, method="POST")
         with urllib.request.urlopen(req, context=self.ctx if self.url.startswith("https://") else None, timeout=timeout) as r:  # noqa: S310

@@ -364,3 +364,27 @@ class TestIpOnlyHitsAreWeak(unittest.TestCase):
             self.assertTrue(intelmatch.strong({"arts": [["dns", "x.bad.example", ""]], "ips": ["141.193.213.10"]}))
         self.assertIn("IP-only hit is NOT evidence of harm", corr_llm.EVENT_SYSTEM)
         self.assertIn("IP-only hit is NOT suspicious", corr_llm.CLASS_SYSTEM)
+
+    def test_client_posts_json_body(self):
+        """The GraphQL request carries the JSON query as its body (not the headers).
+        REQ: OCTI-02
+        """
+        seen = {}
+
+        class R:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, *a):
+                return b'{"data": {"x": 1}}'
+
+        def fake(req, **kw):
+            seen["data"], seen["ct"] = req.data, req.get_header("Content-type")
+            return R()
+        with mock.patch.object(opencti.urllib.request, "urlopen", fake):
+            opencti.Client(CFG).q("query{ x }", {"a": 1})
+        self.assertEqual(json.loads(seen["data"]), {"query": "query{ x }", "variables": {"a": 1}})
+        self.assertEqual(seen["ct"], "application/json")
