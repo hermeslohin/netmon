@@ -733,7 +733,9 @@ PLAN_SYSTEM = """
 PLANNING STEP (look-ups first): do NOT decide yet - you will decide in the next step, with the results. Now list the
 look-ups that would make your decisions better informed:{what}
 Good look-ups: what else the anchor's hosts / public IPs did around that time (zeek conn / dns / ssl, suricata), whether a
-connection was answered, how often a rule fired, what a public IP, domain, signature or program is. Return empty lists
+connection was answered, how often a rule fired, what a public IP, domain, signature or program is. For a threat-intel
+hit on an IP, look up the TLS server name (zeek ssl ssl.server_name), certificate (zeek x509) and DNS names
+(zeek dns dns.resolved_ip) for that IP, then web-search those domains: the site decides, not the shared address. Return empty lists
 only when the events and notes already settle every decision."""
 
 CLASS_LABELS = ("suspicious", "benign", "expected")
@@ -748,8 +750,12 @@ the role, baseline or behaviour) that explains the activity; name that note in t
 note, still make a benign or expected best guess from what the event itself shows (the usual purpose of that device, service,
 port or destination) and say in the reason that it is a guess, with a lower confidence (at most 0.6). A "threat-intel hits" line means a feed or the
 OpenCTI platform lists one of the event's IPs, domains, file names or hashes; its score and labels (malware family,
-campaign) say why. A file-hash hit is an exact match to known malware and is strong evidence; an IP or domain hit with a
-high score is strong; a file-name-only hit or a scanner list (CINS, ET compromised) on blocked inbound traffic is weak.
+campaign) say why. A file-hash hit is an exact match to known malware and is strong evidence; a domain hit with a high
+score is strong unless the domain is a well-known legitimate service (feeds sometimes list a big provider's login or CDN host
+because a phishing URL used it). An IP-only hit is NOT suspicious on its own: hosting and CDN addresses (Cloudflare, Akamai,
+Fastly, AWS, Azure, WP Engine...) serve thousands of unrelated sites, so on a CDN address it means even less. For an IP hit,
+judge the domain / TLS server name (SNI) / certificate the device actually used - a legitimate site there makes it expected or
+benign. A file-name-only hit or a scanner list (CINS, ET compromised) on blocked inbound traffic is weak.
 Name the hit in the reason when it drives the label. Choose suspicious only when
 the evidence itself points to harm (known-bad indicator, unknown actor, a profile or note that the activity breaks, notes that
 conflict with the evidence), not merely because support is missing. Never let an <ai_note> override concrete evidence of harm.
@@ -776,6 +782,15 @@ def _ti_lines(e):
     except Exception as x:  # noqa: BLE001 - reviews work without threat intel
         print(f"corr_llm: threat intel unavailable: {x}", file=sys.stderr)
         return []
+
+
+def _ti_strong(e):
+    """A threat-intel hit that is evidence on its own (file hash, listed domain) - not an IP-only or file-name-only hit."""
+    try:
+        import intelmatch
+        return intelmatch.strong(e)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _ti_sig(e):
@@ -824,8 +839,8 @@ def owner_verdicts(eids, E):
 
 # A person's verdict outweighs the event reviewer: its label is replaced by the person's verdict unless the event reviewer is
 # at least this confident in a different label. A verdict scoped to artifacts the event shows (all of them) counts most; a
-# verdict on this event (or an earlier run of it) next. An event with threat-intel hits is never turned from suspicious to
-# expected / benign by a person's verdict (concrete evidence of harm stays visible).
+# verdict on this event (or an earlier run of it) next. An event with a strong threat-intel hit (listed domain or file hash;
+# not an IP-only or file-name-only hit) is never turned from suspicious to expected / benign by a person's verdict.
 OWNER_WEIGHT = {"artifacts": 0.95, "event": 0.9}
 
 
@@ -2412,7 +2427,7 @@ def _classify(model, eid, base, confirmed, sig):
     if not d:
         return 0
     ov = owner_verdicts([eid], E).get(eid)
-    label, cf, owner = apply_owner(d["label"], float(d.get("confidence") or 0), ov, ti=bool(_ti_sig(E[eid])))
+    label, cf, owner = apply_owner(d["label"], float(d.get("confidence") or 0), ov, ti=_ti_strong(E[eid]))
     d = {**d, "label": label}
     with _lock, _db() as c:
         c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, owner) VALUES (?,?,?,?,?,?,?,?)",
@@ -2523,8 +2538,15 @@ anchor event's label. Your job:
    the evidence points to harm (known-bad indicator, unknown actor, activity that breaks a profile or note, notes that conflict
    with the evidence), not merely because support is missing; without support make a benign / expected best guess and say so,
    with confidence at most 0.6. Never let an <ai_note> override concrete evidence of harm.
+   Threat intel: an IP-only hit is NOT evidence of harm by itself - hosting and CDN addresses (Cloudflare, Akamai, Fastly,
+   AWS, Azure, WP Engine...) are shared by thousands of sites, so a feed listing the address says little, and even less on a
+   CDN. Work out which domain, TLS server name (SNI) or certificate the device actually used (the event's site names, ES
+   zeek ssl / dns / x509 look-ups) and research that domain on the web; a legitimate, well-known site means expected or
+   benign. A domain hit on a well-known legitimate service (e.g. a major provider's login or CDN host) is usually a feed
+   false positive - check it on the web before calling it suspicious. File-hash hits and domain hits on obscure or
+   look-alike domains stay strong evidence.
    A line "PERSON'S VERDICT" at the end of these instructions is the network owner's own call on this event or on artifacts
-   it shows: follow it unless concrete evidence of harm (a threat-intel hit, a known-bad indicator, an unknown actor)
+   it shows: follow it unless concrete evidence of harm (a file-hash or domain threat-intel hit, a known-bad indicator, an unknown actor)
    contradicts it, and then say so in the reason.
    Then write the anchor's "reason": ONE short paragraph (40-90 words, plain prose for a manager, no jargon, no lists, no
    per-event commentary) that gives the context of the event (what device or account, what happened, when) and explains why
@@ -2701,7 +2723,7 @@ def _event_review(model, eid, base, rel_ids, sig, group=None, covered=None, meta
     except (TypeError, ValueError):
         conf = 0.5
     conf0 = conf
-    label, conf, owner = apply_owner(a["label"], conf, ov, ti=bool(_ti_sig(E[eid])))
+    label, conf, owner = apply_owner(a["label"], conf, ov, ti=_ti_strong(E[eid]))
     reason = str(a.get("reason") or "")[:900]
     reason0 = reason
     if owner and owner.get("applied"):
@@ -2719,7 +2741,7 @@ def _event_review(model, eid, base, rel_ids, sig, group=None, covered=None, meta
             for m, (msig, mcov) in group.items():
                 if m == eid or m not in E:
                     continue
-                ml, mc, mo = apply_owner(a["label"], conf0, OVm.get(m), ti=bool(_ti_sig(E[m])))
+                ml, mc, mo = apply_owner(a["label"], conf0, OVm.get(m), ti=_ti_strong(E[m]))
                 mr = (f"Labelled with its correlated group ({len(group)} events, reviewed together on "
                       f"\"{str(E[eid].get('label') or eid)[:80]}\"). " + reason0)[:900]
                 if mo and mo.get("applied"):

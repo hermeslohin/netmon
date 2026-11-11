@@ -374,10 +374,13 @@ def build(raw, analysis, alerts, issues, admin, internal, resolve, techniques, l
         e = {("ext", h["ip"])} | {("ip", t) for t in (h.get("targets") or {})}
         add(f"ti|in|{h['ip']}", "ti", f"Listed IP {h['ip']} ({', '.join(h.get('feeds', []))}) -> ports {h.get('ports')}", w0, w1, e,
             ["T1595"], "#/threatintel?ev=ti|in|" + h["ip"], "medium", topics={"threat-intel"}, item=h)
-    for h in ti.get("ip_hits_out") or []:
+    for h in ti.get("ip_hits_out") or []:  # an IP-only hit is weak (shared / CDN addresses): the site reached (SNI / DNS) decides
         e = ents_from_text(str(h), {("ext", h.get("ip", ""))})
-        add(f"ti|out|{h.get('ip')}", "ti", f"Outbound to listed IP {h.get('ip')} ({', '.join(h.get('feeds', []))})", w0, w1, e,
-            ["T1071"], "#/threatintel?ev=ti|out|" + str(h.get("ip")), "high", topics={"threat-intel"}, item=h)
+        nm = [str(n).lower() for n in (h.get("names") or [])][:4]
+        site = (f" - site {', '.join(nm)}" if nm else "") + (" (shared CDN/hosting IP)" if h.get("cdn") else "")
+        add(f"ti|out|{h.get('ip')}", "ti", f"Outbound to listed IP {h.get('ip')} ({', '.join(h.get('feeds', []))}){site}", w0, w1, e,
+            ["T1071"], "#/threatintel?ev=ti|out|" + str(h.get("ip")), "medium" if h.get("serious") and not h.get("cdn") else "low",
+            topics={"threat-intel"}, extra=[("dns", n, "site served by the listed IP (TLS SNI / DNS answer)") for n in nm], item=h)
     for h in ti.get("domain_hits") or []:
         dn = h.get("domain") or h.get("name")  # collect.py domain hits carry the looked-up name in `name`
         e = ents_from_text(str(h), {("dom", str(dn or "").lower())})

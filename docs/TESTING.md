@@ -263,7 +263,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_clef_stage.py` | 9 | Decision-model stage of the correlation review (clef.py + corr_llm.clef_pass / event_pass), against a fake (LLM-03) |
 | `tests/unit/test_config.py` | 35 | Unit tests for the config helpers: site_cfg.py, window.py, lookback.py, review_cfg.py, research_cfg.py. (AC-06, CFG-01, CFG-03, CFG-05, OPS-03, OPS-06, STO-01, STO-02) |
 | `tests/unit/test_corr_web.py` | 11 | Unit tests for the event reviewer's web look-ups (corr_llm.py): private-detail filter, cited-source checking, logging + overview. (WEB-07, WEB-08) |
-| `tests/unit/test_correlate.py` | 41 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01) |
+| `tests/unit/test_correlate.py` | 42 | Unit tests for dashboard/app/correlate.py: artifact extraction, stable ids, topics and the pair scoring in build(). (COR-01, COR-02, COR-03, COR-04, MIT-01, OCTI-10) |
 | `tests/unit/test_event_fires.py` | 8 | Unit tests for eventstore firings: only events seen in Elasticsearch fire, overlapping report windows merge into one firing. (FEAT-01, FEAT-02) |
 | `tests/unit/test_event_window.py` | 19 | Event window (lookback.py): one setting for the correlation window, the review job's coverage and the event (EVW-01, EVW-02, EVW-03, EVW-04, EVW-05, EVW-06, EVW-07, OPS-03) |
 | `tests/unit/test_evtime.py` | 14 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
@@ -286,7 +286,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_notes_consolidate.py` | 11 | Unit tests for dashboard/app/notes_consolidate.py: nightly merge of AI-written host notes (AI pipeline monitoring > Host note consolidation). (COR-05, STO-09, STO-11) |
 | `tests/unit/test_open_events.py` | 44 | Open events page backend (eventstore: upsert, vuln lifecycle, grouping, filters, check-offs, display merges, extras, (OE-01, OE-02, OE-03, OE-04, OE-05, OE-06, OE-07, OE-08, OE-09, OE-10, OE-11, OE-12, OE-13, OE-14, OE-15, OE-16, OE-19) |
 | `tests/unit/test_open_review_coverage.py` | 3 | Every open event gets an event reviewer label, a Pending review badge or a 'Not reviewed: <reason>' badge (EVW-08) |
-| `tests/unit/test_opencti.py` | 13 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07) |
+| `tests/unit/test_opencti.py` | 14 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07, OCTI-10) |
 | `tests/unit/test_owner_verdict_scope.py` | 10 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
 | `tests/unit/test_posture.py` | 29 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
 | `tests/unit/test_push_gate.py` | 11 | Phone-push gate (dashboard/app/pushgate.py): urgent alarms wait for the event reviewer's group verdict, expected / (PSH-01, PSH-02, PSH-03, PSH-04, PSH-05, PSH-06) |

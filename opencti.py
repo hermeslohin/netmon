@@ -47,7 +47,7 @@ _FPAT = re.compile(r"^\[(?:file|artifact):hashes\.(?:'([A-Za-z0-9-]+)'|([A-Za-z0
 _NPAT = re.compile(r"^\[file:name\s*=\s*'([^'\\]+)'\]$")
 _UPAT = re.compile(r"^\[url:value\s*=\s*'([^'\\]+)'\]$")
 SAMPLE_SCORE = 90          # a malware sample observable (MalwareBazaar) without a score of its own
-PULL_VERSION = 4           # bump when the list format changes: forces one full rebuild
+PULL_VERSION = 5           # bump when the list format changes: forces one full rebuild
 SEV_RANK = {"low": 1, "medium": 2, "high": 3, "urgent": 4}
 OCTI_SEV = {"urgent": "critical", "high": "high", "medium": "medium", "low": "low"}
 NEW_INCIDENTS_PER_RUN = 25
@@ -126,7 +126,9 @@ SHARED_HOSTS = ("github.com", "githubusercontent.com", "gitlab.com", "bitbucket.
                 "cloudfront.net", "discord.com", "discordapp.com", "discordapp.net", "cdn.discordapp.com",
                 "telegram.org", "t.me", "pastebin.com", "paste.ee", "mediafire.com", "mega.nz", "transfer.sh",
                 "cloudflare.com", "archive.org", "bit.ly", "tinyurl.com", "yandex.ru", "apple.com", "icloud.com",
-                "facebook.com", "youtube.com")
+                "facebook.com", "youtube.com", "microsoftonline.com", "microsoftonline-p.com", "live.com", "office.com",
+                "office365.com", "outlook.com", "msauth.net", "msftauth.net", "msidentity.com", "azureedge.net", "azurefd.net",
+                "akamaized.net", "akamaihd.net", "fastly.net", "gstatic.com", "googlevideo.com")
 # Hosting platforms that give each tenant its own subdomain (evil-login.vercel.app): the platform itself is never listed,
 # but a tenant subdomain is the attacker's own and is listed.
 TENANT_PLATFORMS = ("workers.dev", "pages.dev", "r2.dev", "web.app", "firebaseapp.com", "appspot.com", "herokuapp.com",
@@ -208,7 +210,7 @@ def parse_pattern(p):
         typ, v = m.group(1), m.group(2).strip().lower().rstrip(".")
         if typ in ("ipv4-addr", "ipv6-addr"):
             return _addr(v)
-        if "." not in v or " " in v or len(v) > 253:
+        if "." not in v or " " in v or len(v) > 253 or _shared(v):  # a big shared service's own host is a feed false positive
             return None
         return "hosts", v
     m = _UPAT.match(p)

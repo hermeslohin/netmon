@@ -130,6 +130,9 @@ def describe(h):
     src = ", ".join(h["feeds"])
     extra = "; ".join(x for x in ((f"OpenCTI score {h['score']}" if h.get("score") is not None else ""), h.get("about") or "") if x)
     weak = " - file name only, weak on its own" if h["kind"] == "file" and not h["serious"] else ""
+    if h["kind"] == "ip":  # one address (CDN, shared hosting) serves many unrelated sites: the site reached decides
+        weak = (" - IP-only hit, NOT suspicious on its own (shared hosting / CDN addresses serve many sites; weaker still on a "
+                "CDN): find the domain / TLS SNI / certificate used and judge that")
     on = f" (matched {h['matched']})" if h.get("matched") and str(h["matched"]).lower() != str(h["value"]).lower() else ""
     return f"{h['kind']}={str(h['value'])[:90]}{on} listed in {src}" + (f" ({extra})" if extra else "") + weak
 
@@ -140,6 +143,15 @@ def lines(ev):
     except Exception as e:  # noqa: BLE001 - a review never fails because the intel is unavailable
         print(f"intelmatch: {type(e).__name__}: {e}", file=sys.stderr)
         return []
+
+
+def strong(ev):
+    """True when the event has a threat-intel hit that is evidence on its own: a file hash, or a listed domain. IP-only and
+    file-name-only hits are not (a person's verdict may overrule them)."""
+    try:
+        return any(h["kind"] in ("hash", "dns") for h in hits(ev))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def sig(ev):

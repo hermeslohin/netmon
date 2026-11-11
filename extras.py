@@ -291,6 +291,46 @@ def cidrs_of(ip, feeds):
     return out
 
 
+# Content-delivery / shared-hosting networks: one address serves thousands of unrelated sites, so a feed listing the
+# address says next to nothing about the site this network actually reached (judge the domain / SNI / certificate instead).
+CDN_ORGS = ("cloudflare", "akamai", "fastly", "amazon", "cloudfront", "google", "microsoft", "azure", "wpengine", "wp engine",
+            "automattic", "incapsula", "imperva", "stackpath", "highwinds", "edgecast", "edgio", "limelight", "verizon digital",
+            "bunny", "cdn77", "datacamp", "sucuri", "vercel", "netlify", "github", "shopify", "squarespace", "wix", "kinsta",
+            "pantheon", "fly.io", "zscaler", "apple", "meta platforms", "facebook", "oracle", "alibaba", "tencent", "gcore")
+
+
+def is_cdn(org):
+    """True when an AS organisation name is a CDN / shared-hosting provider."""
+    o = str(org or "").lower()
+    return bool(o) and any(c in o for c in CDN_ORGS)
+
+
+def ip_names(ips, R):
+    """{ip: [names]} - the TLS server names (SNI) and DNS names this network used for each IP in the window: which site a
+    listed address was actually serving. At most 6 names per IP, most used first."""
+    ips = [i for i in ips if i]
+    if not ips:
+        return {}
+    q, ds, buckets = _ctx()
+    out = defaultdict(Counter)
+    try:
+        r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.ssl"), {"terms": {"destination.ip": ips}}]}},
+                               "aggs": {"d": {"terms": {"field": "destination.ip", "size": len(ips)},
+                                              "aggs": {"n": {"terms": {"field": "ssl.server_name", "size": 6}}}}}})
+        for b in buckets(r["aggregations"]["d"]):
+            for n in buckets(b["n"]):
+                out[b["key"]][str(n["key"]).lower()] += n["doc_count"]
+        r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.dns"), {"terms": {"dns.resolved_ip": ips}}]}},
+                               "aggs": {"d": {"terms": {"field": "dns.resolved_ip", "size": len(ips), "include": ips},
+                                              "aggs": {"n": {"terms": {"field": "dns.query.name", "size": 6}}}}}})
+        for b in buckets(r["aggregations"]["d"]):
+            for n in buckets(b["n"]):
+                out[b["key"]][str(n["key"]).lower()] += n["doc_count"]
+    except Exception as e:  # noqa: BLE001 - names are context; the hit stands without them
+        print(f"extras: ip_names: {e}", file=sys.stderr)
+    return {ip: [n for n, _ in c.most_common(6)] for ip, c in out.items()}
+
+
 def match_ip(ip, feeds):
     hits = set(feeds["ips"].get(ip, ()))
     hits.update(n for _, n in cidrs_of(ip, feeds))
@@ -398,6 +438,9 @@ def threat_intel(hours=24, minutes=None, rdap=True):
                                        "sources": {s["key"]: s["doc_count"] for s in buckets(b["s"])},
                                        "ports": [p["key"] for p in buckets(b["p"])],
                                        "asn": (buckets(b["as"]) or [{"key": ""}])[0]["key"]})
+    names = ip_names([h["ip"] for h in out["ip_hits_out"]][:500], R)
+    for h in out["ip_hits_out"]:  # which site the listed address served (SNI / DNS) and whether it is a shared CDN address
+        h["names"], h["cdn"] = names.get(h["ip"], []), is_cdn(h["asn"])
     # --- inbound sessions from listed IPs that were ANSWERED (scans that got nothing are noise)
     r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), {"term": {"destination.ip": SITE.get("internal_cidr")}},
                                                                     {"term": {"connection.local.originator": False}}],

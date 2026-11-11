@@ -164,7 +164,7 @@ def run_watch(es, inv=None, domain_hits=None, ip_hits=None, findings=(), acks=()
                                     inventory=lambda: (inv, {}))
     ext = types.SimpleNamespace(refresh_feeds=lambda **k: None, load_feeds=lambda: {}, SERIOUS={"feodo", "urlhaus_ip"},
                                 match_domain=lambda d, f: (d, domain_hits[d]) if d in domain_hits else (None, []),
-                                match_ip=lambda ip, f: ip_hits.get(ip, []), entropy=real_extras.entropy,
+                                match_ip=lambda ip, f: ip_hits.get(ip, []), entropy=real_extras.entropy, is_cdn=real_extras.is_cdn,
                                 admin_access=lambda minutes: {"errors": {}}, local_lists=lambda: {}, LOCAL_FEEDS={},
                                 match_hash=lambda v, f: [], match_filename=lambda v, f: [])
     site = types.SimpleNamespace(get=lambda k, d=None: "10.0.0.0/8" if k == "internal_cidr" else d, is_internal=lambda ip: ip.startswith("10."))

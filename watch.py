@@ -187,13 +187,15 @@ for idx, field, dset in (("logs-zeek-so", "dns.query.name", "zeek.dns"), ("logs-
                   kind="ti-domain", ip=(src or [None])[0])
 r = q("logs-zeek-so", {"size": 0, "query": {"bool": {"filter": [R, ds("zeek.conn"), INT, {"term": {"connection.local.responder": False}}]}},
                        "aggs": {"d": {"terms": {"field": "destination.ip", "size": 20000},
-                                      "aggs": {"s": {"terms": {"field": "source.ip", "size": 2}}, "p": {"terms": {"field": "destination.port", "size": 2}}}}}})
+                                      "aggs": {"s": {"terms": {"field": "source.ip", "size": 2}}, "p": {"terms": {"field": "destination.port", "size": 2}},
+                                               "as": {"terms": {"field": "destination.as.organization.name", "size": 1}}}}}})
 for b in buckets(r["aggregations"]["d"]):
     allf = extras.match_ip(b["key"], feeds)
     if any(f.startswith("opencti_") for f in allf):
         octi_hits.append({"value": b["key"], "feeds": allf, "count": b["doc_count"], "sources": [nm(x["key"]) for x in buckets(b["s"])]})
     fl = [f for f in allf if f in extras.SERIOUS]
-    if fl:
+    org = next((x["key"] for x in buckets(b["as"])), "") if isinstance(b.get("as"), dict) else ""
+    if fl and not extras.is_cdn(org):  # an IP-only hit on a shared CDN / hosting address is no alert (it serves many sites); the review still sees it
         src = [x["key"] for x in buckets(b["s"])]
         alert(f"tiip|{b['key']}|{src[:1]}", f"**Threat-intel IP:** {', '.join(map(nm, src))} -> {b['key']}:{[x['key'] for x in buckets(b['p'])]} "
                                             f"x{b['doc_count']} (listed in {', '.join(fl)})", kind="ti-ip-out", ip=(src or [None])[0])

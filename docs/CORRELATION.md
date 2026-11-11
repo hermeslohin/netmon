@@ -95,7 +95,7 @@ services), muted for 12 h per *(from, to, protocol, level)*.
 | Admin | admin sessions (above) |
 | Endpoint | Elastic Agent / osquery host findings |
 | Gateway | UniFi gateway events: IPS threat detections, high-severity, WAN, device and VPN events (`gw|<time>|<key>|<src>|<dst>`) |
-| Threat intel | inbound / outbound listed IPs, listed domains |
+| Threat intel | inbound / outbound listed IPs, listed domains. An outbound IP hit carries the TLS server names / DNS names the network used for that address (dns artifacts) and is **low** on a CDN / shared-hosting address (Cloudflare, Akamai, WP Engine, AWS...), **medium** at most otherwise: an IP-only hit is not suspicious on its own. The reviewer is told to judge the domain / SNI / certificate and research it on the web. Feed entries for a big shared service's own host (e.g. `login.microsoftonline.com`) are never listed. |
 | Vulnerability | open Fix-list items: timeless, related by host |
 
 Candidates are pairs that **share an entity**: an internal host (MAC addresses and endpoint host names are resolved
@@ -176,7 +176,7 @@ stages; with it off, the older event reviewer-only flow is used (described at th
      ends with `PERSON'S VERDICT: <verdict> (…)` and the reviewer is told to follow it unless concrete evidence of
      harm contradicts it. After the answer, the reviewer's label is **replaced by the person's verdict** unless the
      reviewer is at least as confident as the verdict's weight (**0.95** for a verdict scoped to artifacts the event
-     shows, **0.9** for a verdict on the event itself), or the event has a threat-intel hit, the reviewer says
+     shows, **0.9** for a verdict on the event itself), or the event has a strong threat-intel hit (listed domain or file hash; IP-only and file-name-only hits do not count), the reviewer says
      *suspicious* and the verdict is expected / benign (the suspicious label is kept). An applied verdict takes the
      verdict's weight as confidence and the reason starts *Person's verdict applied (…); the event reviewer said X
      (0.NN).* The outcome is stored in `event_class.owner` (verdict, kind, weight, note, matched artifacts, applied or
@@ -501,7 +501,7 @@ auto-close. A User-role account's verdict waits for a defender/admin approval li
 In correlation review an approved verdict **outweighs the event reviewer's label** (stage 2 above): the newest verdict
 on the event or an earlier run of it weighs 0.9, a scoped Expected / Benign verdict whose artifacts the event all
 shows weighs 0.95 (the heavier wins, the newer on a tie). The reviewer's label is replaced unless the reviewer is at
-least as confident as that weight, or the event has a threat-intel hit and the reviewer says suspicious against an
+least as confident as that weight, or the event has a strong threat-intel hit (domain or file hash) and the reviewer says suspicious against an
 expected / benign verdict. A new or changed verdict has the event reviewed again. The classification popover and the
 Open events window show **👤 <verdict> verdict applied · the event reviewer said X (NN %)**, or *verdict not applied:
 threat intel* / *event reviewer confident*. The Alerts **Verdict** column shows a person's verdict first, then the

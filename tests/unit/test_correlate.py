@@ -397,3 +397,19 @@ class ArtifactOwnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ListedIpEvent(unittest.TestCase):
+    def test_listed_ip_names_site_and_is_low_on_cdn(self):
+        """A listed IP's event names the site served (SNI / DNS) as dns artifacts and is low on a CDN, medium at most otherwise.
+        REQ: OCTI-10
+        """
+        hit = {"ip": "141.193.213.10", "feeds": ["opencti_high_ips"], "serious": True, "established": 5, "bytes": 9e5,
+               "sources": {"10.0.1.10": 5}, "ports": [443], "asn": "WPEngine, Inc.", "names": ["www.clever.com"], "cdn": True}
+        c2 = {**hit, "ip": "45.33.32.9", "asn": "Linode", "names": [], "cdn": False}
+        res = run(raw(threat_intel={"ip_hits_out": [hit, c2]}))
+        E = res["events"]
+        a, b = E["ti|out|141.193.213.10"], E["ti|out|45.33.32.9"]
+        self.assertEqual((a["sev"], b["sev"]), ("low", "medium"))
+        self.assertIn("www.clever.com", a["label"])
+        self.assertIn("www.clever.com", [x[1] for x in a["arts"] if x[0] == "dns"])

@@ -331,3 +331,36 @@ class TestReporting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestIpOnlyHitsAreWeak(unittest.TestCase):
+    def setUp(self):
+        _reset()
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, True)
+        _reset()
+
+    def test_ip_only_hits_are_weak(self):
+        """IP-only hits are weak (CDN addresses weaker still); a big provider's own host is never listed; look-alikes stay.
+        REQ: OCTI-10
+        """
+        import intelmatch
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dashboard", "app"))
+        import corr_llm
+        self.assertIsNone(opencti.parse_pattern("[domain-name:value = 'login.microsoftonline.com']"))
+        self.assertIsNone(opencti.url_host("https://login.microsoftonline.com/common/oauth2"))
+        self.assertEqual(opencti.parse_pattern("[domain-name:value = 'teams.microsoftonline-sharepoint.online']"),
+                         ("hosts", "teams.microsoftonline-sharepoint.online"))
+        self.assertTrue(extras.is_cdn("Cloudflare London, LLC") and extras.is_cdn("WPEngine, Inc."))
+        self.assertFalse(extras.is_cdn("Hetzner Online GmbH") or extras.is_cdn(""))
+        opencti.write_local({"141.193.213.10": ("ips", 60, "Phishunt | phishing"), "bad.example": ("hosts", 60, "AlienVault")}, 80)
+        with mock.patch.object(intelmatch.extras, "INTEL", self.tmp):
+            intelmatch._cache["sig"] = None
+            ip_only = {"arts": [], "ips": ["141.193.213.10"]}
+            self.assertTrue(any("NOT suspicious on its own" in x for x in intelmatch.lines(ip_only)), intelmatch.lines(ip_only))
+            self.assertFalse(intelmatch.strong(ip_only))
+            self.assertTrue(intelmatch.strong({"arts": [["dns", "x.bad.example", ""]], "ips": ["141.193.213.10"]}))
+        self.assertIn("IP-only hit is NOT evidence of harm", corr_llm.EVENT_SYSTEM)
+        self.assertIn("IP-only hit is NOT suspicious", corr_llm.CLASS_SYSTEM)

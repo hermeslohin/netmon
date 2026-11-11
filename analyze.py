@@ -223,15 +223,19 @@ def extras_findings(snap, today, ip2key, history, days, benign, add):
     for h in ti.get("domain_hits", []):
         for s in h["sources"]:
             add("high", key(s), "ti-domain", f"looked up {h['name']} - listed in {', '.join(h['feeds'])} ({h['sources'][s]}x)")
+    # An IP-only hit is weak: shared hosting / CDN addresses serve many unrelated sites, so the site reached (SNI / DNS
+    # names, shown in the text) decides. Even a serious feed is medium at most, low on a CDN address.
     for h in ti.get("ip_hits_out", []):
+        nm = (h.get("names") or [])[:4]
+        site = (f"; sites (SNI/DNS): {', '.join(nm)}" if nm else "; no SNI/DNS name seen") + ("; shared CDN/hosting address" if h.get("cdn") else "")
         for s in h["sources"]:
             if h["serious"]:
-                add("high" if h["established"] else "medium", key(s), "ti-ip-out",
+                add("medium" if h["established"] and not h.get("cdn") else "low", key(s), "ti-ip-out",
                     f"connected to {h['ip']} ({h['asn']}) port {h['ports']} - listed in {', '.join(h['feeds'])}; "
-                    f"{h['established']} answered conns")
+                    f"{h['established']} answered conns{site}")
             elif h["established"] and h["bytes"] > 50000:
                 add("low", key(s), "ti-ip-out-reputation",
-                    f"talked to {h['ip']} ({h['asn']}) on {h['ports']}, an IP on scanner/reputation list {', '.join(h['feeds'])}")
+                    f"talked to {h['ip']} ({h['asn']}) on {h['ports']}, an IP on scanner/reputation list {', '.join(h['feeds'])}{site}")
     inb = {}
     for h in ti.get("ip_hits_in", []):
         for t, n in h["targets"].items():
