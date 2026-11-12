@@ -25,7 +25,7 @@ store.alerts_add([fixtures.alert("kid phone contacted a threat-listed IP", key="
 import corr_llm, time
 with corr_llm._db() as c:  # the event reviewer's paragraph on both alerts
     for r in store.alerts_recent(10):
-        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", (f"alert|{r['id']}", "benign", 0.7,
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", (f"alert|{r['id']}", "suspicious", 0.7,
                   "REVIEWER PARAGRAPH " + r["key"], "cloudflare_clef + reviewer", "s", time.time()))
 """
 
@@ -135,7 +135,7 @@ class UserScope(unittest.TestCase):
         self.assertEqual(code, 200)
         rv = {r["key"]: r.get("review") for r in body["alerts"]}
         self.assertEqual(rv["t|kid"]["reason"], "REVIEWER PARAGRAPH t|kid")
-        self.assertEqual(rv["t|kid"]["label"], "benign")
+        self.assertEqual(rv["t|kid"]["label"], "suspicious")  # a User only ever sees alarms with a suspicious verdict
         self.assertLessEqual(set(rv["t|kid"]), {"label", "reason", "at", "model", "sources"})
         self.assertEqual(rv["t|kid"]["model"], "cloudflare_clef + reviewer")  # the AI provenance flare names the model
         self.assertNotIn("REVIEWER PARAGRAPH t|lab", json.dumps(body))

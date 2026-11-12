@@ -228,6 +228,68 @@ def _log(c, logs, now):
                        json.dumps(r.get("targets") or [])))
 
 
+# ---------------------------------------------------------------- User role: verdict first, always
+# Admins / defenders get the fail-safe pushes above (no verdict in time, reviewer down, switch off). A User never does:
+# an alarm reaches a User (phone or Alerts page) only once the event reviewer's final group verdict is in and is
+# suspicious. No time limit - an alarm still waiting for its verdict stays away from Users until it gets one (or ages
+# past USER_WINDOW_S, after which it is not pushed to them at all). push_user records what each alarm did for Users.
+USER_WINDOW_S = 24 * 3600
+_USCHEMA = {"done": ""}
+
+
+def _user_schema(c):
+    if _USCHEMA["done"] == store.db_path():
+        return
+    new = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='push_user'").fetchone() is None
+    c.execute("CREATE TABLE IF NOT EXISTS push_user (alert_id INTEGER PRIMARY KEY, state TEXT NOT NULL, verdict TEXT, at REAL)")
+    if new:  # first run: alarms already in the feed count as delivered, so Users are not flooded with old ones
+        with store.tx(c):
+            c.execute("INSERT OR IGNORE INTO push_user (alert_id, state, verdict, at) SELECT id, 'seeded', '', ? FROM alerts", (time.time(),))
+    _USCHEMA["done"] = store.db_path()
+
+
+def user_verdict(row):
+    """'ready' (final verdict suspicious), 'skip' (final verdict expected / benign) or 'wait' (no final verdict yet)."""
+    try:
+        import eventstore
+        v = verdict_of(eventstore.alert_ref(row))
+    except Exception as e:  # noqa: BLE001 - fail closed for Users: no verdict, no alarm
+        print(f"pushgate (user): {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return "wait", {}
+    if v.get("state") != "final":
+        return "wait", v
+    return ("ready" if v.get("label") == "suspicious" else "skip"), v
+
+
+def user_visible(rows):
+    """The alarm rows a User may see on the Alerts page: those with a final suspicious verdict."""
+    return [r for r in rows if user_verdict(r)[0] == "ready"]
+
+
+def user_due(now=None):
+    """Alarms in the feed that just became ready for Users (final suspicious verdict) and have not gone to them yet.
+    Expected / benign verdicts are recorded as skipped; anything still waiting is left for the next run."""
+    now = now or time.time()
+    c = store._dc()
+    _user_schema(c)
+    rows = [store._arow(r) for r in c.execute(
+        "SELECT * FROM alerts WHERE cleared=0 AND held=0 AND ts>=? AND id NOT IN (SELECT alert_id FROM push_user) ORDER BY id",
+        (now - USER_WINDOW_S,))]
+    due, logs = [], []
+    for r in rows:
+        st, v = user_verdict(r)
+        if st == "wait":
+            continue
+        logs.append((r["id"], "sent" if st == "ready" else "skipped", v.get("label") or ""))
+        if st == "ready":
+            due.append(r)
+    if logs:
+        with store.tx(c):
+            c.executemany("INSERT OR REPLACE INTO push_user (alert_id, state, verdict, at) VALUES (?,?,?,?)",
+                          [(i, s, lab, now) for i, s, lab in logs])
+    return due
+
+
 def for_event(eid):
     """push_gate rows about one event (verdict pop-up): newest first."""
     c = store._dc()

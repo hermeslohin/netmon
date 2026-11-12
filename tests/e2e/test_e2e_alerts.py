@@ -37,7 +37,8 @@ store.alerts_add([("w|1", "IDS: ET MALWARE Test - %s -> %s" % (IP["laptop"], EXT
                   ("w|2", "New device active: 10.0.7.7 made 30 connections - never seen before", "urgent")], source="watcher")
 ids = {r["key"]: r["id"] for r in c.execute("SELECT id, key FROM alerts")}
 with corr_llm._db() as cc:
-    for k, label, why in (("w|1", "benign", "Known scanner."), ("a|lap1", "suspicious", "Beacon to a listed IP.")):
+    for k, label, why in (("w|1", "benign", "Known scanner."), ("a|lap1", "suspicious", "Beacon to a listed IP."),
+                          ("a|ph1", "suspicious", "Odd DNS.")):
         cc.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", ("alert|%d" % ids[k], label, 0.8, why, "test-model", "s", time.time()))
 '''
 
@@ -152,7 +153,7 @@ class AlertsApi(unittest.TestCase):
             self.assertEqual(keys(d), ["w|2", "w|1"])
             self.assertEqual((d["total"], d["matching"]), (2, 2))
             self.assertEqual(d["counts"]["detections"], {"benign": 1, "unreviewed": 1})
-            self.assertEqual(d["counts"]["alarms"].get("suspicious"), 1)
+            self.assertGreaterEqual(d["counts"]["alarms"].get("suspicious"), 2)  # a|lap1, a|ph1 (+ a|new* from the read test)
             self.assertEqual([(r["verdict"], r["mine"]) for r in d["alerts"]], [("unreviewed", True), ("benign", True)])
             b = self.get(c, "/api/alerts?held=1&v=benign")
             self.assertEqual((keys(b), b["matching"], b["total"]), (["w|1"], 1, 2))
@@ -222,7 +223,7 @@ class AlertsApi(unittest.TestCase):
     def test_read_markers_per_role(self):
         """A User's mark-read is private (others still see the alert unread); an admin or defender marks every alert read for everyone.
         REQ: ALR-06, ALR-20"""
-        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new', 'New thing on %s' % F.IPS['phone'], 'urgent')], source='corr')")
+        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new', 'New thing on %s' % F.IPS['phone'], 'urgent')], source='corr')\nimport corr_llm, time\nwith corr_llm._db() as cc:\n    cc.execute('INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'suspicious', 0.8, 'r', 'm', 's', time.time()))")
         u = self.get(self.user, "/api/alerts")
         self.assertEqual({r["key"]: r["read"] for r in u["alerts"]}.get("a|new"), 0)
         self.assertGreaterEqual(u["unread"], 1)
@@ -238,7 +239,7 @@ class AlertsApi(unittest.TestCase):
         a = self.get(self.admin, "/api/alerts?limit=200")
         self.assertEqual((a["unread"], a["unread_mine"]), (0, 0))
         self.assertTrue(all(r["read"] for r in a["alerts"]))
-        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new2', 'Another on %s' % F.IPS['phone'], 'urgent')], source='corr')")
+        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new2', 'Another on %s' % F.IPS['phone'], 'urgent')], source='corr')\nimport corr_llm, time\nwith corr_llm._db() as cc:\n    cc.execute('INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'suspicious', 0.8, 'r', 'm', 's', time.time()))")
         self.assertEqual(self.get(self.user, "/api/alerts")["unread"], 1, "a newer alert is unread for the User again")
 
     def test_page_and_script_served(self):

@@ -92,15 +92,65 @@ class TestUserPush(unittest.TestCase):
     def tearDown(self):
         _reset()
 
+    def _alarm(self):
+        store.alerts_add([("ev|" + ICU, ICU_TEXT + f" on {IPS['laptop']}", "urgent")], source="review")
+
     def test_user_gets_plain_admin_gets_signature(self):
         """The same alarm pushes plain words to a User and the full signature text to an admin.
         REQ: AC-09, STO-07"""
-        store.alerts_add([("ev|" + ICU, ICU_TEXT + f" on {IPS['laptop']}", "urgent")], source="review")
+        _classify(ICU, "suspicious")
+        self._alarm()
         pushsvc.run_once()
         self.assertIn("ET INFO DNS Query", self.sent["1"]["body"])
         u = self.sent["2"]
         self.assertEqual(u["title"], "Syn: heads up")
         self.assertEqual(u["body"], "Kitchen tablet: possible phishing or scam website visited. Look out - tap for what to do.")
+
+
+    def test_no_verdict_no_user_push(self):
+        """Without a verdict a User gets nothing, even when the admin gets the fail-safe push; the User is pushed once,
+        when the suspicious verdict lands later.
+        REQ: AC-10"""
+        import pushgate
+        self._alarm()
+        with mock.patch.object(pushgate, "reviewer_down", lambda: "reviewer off"):
+            pushsvc.run_once()
+        self.assertIn("1", self.sent)
+        self.assertNotIn("2", self.sent)
+        self.sent.clear()
+        pushsvc.run_once()
+        self.assertEqual(self.sent, {})
+        _classify(ICU, "suspicious")
+        pushsvc.run_once()
+        self.assertEqual(set(self.sent), {"2"})
+        self.sent.clear()
+        pushsvc.run_once()
+        self.assertEqual(self.sent, {})
+
+    def test_benign_verdict_never_reaches_user(self):
+        """A final expected / benign verdict means no push and no Alerts-page row for a User.
+        REQ: AC-10"""
+        import pushgate
+        _classify(ICU, "benign")
+        self._alarm()
+        with mock.patch.object(pushgate, "reviewer_down", lambda: "reviewer off"):
+            pushsvc.run_once()
+        self.assertNotIn("2", self.sent)
+        rows = store.alerts_recent(10)
+        self.assertEqual(pushgate.user_visible(rows), [])
+        _classify(ICU, "suspicious")
+        self.assertEqual(len(pushgate.user_visible(rows)), 1)
+
+    def test_pending_group_waits(self):
+        """A provisional (fast) label is not a verdict: the User waits.
+        REQ: AC-10"""
+        import json as _j
+        import pushgate
+        _classify(ICU, "suspicious")
+        with corr_llm._db() as c:
+            c.execute("UPDATE event_class SET covered=? WHERE eid=?", (_j.dumps({"fast": True}), ICU))
+        self._alarm()
+        self.assertEqual(pushgate.user_verdict(store.alerts_recent(1)[0])[0], "wait")
 
 
 class TestAlarmLifetime(unittest.TestCase):

@@ -2163,7 +2163,8 @@ class H(BaseHTTPRequestHandler):
                         print(f"alerts (user): review unavailable: {e}", file=sys.stderr)
                     import plainmsg  # a User sees what happened in plain words; the signature text stays with admins / defenders
                     preg = store.registry_load()
-                    rows = [dict(r, text=plainmsg.line(r, preg)) for r in rows]
+                    import pushgate  # an alarm reaches a User only once its final verdict is suspicious
+                    rows = [dict(r, text=plainmsg.line(r, preg)) for r in pushgate.user_visible(rows)]
                     n = sum(1 for r in rows if not r["read"])
                     return self._json({"alerts": rows, "unread": n, "unread_mine": n, "mode": "some"})
                 if (q.get("cleared") or [""])[0] and role != "user":  # alerts a mute rule cleared (Show cleared)

@@ -56,6 +56,10 @@ off, writing notes, confirming or rejecting an AI link, limiting which links the
   or scam website visited. Look out - tap for what to do."), on the phone push and on the Alerts page. The raw alert
   text (signature names, IPs) stays with admins and defenders; tapping the alert still shows the advice and the
   reviewer's explanation (`dashboard/app/plainmsg.py`).
+- An alarm reaches a User only after the AI reviewer's final group verdict is in and says suspicious (push and Alerts
+  page alike). Admins and defenders still get the fail-safe pushes (no verdict in time, reviewer down); Users never do,
+  and alarms judged expected / benign never reach them. It waits as long as the verdict takes, for up to 24 h
+  (`pushgate.user_due`, table `push_user`).
 - A User's "Mark all read" sets a private marker, so it doesn't clear the 🔔 that admins and defenders share.
 - A User can add 📝 notes to the security events on **My devices** (only events that involve one of their assigned
   devices; the server re-checks this) and delete their own notes. They see only their own notes, never the notes

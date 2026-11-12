@@ -299,6 +299,12 @@ class TestRunOnce(_Base):
         """Admin 'all' gets both alerts; a User with the laptop gets only the laptop alert; a User with 'all' gets none.
         REQ: STO-07, AC-06, AC-09"""
         self._alerts()
+        import corr_llm, time as _t  # a User is pushed only once the final verdict is suspicious (pushgate.user_due)
+        with corr_llm._db() as c:
+            c.execute("DELETE FROM event_class")
+            for (i,) in store._dc().execute("SELECT id FROM alerts"):
+                c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)",
+                          ("alert|%d" % i, "suspicious", 0.9, "r", "m", "sig", _t.time()))
         store.prefs_set("user1", "some", [mac(1)])
         self._sub(1, "admin1")
         self._sub(2, "user1")

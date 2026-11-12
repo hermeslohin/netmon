@@ -83,7 +83,13 @@ def run_once():
     except Exception as e:  # noqa: BLE001 - fail safe: without the gate every alarm goes out as before
         print(f"push gate failed, pushing unfiltered: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         done = [r["id"] for r in rows]
-    if not rows:
+    try:  # Users: only alarms whose final verdict is suspicious, whenever that verdict lands (never a fail-safe push)
+        import pushgate
+        urows = pushgate.user_due()
+    except Exception as e:  # noqa: BLE001 - fail closed for Users
+        print(f"user push gate failed, nothing to Users this run: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        urows = []
+    if not rows and not urows:
         store.alerts_mark(done, "pushed")
         return 0
     subs = store.push_subs()
@@ -91,14 +97,15 @@ def run_once():
     wanted = {}  # user -> identifier set (None = all devices)
     for s in subs:
         u = s.get("user") or ""
+        is_user = auth.role_of(u) == "user"
         if u not in wanted:
             wanted[u] = store.watch_ids(u, reg=reg)
-            if wanted[u] is None and auth.role_of(u) == "user":
+            if wanted[u] is None and is_user:
                 wanted[u] = set()  # a User only ever gets alerts for the devices assigned to them
-        mine = [r for r in rows if store.alert_for(r, wanted[u])]
+        mine = [r for r in (urows if is_user else rows) if store.alert_for(r, wanted[u])]
         if not mine:
             continue  # nothing about this user's devices
-        p = plainmsg.push_payload(mine, reg) if auth.role_of(u) == "user" else payload_for(mine)
+        p = plainmsg.push_payload(mine, reg) if is_user else payload_for(mine)
         ok, err = send(s, p)
         if ok:
             _status["sent"] += 1
