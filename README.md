@@ -44,7 +44,7 @@ Features:
 - Maps vulnerabilities and attacks to Mitre Att&ck
 
 - Calculates a risk rating of each system ([how risk is scored](docs/RISK_SCORING.md))
-- 
+
 - Watches one or more Kubernetes clusters: container logs, events and API server metrics from Elasticsearch, plus (with a read-only account) the CIS benchmark, a cluster map and container image updates mapped to CVEs; see [docs/KUBERNETES.md](docs/KUBERNETES.md)
   
 - Role-based access: Admin, Network defender (view-only for settings) and User (only their assigned devices); see [docs/ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md)
