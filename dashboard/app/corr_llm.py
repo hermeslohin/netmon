@@ -3191,6 +3191,16 @@ def _wake_mark():
         return 0
 
 
+def verdict_mark():
+    """(rows, newest ts) of the event reviewer's labels: changes whenever a verdict is stored or replaced, so the
+    dashboard can apply auto-close within seconds of a verdict instead of on its 5-minute pass."""
+    try:
+        with _db() as c:
+            return tuple(c.execute("SELECT COUNT(*), MAX(ts) FROM event_class").fetchone() or (0, 0))
+    except Exception:  # noqa: BLE001
+        return (0, 0)
+
+
 def _next_settle(after):
     """Earliest settle time after `after` of a group still waiting (review_pending), or None."""
     try:

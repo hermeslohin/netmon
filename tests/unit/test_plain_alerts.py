@@ -201,5 +201,27 @@ class TestAlarmLifetime(unittest.TestCase):
         self.assertEqual(len(self._feed()), 1)
 
 
+class TestVerdictMark(unittest.TestCase):
+    """Auto-close runs within seconds of a verdict: the dashboard loop watches corr_llm.verdict_mark()."""
+
+    def setUp(self):
+        _reset()
+
+    def tearDown(self):
+        _reset()
+
+    def test_mark_changes_on_new_and_replaced_verdict(self):
+        """Storing a verdict, and replacing one, both change the mark; reading does not.
+        REQ: STO-08"""
+        m0 = corr_llm.verdict_mark()
+        self.assertEqual(corr_llm.verdict_mark(), m0)
+        _classify(ICU, "suspicious")
+        m1 = corr_llm.verdict_mark()
+        self.assertNotEqual(m1, m0)
+        time.sleep(0.01)
+        _classify(ICU, "expected")
+        self.assertNotEqual(corr_llm.verdict_mark(), m1)
+
+
 if __name__ == "__main__":
     unittest.main()

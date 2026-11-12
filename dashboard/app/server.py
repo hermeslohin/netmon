@@ -2289,18 +2289,24 @@ def main():
                     print(f"review runs: deleted the documents of {len(gone)} folded run(s), {gone[0]} .. {gone[-1]}", file=sys.stderr)
             except Exception as e:  # noqa: BLE001
                 print(f"review run prune: {e}", file=sys.stderr)
-            try:  # apply new AI verdicts (event reviewer classifications arrive continuously, not only with the review job)
-                if True:  # always: people's Expected / Benign verdicts also close later repeats, whatever the switches say
+            def _autoclose(trigger):  # apply AI verdicts; people's Expected / Benign calls also close later repeats
+                try:
                     inp = autoclose_inputs()
                     if inp:
-                        autoclose.run(*inp, trigger="timer")
-            except Exception as e:  # noqa: BLE001
-                print(f"autoclose timer: {e}", file=sys.stderr)
+                        autoclose.run(*inp, trigger=trigger)
+                except Exception as e:  # noqa: BLE001
+                    print(f"autoclose {trigger}: {e}", file=sys.stderr)
+            vmark = corr_llm.verdict_mark()
+            _autoclose("timer")
             mark, end = corr_llm._wake_mark(), time.time() + 300
             while time.time() < end:  # every 5 min, or within 10 s of a new alert (stream.py): open events and the reviewer see it at once
                 time.sleep(10)
                 if corr_llm._wake_mark() != mark:
                     break
+                vm = corr_llm.verdict_mark()
+                if vm != vmark:  # a verdict was just stored: close what it allows now, not on the next 5-minute pass
+                    vmark = vm
+                    _autoclose("verdict")
     threading.Thread(target=_ingest, daemon=True, name="eventstore-ingest").start()
 
     def _notes_nightly():  # host note consolidation at the time set on AI review (notes_consolidate.py) + hourly expiry of unused host notes

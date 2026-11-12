@@ -228,7 +228,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `review.schedule` | AI pipeline configuration > Review job schedule | `/api/config/review-schedule` | CFG-01, SET-64 | 18 | 7 |
 | `review.job` | AI pipeline configuration > Review job: on/off, event modes | `/api/llm/review` | CFG-01, OPS-06, SET-64 | 29 | 7 |
 | `research.limits` | AI pipeline configuration > Research job limits (model, cost caps, web) | `/api/llm/research` | CFG-01, SET-64 | 18 | 7 |
-| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 13 | 6 |
+| `autoclose` | Open events > Auto-close settings and guard rails | `/api/config/triage`, `/api/config/triage/reopen` | STO-08, STO-12, SET-64 | 14 | 6 |
 | `notes.consolidate` | AI pipeline configuration > Nightly note consolidation | `/api/llm/notes-consolidate` | STO-09, SET-66 | 6 | 8 |
 | `llm.models` | AI pipeline configuration > Models (event reviewer, research, chat model) | `/api/llm/config` | SET-22, SET-23, SET-65 | 6 | 4 |
 | `llm.providers` | AI pipeline configuration > AI providers (added APIs, local server) | `/api/llm/providers` | SET-32, SET-33, SET-34, SET-65 | 8 | 4 |
@@ -288,7 +288,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_open_review_coverage.py` | 3 | Every open event gets an event reviewer label, a Pending review badge or a 'Not reviewed: <reason>' badge (EVW-08) |
 | `tests/unit/test_opencti.py` | 15 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07, OCTI-10) |
 | `tests/unit/test_owner_verdict_scope.py` | 10 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
-| `tests/unit/test_plain_alerts.py` | 10 | Plain-language alerts for the User role (dashboard/app/plainmsg.py) and alarm lifetime in corr_llm.sync_alarms. (AC-09, AC-10, STO-06, STO-07) |
+| `tests/unit/test_plain_alerts.py` | 11 | Plain-language alerts for the User role (dashboard/app/plainmsg.py) and alarm lifetime in corr_llm.sync_alarms. (AC-09, AC-10, STO-06, STO-07, STO-08) |
 | `tests/unit/test_posture.py` | 29 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
 | `tests/unit/test_push_gate.py` | 11 | Phone-push gate (dashboard/app/pushgate.py): urgent alarms wait for the event reviewer's group verdict, expected / (PSH-01, PSH-02, PSH-03, PSH-04, PSH-05, PSH-06) |
 | `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, AC-09, RISK-03, STO-06, STO-07) |
