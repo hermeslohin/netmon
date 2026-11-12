@@ -1,18 +1,22 @@
 #!/bin/bash
-# Every netmon code change goes through here:  ./ship.sh "commit message" [--deploy] [--force] [--skip-tests] [--skip-scan]
-#   --skip-scan: skip step 1 (security scan) on the owner's request; the secret and sensitive-data gates still run
+# Every netmon code change goes through here:  ./ship.sh "commit message" [--deploy] [--skip-tests]
+#   Owner rule: nothing ships with a security bug. The scan always runs and ANY open finding (any severity, new or old)
+#   aborts - fix it, or (only for a reviewed false positive) record it in sec_accepted.json with a reason. No bypass flag.
 #   0. test gate: unit + end-to-end suite (tests/run_tests.py) and requirement traceability (tests/gen_docs.py --check);
 #      any failure ABORTS (--force does not bypass it; --skip-tests does, and says so in the commit message).
 #      The run regenerates docs/TEST_TRACEABILITY.md + the inventory in docs/TESTING.md, which are committed with the change.
 #   1. security scan (sec_scan.sh) -> new findings become in-app alerts + Software vulnerabilities
 #   2. secret gate: gitleaks over exactly the files about to be committed - any hit ABORTS (never pushes secrets)
-#   3. new HIGH findings abort unless --force (after review: fix them, or accept in sec_accepted.json with a reason)
+#   3. security gate: any open (unaccepted) finding aborts - there is no --force/--skip-scan
 #   4. git commit + push to the GitHub repo in site.json (github_repo); optional dashboard redeploy
 set -u
 NM=$(cd "$(dirname "$0")" && pwd); cd "$NM"
-MSG=${1:?usage: ship.sh "commit message" [--deploy] [--force] [--skip-tests] [--skip-scan]}; shift
-DEPLOY=0; FORCE=0; SKIPTESTS=0; SKIPSCAN=0
-for a in "$@"; do [ "$a" = --deploy ] && DEPLOY=1; [ "$a" = --force ] && FORCE=1; [ "$a" = --skip-tests ] && SKIPTESTS=1; [ "$a" = --skip-scan ] && SKIPSCAN=1; done
+MSG=${1:?usage: ship.sh "commit message" [--deploy] [--skip-tests]}; shift
+DEPLOY=0; SKIPTESTS=0
+for a in "$@"; do case "$a" in
+  --deploy) DEPLOY=1;; --skip-tests) SKIPTESTS=1;;
+  --force|--skip-scan) echo "ABORT: $a was removed - nothing ships with a security bug; fix the finding (or accept a reviewed false positive in sec_accepted.json)"; exit 3;;
+  *) echo "ABORT: unknown option $a"; exit 1;; esac; done
 SCAN=${NETMON_SCAN_DIR:-$HOME/.cache/netmon/sec}
 
 TESTS="not run (--skip-tests)"
@@ -34,14 +38,17 @@ else
   echo "   $TESTS"
 fi
 
-if [ $SKIPSCAN -eq 1 ]; then
-  echo "== 1. security scan SKIPPED (--skip-scan)"; R='{"skipped": true, "new_high": 0}'
-else
 echo "== 1. security scan"
 "$NM/sec_scan.sh" "$SCAN" > "$NM/baseline/secscan-last.txt" 2>&1
-R=$(/usr/bin/python3 "$NM/secfindings.py" sync "$SCAN" --notify new --context "code change: $MSG") || { echo "secfindings failed"; exit 1; }
+R=$(/usr/bin/python3 "$NM/secfindings.py" sync "$SCAN" --notify new --context "code change: $MSG") || { echo "   ABORT: secfindings failed - cannot prove the change is clean"; exit 1; }
 echo "   $R"
+OPEN=$(echo "$R" | /usr/bin/python3 -c 'import json,sys; print(int(json.load(sys.stdin)["open"]))' 2>/dev/null || echo unknown)
+if [ "$OPEN" != 0 ]; then
+  echo "   ABORT: $OPEN open security finding(s) - fix them before shipping (secfindings.py list):"
+  /usr/bin/python3 "$NM/secfindings.py" list | sed 's/^/   /' | head -20
+  exit 3
 fi
+echo "   clean (0 open findings)"
 
 echo "== 1b. state-file gate (retired JSON/cache files stay in netmon.db)"
 /usr/bin/python3 "$NM/store.py" retired-check | sed 's/^/   /'
@@ -65,11 +72,6 @@ git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r /usr/bin/pytho
   echo "   ABORT: sensitive site data in the commit - move it to the site settings (dashboard: More > Settings) and read it via site_cfg"; git reset -q; exit 4; }
 echo "   clean"
 
-NEWHIGH=$(echo "$R" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("new_high", 0))' 2>/dev/null || echo 0)
-if [ "${NEWHIGH:-0}" != 0 ] && [ $FORCE -ne 1 ]; then
-  echo "   ABORT: $NEWHIGH new HIGH finding(s) - run secfindings.py list, fix or accept with a reason, then re-run (or --force)"
-  git reset -q; exit 3
-fi
 
 echo "== 3. commit + push"
 if git diff --cached --quiet; then echo "   nothing to commit"; else git commit -q -m "$MSG" -m "Tests: $TESTS" -m "Security scan: $R"; fi

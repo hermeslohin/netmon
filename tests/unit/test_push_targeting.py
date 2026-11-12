@@ -297,7 +297,7 @@ class TestRunOnce(_Base):
 
     def test_targeting_per_user(self):
         """Admin 'all' gets both alerts; a User with the laptop gets only the laptop alert; a User with 'all' gets none.
-        REQ: STO-07, AC-06"""
+        REQ: STO-07, AC-06, AC-09"""
         self._alerts()
         store.prefs_set("user1", "some", [mac(1)])
         self._sub(1, "admin1")
@@ -307,8 +307,9 @@ class TestRunOnce(_Base):
         got = self.by_endpoint()
         self.assertEqual(set(got), {"1", "2"})
         self.assertTrue(got["1"]["title"].startswith("Syn: 2 urgent alerts"))
-        self.assertEqual(got["2"]["title"], "Syn: urgent")
-        self.assertIn(IPS["laptop"], got["2"]["body"])
+        self.assertEqual(got["2"]["title"], "Syn: heads up")  # a User gets the plain line (plainmsg), named device, no IP
+        self.assertTrue(got["2"]["body"].startswith("Laptop: "))
+        self.assertNotIn(IPS["laptop"], got["2"]["body"])
 
     def test_defender_can_narrow(self):
         """A defender who picked only the camera gets only the camera alert.

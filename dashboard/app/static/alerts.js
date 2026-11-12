@@ -157,10 +157,13 @@
     { k: "_an", t: "Artifact notes", num: true, fmt: (v, a) => artCell(a), sort: (a) => (X().art_notes?.[a.eid] || []).length }];
 
   V.alerts = async (el) => {
-    el.innerHTML = `<h1>Urgent alerts</h1><div class="sub">${isUserRole() ? "Security problems seen on your devices, with what our analyst recommends you do. Tap an alert for the steps and why." : "Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Each comes with the analyst's advice for the device owner. Kept 30 days."}</div>
-      <button id="alSetBar" class="settings-bar" aria-expanded="${A.setOpen ? "true" : "false"}" aria-controls="alSet"><span>⚙ Notification settings</span><span class="sb-sum muted small"></span><span class="sb-chev">▾</span></button>
-      <div id="alSet" class="slide ${A.setOpen ? "open" : ""}"><div class="slide-in"></div></div>`;
+    // static markup only; text and state are set through DOM APIs (nothing interpolated into innerHTML)
+    el.innerHTML = `<h1>Urgent alerts</h1><div class="sub"></div>
+      <button id="alSetBar" class="settings-bar" aria-expanded="false" aria-controls="alSet"><span>⚙ Notification settings</span><span class="sb-sum muted small"></span><span class="sb-chev">▾</span></button>
+      <div id="alSet" class="slide"><div class="slide-in"></div></div>`;
+    el.querySelector(".sub").textContent = isUserRole() ? "Security problems seen on your devices, with what our analyst recommends you do. Tap an alert for the steps and why." : "Raised by the 15-minute watcher : new devices, high-severity IDS hits, threat-intel matches, new Internet-facing ports, DNS tunnels and endpoint alerts. Each comes with the analyst's advice for the device owner. Kept 30 days.";
     const bar = el.querySelector("#alSetBar"), slide = el.querySelector("#alSet"), inner = slide.querySelector(".slide-in");
+    slide.classList.toggle("open", !!A.setOpen); bar.setAttribute("aria-expanded", String(!!A.setOpen));
     bar.onclick = () => { A.setOpen = !A.setOpen; slide.classList.toggle("open", A.setOpen); bar.setAttribute("aria-expanded", String(A.setOpen)); };
     const pc = card("Notifications on this device", `<div id="pushBox" class="muted">Checking…</div>`); inner.appendChild(pc);
     const box = pc.querySelector("#pushBox");

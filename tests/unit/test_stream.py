@@ -168,7 +168,8 @@ class StreamSettle(unittest.TestCase):
 
     def _alert(self, key):
         store.alerts_add([(key, key, "urgent")], source="stream")
-        return f"alert|{store.connect().execute('SELECT MAX(id) FROM alerts').fetchone()[0]}"
+        aid = store.connect().execute("SELECT MAX(id) FROM alerts").fetchone()[0]
+        return "alert|" + str(aid)
 
     def _bm(self, job, to):
         with store.connect() as c:

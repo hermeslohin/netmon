@@ -8,6 +8,7 @@ import base64, json, os, sys, threading, time
 
 import store
 import auth  # roles: a User only gets pushes for assigned devices
+import plainmsg  # Users get plain-language pushes; admins / defenders keep the signature text
 
 STATE = os.environ.get("STATE_DIR", "/state")
 KEYFILE = os.path.join(STATE, "vapid_private.pem")
@@ -97,7 +98,7 @@ def run_once():
         mine = [r for r in rows if store.alert_for(r, wanted[u])]
         if not mine:
             continue  # nothing about this user's devices
-        p = payload_for(mine)
+        p = plainmsg.push_payload(mine, reg) if auth.role_of(u) == "user" else payload_for(mine)
         ok, err = send(s, p)
         if ok:
             _status["sent"] += 1

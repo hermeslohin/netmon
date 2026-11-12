@@ -241,7 +241,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `llm.lookupplan` | AI pipeline configuration > Event reviewer look-ups first | `/api/llm/lookupplan` | SET-24, SET-66 | 1 | 8 |
 | `llm.webcache` | AI pipeline configuration > netmon web cache (on/off, days kept, clear) | `/api/llm/webcache` | WEB-08, SET-66 | 8 | 8 |
 | `llm.chat_es` | Ask AI: may the chat search Elasticsearch | `/api/llm/chat-es` | SET-23, SET-66, SET-69 | 2 | 15 |
-| `push.prefs` | Account > Notifications (which devices alert me) | `/api/push/prefs` | STO-07, SET-68 | 34 | 5 |
+| `push.prefs` | Account > Notifications (which devices alert me) | `/api/push/prefs` | STO-07, SET-68 | 35 | 5 |
 
 ### Unit tests
 
@@ -288,9 +288,10 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_open_review_coverage.py` | 3 | Every open event gets an event reviewer label, a Pending review badge or a 'Not reviewed: <reason>' badge (EVW-08) |
 | `tests/unit/test_opencti.py` | 15 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07, OCTI-10) |
 | `tests/unit/test_owner_verdict_scope.py` | 10 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
+| `tests/unit/test_plain_alerts.py` | 7 | Plain-language alerts for the User role (dashboard/app/plainmsg.py) and alarm lifetime in corr_llm.sync_alarms. (AC-09, STO-06, STO-07) |
 | `tests/unit/test_posture.py` | 29 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
 | `tests/unit/test_push_gate.py` | 11 | Phone-push gate (dashboard/app/pushgate.py): urgent alarms wait for the event reviewer's group verdict, expected / (PSH-01, PSH-02, PSH-03, PSH-04, PSH-05, PSH-06) |
-| `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, RISK-03, STO-06, STO-07) |
+| `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, AC-09, RISK-03, STO-06, STO-07) |
 | `tests/unit/test_related_view.py` | 1 | Open events page: related events of rows older than the loaded snapshot come from the stored verdicts (STO-10) |
 | `tests/unit/test_repo_guard.py` | 22 | Unit tests for repo_guard.py scan(): forbidden files, MAC addresses, site IPs and sensitive terms. (SEC-04) |
 | `tests/unit/test_review_noai.py` | 6 | Unit tests for the review / research split: review.py never researches, research.py runs only for a person's click. (OPS-06) |

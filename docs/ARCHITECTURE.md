@@ -201,7 +201,8 @@ read-only. Each dashboard module owns its own database (`chat.py`, `corr_llm.py`
 ## Development and release path
 
 `ship.sh` is the only way code reaches git: unit and end-to-end tests (`tests/run_tests.py`), requirement
-traceability, the security scan suite (`sec_scan.sh`), a gitleaks gate over the files being committed, then commit,
+traceability, the security scan suite (`sec_scan.sh`) - any open finding of any severity blocks the release, with no
+bypass flag, so nothing ships with a known security bug - a gitleaks gate over the files being committed, then commit,
 push and an optional dashboard redeploy (`dashboard/deploy.sh`). `weekly_rebuild.sh` rebuilds the dashboard image with
 updated libraries every Sunday and raises in-app alerts for new vulnerabilities. See [TESTING.md](TESTING.md).
 

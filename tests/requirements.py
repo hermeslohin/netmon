@@ -25,6 +25,7 @@ REQUIREMENTS = {
     "AC-06": ("Access control", "A User sees only alerts/events of devices assigned to them, and the site config they receive omits IP hints.", "ACCESS_CONTROL.md (User role)"),
     "AC-07": ("Access control", "A User's 'mark all read' is a private marker that does not change the shared bell.", "ACCESS_CONTROL.md"),
     "AC-08": ("Access control", "Role changes, user adds/deletes and password resets are admin-only and take effect on the next request.", "ACCESS_CONTROL.md (Managing access)"),
+    "AC-09": ("Access control", "A User's pushes and Alerts page show a short plain-language line (device + what happened); the raw alert text (signature names, IPs) stays with admins and defenders.", "ACCESS_CONTROL.md (User role)"),
     # ---- transport / web security ----
     "SEC-01": ("Web security", "Every response carries the security headers (CSP, HSTS, X-Frame-Options DENY, nosniff, Referrer-Policy, COOP/CORP).", "SETUP.md / server.py"),
     "SEC-02": ("Web security", "The dashboard is served over TLS 1.2+ only.", "SETUP.md §6"),

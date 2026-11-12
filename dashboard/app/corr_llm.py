@@ -2514,7 +2514,12 @@ def sync_alarms(base):
     promote = [int(e.split("|", 1)[1]) for e in ok if e.startswith("alert|") and e.split("|", 1)[1].isdigit()]
     store.alerts_promote(promote)
     okids = {"alert|%d" % i for i in promote}
-    hold = [r["id"] for r in rows if r["source"] in store.HELD_SOURCES and not r["held"] and "alert|%d" % r["id"] not in ok]
+    def _withdrawn(eid):
+        """An alarm goes away only when the review changed its mind (no longer suspicious) or the event, still in the
+        current snapshot, dropped below medium. An event that merely aged out of the snapshot window keeps its alarm
+        (the feed keeps 30 days) - otherwise a pushed alarm vanished from the Alerts page an hour later."""
+        return eid not in susp or (eid in E and eid not in ok)
+    hold = [r["id"] for r in rows if r["source"] in store.HELD_SOURCES and not r["held"] and _withdrawn("alert|%d" % r["id"])]
     store.alerts_hold(hold)
     new = []
     for e, why in ok.items():
@@ -2525,7 +2530,7 @@ def sync_alarms(base):
         new.append(("ev|" + e, f"{ev.get('label')} - AI review: suspicious ({reason_summary(why)})", "investigate" if sev_of(ev) == "high" else "urgent", tg))
     if new:
         store.alerts_add(new, source="review")
-    stale = [r["id"] for r in rows if r["source"] == "review" and r["key"][3:] not in ok]
+    stale = [r["id"] for r in rows if r["source"] == "review" and r["key"].startswith("ev|") and _withdrawn(r["key"][3:])]
     if stale:
         store.alerts_delete(stale)
     if promote or hold or new or stale:
