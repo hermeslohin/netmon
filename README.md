@@ -34,19 +34,19 @@ Domains that were recently registered, Devices bypassing DNS and more.  I did th
 
 The goal of this is to rapidly grab events and review them. Do basic analysis of events and, on request, research them and provide suggestions what to do.  The correlation capabilities are what have impressed me so far.  It has tied failures in syslog to logs in the firewall and given me detailed instructions how to correct the situation.
 
-That then became... why don't I make an app out of it..  And it built netmon (it came up with that name... not me; it is now called Syn, see About the name).  The app now is a simple web app that I vibe coded in under 24 hours.  
+That then became... why don't I make an app out of it..  And it built netmon (it came up with that name... not me; it is now called Syn, see About the name).  The app is now a web app.  
 
 Features:
 - Users (my wife and kids) can subscribe to specific devices and get push notifications only for the devices they care about. A notification waits for the AI's verdict and is sent to them only when the verdict is suspicious. It is one plain-language line ("Kitchen tablet: possible phishing or scam website visited. Look out - tap for what to do."), and tapping it shows advice written for the person using the device: one action (nothing to do, keep an eye out, update, change a password, stop visiting a site or using an app, stop using the device) and a short message that names the site or app and says what to do. Admins and defenders still see the raw alert, and they get a fail-safe push if the AI is down or slow.
 
-- App is scanned by a number of security tools and these security tools push notifications to the app (AI watching AI)..  Updates it self weekly and scans itself and fixes those issues.
-
-- Lets me acknowledge vulnerabilities and alarms.  
-
+- Events are correlated and triaged.  The Local AI maintains notes about artifacts like hosts, users, etc to later refer to when making decisions.  So as an example it is able to make a note that this computer often uses discord and therefore it isn't a likely C2 issue.  Notes are maintained by the LLM, but users can also add their own notes to provide context.
+ 
 - Maps vulnerabilities and attacks to Mitre Att&ck
 
 - Calculates a risk rating of each system ([how risk is scored](docs/RISK_SCORING.md))
+- 
 - Watches one or more Kubernetes clusters: container logs, events and API server metrics from Elasticsearch, plus (with a read-only account) the CIS benchmark, a cluster map and container image updates mapped to CVEs; see [docs/KUBERNETES.md](docs/KUBERNETES.md)
+  
 - Role-based access: Admin, Network defender (view-only for settings) and User (only their assigned devices); see [docs/ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md)
 
 - Lists the accounts seen on the network (Network > Users) with where, how and when each is normally used, and turns those patterns into host notes the event reviewer reads. The event reviewer also writes expected-behavior notes for links it judges normal, and classifies events as suspicious, benign or expected.
