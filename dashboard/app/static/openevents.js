@@ -306,7 +306,7 @@
     const vc = {}; for (const x of r.events) vc[vOf(x)] = (vc[vOf(x)] || 0) + 1;
     const rows = r.events.filter((x) => (!f.type || x.type === f.type) && (!f.sev || (x.sev || "").toLowerCase() === f.sev) && (!f.v || vOf(x) === f.v));
     el.insertAdjacentHTML("beforeend", `<div class="muted small">Your backlog: every event stays here until someone accepts it (checks it off), however old — the time range does not apply and nothing expires. Fix-list items (vulnerabilities / misconfigurations) are not listed here: they are on the <a href="#/issues">Fix list</a>. Repeats of one condition are collapsed into one row (unlike <a href="#/posture">Posture</a>, which lists what happened in the selected time range, row by row). Click a row for every occurrence and its related events.</div>`);
-    el.insertAdjacentHTML("beforeend", kpis([["Open events", r.total], ...TYPES.filter(([t]) => c[t]).map(([t, name]) => [name.replace(/ \(.*/, ""), c[t]]),
+    el.insertAdjacentHTML("beforeend", kpis([["Open events", fn(+r.total || 0)], ...TYPES.map(([t, name]) => [esc(name.replace(/ \(.*/, "")), fn(+c[t] || 0)]),
       ["Pending review", `<a href="javascript:void 0" class="oe-pend-kpi" title="Events whose correlated group has not settled yet: the event reviewer labels the group once it has">${fn(vc.pending || 0)}</a>`]]));
     const bar = document.createElement("div"); bar.className = "fchips";
     bar.innerHTML = `<select id="oeT"><option value="">All types</option>${TYPES.map(([t, n]) => `<option value="${t}" ${f.type === t ? "selected" : ""}>${esc(n.replace(/ \(.*/, ""))}${c[t] ? " (" + c[t] + ")" : ""}</option>`).join("")}</select> ` +
@@ -317,12 +317,14 @@
     bar.querySelector("#oeS").onchange = (e) => { f.sev = e.target.value; V.events(el); };
     bar.querySelector("#oeV").onchange = (e) => { f.v = e.target.value; V.events(el); };
     el.querySelector?.(".oe-pend-kpi")?.addEventListener("click", () => { f.v = "pending"; V.events(el); });
-    if (!rows.length) { el.appendChild(card("Open events", `<div class="empty">${r.events.length ? "Nothing open matches the type / severity / AI label filter." : "Nothing open — everything is checked off."}</div>`)); return; }
+    // every event type keeps its card, empty or not (only the type filter narrows the cards shown), so the page layout
+    // does not jump around as events are checked off
     for (const [t, name, askKind, pivKind] of TYPES) {
+      if (f.type && f.type !== t) continue;
       const list = rows.filter((x) => x.type === t);
-      if (!list.length) continue;
-      el.appendChild(card(`${esc(name)} (${list.length} open)`, table(null, colsFor(t, askKind, pivKind), list,
-        { filter: true, sort: "sev", dir: 1, onclick: openDetail })));
+      const empty = c[t] ? "Nothing open of this type matches the severity / AI label filter." : "Nothing open — everything is checked off.";
+      el.appendChild(card(`${esc(name)} (${list.length} open)`, list.length ? table(null, colsFor(t, askKind, pivKind), list,
+        { filter: true, sort: "sev", dir: 1, onclick: openDetail }) : `<div class="empty">${empty}</div>`));
     }
   };
 })();

@@ -3,6 +3,7 @@ related / detail / decision inputs) and the page script openevents.js (cards per
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E402
 
 import json  # noqa: E402
+import re  # noqa: E402
 import shutil  # noqa: E402
 import subprocess  # noqa: E402
 import unittest  # noqa: E402
@@ -614,16 +615,20 @@ class OpenEventsPageJsTest(unittest.TestCase):
         return json.loads(r.stdout)
 
     def test_one_card_per_type_in_page_order(self):
-        """Rows are drawn as one card per type, in the page's fixed type order, titled with the open count.
+        """Every type has a card, in the page's fixed type order, titled with the open count; a type with nothing open
+        keeps its card with a 'Nothing open' line, so cards never disappear.
         REQ: OE-15
         """
         ev_ = [_oe_row(IDS, "ids"), _oe_row("ids|two", "ids"), _oe_row(BEACON_1, "finding"),
                _oe_row(GW, "gw"), _oe_row("alarm|z", "alarm")]
         out = self.render(ev_, {"ids": 2, "finding": 1, "gw": 1, "alarm": 1})
-        self.assertEqual([c["title"] for c in out["cards"]], ["Baseline findings (1 open)", "IDS signatures (2 open)", "Gateway events (1 open)",
-                                                               "Triage alarms (1 open)"])
-        self.assertEqual(out["cards"][1]["body"]["rows"], [IDS, "ids|two"])
-        self.assertTrue(all(c["body"]["sort"] == "sev" for c in out["cards"]))
+        self.assertEqual([c["title"] for c in out["cards"]], ["Baseline findings (1 open)", "Endpoint (host) findings (0 open)",
+                                                               "IDS signatures (2 open)", "Gateway events (1 open)",
+                                                               "Admin sessions (0 open)", "Threat intel hits (0 open)",
+                                                               "Alerts (0 open)", "Triage alarms (1 open)"])
+        self.assertEqual(out["cards"][2]["body"]["rows"], [IDS, "ids|two"])
+        self.assertIn("Nothing open", out["cards"][1]["body"])
+        self.assertTrue(all(c["body"]["sort"] == "sev" for c in out["cards"] if isinstance(c["body"], dict)))
 
     def test_columns_per_type(self):
         """Every card starts with check box, Severity, Verdict, Notes and ends with First occurred, Last occurred, Seen; the
@@ -632,7 +637,7 @@ class OpenEventsPageJsTest(unittest.TestCase):
         """
         out = self.render([_oe_row(BEACON_1, "finding"), _oe_row(IDS, "ids"), _oe_row(HF_A, "host"), _oe_row(GW, "gw"),
                            _oe_row(ADM, "admin")])
-        cols = {c["title"].split(" (")[0]: c["body"]["cols"] for c in out["cards"]}
+        cols = {c["title"].split(" (")[0]: c["body"]["cols"] for c in out["cards"] if isinstance(c["body"], dict)}
         head, tail = ["✓", "Severity", "Verdict", "Notes"], ["First occurred", "Last occurred", "Seen"]
         mid = {"Baseline findings": ["Kind", "Device", "Detail"], "IDS signatures": ["Signature", "Count", "From", "To"],
                "Endpoint": ["Host", "To", "Finding"], "Gateway events": ["Time", "Event"], "Admin sessions": ["Event", "Hosts"]}
@@ -641,13 +646,13 @@ class OpenEventsPageJsTest(unittest.TestCase):
             self.assertEqual(cols[name], head + m + tail, name)
 
     def test_empty_state(self):
-        """With nothing open the page shows the KPI line and one 'Nothing open' card.
+        """With nothing open the page still shows the KPI line and every type's card, each saying 'Nothing open'.
         REQ: OE-16
         """
         out = self.render([])
-        self.assertEqual(len(out["cards"]), 1)
-        self.assertIn("Nothing open", out["cards"][0]["body"])
-        self.assertTrue(any(h.startswith("KPIS:") and '["Open events",0]' in h for h in out["html"]))
+        self.assertEqual(len(out["cards"]), 8)
+        self.assertTrue(all("Nothing open" in c["body"] for c in out["cards"]))
+        self.assertTrue(any(h.startswith("KPIS:") and re.search(r'\["Open events","?0"?\]', h) for h in out["html"]))
 
     def test_every_correlation_type_has_a_card(self):
         """Every event type correlate.py emits has a card in openevents.js TYPES (no open event is invisible), except

@@ -219,7 +219,7 @@ Last run: 3 expected failure (known bug), 1279 pass
 | [OE-13](#oe-13) | Open events | The AI-inputs pop-up returns an event's stored determinations and a record of every event passed in to them. | USER_GUIDE.md (Open events) / eventstore.py | 1 | 1 |
 | [OE-14](#oe-14) | Open events | The Open events API (/api/events/open, /detail, /inputs, /related) is readable by admins and defenders only: the User role gets 403 and no session gets 401. | server.py USER_GET / ACCESS_CONTROL.md | 1 | 1 |
 | [OE-15](#oe-15) | Open events | The Open events page draws one card per event type in a fixed order, titled with the open count, with the shared check/severity/verdict/notes and seen columns plus type-specific columns; every type correlate.py emits has a card. | USER_GUIDE.md (Open events) / openevents.js | 3 | 0 |
-| [OE-16](#oe-16) | Open events | With nothing open the page shows the KPI line with 0 and a single 'Nothing open' card. | openevents.js | 1 | 0 |
+| [OE-16](#oe-16) | Open events | Cards never disappear: with nothing open (overall or of one type) every type keeps its card with a 'Nothing open' line, and the KPI line shows 0s. | openevents.js | 1 | 0 |
 | [OE-17](#oe-17) | Open events | The Open events GET endpoints answer over HTTPS with the persisted store: filters, collapsed rows, check-offs via /api/acks, detail, inputs and related. | USER_GUIDE.md (Open events) / eventstore.py | 0 | 6 |
 | [OE-19](#oe-19) | Open events | Fix-list items (vulnerabilities / misconfigurations) are not part of Open events: /api/events/open leaves them out of rows, per-type counts, the total and the nav badge, and the page has no Fix list card (they are on the Fix list page). | USER_GUIDE.md (Open events) / server.py / openevents.js | 2 | 1 |
 | [OE-18](#oe-18) | Open events | /api/events/open returns at most 2000 rows by default and caps any limit at 5000; invalid limits (negative, non-numeric) must not return unexpected rows or a server error. | server.py /api/events/open | 0 | 3 |
@@ -2870,15 +2870,15 @@ Last run: 3 expected failure (known bug), 1279 pass
 |---|---|---|---|
 | unit | `test_open_events.OpenEventsPageJsTest.test_columns_per_type` | Every card starts with check box, Severity, Verdict, Notes and ends with First occurred, Last occurred, Seen; the | pass |
 | unit | `test_open_events.OpenEventsPageJsTest.test_every_correlation_type_has_a_card` | Every event type correlate.py emits has a card in openevents.js TYPES (no open event is invisible), except | pass |
-| unit | `test_open_events.OpenEventsPageJsTest.test_one_card_per_type_in_page_order` | Rows are drawn as one card per type, in the page's fixed type order, titled with the open count. | pass |
+| unit | `test_open_events.OpenEventsPageJsTest.test_one_card_per_type_in_page_order` | Every type has a card, in the page's fixed type order, titled with the open count; a type with nothing open | pass |
 
 ### OE-16
 
-**Open events:** With nothing open the page shows the KPI line with 0 and a single 'Nothing open' card. _(source: openevents.js)_
+**Open events:** Cards never disappear: with nothing open (overall or of one type) every type keeps its card with a 'Nothing open' line, and the KPI line shows 0s. _(source: openevents.js)_
 
 | Level | Test | Verifies | Status |
 |---|---|---|---|
-| unit | `test_open_events.OpenEventsPageJsTest.test_empty_state` | With nothing open the page shows the KPI line and one 'Nothing open' card. | pass |
+| unit | `test_open_events.OpenEventsPageJsTest.test_empty_state` | With nothing open the page still shows the KPI line and every type's card, each saying 'Nothing open'. | pass |
 
 ### OE-17
 
