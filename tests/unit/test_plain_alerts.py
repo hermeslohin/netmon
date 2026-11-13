@@ -1,6 +1,7 @@
 """Plain-language alerts for the User role (dashboard/app/plainmsg.py) and alarm lifetime in corr_llm.sync_alarms."""
 import os, sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))); import _env  # noqa: E401,E702,E402
 
+import json  # noqa: E402
 import time  # noqa: E402
 import unittest  # noqa: E402
 from unittest import mock  # noqa: E402
@@ -13,6 +14,10 @@ import store  # noqa: E402
 from fixtures import mac, IPS  # noqa: E402
 
 ICU = "ids|ET INFO DNS Query for Suspicious .icu Domain"
+NOTE = {"action": "stop_site", "headline": "Stop going to free-prizes.icu",
+        "message": "Syn detected your Kitchen tablet opening free-prizes.icu on Tuesday around 9:40 PM. This site is a few days old "
+                   "and pretends to give away prizes. This usually comes from tapping a link in a text or an ad. If that was you, "
+                   "close the tab and do not enter anything; if not, tell the security team.", "steps": [], "target": "free-prizes.icu"}
 ICU_TEXT = "IDS: ET INFO DNS Query for Suspicious .icu Domain x1 - AI review: suspicious (While the specific .icu domain was not captured)"
 
 
@@ -88,6 +93,15 @@ class TestUserPush(unittest.TestCase):
         p = mock.patch.object(pushsvc, "send", lambda s, pl: (self.sent.__setitem__(s["endpoint"][-1], pl), (True, ""))[1])
         p.start()
         self.addCleanup(p.stop)
+        import advice
+        with corr_llm._db() as c:
+            advice._schema(c)
+            c.execute("DELETE FROM user_advice")
+        self.model = mock.MagicMock(return_value=(json.dumps(NOTE), {}, 0.1))
+        for obj, name, val in ((corr_llm, "_target", lambda *a, **k: {"provider": "lmstudio", "model": "m"}), (corr_llm, "_complete", self.model)):
+            q = mock.patch.object(obj, name, val)
+            q.start()
+            self.addCleanup(q.stop)
 
     def tearDown(self):
         _reset()
@@ -95,16 +109,42 @@ class TestUserPush(unittest.TestCase):
     def _alarm(self):
         store.alerts_add([("ev|" + ICU, ICU_TEXT + f" on {IPS['laptop']}", "urgent")], source="review")
 
-    def test_user_gets_plain_admin_gets_signature(self):
-        """The same alarm pushes plain words to a User and the full signature text to an admin.
-        REQ: AC-09, STO-07"""
+    def test_user_gets_model_note_admin_gets_signature(self):
+        """The same alarm pushes the analyst's model-written note to a User (headline as title, note as body - written on
+        the spot when the review pass has not yet) and the full signature text to an admin.
+        REQ: AC-09, STO-07, ALR-28"""
         _classify(ICU, "suspicious")
         self._alarm()
         pushsvc.run_once()
         self.assertIn("ET INFO DNS Query", self.sent["1"]["body"])
         u = self.sent["2"]
-        self.assertEqual(u["title"], "Syn: heads up")
-        self.assertEqual(u["body"], "Kitchen tablet: possible phishing or scam website visited. Look out - tap for what to do.")
+        self.assertEqual(u["title"], "Syn: Stop going to free-prizes.icu")
+        self.assertEqual(u["body"], NOTE["message"])
+        self.assertEqual(self.model.call_count, 1)
+        self.assertEqual(self.model.call_args[1]["purpose"], "user-advice")
+        rows = __import__("pushgate").user_visible(store.alerts_recent(10))
+        self.assertEqual(plainmsg.user_text(rows[0]), NOTE["message"], "Alerts page line is the same note")
+
+    def test_note_wait_then_plain_fallback(self):
+        """No note (model failing): the User's push waits; after USER_NOTE_WAIT_S it goes with the plain fallback line,
+        exactly once, and the Alerts page shows the row only then.
+        REQ: ALR-28"""
+        import pushgate
+        self.model.side_effect = RuntimeError("model down")
+        _classify(ICU, "suspicious")
+        self._alarm()
+        pushsvc.run_once()
+        self.assertNotIn("2", self.sent)
+        self.assertEqual(pushgate.user_visible(store.alerts_recent(10)), [])
+        later = time.time() + pushgate.USER_NOTE_WAIT_S + 5
+        with mock.patch.object(pushgate.time, "time", return_value=later):
+            pushsvc.run_once()
+            self.assertEqual(len(pushgate.user_visible(store.alerts_recent(10))), 1)
+        self.assertEqual(self.sent["2"]["body"], "Kitchen tablet: possible phishing or scam website visited. Look out - tap for what to do.")
+        self.sent.clear()
+        with mock.patch.object(pushgate.time, "time", return_value=later + 60):
+            pushsvc.run_once()
+        self.assertNotIn("2", self.sent)
 
 
     def test_no_verdict_no_user_push(self):

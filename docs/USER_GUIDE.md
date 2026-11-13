@@ -153,7 +153,7 @@ Detections are not pushed or listed on their own (the IDS hits, threat-intel mat
 
 ### What to do (advice for the device owner)
 
-Every reviewed alert also gets a second, separate verdict: advice written as a security analyst would give it to the person who uses the device, in plain language. The **What to do** column shows the action, and tapping the alert shows a 2-4 sentence message, for example: *"Syn detected your laptop going to the site secure-login-paypa1.com. This site is a known phishing website that pretends to be PayPal to steal passwords. Please be careful and stop going to this site; if you typed your PayPal password there, change it now."* Extra steps follow when the message does not already cover them.
+Every reviewed alert also gets a second, separate verdict: advice written as a security analyst would give it to the person who uses the device, in plain language. The **What to do** column shows the action, and tapping the alert shows the analyst's note: a few sentences the AI model writes for that one alert (never a fixed template). It says when it happened (local time), what the device did with the concrete site, app and amounts, the everyday thing that usually causes it so the person can recognise what they were doing, and what to do if it was them and if it was not. For example: *"Syn detected your laptop letting 4 computers on the internet connect to it on Wednesday between 6 and 9 PM, sending them about 2 MB. This is what usually happens when a torrent app such as qBittorrent or uTorrent is open. If that was you, quit the app when you are done; if you don't have one, tell the security team so they can check the laptop."* Extra steps follow when the note does not already cover them.
 
 | Action | When |
 |---|---|
@@ -165,6 +165,8 @@ Every reviewed alert also gets a second, separate verdict: advice written as a s
 | ⛔ Stop using this device | only when the device itself looks compromised and the analyst verdict is suspicious with at least 85% confidence; otherwise the analyst picks a milder action and writes the message to match |
 
 Users see the advice first (the analyst's reasoning sits below it as Analyst's notes); admins and defenders see it as its own section under the reviewer's verdict. On **Open events**, an event that raised an alert shows the same advice as a collapsed **💬 Advice for the device owner** arrow in its detail window. The advice is written by the event reviewer model after each review pass (a few alerts per pass, newest first) and rewritten when the alert, the verdict or the research changes; until then the column says *advice coming*.
+
+For Users this note **is** the alert: it is the line on their Alerts page and the text of their phone notification (the headline is the notification title). When an alarm becomes ready for a User and its note is not written yet, Syn writes it on the spot; if the model cannot, the alarm waits up to 30 minutes for the note and then goes out with a short plain line instead (for example *"Kitchen tablet: possible phishing or scam website visited."*).
 
 ### Getting push notifications
 

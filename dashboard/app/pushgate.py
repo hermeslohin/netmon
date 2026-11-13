@@ -261,32 +261,89 @@ def user_verdict(row):
     return ("ready" if v.get("label") == "suspicious" else "skip"), v
 
 
-def user_visible(rows):
-    """The alarm rows a User may see on the Alerts page: those with a final suspicious verdict."""
-    return [r for r in rows if user_verdict(r)[0] == "ready"]
+USER_NOTE_WAIT_S = 30 * 60  # how long a ready alarm waits for the analyst's note before the plain fallback line goes out
+NOTE_WAIT = "note-wait"  # push_user state: verdict is in, the note is still being written (at = when it became ready)
+
+
+def _notes(rows, write=0):
+    """{eid: advice} for alarm rows (advice.ensure writes up to `write` missing notes now)."""
+    try:
+        import advice
+        return advice.ensure(rows, limit=write) if write else advice.get([r.get("eid") or _ref(r) for r in rows])
+    except Exception as e:  # noqa: BLE001 - no note yet; the wait / fallback handles it
+        print(f"pushgate (user note): {type(e).__name__}: {str(e)[:200]}", file=sys.stderr, flush=True)
+        return {}
+
+
+def _ref(r):
+    import eventstore
+    r["eid"] = r.get("eid") or eventstore.alert_ref(r)
+    return r["eid"]
+
+
+def user_visible(rows, now=None):
+    """The alarm rows a User may see on the Alerts page: final suspicious verdict AND the analyst's note is written
+    (or the note wait ran out, then the plain fallback line shows). Rows get "advice" attached when there is a note."""
+    now = now or time.time()
+    ready = [r for r in rows if user_verdict(r)[0] == "ready"]
+    if not ready:
+        return []
+    for r in ready:
+        _ref(r)
+    A = _notes(ready)
+    c = store._dc()
+    _user_schema(c)
+    st = {i: (s, at) for i, s, at in c.execute("SELECT alert_id, state, at FROM push_user WHERE alert_id IN (SELECT value FROM json_each(?))",
+                                                (json.dumps([r["id"] for r in ready]),))}
+    out = []
+    for r in ready:
+        if A.get(r["eid"]):
+            r["advice"] = r.get("advice") or A[r["eid"]]
+            out.append(r)
+            continue
+        s, at = st.get(r["id"], ("", None))
+        if s in ("sent-plain", "sent", "seeded") or (s == NOTE_WAIT and now - (at or now) >= USER_NOTE_WAIT_S):
+            out.append(r)
+    return out
 
 
 def user_due(now=None):
     """Alarms in the feed that just became ready for Users (final suspicious verdict) and have not gone to them yet.
-    Expected / benign verdicts are recorded as skipped; anything still waiting is left for the next run."""
+    A ready alarm goes out with the analyst's note (advice.ensure writes it now if the review pass has not); while the
+    note is missing it waits (state note-wait) up to USER_NOTE_WAIT_S, then goes with the plain fallback line.
+    Expected / benign verdicts are recorded as skipped; anything still waiting for a verdict is left for the next run."""
     now = now or time.time()
     c = store._dc()
     _user_schema(c)
     rows = [store._arow(r) for r in c.execute(
-        "SELECT * FROM alerts WHERE cleared=0 AND held=0 AND ts>=? AND id NOT IN (SELECT alert_id FROM push_user) ORDER BY id",
-        (now - USER_WINDOW_S,))]
-    due, logs = [], []
+        "SELECT * FROM alerts WHERE cleared=0 AND held=0 AND ts>=? AND id NOT IN (SELECT alert_id FROM push_user WHERE state!=?) ORDER BY id",
+        (now - USER_WINDOW_S, NOTE_WAIT))]
+    waited = dict(c.execute("SELECT alert_id, at FROM push_user WHERE state=?", (NOTE_WAIT,)).fetchall())
+    ready, logs = [], []
     for r in rows:
         st, v = user_verdict(r)
         if st == "wait":
             continue
-        logs.append((r["id"], "sent" if st == "ready" else "skipped", v.get("label") or ""))
         if st == "ready":
+            ready.append((r, v))
+        else:
+            logs.append((r["id"], "skipped", v.get("label") or "", now))
+    A = _notes([r for r, _v in ready], write=2) if ready else {}
+    due = []
+    for r, v in ready:
+        lab = v.get("label") or ""
+        if A.get(_ref(r)):
+            r["advice"] = A[r["eid"]]
             due.append(r)
+            logs.append((r["id"], "sent", lab, now))
+        elif r["id"] in waited and now - (waited[r["id"]] or now) >= USER_NOTE_WAIT_S:
+            due.append(r)
+            logs.append((r["id"], "sent-plain", lab, now))
+        elif r["id"] not in waited:
+            logs.append((r["id"], NOTE_WAIT, lab, now))
     if logs:
         with store.tx(c):
-            c.executemany("INSERT OR REPLACE INTO push_user (alert_id, state, verdict, at) VALUES (?,?,?,?)",
-                          [(i, s, lab, now) for i, s, lab in logs])
+            c.executemany("INSERT OR REPLACE INTO push_user (alert_id, state, verdict, at) VALUES (?,?,?,?)", logs)
     return due
 
 

@@ -52,8 +52,10 @@ class AdviceTest(unittest.TestCase):
             self.assertEqual(advice.pass_(), 0, "unchanged inputs: no second model call")
             self.assertEqual(m.call_count, 1)
             sys_prompt, prompt = m.call_args[0][1], m.call_args[0][2]
-            self.assertIn("PERSON WHO USES THE", sys_prompt)
-            self.assertIn('starts with "Syn detected"', sys_prompt)
+            self.assertIn("PERSON WHO\nUSES THE DEVICE", sys_prompt)
+            self.assertIn('Start with "Syn detected"', sys_prompt)
+            self.assertIn("If that was you", sys_prompt)
+            self.assertIn("when (local time for the note):", prompt)
             self.assertIn("Beacons to a known C2 server.", prompt)
             self.assertEqual(m.call_args[1]["purpose"], "user-advice")
             _classify(eid, reason="Now also a malware file hash.")
@@ -113,6 +115,39 @@ class AdviceTest(unittest.TestCase):
         with mock.patch.object(corr_llm, "_target", return_value=TARGET), mock.patch.object(corr_llm, "_complete", side_effect=RuntimeError("down")):
             self.assertEqual(advice.pass_(), 0)
         self.assertEqual(advice.get([eid]), {})
+
+    def test_prompt_carries_local_time_and_group(self):
+        """The note's prompt gives the model the local day and time and the other events of the reviewed group, so the
+        note can say when and what exactly happened.
+        REQ: ALR-28"""
+        a, eid = self._alert()
+        _classify(eid)
+        with corr_llm._db() as c:
+            c.execute("UPDATE event_class SET covered=? WHERE eid=?", (json.dumps({"m": [eid, "f|newly-registered-domain|x|prize-claim.example 25 days old"]}), eid))
+        a["eid"], a["ts"] = eid, 1763000000  # Thu Nov 13 2025 02:13 UTC = Wed 9:13 PM EST
+        with mock.patch("site_cfg.load", return_value={}):
+            p = advice._prompt(a, {"label": "suspicious", "confidence": 0.9, "reason": "r"}, None, "Den laptop")
+        self.assertIn("Wednesday Nov 12, 9:13 PM EST", p)
+        self.assertIn("<group>", p)
+        self.assertIn("prize-claim.example 25 days old", p)
+        self.assertNotIn(f"- {eid}", p, "the alert itself is not listed as its own group member")
+
+    def test_ensure_writes_missing_note_first(self):
+        """ensure() writes a missing note at once for rows a User is about to get, and the pass puts suspicious alerts
+        with no note ahead of rewrites.
+        REQ: ALR-28"""
+        a1, e1 = self._alert(key="k|1")
+        a2, e2 = self._alert(text="IDS other", key="k|2")
+        _classify(e1)
+        _classify(e2)
+        with mock.patch.object(corr_llm, "_target", return_value=TARGET), mock.patch.object(corr_llm, "_complete", return_value=_answer()) as m:
+            got = advice.ensure([dict(a1)], limit=2)
+            self.assertEqual(set(got), {e1})
+            self.assertEqual(m.call_count, 1)
+            self.assertEqual(advice.ensure([dict(a1)], limit=2)[e1]["action"], "stop_app")
+            self.assertEqual(m.call_count, 1, "a written note is not asked for again")
+            self.assertEqual(advice.pass_(limit=1), 1)
+        self.assertIn(e2, advice.get([e2]), "the alert with no note was written before any rewrite")
 
     def test_pages_get_the_advice(self):
         """alert_view (Alerts, every role) and extras (Open events) carry the advice keyed by the row's event id.

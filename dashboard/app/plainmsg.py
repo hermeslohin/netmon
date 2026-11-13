@@ -2,7 +2,11 @@
 
 Admins and defenders keep the full alert text (signature names, IPs, AI reason). Users get one short sentence such as
 "Kitchen tablet: possible phishing or scam website visited - look out." on their phone push and on the Alerts page.
-Deterministic (no model call) so it is ready the moment an alarm fires. No IPs, MACs, ports, rule names or hashes.
+No IPs, MACs, ports, rule names or hashes.
+
+The User normally gets the analyst's model-written note instead (advice.py: when, what the device did, the everyday
+cause and what to do) - user_text() / push_payload() use it whenever the row carries "advice". The fixed lines below are
+only the fallback for an alarm whose note could not be written in time (pushgate.USER_NOTE_WAIT_S).
 """
 import re
 
@@ -70,20 +74,34 @@ def line(alert, reg=None):
     return f"{d}: {k}." if d else k[0].upper() + k[1:] + "."
 
 
+def user_text(alert, reg=None):
+    """What a User reads for an alarm: the analyst's note when there is one, else the plain fallback line."""
+    adv = alert.get("advice") or {}
+    return (adv.get("message") or "").strip() or line(alert, reg)
+
+
 def push_payload(rows, reg=None):
-    """Web Push payload for a User: plain lines, no signature text."""
+    """Web Push payload for a User: the analyst's note (headline as title, note as body), no signature text."""
     inv = any(r.get("severity") == "investigate" for r in rows)
     call = _CALL["investigate" if inv else "urgent"]
-    lines = []
-    for r in rows:
-        x = line(r, reg)
-        if x not in lines:
-            lines.append(x)
     if len(rows) == 1:
         r = rows[0]
-        return {"title": "Syn: security alert" if inv else "Syn: heads up", "body": f"{lines[0]} {call}",
-                "tag": "netmon-" + str(r["id"]), "url": "/#/reports" if r.get("source") == "report" else "/#/alerts",
-                "severity": r["severity"]}
-    body = "\n".join("• " + x for x in lines[:4]) + (f"\n…and {len(lines) - 4} more" if len(lines) > 4 else "") + "\n" + call
-    return {"title": f"Syn: {len(rows)} security alerts", "body": body, "tag": "netmon-batch-" + str(rows[-1]["id"]),
+        adv = r.get("advice") or {}
+        url = "/#/reports" if r.get("source") == "report" else "/#/alerts"
+        if adv.get("message"):
+            msg = adv["message"].strip()
+            return {"title": "Syn: " + (adv.get("headline") or "security note").strip(),
+                    "body": msg if len(msg) <= 700 else msg[:699].rsplit(" ", 1)[0] + "…",
+                    "tag": "netmon-" + str(r["id"]), "url": url, "severity": r["severity"]}
+        return {"title": "Syn: security alert" if inv else "Syn: heads up", "body": f"{line(r, reg)} {call}",
+                "tag": "netmon-" + str(r["id"]), "url": url, "severity": r["severity"]}
+    lines = []
+    for r in rows:
+        adv = r.get("advice") or {}
+        x = (adv.get("headline") or "").strip()
+        x = f"{device_name(r, reg)}: {x}" if x and device_name(r, reg) and device_name(r, reg).lower() not in x.lower() else (x or line(r, reg))
+        if x not in lines:
+            lines.append(x)
+    body = "\n".join("• " + x for x in lines[:4]) + (f"\n…and {len(lines) - 4} more" if len(lines) > 4 else "") + "\nTap to read what Syn found and what to do."
+    return {"title": f"Syn: {len(rows)} security notes for you", "body": body, "tag": "netmon-batch-" + str(rows[-1]["id"]),
             "url": "/#/alerts", "severity": "investigate" if inv else "urgent"}

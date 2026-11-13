@@ -223,7 +223,7 @@ class AlertsApi(unittest.TestCase):
     def test_read_markers_per_role(self):
         """A User's mark-read is private (others still see the alert unread); an admin or defender marks every alert read for everyone.
         REQ: ALR-06, ALR-20"""
-        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new', 'New thing on %s' % F.IPS['phone'], 'urgent')], source='corr')\nimport corr_llm, time\nwith corr_llm._db() as cc:\n    cc.execute('INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'suspicious', 0.8, 'r', 'm', 's', time.time()))")
+        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new', 'New thing on %s' % F.IPS['phone'], 'urgent')], source='corr')\nimport corr_llm, time\nwith corr_llm._db() as cc:\n    cc.execute('INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'suspicious', 0.8, 'r', 'm', 's', time.time()))\n    import advice; advice._schema(cc)\n    cc.execute('INSERT OR REPLACE INTO user_advice (eid, action, headline, steps, why, target, model, sig, ts) VALUES (?,?,?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'watch', 'Check the phone', '[]', 'Syn detected your phone doing something new.', '', 'm', 's', time.time()))")
         u = self.get(self.user, "/api/alerts")
         self.assertEqual({r["key"]: r["read"] for r in u["alerts"]}.get("a|new"), 0)
         self.assertGreaterEqual(u["unread"], 1)
@@ -239,7 +239,7 @@ class AlertsApi(unittest.TestCase):
         a = self.get(self.admin, "/api/alerts?limit=200")
         self.assertEqual((a["unread"], a["unread_mine"]), (0, 0))
         self.assertTrue(all(r["read"] for r in a["alerts"]))
-        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new2', 'Another on %s' % F.IPS['phone'], 'urgent')], source='corr')\nimport corr_llm, time\nwith corr_llm._db() as cc:\n    cc.execute('INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'suspicious', 0.8, 'r', 'm', 's', time.time()))")
+        SRV.run_py("import fixtures as F, store\nstore.alerts_add([('a|new2', 'Another on %s' % F.IPS['phone'], 'urgent')], source='corr')\nimport corr_llm, time\nwith corr_llm._db() as cc:\n    cc.execute('INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'suspicious', 0.8, 'r', 'm', 's', time.time()))\n    import advice; advice._schema(cc)\n    cc.execute('INSERT OR REPLACE INTO user_advice (eid, action, headline, steps, why, target, model, sig, ts) VALUES (?,?,?,?,?,?,?,?,?)', ('alert|%d' % store.alerts_recent(1)[0]['id'], 'watch', 'Check the phone', '[]', 'Syn detected your phone doing something new.', '', 'm', 's', time.time()))")
         self.assertEqual(self.get(self.user, "/api/alerts")["unread"], 1, "a newer alert is unread for the User again")
 
     def test_page_and_script_served(self):

@@ -2161,10 +2161,10 @@ class H(BaseHTTPRequestHandler):
                                                "sources": [{k: x.get(k) for k in ("url", "title", "id")} for x in (c.get("sources") or []) if isinstance(x, dict)]}
                     except Exception as e:  # noqa: BLE001 - the plain feed still works
                         print(f"alerts (user): review unavailable: {e}", file=sys.stderr)
-                    import plainmsg  # a User sees what happened in plain words; the signature text stays with admins / defenders
+                    import plainmsg  # a User reads the analyst's model-written note; the signature text stays with admins / defenders
                     preg = store.registry_load()
                     import pushgate  # an alarm reaches a User only once its final verdict is suspicious
-                    rows = [dict(r, text=plainmsg.line(r, preg)) for r in pushgate.user_visible(rows)]
+                    rows = [dict(r, text=plainmsg.user_text(r, preg)) for r in pushgate.user_visible(rows)]  # the analyst's note, written by the model
                     n = sum(1 for r in rows if not r["read"])
                     return self._json({"alerts": rows, "unread": n, "unread_mine": n, "mode": "some"})
                 if (q.get("cleared") or [""])[0] and role != "user":  # alerts a mute rule cleared (Show cleared)

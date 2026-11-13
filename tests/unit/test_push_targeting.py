@@ -297,7 +297,7 @@ class TestRunOnce(_Base):
 
     def test_targeting_per_user(self):
         """Admin 'all' gets both alerts; a User with the laptop gets only the laptop alert; a User with 'all' gets none.
-        REQ: STO-07, AC-06, AC-09"""
+        REQ: STO-07, AC-06, AC-09, ALR-28"""
         self._alerts()
         import corr_llm, time as _t  # a User is pushed only once the final verdict is suspicious (pushgate.user_due)
         with corr_llm._db() as c:
@@ -309,12 +309,17 @@ class TestRunOnce(_Base):
         self._sub(1, "admin1")
         self._sub(2, "user1")
         self._sub(3, "user2")
-        pushsvc.run_once()
+        import json as _j
+        note = {"action": "watch", "headline": "Check what the Laptop was doing", "steps": [], "target": "",
+                "message": "Syn detected your Laptop doing something odd on Wednesday around 9 PM. If that was you, nothing to do."}
+        with mock.patch.object(corr_llm, "_target", return_value={"provider": "lmstudio", "model": "m"}), \
+                mock.patch.object(corr_llm, "_complete", return_value=(_j.dumps(note), {}, 0.1)):
+            pushsvc.run_once()
         got = self.by_endpoint()
         self.assertEqual(set(got), {"1", "2"})
         self.assertTrue(got["1"]["title"].startswith("Syn: 2 urgent alerts"))
-        self.assertEqual(got["2"]["title"], "Syn: heads up")  # a User gets the plain line (plainmsg), named device, no IP
-        self.assertTrue(got["2"]["body"].startswith("Laptop: "))
+        self.assertEqual(got["2"]["title"], "Syn: Check what the Laptop was doing")  # a User gets the analyst's model-written note
+        self.assertEqual(got["2"]["body"], note["message"])
         self.assertNotIn(IPS["laptop"], got["2"]["body"])
 
     def test_defender_can_narrow(self):
