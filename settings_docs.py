@@ -143,6 +143,21 @@ DOCS = {
         "push_hold_max_minutes": "Longest an urgent alarm waits for the AI verdict before it is pushed anyway, marked 'AI review "
                                  "unavailable' (0 = auto: event window + 5 min; 1-240). It is also pushed at once when the event "
                                  "reviewer is off or failing, or the event is Not reviewed.",
+        "min_indicators": "Who is told what: indicators needed for high confidence (1-5, default 2). The event reviewer lists each "
+                          "independent piece of evidence behind its label; a suspicious label with fewer than this many, all "
+                          "pointing to the same issue, keeps at most few_indicators_max_confidence. Users also need this many "
+                          "before an alarm reaches them, and 'stop using this device' needs it too. Defenders see every event.",
+        "few_indicators_max_confidence": "Who is told what: highest confidence a suspicious label may have with fewer than "
+                                         "min_indicators indicators (0-1, default 0.7). Defenders and admins still see it.",
+        "user_alert_min_confidence": "Who is told what: a User (family member) gets an alarm on the Alerts page or phone only "
+                                     "when the final verdict is suspicious with at least this confidence (0-1, default 0.8) "
+                                     "and min_indicators indicators, or a person marked it suspicious. Lower ones stay with "
+                                     "admins and defenders.",
+        "stop_device_min_confidence": "Who is told what: the advice says 'stop using this device' only when the verdict is "
+                                      "suspicious with at least this confidence and min_indicators indicators (0.5-1, default "
+                                      "1.0 = 100% sure); otherwise it picks a milder action. Changing it rewrites the advice.",
+        "baseline_alerts_to_users": "Who is told what: send baseline-finding alarms (a device's last 24 h against its "
+                                    "~30-day history) to Users (default off = admins and defenders only).",
     },
 }
 

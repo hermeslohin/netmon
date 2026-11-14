@@ -190,15 +190,19 @@ stages; with it off, the older event reviewer-only flow is used (described at th
    - **Multiple indicators for high confidence.** The reviewer also lists its **indicators**: each independent piece
      of evidence behind the label (a file-hash hit, beaconing to that host, a new process at the same moment, a login
      from an unknown place), one item each, no fact restated. High confidence needs multiple indicators all pointing to
-     the **same** issue: a *suspicious* label with fewer than two (`MIN_INDICATORS`) is capped at **0.7**
-     (`ONE_INDICATOR_CAP`, `corr_llm.calibrate`) before a person's verdict is weighed in. Stored in
+     the **same** issue: a *suspicious* label with fewer than two (**More > Settings > Site > `min_indicators`**) is
+     capped at **0.7** (`few_indicators_max_confidence`; `corr_llm.calibrate`) before a person's verdict is weighed in.
+     The prompt shows the current numbers (`corr_llm.with_trust`). Stored in
      `event_class.indicators` (JSON list) and returned by `classes()`.
    - **Who sees it.** Admins and defenders see every label at every confidence. A **User** (family member) is only told
-     about an alarm (Alerts page or phone) when its final verdict is *suspicious* with confidence **≥ 0.8** and **two or
+     about an alarm (Alerts page or phone) when its final verdict is *suspicious* with confidence **≥ 0.8**
+     (`user_alert_min_confidence`) and **two or
      more indicators**, or a person marked it suspicious (`pushgate.user_sure`). **Baseline-finding alarms**
-     (`ev|f|…`, a device's last 24 h against its ~30-day history) never go to Users at all (`pushgate.is_baseline`).
+     (`ev|f|…`, a device's last 24 h against its ~30-day history) never go to Users (`pushgate.is_baseline`;
+     `baseline_alerts_to_users`, default off).
      The advice for the device owner says *stop using this device* only when Syn is 100% sure: suspicious at
-     confidence 1.0 with at least two indicators (`advice.py`); Ask AI follows the same rule.
+     confidence 1.0 (`stop_device_min_confidence`) with at least two indicators (`advice.py`); Ask AI follows the same
+     rule. All five settings live under More > Settings > Site (`site_cfg.trust()`).
 
    Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. At most 20
    groups per pass, never-reviewed and most severe first. An event whose every link clef

@@ -89,7 +89,7 @@ class ClefStageTest(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], ["ssh brute force on nas"])  # only the clef-related event is sent
-        self.assertTrue(calls[0][1].startswith(corr_llm.EVENT_SYSTEM))
+        self.assertTrue(calls[0][1].startswith(corr_llm.with_trust(corr_llm.EVENT_SYSTEM)))
         self.assertNotIn("DECISION MODEL LABEL", calls[0][1])
         v = corr_llm.verdicts({corr_llm.pair("a", "b")})[corr_llm.pair("a", "b")]
         self.assertTrue(v["related"]); self.assertFalse(v["reason"].startswith("same ssh target nas"))  # no link note written

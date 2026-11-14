@@ -320,5 +320,72 @@ class TestMultipleIndicators(unittest.TestCase):
         self.assertFalse(pushgate.is_baseline({"key": "newmac|" + mac(1)}))
 
 
+class TestTrustSettings(unittest.TestCase):
+    """The "who is told what" numbers are settings (More > Settings > Site), validated and read live."""
+
+    def setUp(self):
+        self.orig = store.cfg_load("site")
+
+    def tearDown(self):
+        import site_cfg
+        store.cfg_save("site", self.orig)
+        site_cfg._cache = None
+        with corr_llm._db() as c:
+            c.execute("DELETE FROM event_class")
+
+    def _set(self, **kw):
+        import site_cfg
+        store.cfg_save("site", {**store.cfg_load("site"), **kw})
+        site_cfg._cache = None
+
+    def test_defaults_shown_and_bad_values_refused(self):
+        """The five settings show on the Settings page with their defaults and notes; out-of-range values are refused and
+        a bad stored value falls back to its default.
+        REQ: ALR-32"""
+        import server, site_cfg
+        d = server.cfg_with_defaults("site", {})
+        self.assertEqual((d["min_indicators"], d["few_indicators_max_confidence"], d["user_alert_min_confidence"],
+                          d["stop_device_min_confidence"], d["baseline_alerts_to_users"]), (2, 0.7, 0.8, 1.0, False))
+        for k in ("min_indicators", "few_indicators_max_confidence", "user_alert_min_confidence", "stop_device_min_confidence", "baseline_alerts_to_users"):
+            self.assertIn("_doc_" + k, d)
+        ok = {"internal_prefixes": ["10."]}
+        self.assertIsNone(server.cfg_validate("site", {**ok, "min_indicators": 3, "user_alert_min_confidence": 0.9,
+                                                       "few_indicators_max_confidence": 0.5, "stop_device_min_confidence": 0.95,
+                                                       "baseline_alerts_to_users": True}))
+        for bad in ({"min_indicators": 0}, {"min_indicators": 6}, {"min_indicators": 2.5}, {"min_indicators": True},
+                    {"user_alert_min_confidence": 1.5}, {"few_indicators_max_confidence": -0.1}, {"stop_device_min_confidence": 0.4},
+                    {"baseline_alerts_to_users": "yes"}, {"user_alert_min_confidence": "high"}):
+            self.assertTrue(server.cfg_validate("site", {**ok, **bad}), bad)
+        self._set(min_indicators=99)
+        self.assertEqual(site_cfg.trust()["min_indicators"], 2)
+
+    def test_settings_change_behaviour_live(self):
+        """Changing the settings changes the reviewer's confidence cap, the prompt numbers, what Users get, baseline
+        alarms for Users and the stop-device rule, without a restart.
+        REQ: ALR-32"""
+        import pushgate, advice
+        one, two = ["file-hash hit"], ["file-hash hit", "beacon to the same host"]
+        self.assertEqual(corr_llm.calibrate("suspicious", 0.95, one), 0.7)
+        self.assertIn("fewer than 2 indicators", corr_llm.with_trust(corr_llm.EVENT_SYSTEM))
+        self._set(min_indicators=3, few_indicators_max_confidence=0.5, user_alert_min_confidence=0.9,
+                  stop_device_min_confidence=0.9, baseline_alerts_to_users=True)
+        self.assertEqual(corr_llm.calibrate("suspicious", 0.95, two), 0.5)
+        p = corr_llm.with_trust(corr_llm.CLASS_SYSTEM)
+        self.assertIn("fewer than 3 indicators", p)
+        self.assertIn("at most 0.5", p)
+        self.assertNotIn("<<", p)
+        three = two + ["new process at the same moment"]
+        self.assertFalse(pushgate.user_sure({"label": "suspicious", "confidence": 0.85, "indicators": three}))
+        self.assertTrue(pushgate.user_sure({"label": "suspicious", "confidence": 0.9, "indicators": three}))
+        self.assertFalse(pushgate.user_sure({"label": "suspicious", "confidence": 0.95, "indicators": two}))
+        self.assertEqual(advice._stop_rule(), {"conf": 0.9, "min_indicators": 3})
+        with corr_llm._db() as c:
+            c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)",
+                      ("f|volume-spike|dev|x", "suspicious", 0.95, "r", "m", "s", time.time(), json.dumps(three)))
+        self.assertEqual(pushgate.user_verdict({"id": 1, "key": "ev|f|volume-spike|dev|x"})[0], "ready")
+        self._set(baseline_alerts_to_users=False)
+        self.assertEqual(pushgate.user_verdict({"id": 1, "key": "ev|f|volume-spike|dev|x"})[0], "skip")
+
+
 if __name__ == "__main__":
     unittest.main()

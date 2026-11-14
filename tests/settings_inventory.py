@@ -39,6 +39,7 @@ SETTINGS = {
     # ---- review job / research / auto-close ----
     "review.lookback": ("More > Settings > Site > event_window_minutes: event window (correlation window, review coverage, settle wait)", ["/api/config/cfg"], ["lookback.put"], ["EVW-01", "EVW-02", "EVW-03", "EVW-04", "SET-64"]),
     "push.gate": ("More > Settings > Site > push_wait_for_ai / push_hold_max_minutes: wait for the AI verdict before phone alerts, longest hold", ["/api/config/cfg"], [], ["PSH-01", "PSH-05", "PSH-06"]),
+    "users.trust": ("More > Settings > Site > min_indicators / few_indicators_max_confidence / user_alert_min_confidence / stop_device_min_confidence / baseline_alerts_to_users: who is told what", ["/api/config/cfg"], [], ["ALR-30", "ALR-31", "ALR-32"]),
     "review.schedule": ("AI pipeline configuration > Review job schedule", ["/api/config/review-schedule"], ["review_cfg.put"], ["CFG-01", "SET-64"]),
     "review.job": ("AI pipeline configuration > Review job: on/off, event modes", ["/api/llm/review"], ["review_cfg.put"], ["CFG-01", "OPS-06", "SET-64"]),
     "research.limits": ("AI pipeline configuration > Research job limits (model, cost caps, web)", ["/api/llm/research"], ["research_cfg.put"], ["CFG-01", "SET-64"]),

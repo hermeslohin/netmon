@@ -157,6 +157,16 @@ Every reviewed alert also gets a second, separate verdict: advice written as a s
 
 **Confidence and who sees what.** High confidence needs multiple independent indicators all pointing to the same issue. The event reviewer lists its indicators; a suspicious verdict with fewer than two is held at 0.7 confidence or less. Admins and defenders see every verdict, low confidence included. A User only gets an alarm (Alerts page or phone) when the verdict is suspicious with confidence of at least 0.8 and two or more indicators, or when the network owner marked it suspicious. Baseline-finding alarms (a device's last 24 h against its ~30-day history) never go to Users at all.
 
+Admins change these numbers under **More > Settings > Site** (they apply within seconds):
+
+| Setting | Default | What it does |
+|---|---|---|
+| `min_indicators` | 2 (1-5) | independent indicators of the same issue needed for high confidence, for a User alarm and for *stop using this device* |
+| `few_indicators_max_confidence` | 0.7 | highest confidence a suspicious verdict keeps with fewer indicators |
+| `user_alert_min_confidence` | 0.8 | lowest confidence of a suspicious verdict that reaches Users |
+| `stop_device_min_confidence` | 1.0 (0.5-1) | confidence the advice needs before it says *stop using this device* (1.0 = 100% sure) |
+| `baseline_alerts_to_users` | off | send baseline-finding alarms to Users too |
+
 | Action | When |
 |---|---|
 | ✅ Nothing to do | harmless, or the team handles it |

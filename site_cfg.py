@@ -17,12 +17,46 @@ DEFAULTS = {
     "event_window_minutes": 10,  # lookback.py: correlation window, review lookback and settle wait (2-120 min)
     "push_wait_for_ai": True,  # pushgate.py: urgent phone pushes wait for the event reviewer's group verdict
     "push_hold_max_minutes": 0,  # pushgate.py: longest hold before pushing anyway (0 = event window + 5 min)
+    # who is told what (Daniel's rules; trust() below): defenders see everything, Users only what Syn is sure of
+    "min_indicators": 2,  # corr_llm.calibrate: high confidence needs this many independent indicators of the same issue
+    "few_indicators_max_confidence": 0.7,  # corr_llm.calibrate: a suspicious label with fewer indicators keeps at most this
+    "user_alert_min_confidence": 0.8,  # pushgate.user_sure: Users only get suspicious verdicts at least this confident
+    "stop_device_min_confidence": 1.0,  # advice.py: "stop using this device" only at this confidence (1.0 = 100% sure)
+    "baseline_alerts_to_users": False,  # pushgate.is_baseline: baseline-finding alarms never go to Users when off
     # pivot links (dashboard 🔎 buttons): Kibana base URL + Discover data view, UniFi Network web app base + pages
     "kibana_url": "", "kibana_data_view": "logs-*", "unifi_web_url": "",
     "unifi_paths": {"Security detections (System Log)": "logs/threats", "Flows": "insights/flows"},
 }
 _cache = None
 _at, _src = 0.0, None
+
+# (key, kind, low, high) of the "who is told what" settings; kind int / float / bool
+TRUST = (("min_indicators", int, 1, 5), ("few_indicators_max_confidence", float, 0.0, 1.0),
+         ("user_alert_min_confidence", float, 0.0, 1.0), ("stop_device_min_confidence", float, 0.5, 1.0),
+         ("baseline_alerts_to_users", bool, None, None))
+
+
+def trust_error(key, v):
+    """None when v is a valid value for trust setting `key`, else the reason (shown on the Settings page)."""
+    for k, kind, lo, hi in TRUST:
+        if k != key:
+            continue
+        if kind is bool:
+            return None if isinstance(v, bool) else f"{k} must be on or off"
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (kind is int and v != int(v)) or not lo <= v <= hi:
+            return f"{k} must be {'a whole number' if kind is int else 'a number'} between {lo:g} and {hi:g}"
+        return None
+    return None
+
+
+def trust():
+    """The "who is told what" settings (More > Settings > Site), validated; a bad stored value falls back to its default."""
+    s = load()
+    out = {}
+    for k, kind, _lo, _hi in TRUST:
+        v = s.get(k, DEFAULTS[k])
+        out[k] = kind(v) if trust_error(k, v) is None else DEFAULTS[k]
+    return out
 
 
 def load():

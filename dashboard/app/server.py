@@ -487,7 +487,8 @@ def cfg_with_defaults(doc, data):
     if doc == "site":  # phone-push gate (pushgate.py): shown with their defaults until first saved
         import settings_docs
         out, notes = dict(data), settings_docs.DOCS.get("site", {})
-        for k, dv in (("push_wait_for_ai", True), ("push_hold_max_minutes", 0)):
+        import site_cfg
+        for k, dv in (("push_wait_for_ai", True), ("push_hold_max_minutes", 0), *((t[0], site_cfg.DEFAULTS[t[0]]) for t in site_cfg.TRUST)):
             if k not in out:
                 out[k] = dv
             if notes.get(k) and "_doc_" + k not in out:
@@ -569,6 +570,12 @@ def cfg_validate(doc, data):
             return f"event_window_minutes must be a whole number of minutes between {lookback.MIN_M} and {lookback.MAX_M}"
         if doc == "site" and "push_wait_for_ai" in data and not isinstance(data.get("push_wait_for_ai"), bool):
             return "push_wait_for_ai must be on or off"
+        if doc == "site":
+            import site_cfg
+            for k in [t[0] for t in site_cfg.TRUST if t[0] in data]:
+                err = site_cfg.trust_error(k, data[k])
+                if err:
+                    return err
         if doc == "site" and "push_hold_max_minutes" in data:
             v = data.get("push_hold_max_minutes")
             if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 240:

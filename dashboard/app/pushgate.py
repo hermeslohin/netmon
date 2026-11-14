@@ -249,30 +249,41 @@ def _user_schema(c):
     _USCHEMA["done"] = store.db_path()
 
 
-USER_MIN_CONF = 0.8  # Users only hear about high-confidence suspicious verdicts; defenders see the lower ones too
+USER_MIN_CONF = 0.8  # default of Settings > Site > user_alert_min_confidence; defenders see the lower ones too
 
 
 def user_sure(v):
     """Daniel's rule: a User is only told about an issue the reviewer is highly confident in - suspicious, confidence at least
-    USER_MIN_CONF and at least corr_llm.MIN_INDICATORS independent indicators all pointing to it - or one a person
+    user_alert_min_confidence and at least min_indicators independent indicators (More > Settings > Site) all pointing to it - or one a person
     (the network owner) marked suspicious. Lower-confidence suspicious verdicts stay with admins / defenders."""
-    import corr_llm
     if v.get("label") != "suspicious":
         return False
     if v.get("person"):
         return True
-    return float(v.get("confidence") or 0) >= USER_MIN_CONF and len(v.get("indicators") or []) >= corr_llm.MIN_INDICATORS
+    t = _trust()
+    return float(v.get("confidence") or 0) >= t["user_alert_min_confidence"] and len(v.get("indicators") or []) >= t["min_indicators"]
+
+
+def _trust():
+    """More > Settings > Site: user_alert_min_confidence, min_indicators, baseline_alerts_to_users (defaults if unreadable)."""
+    try:
+        import site_cfg
+        return site_cfg.trust()
+    except Exception:  # noqa: BLE001
+        import corr_llm
+        return {"user_alert_min_confidence": USER_MIN_CONF, "min_indicators": corr_llm.MIN_INDICATORS, "baseline_alerts_to_users": False}
 
 
 def is_baseline(row):
-    """A baseline-finding alarm (key ev|f|..., analyze.py's 24 h vs ~30-day comparison): never sent to Users at all."""
+    """A baseline-finding alarm (key ev|f|..., analyze.py's 24 h vs ~30-day comparison): not sent to Users unless
+    Settings > Site > baseline_alerts_to_users is on (default off)."""
     return str(row.get("key") or "").startswith("ev|f|")
 
 
 def user_verdict(row):
     """'ready' (final verdict suspicious with high confidence, see user_sure), 'skip' (final verdict expected / benign or
     a lower-confidence suspicious one, which only defenders see) or 'wait' (no final verdict yet)."""
-    if is_baseline(row):  # Daniel's rule: baseline alerts go to admins / defenders only, whatever the verdict
+    if is_baseline(row) and not _trust()["baseline_alerts_to_users"]:  # baseline alerts: admins / defenders only (setting)
         return "skip", {"label": "baseline"}
     try:
         import eventstore

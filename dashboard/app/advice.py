@@ -20,7 +20,17 @@ ACTIONS = ("no_action", "watch", "update", "password", "stop_site", "stop_app", 
 LABELS = {"no_action": "Nothing to do", "watch": "Keep an eye out", "update": "Update your device", "password": "Change a password",
           "stop_site": "Stop visiting this site", "stop_app": "Stop using this app", "stop_device": "Stop using this device"}
 MAX_PER_PASS = 4
-STOP_DEVICE_CONF = 1.0  # "stop using this device" only when 100% sure: a suspicious verdict at full confidence, else a milder action
+STOP_DEVICE_CONF = 1.0  # default of Settings > Site > stop_device_min_confidence (1.0 = 100% sure), else a milder action
+
+
+def _stop_rule():
+    """{conf, min_indicators} for "stop using this device" from More > Settings > Site (defaults if unreadable)."""
+    try:
+        import site_cfg
+        t = site_cfg.trust()
+        return {"conf": t["stop_device_min_confidence"], "min_indicators": t["min_indicators"]}
+    except Exception:  # noqa: BLE001
+        return {"conf": STOP_DEVICE_CONF, "min_indicators": corr_llm.MIN_INDICATORS}
 MAX_AGE_S = 30 * 86400
 PROMPT_VER = 6  # part of the input signature: bump when SYSTEM changes so every alert's advice is rewritten
 TZ_DEFAULT = "America/New_York"  # local time in the note (site cfg "tz" overrides)
@@ -176,7 +186,7 @@ def _prompt(a, cl, note, dev):
 
 
 def _sig(a, cl, note):
-    raw = json.dumps([PROMPT_VER, a.get("text"), cl.get("label"), cl.get("reason"), (note or {}).get("verdict"), (note or {}).get("summary")])
+    raw = json.dumps([PROMPT_VER, _stop_rule(), a.get("text"), cl.get("label"), cl.get("reason"), (note or {}).get("verdict"), (note or {}).get("summary")])
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -199,8 +209,9 @@ def advise(target, a, cl, note=None, dev=""):
     device" only when 100% sure (suspicious verdict at confidence 1.0 with at least two independent indicators); otherwise the model is asked again with that action ruled out, so the
     message never tells them to stop using a device the advice does not (a second refusal falls back to watch)."""
     r = _ask(target, a, cl, note, dev)
-    if r and r[0] == "stop_device" and (cl.get("label") != "suspicious" or float(cl.get("confidence") or 0) < STOP_DEVICE_CONF
-                                        or len(cl.get("indicators") or []) < corr_llm.MIN_INDICATORS):
+    st = _stop_rule()
+    if r and r[0] == "stop_device" and (cl.get("label") != "suspicious" or float(cl.get("confidence") or 0) < st["conf"]
+                                        or len(cl.get("indicators") or []) < st["min_indicators"]):
         r2 = _ask(target, a, cl, note, dev, NO_STOP)
         r = r2 if r2 and r2[0] != "stop_device" else None
     return r
