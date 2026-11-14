@@ -87,7 +87,8 @@ def _db():
     have = {r[1] for r in c.execute("PRAGMA table_info(event_notes)")}
     for col, decl in (("status", "TEXT NOT NULL DEFAULT 'approved'"), ("role", "TEXT"), ("reviewed_by", "TEXT"), ("reviewed_at", "REAL"),
                       ("verdict", "TEXT NOT NULL DEFAULT ''"),  # verdict: a person's expected / benign / suspicious call (authoritative)
-                      ("scope", "TEXT NOT NULL DEFAULT ''")):  # JSON list of artifact keys an expected / benign verdict applies to (any event showing all of them)
+                      ("scope", "TEXT NOT NULL DEFAULT ''"),  # JSON list of artifact keys an expected / benign verdict applies to (any event showing all of them)
+                      ("edited_by", "TEXT"), ("edited_at", "REAL")):  # last person who changed the note on Security > Event notes
         if col not in have:  # older kb.db: every existing note was written by an admin/defender, so it stays approved
             c.execute(f"ALTER TABLE event_notes ADD COLUMN {col} {decl}")
     return c
@@ -844,7 +845,11 @@ def put(doc):
 
 
 # ---------------------------------------------------------------- event notes (people)
-_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict", "scope")
+_ECOLS = ("id", "skey", "eid", "label", "author", "text", "ts", "status", "role", "reviewed_by", "reviewed_at", "verdict", "scope",
+          "edited_by", "edited_at")
+# fixed statements (column list is the constant above; values are always bound parameters)
+_ENOTE_SEL = ("SELECT id, skey, eid, label, author, text, ts, status, role, reviewed_by, reviewed_at, verdict, scope, edited_by, edited_at "
+              "FROM event_notes ")
 SCOPE_VERDICTS = ("expected", "benign")  # verdicts a person may extend to other events by choosing the artifacts they apply to
 SCOPE_MAX = 20
 _SCOPE_KINDS = {"ip": "ip", "dns": "dns", "cert": "cert", "proc": "process", "user": "user", "port": None, "dev": None, "find": None, "sig": None}
@@ -1084,6 +1089,95 @@ def review_event_note(note_id, approve, by):
     with _db() as c:
         return c.execute("UPDATE event_notes SET status=?, reviewed_by=?, reviewed_at=? WHERE id=?",
                          ("approved" if approve else "rejected", str(by)[:60], time.time(), int(note_id))).rowcount
+
+
+def note_body(n):
+    """The person's own words of an event note: its text without the ANALYST VERDICT boilerplate verdict_text() puts in front."""
+    t = str((n or {}).get("text") or "")
+    if t.startswith(VERDICT_TAG):
+        i = t.find("do not contradict it)")
+        t = t[i + len("do not contradict it)"):].lstrip(".").strip() if i >= 0 else ""
+    return t
+
+
+SIG_TYPES = {"ids": "IDS signature", "finding": "Detection", "host": "Host finding", "ti": "Threat intel", "admin": "Admin access",
+             "alert": "Alert", "event": "Event"}
+
+
+def note_sigs(n):
+    """(type, signature) pairs an event note is about, most specific first, without repeats. The signature is the detection
+    that raised the event: the IDS signature (ids|<sig>, sig: scope keys, 'ET ...' quoted in the label), the detection kind of
+    a finding (f|<kind>|..., find:<kind> scope keys, e.g. newly-registered-domain), a host finding kind (hf|<kind>|...), the
+    threat-intel direction (ti|in / ti|out), the admin service (adm|src|dst|<service>), or the alert's title. Every note gets one."""
+    out = []
+    p = str(n.get("eid") or "").split("|")
+    k, rest = p[0], [x.strip() for x in p[1:]]
+    if k == "ids" and rest and rest[0]:
+        out.append(("ids", "|".join(p[1:]).strip()[:200]))
+    elif k == "f" and rest and rest[0]:
+        out.append(("finding", rest[0][:80]))
+    elif k == "hf" and rest and rest[0]:
+        out.append(("host", rest[0][:80]))
+    elif k == "ti" and rest and rest[0]:
+        out.append(("ti", {"in": "inbound from a listed IP", "out": "outbound to a listed IP"}.get(rest[0], rest[0])[:80]))
+    elif k == "adm" and len(rest) >= 3 and rest[-1]:
+        out.append(("admin", rest[-1][:80]))
+    out += [("ids", x[4:]) for x in n.get("scope") or [] if str(x).startswith("sig:") and x[4:]]
+    out += [("finding", x[5:]) for x in n.get("scope") or [] if str(x).startswith("find:") and x[5:]]
+    out += [("ids", m.group(1).strip()) for m in _SIG.finditer(str(n.get("label") or ""))]
+    if not out:
+        t = str(n.get("label") or "").split(":", 1)[0].strip()
+        out.append(("alert", t[:80]) if k == "alert" and t else ("event", (k or "other")[:40]))
+    return list(dict.fromkeys(out))
+
+
+def signature_notes(author=None):
+    """[{type, sig, notes}] every person's event note grouped by the detection (signature) it applies to (Security > Event
+    notes), signatures with the newest note first. All statuses: for defenders' / admins' screens, never for an AI prompt.
+    author: only that person's notes."""
+    with _db() as c:
+        if author is not None:
+            rows = c.execute(_ENOTE_SEL + "WHERE author=? ORDER BY ts DESC", (str(author),)).fetchall()
+        else:
+            rows = c.execute(_ENOTE_SEL + "ORDER BY ts DESC").fetchall()
+    out = {}
+    for r in rows:
+        n = _enote(r)
+        n["body"] = note_body(n)
+        for g in note_sigs(n):
+            out.setdefault(g, []).append(n)
+    return [{"type": t, "sig": k, "notes": v} for (t, k), v in out.items()]
+
+
+def update_event_note(note_id, text, by, role="admin", verdict=None, scope=None, author=None):
+    """Edit an event note (Security > Event notes): the person's words, the verdict and the artifacts it covers.
+    verdict None keeps the current one, "" removes it; scope None keeps the current one (expected / benign only).
+    author: only that person's note (User-role accounts edit only their own). A User's edit goes back to 'pending' for a
+    defender's approval; a defender's / admin's edit keeps the note's review status. Returns the updated note, or None."""
+    try:
+        nid = int(note_id)
+    except (TypeError, ValueError):
+        raise ValueError("bad note id")
+    with _db() as c:
+        r = c.execute(_ENOTE_SEL + "WHERE id=?", (nid,)).fetchone()
+        if not r:
+            return None
+        n = _enote(r)
+        if author is not None and n["author"] != str(author):
+            return None
+        v = n["verdict"] if verdict is None else str(verdict or "").strip().lower()
+        if v and v not in VERDICTS:
+            raise ValueError("verdict must be expected, benign or suspicious")
+        sc = clean_scope(n["scope"] if scope is None else scope) if v in SCOPE_VERDICTS else []
+        body = str(text or "").strip()[:MAX_TEXT]
+        who = n["author"] if v == n["verdict"] else by  # a changed verdict is the editor's call
+        full = verdict_text(v, who, body, sc) if v else body
+        if not full:
+            raise ValueError("note text required")
+        status, rb, ra = (("pending", None, None) if role == "user" else (n["status"], n["reviewed_by"], n["reviewed_at"]))
+        c.execute("UPDATE event_notes SET text=?, verdict=?, scope=?, status=?, reviewed_by=?, reviewed_at=?, edited_by=?, edited_at=? WHERE id=?",
+                  (full, v, json.dumps(sc) if sc else "", status, rb, ra, str(by)[:60], time.time(), nid))
+        return _enote(c.execute(_ENOTE_SEL + "WHERE id=?", (nid,)).fetchone())
 
 
 def delete_event_note(note_id, author=None):

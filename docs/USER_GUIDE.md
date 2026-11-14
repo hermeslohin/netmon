@@ -288,7 +288,7 @@ Notes are what Syn knows about your network. The AI reads them before it judges 
 |---|---|---|
 | **Host notes** (a device, endpoint or account) | The event reviewer and event research (✨ AI), and people (👤) | Device and endpoint pages, **Devices → Notes** |
 | **Internet notes** (an external IP or range, a domain or subdomain, or a TLS certificate) | The same, keyed by IP, by domain or by certificate fingerprint | **Network → DNS, TLS and IPs** |
-| **Event notes** (one event) | People, with the 📝 button beside an event's Related count | The 📝 popover, **Devices → Notes** |
+| **Event notes** (one event) | People, with the 📝 button beside an event's Related count | The 📝 popover, **Devices → Notes**; and grouped by signature on **Security → Event notes** |
 
 **Accepting and rejecting host and Internet notes** (admins and network defenders)
 
@@ -378,6 +378,7 @@ Everything nobody has accepted (checked off) yet, **whatever its age**. The time
 - **Same cards and tools as Posture.** One card per type: Baseline findings, Endpoint (host) findings, IDS events, Gateway events, Admin sessions, Threat intel hits, Alerts, Triage alarms. Every row has the check box and 🚫 suppress button, 💬 Ask AI, 🔎 Kibana pivot (opens on the event's own time window, not the loaded snapshot's), the **Related** count and popup, the ✨ AI research verdict, the 🏷 event reviewer classification (*suspicious*, *benign*, *expected*), your 📝 notes and the 👁 times seen. Tables sort and filter like everywhere else.
 - **Repeats are one row (unlike Posture).** A finding's text contains numbers that change every night ("145 conns", "3,983 queries"), so on Posture one condition shows up as a new row in each window. Open events groups:
   - rows that differ only in those numbers (IPs, ports and MACs still tell them apart);
+  - list findings (*new-tls-server*, *iot-new-domain*, *iot-new-network*, *iot-raw-ip*, *new-software*, *new-internal-peer*) that name the same servers, domains or programs in a different order. A Posture time range can list them in another order than the 5-minute run did, and a check-off or AI auto-close of one counts for the other;
   - host findings of one process on one computer that differ only in the remote side (*N variants*);
   - segmentation findings of one device and one rule toward several devices (*→ multiple devices (N)*).
 
@@ -435,6 +436,15 @@ Hosts and vulnerabilities ranked by the risk they pose to the whole network. Hos
 - node access or a missing NetworkPolicy.
 
 **Show** switches between hosts and containers, hosts only, or containers only. **Container vulnerabilities ranked by risk** lists what to fix per workload. Click a container to pivot into its pod's logs and events. See [KUBERNETES.md](KUBERNETES.md#risk-page).
+
+### Security → Event notes
+
+Every 📝 note people wrote on an event (the menu item has a gold compass), grouped by the signature that raised the event, with one card per note type: **IDS signatures** (also when an Expected / Benign verdict lists the signature among its artifacts or the event's label quotes it), **Detections** (Syn's detection kinds, such as *newly-registered-domain*, *beacon-new* or *ti-domain*), **Host findings**, **Threat intel** (inbound / outbound), **Admin access** (by service) and **Alerts** (by title). Each card title counts its signatures and notes. The filter box and type menu above the cards narrow them all. The KPIs count the signatures with notes, the notes, expected / benign and suspicious verdicts, and notes awaiting approval. An IDS signature also shows its severity and alert count in the current snapshot (click the count to open it on Posture), or *not in the current snapshot*.
+
+- **✎ Edit** opens the note in place: change its text, its verdict (none, Expected, Benign, Suspicious) and, for Expected / Benign, the artifacts it applies to (untick one to narrow the verdict; the signature itself is always offered). **Save** stores the change and marks the note *edited* with who and when. A changed verdict is applied right away like a new one (Suspicious reopens the event, Expected / Benign close it and its repeats).
+- **✕** deletes a note; **＋ Note** (IDS signatures) adds a plain note to the signature's IDS event; **Approve / Reject** review notes written by User accounts.
+- Admins and network defenders can edit any note and an edit keeps its review status. A User can edit only their own notes, and an edited User note goes back to *awaiting approval*.
+- The filter box matches signature names, note text, verdicts and authors.
 
 ### Security → Fix list
 

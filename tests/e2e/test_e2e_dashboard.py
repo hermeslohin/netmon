@@ -279,7 +279,7 @@ class Api(unittest.TestCase):
         """Every data API behind the dashboard pages answers 200 with JSON while the LLM is off.
         REQ: DASH-02, LLM-02"""
         for p in ("/api/me", "/api/issues", "/api/risk", "/api/lateral", "/api/mitre", "/api/alerts", "/api/correlate",
-                  "/api/events/open", "/api/accounts", "/api/history", "/api/registry", "/api/kb/all", "/api/suppress",
+                  "/api/events/open", "/api/accounts", "/api/history", "/api/registry", "/api/kb/all", "/api/kb/signatures", "/api/suppress",
                   "/api/config/cfg", "/api/push/prefs", "/api/aireview", "/api/tuning", "/api/account", "/api/site",
                   "/api/alerts/mutes", "/api/ti/feeds", "/api/acks", "/api/users", "/api/audit/status"):
             code, body, h = self.c.get(p)

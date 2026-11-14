@@ -64,7 +64,7 @@ class RoleMatrix(unittest.TestCase):
         REQ: AC-03, AC-06"""
         u = as_("e2e-user")
         for p in ("/api/range/default", "/api/snapshot?id=" + fixtures.range_id(), "/api/risk", "/api/correlate", "/api/users", "/api/audit",
-                  "/api/config/cfg", "/api/kb/all", "/api/events/open", "/api/mitre", "/api/lateral"):
+                  "/api/config/cfg", "/api/kb/all", "/api/kb/signatures", "/api/events/open", "/api/mitre", "/api/lateral"):
             self.assertEqual(u.get(p)[0], 403, p)
         for p in ("/api/me", "/api/account", "/api/site", "/api/alerts", "/api/push/prefs", "/api/my", "/api/tuning"):
             self.assertEqual(u.get(p)[0], 200, p)

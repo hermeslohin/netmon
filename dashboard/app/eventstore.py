@@ -89,6 +89,12 @@ def _init(c):
                         raise
     c.execute("CREATE TABLE IF NOT EXISTS event_times (eid TEXT NOT NULL, w0 INTEGER NOT NULL, w1 INTEGER NOT NULL, et0 REAL, et1 REAL, "
               "at REAL NOT NULL, PRIMARY KEY (eid, w0, w1)) WITHOUT ROWID")
+    try:  # group check-off keys of list findings: sorted-list form (once)
+        n = migrate_grp_keys(c)
+        if n:
+            print(f"eventstore: {n} group check-off keys moved to the sorted-list form", file=sys.stderr, flush=True)
+    except Exception as e:  # noqa: BLE001 - retried on the next connection
+        print(f"eventstore grp key migration: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
 def _c():
@@ -184,9 +190,73 @@ def _norm(text):
     return "".join(out)
 
 
+# Findings whose detail ends in a list ("<what>: a, b, c") that the analysis builds in first-seen order: a 5-minute run and
+# a Posture time range over the same traffic can list the same names in a different order. Their group identity sorts
+# the list, so a check-off / auto-close of one order covers the other (app.js grpRef does the same).
+LIST_KINDS = frozenset({"new-tls-server", "iot-new-domain", "iot-new-network", "iot-raw-ip", "new-software", "new-internal-peer"})
+
+
+def _canon_list(kind, detail):
+    """Sort the ", "-separated list after the first ": " for the LIST_KINDS (dupes dropped); other details unchanged."""
+    if kind not in LIST_KINDS or ": " not in detail:
+        return detail
+    h, t = detail.split(": ", 1)
+    return h + ": " + ", ".join(sorted(dict.fromkeys(t.split(", "))))
+
+
+def canon_grp(key):
+    """A stored "grp|f|kind|device|detail" check-off key in today's gkey form (older keys kept the list unsorted)."""
+    p = str(key).split("|", 4)
+    if len(p) == 5 and p[0] == "grp" and p[1] == "f":
+        return "|".join(p[:4]) + "|" + _canon_list(p[2], p[4])
+    return key
+
+
+def migrate_grp_keys(c):
+    """One-off (meta grp_canon_v1): rewrite stored group check-off keys (acks, autoclose_log.refs, suppress_log) to the
+    sorted-list form of gkey. When the canonical key already exists the newer check-off wins. Returns rows changed."""
+    if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone() is None:
+        return 0
+    if c.execute("SELECT 1 FROM meta WHERE k='grp_canon_v1'").fetchone():
+        return 0
+    tabs = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    n = 0
+    with store.tx(c):
+        if "acks" in tabs:
+            for k, at in c.execute("SELECT key, at FROM acks WHERE type='event' AND key LIKE 'grp|f|%'").fetchall():
+                k2 = canon_grp(k)
+                if k2 == k:
+                    continue
+                have = c.execute("SELECT at FROM acks WHERE type='event' AND key=?", (k2,)).fetchone()
+                if have is not None and str(have[0] or "") >= str(at or ""):
+                    c.execute("DELETE FROM acks WHERE type='event' AND key=?", (k,))
+                else:
+                    c.execute("DELETE FROM acks WHERE type='event' AND key=?", (k2,))
+                    c.execute("UPDATE acks SET key=? WHERE type='event' AND key=?", (k2, k))
+                n += 1
+        if "autoclose_log" in tabs and "refs" in {r[1] for r in c.execute("PRAGMA table_info(autoclose_log)")}:
+            for rid, refs in c.execute("SELECT rowid, refs FROM autoclose_log WHERE refs LIKE '%grp|f|%'").fetchall():
+                try:
+                    R = json.loads(refs)
+                    R2 = [[t, canon_grp(k) if t == "event" else k] for t, k in R]
+                except (ValueError, TypeError):
+                    continue
+                if R2 != R:
+                    c.execute("UPDATE autoclose_log SET refs=? WHERE rowid=?", (json.dumps(R2), rid))
+                    n += 1
+        if "suppress_log" in tabs:
+            for k in [r[0] for r in c.execute("SELECT key FROM suppress_log WHERE type='event' AND key LIKE 'grp|f|%'")]:
+                if canon_grp(k) != k:
+                    c.execute("UPDATE OR IGNORE suppress_log SET key=? WHERE type='event' AND key=?", (canon_grp(k), k))
+                    n += 1
+        c.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('grp_canon_v1', ?)", (str(n),))
+    return n
+
+
 def gkey(eid):
     """Logical identity of an event. A finding's id embeds its volatile detail, so one condition shows up as a new id every
-    snapshot; group those. Segmentation findings group by their flow (the key the flow is cleared under)."""
+    snapshot; group those. Segmentation findings group by their flow (the key the flow is cleared under). List findings
+    (LIST_KINDS) sort their list, so the same names in another order are the same condition."""
     p = str(eid).split("|")
     if p[0] == "f" and len(p) >= 4:
         if p[1] == "segmentation":
@@ -194,7 +264,7 @@ def gkey(eid):
             k = risk.seg_key_finding({"device": p[2], "kind": "segmentation", "detail": "|".join(p[3:])})
             if k:
                 return "seg|" + k
-        return "f|" + p[1] + "|" + p[2] + "|" + _norm("|".join(p[3:]))
+        return "f|" + p[1] + "|" + p[2] + "|" + _canon_list(p[1], _norm("|".join(p[3:])))
     if p[0] == "gw" and len(p) == 5:  # gw|<time>|<key>|<src>|<dst>: the same gateway event repeating is one group
         return "gw|" + "|".join(p[2:])
     return str(eid)

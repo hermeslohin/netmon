@@ -1677,7 +1677,7 @@ class H(BaseHTTPRequestHandler):
                 act, eid = body.get("action"), str(body.get("eid") or "")
                 mine = user if role == "user" else None  # a User sees / deletes only their own notes
                 notes_for = lambda: kb.event_notes([eid], author=mine).get(eid, [])  # noqa: E731
-                if role == "user" and act not in ("add", "delete", "arts"):
+                if role == "user" and act not in ("add", "delete", "arts", "edit"):
                     return self._json({"error": "only a network defender or admin can approve notes"}, 403)
                 if act == "arts":  # the artifact keys an event shows, offered as the scope of an expected / benign verdict
                     if role == "user" and eid not in {e["id"] for e in my_events(user)["events"]}:
@@ -1709,6 +1709,21 @@ class H(BaseHTTPRequestHandler):
                     n = kb.delete_event_note(body.get("id"), author=mine)
                     print(f"kb: {user} deleted event note {body.get('id')!r}" + ("" if n else " - refused/not found"), file=sys.stderr)
                     return self._json({"ok": bool(n), "notes": notes_for()})
+                if act == "edit":  # Security > Event notes: change a note's words, verdict and scope (a User: own notes only, back to pending)
+                    vd = body.get("verdict")
+                    try:
+                        n = kb.update_event_note(body.get("id"), body.get("text"), user, role=role,
+                                                 verdict=None if vd is None else str(vd), scope=body.get("scope") if isinstance(body.get("scope"), list) else None,
+                                                 author=mine)
+                    except ValueError as e:
+                        return self._json({"error": str(e)}, 400)
+                    if not n:
+                        print(f"kb: {user} edit of event note {body.get('id')!r} refused/not found", file=sys.stderr)
+                        return self._json({"error": "note not found" + (" (you can only edit your own notes)" if mine else "")}, 404)
+                    print(f"kb: {user} ({role}) edited event note {n['id']} on {n['eid'][:80]!r}{' verdict ' + n['verdict'] if n['verdict'] else ''}", file=sys.stderr)
+                    if n["verdict"] and n["status"] == "approved":
+                        autoclose.person_marked(n["eid"], n["verdict"], user, autoclose_inputs)
+                    return self._json({"ok": True, "note": n, "notes": notes_for() if eid else []})
                 if act in ("approve", "reject"):  # defender / admin gate before a User's note may reach the AI
                     n = kb.review_event_note(body.get("id"), act == "approve", user)
                     print(f"kb: {user} ({role}) {act}d event note {body.get('id')!r}", file=sys.stderr)
@@ -1716,7 +1731,7 @@ class H(BaseHTTPRequestHandler):
                     if en and en.get("verdict"):
                         autoclose.person_marked(en["eid"], en["verdict"], user, autoclose_inputs)
                     return self._json({"ok": bool(n), "notes": notes_for() if eid else []})
-                return self._json({"error": "action must be add, delete, approve or reject"}, 400)
+                return self._json({"error": "action must be add, edit, delete, approve or reject"}, 400)
             if u.path == "/api/alerts/read":
                 if role == "user":  # private read marker: a user must not clear the shared 🔔 for everyone else
                     ids = watch_ids(user, role)
@@ -2145,6 +2160,8 @@ class H(BaseHTTPRequestHandler):
                             put("port", pt, src, name)
                     return self._json({"eid": eid, "label": ev.get("label"), "artifacts": out[:80]})
                 return self._json({"eid": "", "label": "", "artifacts": []})
+            if path == "/api/kb/signatures":  # Security > Event notes: people's notes grouped by the signature they apply to
+                return self._json({"signatures": kb.signature_notes(), "types": kb.SIG_TYPES, "verdicts": list(kb.VERDICTS), "scope_verdicts": list(kb.SCOPE_VERDICTS)})
             if path == "/api/kb/all":  # the Notes page
                 return self._json({"host_notes": kb.host_notes(), "event_notes": kb.all_event_notes()})
             if path == "/api/mitre":

@@ -33,7 +33,7 @@
 
   /* artifact chips under a note: the things the AI matches events against when it picks notes (⚙️ process / file, 🌐 IP, 🔎 DNS name, 👤 account, 🔌 port) */
   const AK = { proc: ["⚙️", "process / file"], ip: ["🌐", "IP address"], dns: ["🔎", "DNS name"], user: ["👤", "account"], port: ["🔌", "port"],
-    dev: ["💻", "device (MAC or host)"], find: ["🧭", "kind of finding"], sig: ["🛡️", "IDS signature"] };
+    dev: ["💻", "device (MAC or host)"], find: [`<i class="ic ic-compass" aria-hidden="true"></i>`, "kind of finding"], sig: ["🛡️", "IDS signature"] };
   const artChips = (n) => { const a = (n.artifacts || []).slice(0, 12); return a.length ? `<div class="note-chips" title="Artifacts in this note. The event reviewer matches an event's artifacts against these to choose which notes to read.">${a.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
     return `<span class="art-chip" title="${esc(nm)}">${ic} <code>${esc(k.slice(i + 1))}</code></span>`; }).join("")}</div>` : ""; };
   // expiry: an unused note is deleted after the days set in AI pipeline configuration > Note expiry; each use restarts the clock
@@ -113,6 +113,94 @@
       { k: "verdict", t: "Verdict", fmt: (v, n) => vBadge(n) },
       { k: "author", t: "By", fmt: (v, n) => `👤 ${esc(v)} ${stBadge(n)}` }, { k: "ts", t: "When", fmt: (v) => esc(when(v)) }],
       en, { sort: "ts" }) : `<div class="empty">No event notes yet. Click 📝 next to any event's Related count to add one.</div>`));
+  };
+
+  /* ---------- Security > Event notes: every person's note tied to an IDS signature, editable in place ---------- */
+  // grouped by the detection that raised the event (kb.note_sigs): IDS signature, detection kind (f|<kind>, e.g.
+  // newly-registered-domain), host finding kind, threat intel, admin service, alert title. Edit = words, verdict, scope;
+  // a User's edit goes back for approval.
+  const SVOPT = [["", "No verdict (plain note)"], ["expected", "✅ Expected"], ["benign", "🟢 Benign"], ["suspicious", "⚠️ Suspicious"]];
+  V.signotes = async (el) => {
+    el.innerHTML = `<h1><i class="ic ic-compass ic-h1" aria-hidden="true"></i>Event notes</h1><div class="sub">Every note people left on events, grouped by the signature that raised the event: IDS signatures, detections such as newly-registered-domain or beacon-new, host findings, threat intel and admin access. Edit a note's text, verdict or artifacts here; the event reviewer, event research and Ask AI read the approved notes as authoritative guidance.</div>`;
+    const d = await api("/api/kb/signatures");
+    const groups = d.signatures || [], all = [...new Map(groups.flatMap((g) => g.notes).map((n) => [n.id, n])).values()];
+    const live = Object.fromEntries((S.snap?.raw?.alerts?.signatures || []).map((x) => [x.name, x]));
+    const U = isUserRole(), me = S.me?.user, TY = d.types || {};
+    // one card per note type, in this order (card titles are plain text: cardinfo keys on them)
+    const CT = [["ids", "IDS signatures"], ["finding", "Detections"], ["host", "Host findings"], ["ti", "Threat intel"], ["admin", "Admin access"], ["alert", "Alerts"], ["event", "Other events"]];
+    [...new Set(groups.map((g) => g.type))].forEach((t) => { if (!CT.some(([k]) => k === t)) CT.push([t, TY[t] || t]); });
+    el.insertAdjacentHTML("beforeend", kpis([["Signatures with notes", groups.length], ["Notes", all.length],
+      ["Expected / benign", all.filter((n) => n.verdict === "expected" || n.verdict === "benign").length], ["Suspicious", all.filter((n) => n.verdict === "suspicious").length],
+      ["Awaiting approval", all.filter((n) => n.status === "pending").length]]));
+    el.insertAdjacentHTML("beforeend", `<div class="sn-tools" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px"><input type="search" class="sn-q" placeholder="Filter by signature, note text or author…" aria-label="Filter" style="flex:1;min-width:200px;max-width:420px">
+      <select class="sn-ty" aria-label="Note type"><option value="">All types</option>${CT.filter(([t]) => groups.some((g) => g.type === t)).map(([t, nm]) => `<option value="${esc(t)}">${esc(nm)} (${groups.filter((g) => g.type === t).length})</option>`).join("")}</select></div><div class="sn-list"></div>`);
+    const list = el.querySelector(".sn-list"), qi = el.querySelector(".sn-q"), ty = el.querySelector(".sn-ty");
+    const canEdit = (n) => !U || n.author === me;
+    const sevOf = (x) => (x.severity <= 1 ? "high" : x.severity === 2 ? "medium" : "low");
+    const noteHtml = (n, sig) => `<div class="kb-note kb-st-${esc(n.status || "approved")}" data-id="${esc(n.id)}" data-sig="${esc(sig)}">
+      <div class="kb-meta">👤 <b>${esc(String(n.author || "").replace(/^user:/, ""))}</b> ${vBadge(n)}${stBadge(n)}
+        <span class="muted small">${esc(when(n.ts))}${n.edited_at ? ` · edited ${esc(when(n.edited_at))}${n.edited_by ? " by " + esc(n.edited_by) : ""}` : ""}</span>
+        <span class="muted small" title="${esc(n.eid)}">on ${esc((n.label || n.eid).slice(0, 90))}</span>
+        <span style="margin-left:auto;display:inline-flex;gap:6px;align-items:center">${reviewBtns(n)}${canEdit(n) ? `<button type="button" class="sn-edit" data-id="${esc(n.id)}" data-sig="${esc(sig)}" title="Edit this note">✎ Edit</button><button type="button" class="sn-del kb-del" style="margin-left:0" data-id="${esc(n.id)}" aria-label="Delete note" title="Delete">✕</button>` : ""}</span></div>
+      <div class="kb-text-v">${esc(n.body || (n.verdict ? "" : n.text)) || `<span class="muted">(no reason given)</span>`}</div>
+      ${n.scope?.length ? `<div class="small muted" title="Any event that shows all of these artifacts gets this verdict">Applies to any event with all of:</div>` : ""}${artChips(n)}</div>`;
+    const draw = () => {
+      const q = qi.value.trim().toLowerCase(), t = ty.value;
+      const gs = groups.filter((g) => !t || g.type === t).map((g) => ({ ...g, notes: q && !g.sig.toLowerCase().includes(q) ? g.notes.filter((n) => `${n.body} ${n.text} ${n.author} ${n.label} ${n.verdict}`.toLowerCase().includes(q)) : g.notes })).filter((g) => g.notes.length);
+      const grp = (g) => { const x = g.type === "ids" ? live[g.sig] : null;
+        return `<div class="sn-group" data-type="${esc(g.type)}" style="border-top:1px solid var(--border);padding:8px 0">
+          <div class="kb-meta"><b class="mono" style="word-break:break-word">${esc(g.sig)}</b> <span class="badge">${g.notes.length} note${g.notes.length === 1 ? "" : "s"}</span>
+          ${g.type !== "ids" ? "" : x ? `${badge(sevOf(x))} <a class="small" href="#/security?sig=${encodeURIComponent(g.sig)}" title="This signature in the current snapshot's IDS events">${fn(x.count)} alert${x.count === 1 ? "" : "s"} now</a>` : `<span class="muted small">not in the current snapshot</span>`}
+          ${U || g.type !== "ids" ? "" : `<button type="button" class="sn-add" data-sig="${esc(g.sig)}" style="margin-left:auto" title="Add another note to this signature's IDS event">＋ Note</button>`}</div>
+          ${g.notes.map((n) => noteHtml(n, g.sig)).join("")}<div class="sn-addbox"></div></div>`; };
+      list.replaceChildren();
+      if (!gs.length) { const m = document.createElement("div"); m.className = "empty";
+        m.textContent = groups.length ? "No notes match the filter." : "No event notes yet. Use the 📝 button next to any event's Related count to add one."; list.append(m); return; }
+      CT.forEach(([type, nm]) => { const mine = gs.filter((g) => g.type === type); if (!mine.length) return;
+        const all_ = groups.filter((g) => g.type === type), nn = new Set(all_.flatMap((g) => g.notes.map((n) => n.id))).size;
+        const c = card(`${esc(nm)} (${all_.length} · ${nn} note${nn === 1 ? "" : "s"})`, mine.map(grp).join(""), "sn-card");
+        c.id = "sn-" + type; c.dataset.type = type; list.appendChild(c); });
+    };
+    const find = (id) => all.find((n) => n.id === id);
+    const editor = (n, sig, type) => { const sel = n.verdict || "", opts = [...new Set([...(n.scope || []), ...(type === "ids" ? ["sig:" + sig] : type === "finding" ? ["find:" + sig] : [])])];
+      return `<form class="sn-form" style="margin-top:6px"><textarea class="kb-text sn-text" rows="3" maxlength="2000" aria-label="Note text" style="width:100%">${esc(n.body || (n.verdict ? "" : n.text))}</textarea>
+        <div class="kb-vrow" style="margin:4px 0"><label class="small">Verdict <select class="sn-v">${SVOPT.map(([v, t]) => `<option value="${v}"${v === sel ? " selected" : ""}>${t}</option>`).join("")}</select></label></div>
+        <div class="sn-scope"${sel === "expected" || sel === "benign" ? "" : " hidden"}><div class="small"><b>Applies to</b> <span class="muted">— any event that shows <i>all</i> ticked artifacts gets this verdict. Tick none for the note's own event only.</span></div>
+          ${opts.map((k) => { const i = k.indexOf(":"), kind = k.slice(0, i), [ic, nm] = AK[kind] || ["•", kind];
+            return `<label class="art-chip kb-scope-it" title="${esc(nm)}"><input type="checkbox" class="sn-cb" value="${esc(k)}"${(n.scope || []).includes(k) ? " checked" : ""}> ${ic} <code>${esc(k.slice(i + 1))}</code></label>`; }).join(" ")}</div>
+        <div style="margin-top:6px"><button type="submit">Save</button> <button type="button" class="sn-cancel">Cancel</button>
+        ${U ? `<span class="small muted">Your edit goes back to a network defender or admin for approval.</span>` : (n.status === "pending" ? `<span class="small muted">Still awaiting approval after the edit.</span>` : "")}</div></form>`; };
+    qi.addEventListener("input", draw); ty.addEventListener("change", draw);
+    list.addEventListener("change", (e) => { const v = e.target.closest(".sn-v"); if (v) v.closest(".sn-form").querySelector(".sn-scope").hidden = !["expected", "benign"].includes(v.value); });
+    list.addEventListener("click", (e) => {
+      const ed = e.target.closest(".sn-edit"), del = e.target.closest(".sn-del"), rev = e.target.closest(".kb-rev"), add = e.target.closest(".sn-add"), cx = e.target.closest(".sn-cancel");
+      if (cx) return draw();
+      if (rev) { rev.disabled = true; return apiPost("/api/kb/event", { action: rev.dataset.act, id: +rev.dataset.id }).then(() => V.signotes(el), (er) => { rev.disabled = false; alert(er.message); }); }
+      if (del) { if (!confirm("Delete this note?")) return; return apiPost("/api/kb/event", { action: "delete", id: +del.dataset.id }).then(() => V.signotes(el), (er) => alert(er.message)); }
+      if (ed) {
+        const n = find(+ed.dataset.id), box = ed.closest(".kb-note"); if (!n || box.querySelector(".sn-form")) return;
+        box.insertAdjacentHTML("beforeend", editor(n, ed.dataset.sig, ed.closest(".sn-group").dataset.type));
+        const f = box.querySelector(".sn-form"); f.querySelector(".sn-text").focus();
+        f.onsubmit = (ev) => { ev.preventDefault(); const v = f.querySelector(".sn-v").value;
+          f.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+          apiPost("/api/kb/event", { action: "edit", id: n.id, text: f.querySelector(".sn-text").value, verdict: v,
+            scope: ["expected", "benign"].includes(v) ? [...f.querySelectorAll(".sn-cb:checked")].map((x) => x.value) : [] })
+            .then(() => V.signotes(el), (er) => { f.querySelectorAll("button").forEach((b) => { b.disabled = false; }); alert(er.message); }); };
+        return;
+      }
+      if (add) {
+        const sig = add.dataset.sig, box = add.closest(".sn-group").querySelector(".sn-addbox"); if (box.firstChild) return;
+        const f = document.createElement("form"); f.className = "sn-form";
+        const ta = document.createElement("textarea"); ta.className = "kb-text sn-text"; ta.rows = 2; ta.maxLength = 2000; ta.style.width = "100%";
+        ta.placeholder = `Note on ${sig.slice(0, 80)}…`;
+        const sb = document.createElement("button"); sb.type = "submit"; sb.textContent = "Add note";
+        const cb = document.createElement("button"); cb.type = "button"; cb.className = "sn-cancel"; cb.textContent = "Cancel";
+        f.append(ta, sb, " ", cb); box.replaceChildren(f); ta.focus();
+        f.onsubmit = (ev) => { ev.preventDefault(); const t = f.querySelector("textarea").value.trim(); if (!t) return;
+          apiPost("/api/kb/event", { action: "add", eid: "ids|" + sig, label: "IDS: " + sig, text: t }).then(() => V.signotes(el), (er) => alert(er.message)); };
+      }
+    });
+    draw();
   };
 
   /* ---------- Network > DNS, TLS and IPs: notes on external IPs / ranges, domains / subdomains and TLS certificates ---------- */

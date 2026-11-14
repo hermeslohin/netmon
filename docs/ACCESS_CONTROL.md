@@ -68,7 +68,8 @@ off, writing notes, confirming or rejecting an AI link, limiting which links the
   Ask AI / `netmon_notes`, `kb.py dump`) until an admin or network defender approves it. Pending notes show ⏳ on the
   event's 📝 button and in **Notes → Event notes awaiting approval**, with Approve / Reject. Rejected notes are kept for
   the record but never reach the AI. Notes written by admins and defenders are approved when written. Approval applies
-  to the note's exact text: a User who wants to change it deletes it and writes a new one, which is pending again.
+  to the note's exact text: a User may edit their own note (`/api/kb/event` action `edit`), which puts it back to
+  pending. Admins and defenders can edit any note on **Security → Event notes**; their edit keeps the review status.
   A User can have at most 50 notes pending at once.
 
 ## Managing access (admins)

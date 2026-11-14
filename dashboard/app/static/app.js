@@ -547,7 +547,12 @@ const EV_KEEP = /\b\d{1,3}(?:\.\d{1,3}){3}\b|\bport \d+|\b\d+\/(?:tcp|udp)\b|\b[
 function evNorm(t) { let out = "", last = 0; t = String(t); for (const m of t.matchAll(EV_KEEP)) { out += t.slice(last, m.index).replace(/\d[\d,.]*/g, "#") + m[0]; last = m.index + m[0].length; } return out + t.slice(last).replace(/\d[\d,.]*/g, "#"); }
 // A check-off on Open events covers every repeat of the condition (ack "event", "grp|f|kind|device|normalized detail").
 // A finding row whose own ack is missing but whose group is checked off counts as checked, so Posture and Open events agree.
-const grpRef = (type, x) => (type === "finding" && x?.kind && x?.device && x.kind !== "segmentation" ? ["event", `grp|f|${x.kind}|${x.device}|${evNorm(x.detail || "")}`] : null);
+// List findings ("<what>: a, b, c") sort their list (same as eventstore._canon_list): a Posture range can list the same names
+// in another order than the 5-minute run that was checked off / auto-closed.
+const EV_LIST_KINDS = new Set(["new-tls-server", "iot-new-domain", "iot-new-network", "iot-raw-ip", "new-software", "new-internal-peer"]);
+function evCanon(kind, d) { const i = d.indexOf(": "); if (!EV_LIST_KINDS.has(kind) || i < 0) return d;
+  return d.slice(0, i + 2) + [...new Set(d.slice(i + 2).split(", "))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(", "); }
+const grpRef = (type, x) => (type === "finding" && x?.kind && x?.device && x.kind !== "segmentation" ? ["event", `grp|f|${x.kind}|${x.device}|${evCanon(x.kind, evNorm(x.detail || ""))}`] : null);
 // IDS events (Posture) share the generic "event" ack with Open events: key ids|<signature name>
 const ackRef = (type, x) => { if (type === "ids") return ["event", `ids|${x?.name || ""}`];
   if (type === "gwg") return gwgRef(x);

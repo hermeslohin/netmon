@@ -111,6 +111,56 @@ class GroupingKeyTest(unittest.TestCase):
         self.assertEqual((row["eid"], row["repeats"]), (a, 2))
         self.assertIn({"type": "event", "key": "grp|gw|THREAT_BLOCKED_V3|51.159.64.158|10.0.99.2"}, row["acks"])
 
+    def test_list_findings_group_regardless_of_list_order(self):
+        """A list finding (new-tls-server etc.) naming the same servers in another order is the same condition (a Posture
+        time range orders the list differently from the 5-minute run); another set of names, or a non-list kind, is not.
+        REQ: OE-03
+        """
+        a = f"f|new-tls-server|{DEV}|TLS to server names (certificates) outside its learned list: b1.example.net, a.example.com, c.example.org"
+        b = f"f|new-tls-server|{DEV}|TLS to server names (certificates) outside its learned list: c.example.org, b1.example.net, a.example.com"
+        self.assertEqual(eventstore.gkey(a), eventstore.gkey(b))
+        self.assertTrue(eventstore.gkey(a).endswith(": a.example.com, b#example.net, c.example.org"))
+        self.assertNotEqual(eventstore.gkey(a), eventstore.gkey(b.replace("c.example.org, ", "")))
+        x = f"f|beacon|{DEV}|beacon to x: every ~60s, 5 conns"
+        y = f"f|beacon|{DEV}|beacon to x: 5 conns, every ~60s"
+        self.assertNotEqual(eventstore.gkey(x), eventstore.gkey(y))  # only list kinds are reordered
+
+    def test_group_checkoff_keys_migrate_to_sorted_form(self):
+        """Stored group check-offs of list findings (acks, autoclose_log.refs) move to the sorted-list key once, so a
+        Posture row of the same names in another order shows checked off; other keys are untouched; a rerun is a no-op.
+        REQ: OE-03
+        """
+        c = store._dc()
+        old = f"grp|f|new-tls-server|{DEV}|TLS to server names (certificates) outside its learned list: z.example.net, a.example.com"
+        new = f"grp|f|new-tls-server|{DEV}|TLS to server names (certificates) outside its learned list: a.example.com, z.example.net"
+        other = f"grp|f|beacon|{DEV}|beacon to x: every ~#s, # conns"
+        store.ack_set("event", old, True, note="auto-closed: AI verdict expected (reviewer, m)")
+        store.ack_set("event", other, True)
+        c.execute("CREATE TABLE IF NOT EXISTS autoclose_log (type TEXT, key TEXT, eid TEXT, verdict TEXT, model TEXT, at TEXT, "
+                  "state TEXT, source TEXT, refs TEXT, closed_at TEXT)")
+        c.execute("INSERT INTO autoclose_log (type, key, refs, state) VALUES ('finding', 'k1', ?, 'closed')", (json.dumps([["event", old]]),))
+        c.execute("DELETE FROM meta WHERE k='grp_canon_v1'")
+        self.assertGreaterEqual(eventstore.migrate_grp_keys(c), 2)
+        A = store.acks_load()["event"]
+        self.assertIn(new, A)
+        self.assertNotIn(old, A)
+        self.assertIn(other, A)
+        self.assertTrue(A[new]["note"].startswith("auto-closed"))
+        self.assertEqual(json.loads(c.execute("SELECT refs FROM autoclose_log WHERE key='k1'").fetchone()[0]), [["event", new]])
+        self.assertEqual(eventstore.migrate_grp_keys(c), 0)
+
+    @unittest.skipUnless(NODE, "node not found")
+    def test_posture_group_ref_matches_server_key(self):
+        """app.js grpRef (Posture check-off lookup) sorts the list exactly like eventstore.gkey.
+        REQ: OE-03
+        """
+        src = open(os.path.join(_env.APP, "static", "app.js"), encoding="utf-8").read()
+        lines = [ln for ln in src.splitlines() if ln.startswith(("const EV_KEEP", "function evNorm", "const EV_LIST_KINDS", "function evCanon", "  return d.slice(0, i + 2)"))]
+        d = "TLS to server names (certificates) outside its learned list: c.example.org, b1.example.net, a.example.com, a.example.com"
+        js = "\n".join(lines) + f"\nprocess.stdout.write(evCanon('new-tls-server', evNorm({json.dumps(d)})));"
+        out = subprocess.run([NODE, "-e", js], capture_output=True, text=True, timeout=30, check=True).stdout  # noqa: S603 - node on repo code
+        self.assertEqual("grp|" + eventstore.gkey(f"f|new-tls-server|{DEV}|{d}"), f"grp|f|new-tls-server|{DEV}|{out}")
+
     def test_segmentation_groups_by_flow_key(self):
         """A segmentation finding groups under seg|<device>|<dst ip>|<port> (the key a cleared flow uses).
         REQ: OE-03

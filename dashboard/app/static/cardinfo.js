@@ -345,6 +345,41 @@ window.CARD_INFO = {
 "use": "Search for a device, role or keyword. Click a device to open its page, where notes can be added or deleted.",
 "what": "Every note about every host and device, newest first."
 },
+"signotes|IDS signatures": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on IDS events (ids|<signature>), Expected / Benign verdicts whose artifacts include sig:<signature>, and notes on events whose label quotes the signature. Severity and alert count come from the current snapshot's IDS events.",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by Suricata signature, with its severity and alerts now. ＋ Note adds a note to the signature's IDS event. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
+"signotes|Detections": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on Syn's own detections (f|<kind>|... events) and verdicts whose artifacts include find:<kind>, e.g. newly-registered-domain, beacon-new, ti-domain, new-device, segmentation.",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by detection kind. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
+"signotes|Host findings": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on endpoint host findings (hf|<kind>|... events from Elastic Agent / osquery), e.g. agent-off, net-new, hnet-in.",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by host finding kind. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
+"signotes|Threat intel": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on threat-intel hits (ti|in / ti|out events: connections from or to an IP on the OpenCTI lists).",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by direction: inbound from or outbound to a listed IP. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
+"signotes|Admin access": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on admin-access events (adm|source|destination|service: refused or answered connections to SSH, RDP, Kubernetes API and other admin services).",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by admin service. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
+"signotes|Alerts": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on single alerts (alert|<id>), grouped by the alert's title.",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by alert title. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
+"signotes|Other events": {
+"source": "People's event notes (kb.db event_notes, written with the 📝 button). Notes on events that fit none of the other types.",
+"use": "Edit changes a note's text, verdict and the artifacts an Expected / Benign verdict covers (a changed verdict is applied at once: Suspicious reopens, Expected / Benign close); ✕ deletes; Approve / Reject reviews User notes, and a User's edit goes back for approval. The filter box and type menu above the cards narrow every card.",
+"what": "Notes grouped by event type. Each note shows who wrote it, its verdict, when it was written and last edited, and the artifacts a verdict applies to."
+},
 "notes|Event notes": {
 "source": "Notes people left with the 📝 button next to an event's Related count. Stored per stable event key, so a note also applies to later repeats of the same finding or alert family.",
 "use": "Use event notes to tell the AI what an event is or how to treat it ('expected - nightly backup', 'escalate if it happens again'). Event research and the event reviewer treat approved notes as authoritative guidance. Notes from User accounts (⏳) are hidden from the AI until a defender or admin approves them in 'Event notes awaiting approval'.",
