@@ -184,6 +184,8 @@ class StreamSettle(unittest.TestCase):
         """A group of stream events is labelled once newest + window has passed and the STREAM bookmark covers it, while the
         watcher's bookmark is still behind; its pending settle time is about a minute after newest + window, not the next pull slot.
         REQ: EVW-10"""
+        import lookback
+        lookback.put(10, "test")  # the timings below assume a 10-min window
         now = time.time()
         a, b = self._alert("ids|ET X|['10.0.0.5']"), self._alert("host|syslog|nodea|OOM killer")  # host names folded as hosts.hn() does
         newest = now - 700  # one 10-min window + 100 s ago

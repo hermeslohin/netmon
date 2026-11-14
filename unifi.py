@@ -343,7 +343,7 @@ def collect(hours=24):
 
     def _threats_30d():
         ev = [e for e in syslog("all", t1 - 30 * 86400_000, t1) if e.get("category") == "SECURITY"]
-        return [{"time": iso(e["timestamp"]), "severity": e.get("severity"),
+        return [{"time": iso(e["timestamp"]), "severity": e.get("severity"), "ekey": e.get("key"),
                  "src": ((e.get("parameters") or {}).get("SRC_IP") or {}).get("id"),
                  "dst": ((e.get("parameters") or {}).get("DST_IP") or {}).get("id"),
                  "message": render(e)} for e in ev]

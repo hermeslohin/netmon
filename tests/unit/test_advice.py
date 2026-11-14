@@ -74,10 +74,10 @@ class AdviceTest(unittest.TestCase):
             self.assertEqual(m.call_count, 0)
 
     def test_stop_device_guard_rail(self):
-        """"Stop using this device" needs a confident suspicious verdict; otherwise the model is asked again with it ruled out
+        """"Stop using this device" only when 100% sure (suspicious, confidence 1.0); otherwise the model is asked again with it ruled out
         (so the message matches the milder action), and a second stop_device answer stores nothing.
         REQ: ALR-26"""
-        cl = {"label": "suspicious", "confidence": 0.8, "reason": "x"}
+        cl = {"label": "suspicious", "confidence": 0.99, "reason": "x", "indicators": ["file-hash hit", "beacon to the same C2 host"]}
         stop, watch = _answer(action="stop_device", message="Syn detected... please stop using it."), _answer(action="watch", message="Syn detected... keep an eye out.")
         with mock.patch.object(corr_llm, "_complete", side_effect=[stop, watch]) as m:
             r = advice.advise(TARGET, {"text": "t"}, cl)
@@ -86,8 +86,21 @@ class AdviceTest(unittest.TestCase):
         with mock.patch.object(corr_llm, "_complete", side_effect=[stop, stop]):
             self.assertIsNone(advice.advise(TARGET, {"text": "t"}, {**cl, "label": "expected", "confidence": 0.99}))
         with mock.patch.object(corr_llm, "_complete", return_value=stop) as m:
-            self.assertEqual(advice.advise(TARGET, {"text": "t"}, {**cl, "confidence": 0.9})[0], "stop_device")
+            self.assertEqual(advice.advise(TARGET, {"text": "t"}, {**cl, "confidence": 1.0})[0], "stop_device")
             self.assertEqual(m.call_count, 1)
+        with mock.patch.object(corr_llm, "_complete", side_effect=[stop, watch]):  # full confidence but one indicator: not sure
+            self.assertEqual(advice.advise(TARGET, {"text": "t"}, {**cl, "confidence": 1.0, "indicators": ["file-hash hit"]})[0], "watch")
+
+    def test_prompts_only_say_stop_using_when_100_percent_sure(self):
+        """Owner rule: Syn never tells anyone to stop using a computer unless it is 100% sure of a real issue. The advice
+        guard needs full confidence and both the advice and Ask AI prompts say so.
+        REQ: ALR-29"""
+        import chat
+        self.assertEqual(advice.STOP_DEVICE_CONF, 1.0)
+        self.assertIn("100% sure", advice.SYSTEM)
+        self.assertIn("100% sure", advice.NO_STOP)
+        self.assertIn("unless you are 100% sure", chat.SYSTEM)
+        self.assertNotIn("If something looks like an active compromise", chat.SYSTEM)
 
     def test_bad_answers_are_dropped(self):
         """An unknown action, an empty headline, an empty message or non-JSON text stores nothing; steps are capped at 4.

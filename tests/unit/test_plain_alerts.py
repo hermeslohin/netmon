@@ -33,8 +33,8 @@ def _reset():
 
 def _classify(eid, label):
     with corr_llm._db() as c:
-        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)",
-                  (eid, label, 0.9, "Verdict: suspicious.", "m", "sig", time.time()))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)",
+                  (eid, label, 0.9, "Verdict: suspicious.", "m", "sig", time.time(), json.dumps(["file-hash hit", "beacon to the same host"])))
 
 
 class TestPlainLine(unittest.TestCase):
@@ -261,6 +261,63 @@ class TestVerdictMark(unittest.TestCase):
         time.sleep(0.01)
         _classify(ICU, "expected")
         self.assertNotEqual(corr_llm.verdict_mark(), m1)
+
+
+
+class TestMultipleIndicators(unittest.TestCase):
+    """High confidence needs multiple independent indicators; Users only hear about high-confidence issues, defenders see all."""
+
+    def tearDown(self):
+        with corr_llm._db() as c:
+            c.execute("DELETE FROM event_class")
+
+    def test_one_indicator_caps_suspicious_confidence(self):
+        """A suspicious label resting on fewer than two independent indicators keeps at most 0.7 confidence; benign and
+        expected labels and well-supported suspicious ones are untouched, and indicators are deduplicated.
+        REQ: ALR-30"""
+        self.assertEqual(corr_llm.calibrate("suspicious", 0.95, ["file-hash hit"]), corr_llm.ONE_INDICATOR_CAP)
+        self.assertEqual(corr_llm.calibrate("suspicious", 0.95, []), corr_llm.ONE_INDICATOR_CAP)
+        self.assertEqual(corr_llm.calibrate("suspicious", 0.95, ["file-hash hit", "beacon to the same host"]), 0.95)
+        self.assertEqual(corr_llm.calibrate("expected", 0.95, []), 0.95)
+        self.assertEqual(corr_llm.indicators({"indicators": ["A  hit", "a hit", "", "beacon"]}), ["A hit", "beacon"])
+        self.assertEqual(corr_llm.indicators({"indicators": "not a list"}), [])
+        self.assertIn("indicators", corr_llm.CLASS_SYSTEM)
+        self.assertIn("multiple indicators all pointing to the SAME issue", corr_llm.EVENT_SYSTEM)
+
+    def test_users_only_get_high_confidence_multi_indicator_verdicts(self):
+        """A User is told only about a suspicious verdict with confidence >= 0.8 and at least two indicators (or one a person
+        marked suspicious); a lower-confidence one is skipped for Users while defenders keep seeing its label.
+        REQ: ALR-30"""
+        import pushgate
+        two = ["file-hash hit", "beacon to the same host"]
+        self.assertTrue(pushgate.user_sure({"label": "suspicious", "confidence": 0.9, "indicators": two}))
+        self.assertFalse(pushgate.user_sure({"label": "suspicious", "confidence": 0.7, "indicators": two}))
+        self.assertFalse(pushgate.user_sure({"label": "suspicious", "confidence": 0.9, "indicators": two[:1]}))
+        self.assertFalse(pushgate.user_sure({"label": "benign", "confidence": 1.0, "indicators": two}))
+        self.assertTrue(pushgate.user_sure({"label": "suspicious", "confidence": 0.5, "indicators": [], "person": True}))
+        with corr_llm._db() as c:
+            c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)",
+                      ("e|low", "suspicious", 0.7, "r", "m", "s", time.time(), json.dumps(two[:1])))
+            c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)",
+                      ("e|high", "suspicious", 0.9, "r", "m", "s", time.time(), json.dumps(two)))
+        cl = corr_llm.classes(["e|low", "e|high"])
+        self.assertEqual((cl["e|low"]["label"], cl["e|low"]["indicators"]), ("suspicious", two[:1]))  # defenders still see it
+        self.assertEqual(cl["e|high"]["indicators"], two)
+        with mock.patch("eventstore.alert_ref", lambda r: r["eid"]):
+            self.assertEqual(pushgate.user_verdict({"eid": "e|low"})[0], "skip")
+            self.assertEqual(pushgate.user_verdict({"eid": "e|high"})[0], "ready")
+
+    def test_baseline_alerts_never_reach_users(self):
+        """Baseline-finding alarms (key ev|f|...) never go to Users, even with a high-confidence multi-indicator verdict;
+        other alarms with the same verdict do.
+        REQ: ALR-31"""
+        import pushgate
+        with corr_llm._db() as c:
+            c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)",
+                      ("f|volume-spike|dev|total 7 MB", "suspicious", 0.95, "r", "m", "s", time.time(), json.dumps(["spike", "new host"])))
+        self.assertEqual(pushgate.user_verdict({"id": 1, "key": "ev|f|volume-spike|dev|total 7 MB"})[0], "skip")
+        self.assertTrue(pushgate.is_baseline({"key": "ev|f|newly-registered-domain|x"}))
+        self.assertFalse(pushgate.is_baseline({"key": "newmac|" + mac(1)}))
 
 
 if __name__ == "__main__":

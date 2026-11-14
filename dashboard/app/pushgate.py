@@ -87,7 +87,8 @@ def verdict_of(eid):
         print(f"pushgate: group size for {eid}: {e}", file=sys.stderr)
     if fast:  # provisional single-event label: the group review replaces it
         return {"state": "pending", "label": lab, "reason": "provisional label"}
-    return {"state": "final", "label": lab, "confidence": c.get("confidence"), "reason": c.get("reason") or "", "n": n}
+    return {"state": "final", "label": lab, "confidence": c.get("confidence"), "reason": c.get("reason") or "", "n": n,
+            "indicators": c.get("indicators") or [], "person": bool((c.get("owner") or {}).get("applied"))}
 
 
 def _line(s, n=140):
@@ -248,8 +249,31 @@ def _user_schema(c):
     _USCHEMA["done"] = store.db_path()
 
 
+USER_MIN_CONF = 0.8  # Users only hear about high-confidence suspicious verdicts; defenders see the lower ones too
+
+
+def user_sure(v):
+    """Daniel's rule: a User is only told about an issue the reviewer is highly confident in - suspicious, confidence at least
+    USER_MIN_CONF and at least corr_llm.MIN_INDICATORS independent indicators all pointing to it - or one a person
+    (the network owner) marked suspicious. Lower-confidence suspicious verdicts stay with admins / defenders."""
+    import corr_llm
+    if v.get("label") != "suspicious":
+        return False
+    if v.get("person"):
+        return True
+    return float(v.get("confidence") or 0) >= USER_MIN_CONF and len(v.get("indicators") or []) >= corr_llm.MIN_INDICATORS
+
+
+def is_baseline(row):
+    """A baseline-finding alarm (key ev|f|..., analyze.py's 24 h vs ~30-day comparison): never sent to Users at all."""
+    return str(row.get("key") or "").startswith("ev|f|")
+
+
 def user_verdict(row):
-    """'ready' (final verdict suspicious), 'skip' (final verdict expected / benign) or 'wait' (no final verdict yet)."""
+    """'ready' (final verdict suspicious with high confidence, see user_sure), 'skip' (final verdict expected / benign or
+    a lower-confidence suspicious one, which only defenders see) or 'wait' (no final verdict yet)."""
+    if is_baseline(row):  # Daniel's rule: baseline alerts go to admins / defenders only, whatever the verdict
+        return "skip", {"label": "baseline"}
     try:
         import eventstore
         v = verdict_of(eventstore.alert_ref(row))
@@ -258,7 +282,7 @@ def user_verdict(row):
         return "wait", {}
     if v.get("state") != "final":
         return "wait", v
-    return ("ready" if v.get("label") == "suspicious" else "skip"), v
+    return ("ready" if user_sure(v) else "skip"), v
 
 
 USER_NOTE_WAIT_S = 30 * 60  # how long a ready alarm waits for the analyst's note before the plain fallback line goes out

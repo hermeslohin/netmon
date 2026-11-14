@@ -150,7 +150,7 @@ class TestPushGate(unittest.TestCase):
     def test_timeout_pushes_anyway(self):
         """No verdict within push_hold_max_minutes (0 = event window + 5): pushed marked 'AI review unavailable'.
         REQ: PSH-05"""
-        self.assertEqual(pushgate.settings()["hold_min"], 15)
+        self.assertEqual(pushgate.settings()["hold_min"], 10)  # default 5-min event window + 5
         _site(push_hold_max_minutes=3)
         self.assertEqual(pushgate.settings()["hold_min"], 3)
         aid = self._alarm()

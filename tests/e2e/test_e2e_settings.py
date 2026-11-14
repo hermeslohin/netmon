@@ -544,7 +544,7 @@ class EventReviewer(Base):
                                               "pair_modes": {"alert-vuln": "review"}})
         L = aireview(a)["limits"]
         self.assertEqual((L["max_links"], L["classify"], L["window_minutes"], L["discard_days"], L["pair_modes"].get("alert-vuln")),
-                         (7, True, 10, 10, "review"))  # the window is the event window (Settings > Site), not a review limit
+                         (7, True, 5, 10, "review"))  # the window is the event window (Settings > Site, default 5 min), not a review limit
         self.bad_unchanged(a, [("/api/llm/review-limits", {"max_links": -1}), ("/api/llm/review-limits", {"max_links": 201}),
                                ("/api/llm/review-limits", {"window": "soon"}), ("/api/llm/review-limits", {"discard_days": -2}),
                                ("/api/llm/review-limits", {"pair_modes": {"Bad Pair": "review"}}),

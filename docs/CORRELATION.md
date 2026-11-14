@@ -80,7 +80,7 @@ Failures also raise **host risk**: they add to the *threat* score of the machine
 stat tiles, a logins-by-protocol chart (click to filter), an outcome chart, the session list and the admin tools
 seen.
 
-**The watcher (every event window, default 10 min)** (`watch.py` check 7) runs the same logic over its window. It raises **Admin ALERT**
+**The watcher (every event window, default 5 min)** (`watch.py` check 7) runs the same logic over its window. It raises **Admin ALERT**
 (investigate) for high and **Admin notice** for medium, tagged with ATT&CK (T1110.x brute force, T1021.x remote
 services), muted for 12 h per *(from, to, protocol, level)*.
 
@@ -187,6 +187,18 @@ stages; with it off, the older event reviewer-only flow is used (described at th
      verdict's weight as confidence and the reason starts *Person's verdict applied (…); the event reviewer said X
      (0.NN).* The outcome is stored in `event_class.owner` (verdict, kind, weight, note, matched artifacts, applied or
      held and why, the reviewer's own label and confidence).
+   - **Multiple indicators for high confidence.** The reviewer also lists its **indicators**: each independent piece
+     of evidence behind the label (a file-hash hit, beaconing to that host, a new process at the same moment, a login
+     from an unknown place), one item each, no fact restated. High confidence needs multiple indicators all pointing to
+     the **same** issue: a *suspicious* label with fewer than two (`MIN_INDICATORS`) is capped at **0.7**
+     (`ONE_INDICATOR_CAP`, `corr_llm.calibrate`) before a person's verdict is weighed in. Stored in
+     `event_class.indicators` (JSON list) and returned by `classes()`.
+   - **Who sees it.** Admins and defenders see every label at every confidence. A **User** (family member) is only told
+     about an alarm (Alerts page or phone) when its final verdict is *suspicious* with confidence **≥ 0.8** and **two or
+     more indicators**, or a person marked it suspicious (`pushgate.user_sure`). **Baseline-finding alarms**
+     (`ev|f|…`, a device's last 24 h against its ~30-day history) never go to Users at all (`pushgate.is_baseline`).
+     The advice for the device owner says *stop using this device* only when Syn is 100% sure: suspicious at
+     confidence 1.0 with at least two indicators (`advice.py`); Ask AI follows the same rule.
 
    Host notes (expected behaviour), internet notes and DNS notes are written from the artifacts as before. At most 20
    groups per pass, never-reviewed and most severe first. An event whose every link clef
@@ -437,7 +449,8 @@ With the decision model on, the event reviewer labels every event in stage 2 and
 review is finished one label: **suspicious** (needs a person's eye), **benign** (odd but harmless) or **expected**
 (normal for this device, user or task), with a confidence and reason (prompt `CLASS_SYSTEM`: the same two-paragraph
 **Why it fired:** / **Verdict:** write-up, 50–140 words, and the same threat-intel weighting as the event reviewer,
-section 7.2). An event qualifies when none of its links is
+section 7.2, and the same indicators rule: a suspicious label with fewer than two independent indicators is capped at
+0.7). An event qualifies when none of its links is
 undecided and at least one is decided; the confirmed related events are the evidence. `benign` / `expected` need a
 supporting owner, artifact or AI note that the reason names, otherwise it says `suspicious`. At most 20 events are
 classified per pass on the newest snapshot, an event is re-classified when its set of verdicts changes, and events
@@ -455,7 +468,7 @@ candidate links each setting affects.
 |---|---|---|
 | **Link types** (grid) | Every event type (`ids`, `alert`, `admin`, `ti`, `gw`, `host`, `finding`, `vuln`, `seg`) × severity (`low`, `medium`, `high`) against every other: each cell is **review** or **skip**. Click a cell to flip it. Cells you never touched inherit the default. | review, except on a brand-new deployment (no verdicts yet): skip, so nothing is sent until an admin opts in |
 | **Severity of `seg`** | Segmentation issues and findings are their own type. Their severity is set by the port: **high** = admin / remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker and Kubernetes APIs, the policy's `sensitive_ports`), **low** = standard service ports (`standard_ports`, default web, mail, DNS, NTP, LDAP…), **medium** = any other (odd) port. All other types take the event's own severity (critical/severe/investigate = high; moderate/warning/review = medium; anything else low). | – |
-| **Time window** | Shown here, set as the **event window** (More > Settings > Site > `event_window_minutes`): only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans. Events without a time (open vulnerabilities) are never "apart". The box shows how many candidate links are outside the window now. | 10 min |
+| **Time window** | Shown here, set as the **event window** (More > Settings > Site > `event_window_minutes`): only events that happened within X minutes of each other are correlated. The gap is measured between the two events' time spans. Events without a time (open vulnerabilities) are never "apart". The box shows how many candidate links are outside the window now. | 5 min |
 | **Max links per event** | Undecided links one event may have. Best script score first; a link needs room at both of its events; the rest are skipped. `0` = no cap, at most 200. | 0 |
 | **Discard old verdicts** | Delete verdicts (and artifacts) whose pair has not been a candidate link for more than N days. Runs hourly after a snapshot has refreshed the "last seen" times; person-made verdicts are kept and the freed space is returned to the disk. `0` = keep forever, at most 3650. | 0 |
 | **Classify events** | See above. | off |
@@ -834,7 +847,7 @@ flowchart LR
 | Setting | Default | What it sets |
 |---|---|---|
 | Interval | 240 min | How often the review job runs, 5–1440 min, on a grid anchored at 05:00 UTC; the first run at or after 05:00 UTC each day is the **daily run** (24 h of logs) |
-| Event window | 10 min | **More > Settings > Site > `event_window_minutes`** (2–120 min, SQLite cfg table, read live — no restart). One setting for three things: the **correlation window** (two events farther apart never link; events up to one window + 5 min outside a snapshot still count), the **review coverage** (each run collects everything that arrived since the previous run's end **minus one window**, `window.arrival(back=)`, so nothing falls between runs whatever the interval) and the **settle wait** of the event reviewer (above). The job runs at least once per window (the effective interval is capped at the window, never under 5 min). The old hours lookback (`meta` `review_lookback`) is migrated once (hours × 60, clamped) |
+| Event window | 5 min | **More > Settings > Site > `event_window_minutes`** (2–120 min, SQLite cfg table, read live — no restart). One setting for three things: the **correlation window** (two events farther apart never link; events up to one window + 5 min outside a snapshot still count), the **review coverage** (each run collects everything that arrived since the previous run's end **minus one window**, `window.arrival(back=)`, so nothing falls between runs whatever the interval) and the **settle wait** of the event reviewer (above). The job runs at least once per window (the effective interval is capped at the window, never under 5 min). The old hours lookback (`meta` `review_lookback`) is migrated once (hours × 60, clamped) |
 | On / off | on | **Pause** on the Review job card stops scheduled runs |
 
 The per-event-category setting (**review** / **queue** / **test** / **skip**, categories `host`, `ids12`, `gw`, `ti`,
@@ -986,7 +999,10 @@ When the state is too long, owner notes go first, then descriptions are cut to 2
    decides the anchor event's label.
 2. Give the anchor's **label** (suspicious / benign / expected) and confidence. Benign / expected should rest on a
    named owner, artifact or AI note; without support give a best guess, say so, confidence ≤ 0.6; suspicious only
-   when the evidence points to harm; an AI note never outweighs concrete evidence of harm. When a person's verdict
+   when the evidence points to harm; an AI note never outweighs concrete evidence of harm. List the **indicators**
+   (independent evidence behind the label); high confidence needs multiple indicators all pointing to the same issue,
+   and a suspicious label with only one, or with indicators pointing to different things, gets confidence ≤ 0.7
+   (enforced in code too, section 3 stage 2). When a person's verdict
    applies, a last line `PERSON'S VERDICT: <verdict> (set on this event | set on any event showing k1, k2; this
    event shows all of them). <note text>` is added: follow it unless concrete evidence of harm (a file-hash or domain
    threat-intel hit, a known-bad indicator, an unknown actor) contradicts it, and say so in the reason. Matching scoped
@@ -1016,7 +1032,7 @@ When the state is too long, owner notes go first, then descriptions are cut to 2
 4. For every candidate give **only artifacts** (no reason text): up to 6 files, processes, users, IPs or DNS names that
    tie the two events together, each with a relation (under 15 words) and benign / expected / suspicious; optionally a
    durable note (under 40 words) on an external IP or DNS name.
-5. Answer JSON only (`ESCHEMA`): `{"id": "anchor", label, confidence, reason}` plus `{"id": "c<n>", "label": "link",
+5. Answer JSON only (`ESCHEMA`): `{"id": "anchor", label, confidence, indicators, reason}` plus `{"id": "c<n>", "label": "link",
    confidence, artifacts}` per candidate. If nothing is related, `NO_CANDS` says the empty list is on purpose and only
    the anchor is answered.
 
@@ -1046,7 +1062,8 @@ When the state is too long, owner notes go first, then descriptions are cut to 2
 If the prompt does not fit the model's context, it is retried with 2 notes per event, then with 1 note, at most 6
 candidates and no look-ups.
 
-**Stored.** `event_class`: the label after a person's verdict is weighed in (section 3, stage 2), its confidence, this
+**Stored.** `event_class`: the label after a person's verdict is weighed in (section 3, stage 2), its confidence (a
+suspicious one capped at 0.7 with fewer than two indicators), the `indicators` list, this
 reason (up to 2,400 characters, `REASON_MAX`; a group member's reason starts with *Labelled with its correlated group
 (N events, reviewed together on "…").* and a person's verdict with *Person's verdict applied (…)*, each on its own line
 above the write-up) and `owner` (how a person's verdict was applied or why it was held). Nothing is stored
@@ -1093,7 +1110,7 @@ event reviewer (7.2) as an `<ai_note>` *research verdict …* on that event's ne
 | Notes per event | 7 (1–100) | `llm_config` → `context_notes` |
 | Note characters | 6000 (1000–100000) | `llm_config` → `context_notes.chars` |
 | Review limits: link-type modes, default mode | review (skip on a brand-new deployment) | `llm_config` → `review_limits.pair_modes`, `pair_default` |
-| Event window (minutes): correlation window, review coverage, settle wait | 2-120, default 10 | cfg table `site` / `event_window_minutes` (`lookback.py`) |
+| Event window (minutes): correlation window, review coverage, settle wait | 2-120, default 5 | cfg table `site` / `event_window_minutes` (`lookback.py`) |
 | Event stream tick / margin | 15 s / 60 s | `NETMON_STREAM_S` (environment of the scheduler unit) / `window.STREAM_MARGIN_S` |
 | Review limits: max links per event | 0 = no cap, max 200 | `review_limits.max_links` |
 | Review limits: discard verdicts after N days | 0 = keep, max 3650 | `review_limits.discard_days` |

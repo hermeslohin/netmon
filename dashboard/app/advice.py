@@ -20,9 +20,9 @@ ACTIONS = ("no_action", "watch", "update", "password", "stop_site", "stop_app", 
 LABELS = {"no_action": "Nothing to do", "watch": "Keep an eye out", "update": "Update your device", "password": "Change a password",
           "stop_site": "Stop visiting this site", "stop_app": "Stop using this app", "stop_device": "Stop using this device"}
 MAX_PER_PASS = 4
-STOP_DEVICE_CONF = 0.85  # "stop using this device" needs a suspicious verdict at least this confident, else it becomes "watch"
+STOP_DEVICE_CONF = 1.0  # "stop using this device" only when 100% sure: a suspicious verdict at full confidence, else a milder action
 MAX_AGE_S = 30 * 86400
-PROMPT_VER = 4  # part of the input signature: bump when SYSTEM changes so every alert's advice is rewritten
+PROMPT_VER = 6  # part of the input signature: bump when SYSTEM changes so every alert's advice is rewritten
 TZ_DEFAULT = "America/New_York"  # local time in the note (site cfg "tz" overrides)
 
 SYSTEM = """You are a SOC analyst at a home network's security team. Another analyst has already reviewed one security alert
@@ -37,10 +37,13 @@ Pick exactly one action (mildest that is enough):
 - password: change a password (say which account) and turn on two-step sign-in
 - stop_site: stop visiting a specific website (name it)
 - stop_app: stop using or uninstall a specific app or program (name it)
-- stop_device: stop using the device and take it off Wi-Fi until someone checks it. Only when the evidence shows the
-  device itself is likely compromised (known-malware file hash, confirmed command-and-control traffic, endpoint malware
-  alert, unknown remote access) AND the analyst is confident. Never for a traffic-volume spike, a new device, a single
-  blocked connection, a scan from the internet, a policy finding or a guess - use watch for those.
+- stop_device: stop using the device and take it off Wi-Fi until someone checks it. Only when you are 100% sure the
+  device itself is compromised: the evidence PROVES it (known-malware file hash, confirmed command-and-control traffic,
+  endpoint malware alert, unknown remote access) with MULTIPLE independent indicators all pointing to the same
+  compromise, AND the analyst verdict is suspicious with full confidence. One indicator alone is never enough. Any doubt
+  at all means NOT stop_device. Never for a traffic-volume spike, a new device, a single blocked connection, a scan
+  from the internet, a policy finding, "likely" or a guess - use watch for those. Outside stop_device, never tell
+  them to stop using, turn off or disconnect the device in the message or steps either.
 - If the device is a server, a camera or other equipment nobody "uses" day to day, address the person who looks after
   it and prefer watch / update / no_action unless the evidence shows compromise.
 
@@ -163,7 +166,8 @@ def _prompt(a, cl, note, dev):
     if grp:
         L.append("<group>\nOther events reviewed together with this alert:\n" + "\n".join("- " + g for g in grp) + "\n</group>")
     L += [f"Analyst verdict: {cl.get('label')} (confidence {round(float(cl.get('confidence') or 0), 2)})",
-          f"Analyst reason: {cl.get('reason') or ''}"]
+          f"Analyst reason: {cl.get('reason') or ''}",
+          "Independent indicators the analyst found: " + ("; ".join(cl.get("indicators") or []) or "none listed")]
     for s in (cl.get("sources") or [])[:4]:
         L.append(f"Web source the analyst used: {s.get('title') or ''} {s.get('url') or ''}")
     if note and (note.get("summary") or note.get("verdict")):
@@ -185,17 +189,18 @@ def _ask(target, a, cl, note, dev, extra=""):
         return None
 
 
-NO_STOP = ("\n\nFOR THIS ALERT stop_device is NOT allowed: the analyst is not confident enough that the device itself is "
+NO_STOP = ("\n\nFOR THIS ALERT stop_device is NOT allowed: it is not 100% sure that the device itself is "
            "compromised. Pick the right milder action and make the message match it - do not tell them to stop using or "
            "disconnect the device.")
 
 
 def advise(target, a, cl, note=None, dev=""):
     """One model call for one alert -> (action, headline, steps, message, target) or None. Guard rail: "stop using this
-    device" only on a confident suspicious verdict; otherwise the model is asked again with that action ruled out, so the
+    device" only when 100% sure (suspicious verdict at confidence 1.0 with at least two independent indicators); otherwise the model is asked again with that action ruled out, so the
     message never tells them to stop using a device the advice does not (a second refusal falls back to watch)."""
     r = _ask(target, a, cl, note, dev)
-    if r and r[0] == "stop_device" and (cl.get("label") != "suspicious" or float(cl.get("confidence") or 0) < STOP_DEVICE_CONF):
+    if r and r[0] == "stop_device" and (cl.get("label") != "suspicious" or float(cl.get("confidence") or 0) < STOP_DEVICE_CONF
+                                        or len(cl.get("indicators") or []) < corr_llm.MIN_INDICATORS):
         r2 = _ask(target, a, cl, note, dev, NO_STOP)
         r = r2 if r2 and r2[0] != "stop_device" else None
     return r

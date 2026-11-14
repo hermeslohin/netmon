@@ -370,7 +370,7 @@ class TestReviewCfg(unittest.TestCase):
         vc.put({"interval_minutes": 240}, "a")
         with mock.patch("lookback.minutes", return_value=120):  # the scheduler runs at least once per event window
             self.assertEqual(vc.next_run(at5 + 1), at5 + 2 * 3600)
-        self.assertEqual(vc.next_run(at5 + 1), at5 + 10 * 60)  # default event window: 10 min
+        self.assertEqual(vc.next_run(at5 + 1), at5 + 5 * 60)  # default event window: 5 min
         vc.put({"enabled": False}, "a")
         self.assertIsNone(vc.next_run(at5))
 

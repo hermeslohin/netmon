@@ -34,7 +34,7 @@ def window_s():
         import lookback
         return lookback.minutes() * 60
     except Exception:  # noqa: BLE001 - /netmon not on the path (tests of this module alone): the default window
-        return 600
+        return 300  # lookback.DEFAULT (5 min)
 TOP = 10                    # related events kept per event
 MIN_SCORE = 1.5
 _IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")

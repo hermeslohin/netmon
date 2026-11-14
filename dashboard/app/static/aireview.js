@@ -677,7 +677,7 @@
     seg_high: "Segmentation, high: cross-zone flows on admin / remote-control ports (SSH, RDP, SMB, WinRM, databases, Docker and Kubernetes APIs).",
     seg_medium: "Segmentation, medium: cross-zone flows on odd ports that are neither admin nor standard.",
     seg_low: "Segmentation, low: cross-zone flows on standard ports (HTTP, HTTPS, DNS, mail and similar).",
-    ids: "Suricata IDS signatures seen in the window, one event per signature.",
+    ids: "IDS events: Suricata rules seen in the window, one event per signature.",
     host: "Endpoint host findings from the agents (new network destinations, processes, policy drift).",
     alarm: "AI alarms: rollups over the events above.",
     ti: "Threat-intel hits: traffic to or from IPs and domains on blocklists.",

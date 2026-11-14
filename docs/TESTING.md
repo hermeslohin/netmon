@@ -247,7 +247,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 
 | File | Tests | Covers |
 |---|---|---|
-| `tests/unit/test_advice.py` | 9 | Unit tests for dashboard/app/advice.py: the analyst's advice for the device owner on each alert (a second verdict in (ALR-26, ALR-27, ALR-28, OE-21) |
+| `tests/unit/test_advice.py` | 10 | Unit tests for dashboard/app/advice.py: the analyst's advice for the device owner on each alert (a second verdict in (ALR-26, ALR-27, ALR-28, ALR-29, OE-21) |
 | `tests/unit/test_aireview_paging.py` | 2 | Unit tests for AI pipeline monitoring: the core request carries no verdict rows (no Decisions list on the page). (AIR-01) |
 | `tests/unit/test_alerts_page.py` | 34 | Unit tests for the Alerts page (#/alerts): the alert store's mute / suppress / retention rules, the 15-minute watcher (ALR-02, ALR-05, ALR-06, ALR-07, ALR-08, ALR-09, ALR-10, ALR-11, ALR-12, ALR-13, ALR-14, ALR-15, ALR-16, ALR-17, ALR-18, ALR-19, ALR-20, ALR-21, ALR-22, ALR-23, ALR-24, ALR-25, CFG-05) |
 | `tests/unit/test_alerts_view.py` | 9 | Unit tests for the Alerts page helpers in dashboard/app/eventstore.py: verdicts, web research, artifact notes, detections. (FEAT-03, FEAT-04, FEAT-05, FEAT-06) |
@@ -269,6 +269,7 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_evtime.py` | 14 | Event times from Elasticsearch (evtime.py): which records an event maps to, the stored first/last record times on (EVT-01, EVT-02, EVT-03) |
 | `tests/unit/test_feeds_cfg.py` | 12 | Configurable threat-intel feeds (extras.feed_list / apply_feed_config, integrations section 'feeds') and the (FEED-01, FEED-02, FEED-03, OCTI-02, OCTI-08, OCTI-09) |
 | `tests/unit/test_host_baseline_asof.py` | 2 | hosts.as_of / first-seen minutes: a time range collected after the review job still reports the first-seen host (POS-21) |
+| `tests/unit/test_ids_verdicts.py` | 6 | Unit tests for the IDS events Verdict column: GET /api/verdicts (server.event_verdicts) and the tables that show it. (POS-22, POS-23) |
 | `tests/unit/test_issues.py` | 28 | Unit tests for dashboard/app/issues.py (per-snapshot Fix-list checks and cross-snapshot tracking). (CFG-05, ISS-01, ISS-02, OPS-05, OPS-06, RISK-03) |
 | `tests/unit/test_issues_k8s_cis.py` | 3 |  (KUBE-06, KUBE-10) |
 | `tests/unit/test_issues_race.py` | 2 | Regression: the Fix list (fixlist.sync / issues._eval) runs in request threads and background jobs at once; the (OPS-05) |
@@ -284,11 +285,11 @@ Every setting in `tests/settings_inventory.py` (kept in step with the code by `t
 | `tests/unit/test_modelstatus.py` | 3 | Unit tests for dashboard/app/modelstatus.py: AI pipeline monitoring > Models (each model role, its source, up/down). (COR-05) |
 | `tests/unit/test_network_pages.py` | 28 | Unit tests for Network -> Network map (#/netmap, netmap.js) and Network -> Traffic map (#/traffic, app.js V.traffic + (NET-01, NET-02, NET-03, NET-04, NET-05, NET-06, NET-07, NET-08, NET-09, NET-10, NET-11, NET-12, NET-13, NET-14, NET-15, NET-16, NET-17, NET-18, NET-19, NET-20, NET-21, NET-22, NET-23, NET-25) |
 | `tests/unit/test_notes_consolidate.py` | 11 | Unit tests for dashboard/app/notes_consolidate.py: nightly merge of AI-written host notes (AI pipeline monitoring > Host note consolidation). (COR-05, STO-09, STO-11) |
-| `tests/unit/test_open_events.py` | 44 | Open events page backend (eventstore: upsert, vuln lifecycle, grouping, filters, check-offs, display merges, extras, (OE-01, OE-02, OE-03, OE-04, OE-05, OE-06, OE-07, OE-08, OE-09, OE-10, OE-11, OE-12, OE-13, OE-14, OE-15, OE-16, OE-19) |
+| `tests/unit/test_open_events.py` | 45 | Open events page backend (eventstore: upsert, vuln lifecycle, grouping, filters, check-offs, display merges, extras, (OE-01, OE-02, OE-03, OE-04, OE-05, OE-06, OE-07, OE-08, OE-09, OE-10, OE-11, OE-12, OE-13, OE-14, OE-15, OE-16, OE-19) |
 | `tests/unit/test_open_review_coverage.py` | 3 | Every open event gets an event reviewer label, a Pending review badge or a 'Not reviewed: <reason>' badge (EVW-08) |
 | `tests/unit/test_opencti.py` | 15 | Unit tests for the OpenCTI integration: integrations.py (opencti section) and opencti.py. (OCTI-01, OCTI-02, OCTI-03, OCTI-04, OCTI-05, OCTI-06, OCTI-07, OCTI-10) |
 | `tests/unit/test_owner_verdict_scope.py` | 10 | A person's Expected / Benign verdict with chosen artifacts (scope): kb.py stores and matches it, corr_llm.apply_owner weighs it (STO-14) |
-| `tests/unit/test_plain_alerts.py` | 12 | Plain-language alerts for the User role (dashboard/app/plainmsg.py) and alarm lifetime in corr_llm.sync_alarms. (AC-09, AC-10, ALR-28, STO-06, STO-07, STO-08) |
+| `tests/unit/test_plain_alerts.py` | 15 | Plain-language alerts for the User role (dashboard/app/plainmsg.py) and alarm lifetime in corr_llm.sync_alarms. (AC-09, AC-10, ALR-28, ALR-30, ALR-31, STO-06, STO-07, STO-08) |
 | `tests/unit/test_posture.py` | 29 | Unit tests for the data behind Security -> Posture (dashboard view 'security'): snapshots, time ranges, suppress filters, cleared segmentation, check-offs and the app.js check-off logic. (POS-01, POS-02, POS-03, POS-04, POS-05, POS-06, POS-07, POS-08, POS-09, POS-10, POS-11, POS-12, POS-13, POS-14, POS-15, POS-16, POS-17, POS-18) |
 | `tests/unit/test_push_gate.py` | 11 | Phone-push gate (dashboard/app/pushgate.py): urgent alarms wait for the event reviewer's group verdict, expected / (PSH-01, PSH-02, PSH-03, PSH-04, PSH-05, PSH-06) |
 | `tests/unit/test_push_targeting.py` | 38 | Unit tests for per-user alert targeting (store.py prefs/watch_ids/alert_targets) and Web Push fan-out (pushsvc.py). (AC-02, AC-06, AC-09, ALR-28, RISK-03, STO-06, STO-07) |

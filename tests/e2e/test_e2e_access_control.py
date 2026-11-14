@@ -25,8 +25,8 @@ store.alerts_add([fixtures.alert("kid phone contacted a threat-listed IP", key="
 import corr_llm, time
 with corr_llm._db() as c:  # the event reviewer's paragraph on both alerts
     for r in store.alerts_recent(10):
-        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)", (f"alert|{r['id']}", "suspicious", 0.7,
-                  "REVIEWER PARAGRAPH " + r["key"], "cloudflare_clef + reviewer", "s", time.time()))
+        c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)", (f"alert|{r['id']}", "suspicious", 0.9,
+                  "REVIEWER PARAGRAPH " + r["key"], "cloudflare_clef + reviewer", "s", time.time(), '["threat-listed IP", "beacon to it"]'))
 """
 
 

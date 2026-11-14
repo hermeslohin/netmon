@@ -590,7 +590,7 @@ console.log(JSON.stringify({{host: hfHost('hf|' + k), host2: hfHost('acct-new|ho
         REQ: POS-02"""
         src = _app_js()
         body = _js_slice(src, "V.security = (el) => {", "/* ----- Traffic ----- */")
-        titles = ["<h1>Posture</h1>", "Baseline findings", "Host findings", "IDS signatures (", "Segmentation violations", "Beacon candidates",
+        titles = ["<h1>Posture</h1>", "Baseline findings", "Host findings", "IDS events (", "Segmentation violations", "Beacon candidates",
                   "Threat-intel feeds", "Inbound hits from listed IPs", "Outbound TI hits", "DNS-tunnel scoring",
                   "Malicious JA3 / internal scans / detections", "Zeek notices", "Zeek weird", "Files (", "Software inventory from traffic"]
         pos = [body.find(t) for t in titles]

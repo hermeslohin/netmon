@@ -428,6 +428,7 @@ const ACK = {
   gw: (g) => gwId(g),  // UniFi gateway event (same id as the correlation event gw|...)
   dnstunnel: (t) => String(t.domain || "").toLowerCase(),  // by DNS name, so it stays checked across snapshots and sources
   violation: (v) => `${v.src}|${v.dst}|${v.port}`,  // fallback only; normally mapped to the shared "seg" flow key
+  ids: (x) => `ids|${x.name}`,  // stored as type "event" (see ackRef), same as Open events
 };
 // Baseline findings exclude segmentation: those have their own section (Segmentation violations on Posture).
 // host_ip: the finding's device as an IP (device may be a MAC; "" when unknown, e.g. network-wide findings)
@@ -463,6 +464,55 @@ function occHtml(id) {
 }
 const occCol = (idOf) => ({ k: "_occ", t: "Occurred", fmt: (v, x) => { const id = idOf(x) || ""; return `<span class="evt-occ" data-ev="${esc(id)}">${occHtml(id)}</span>`; },
   sort: (x) => { const v = S.evTimes?.times?.[idOf(x)]; return v && v[1] ? -v[1] : 0; } });
+// IDS events "Verdict": the stored verdict of the signature's event (ids|<name> ids are stable, so the last label
+// carries over windows and ranges, unlike the Related-column flair that only covers the loaded snapshot): the event
+// reviewer's label (a person's applied verdict marked 👤), Pending review / Not reviewed, and the research note verdict.
+// Loaded in the background from GET /api/verdicts; the cells fill in as they arrive (no re-render). Tap = verdict pop-up.
+const VD = { c: {}, n: {}, t: {} }, VD_TTL = 60000, VD_RANK = { suspicious: 0, malicious: 0, pending: 1, expected: 2, benign: 3, unreviewed: 4 };
+const vdCls = (v) => String(v || "").replace(/[^a-z-]/g, "");
+// the cell is built with DOM nodes and text only (no HTML strings): verdict, reason and summary text come from the AI
+function vdEl(tag, cls, text, title) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; if (title) e.title = title; return e; }
+function vdNodes(id) {
+  if (!(id in VD.t)) return [vdEl("span", "muted small", "…", "Loading the verdict…")];
+  const c = VD.c[id], n = VD.n[id], o = c?.owner, out = [], pct = (p) => (p == null ? "" : ` (${Math.round(p * 100)}%)`);
+  if (c) {
+    let lab;
+    if (c.label === "pending") lab = vdEl("span", "pend-flair", "⏳ Pending review", pendTitle(c.pending));
+    else if (c.label === "unreviewed") lab = vdEl("span", "unrev-flair small muted", `⊘ Not reviewed: ${c.unreviewed || "no reason recorded"}`, c.reason || "");
+    else {
+      lab = vdEl("span", `note-v v-${vdCls(c.label)}`, `${o?.applied ? "👤 " : ""}${c.label}`,
+        `${o?.applied ? `A person's ${o.verdict} verdict (the event reviewer said ${o.model_label || "?"})` : `Event reviewer${pct(c.confidence)}`}${c.at ? " · " + ft(new Date(c.at * 1000).toISOString()) : ""}: ${c.reason || ""}`);
+      if (c.pending) { const w = document.createElement("span"); w.append(lab, " ", vdEl("span", "pend-flair", "⏳ Pending review", pendTitle(c.pending))); lab = w; }
+    }
+    if (S.me?.role !== "user") { const t = vdEl("span", "vd-tap"); t.setAttribute("role", "button"); t.tabIndex = 0; t.dataset.vd = id; t.append(lab); lab = t; }  // tap: verdict pop-up
+    out.push(lab);
+  }
+  if (n?.verdict) out.push(" ", vdEl("span", `note-v v-${vdCls(n.verdict)}`, `📝 ${n.verdict}`, `Research note verdict${n.same_event === false ? " (from a note on a similar signature)" : ""}: ${n.summary || ""}`));
+  return out.length ? out : [vdEl("span", "muted small", "—", "No verdict: the event reviewer labels a signature while it is an open event; it was checked off before a review, or it is a chatty severity-3 rule (over 5,000 alerts in a window), which is not an event")];
+}
+const vdLabel = (id) => VD.c[id]?.label || VD.n[id]?.verdict || "";
+// sort (and the table filter, which reads the sort value) by verdict: suspicious first, rules without a verdict last
+const vdCol = (idOf) => ({ k: "_vd", t: "Verdict", fmt: (v, x) => { vdQueue(); return `<span class="ev-vd" data-ev="${esc(idOf(x) || "")}"></span>`; },
+  sort: (x) => { const l = vdLabel(idOf(x) || ""); return l ? `${VD_RANK[l] ?? 5} ${l}` : "9"; } });
+let vdBusy = false, vdTimer = 0;
+function vdQueue() { if (!vdTimer) vdTimer = setTimeout(() => { vdTimer = 0; loadVerdicts(); }, 50); }
+function vdFill(only) { document.querySelectorAll(".ev-vd[data-ev]").forEach((el) => { if (el.dataset.ev && (!only || only.has(el.dataset.ev))) el.replaceChildren(...vdNodes(el.dataset.ev)); }); }
+async function loadVerdicts() {
+  vdFill();  // cells drawn from what is already loaded
+  if (vdBusy) return vdQueue();
+  const now = Date.now(), want = [...new Set([...document.querySelectorAll(".ev-vd[data-ev]")].map((e) => e.dataset.ev))].filter((id) => id && !(now - (VD.t[id] || 0) < VD_TTL));
+  if (!want.length) return;
+  vdBusy = true;
+  try {
+    for (let i = 0; i < want.length; i += 100) {
+      const ch = want.slice(i, i + 100);
+      let r = { classes: {}, notes: {} };
+      try { r = await api("/api/verdicts?" + ch.map((x) => "e=" + encodeURIComponent(x)).join("&")); } catch (e) { /* User role / server error: cells show no verdict */ }
+      ch.forEach((id) => { VD.t[id] = Date.now(); if (r.classes?.[id]) VD.c[id] = r.classes[id]; else delete VD.c[id]; if (r.notes?.[id]) VD.n[id] = r.notes[id]; else delete VD.n[id]; });
+      vdFill(new Set(ch));
+    }
+  } finally { vdBusy = false; }
+}
 let evTimesBusy = false;
 function loadEvTimes(tries = 0) {
   const sid = S.snap?.id; if (!sid || (evTimesBusy && tries === 0)) return;
@@ -498,7 +548,10 @@ function evNorm(t) { let out = "", last = 0; t = String(t); for (const m of t.ma
 // A check-off on Open events covers every repeat of the condition (ack "event", "grp|f|kind|device|normalized detail").
 // A finding row whose own ack is missing but whose group is checked off counts as checked, so Posture and Open events agree.
 const grpRef = (type, x) => (type === "finding" && x?.kind && x?.device && x.kind !== "segmentation" ? ["event", `grp|f|${x.kind}|${x.device}|${evNorm(x.detail || "")}`] : null);
-const ackRef = (type, x) => { const sk = segKey(type, x); if (sk) return ["seg", sk];
+// IDS events (Posture) share the generic "event" ack with Open events: key ids|<signature name>
+const ackRef = (type, x) => { if (type === "ids") return ["event", `ids|${x?.name || ""}`];
+  if (type === "gwg") return gwgRef(x);
+  const sk = segKey(type, x); if (sk) return ["seg", sk];
   const own = [type, ACK[type](x)]; if (S.acks?.[own[0]]?.[own[1]]) return own;
   const g = grpRef(type, x); return g && S.acks?.event?.[g[1]] ? g : own; };
 const acked = (type, x) => { const [t, k] = ackRef(type, x); return !!S.acks?.[t]?.[k]; };
@@ -653,7 +706,7 @@ document.addEventListener("change", async (e) => {
   // Keep the reader's place: slide the checked-off row away (the rows below move up) and, after the re-render,
   // put window + inner scrollers back exactly where they were instead of letting the rebuilt list jump to the top.
   const rowEl = cb.closest("tr, li, .oe-row, .finding");
-  const skey = (e) => { const c = e.closest(".card"); return (c?.querySelector("h2,h3")?.textContent || "").replace(/\(\d+ open\)/, "").trim() + "|" + e.className + "|" + e.tagName; };
+  const skey = (e) => { const c = e.closest(".card"); return (c?.querySelector("h2,h3")?.textContent || "").replace(/\(\d+ open[^)]*\)/, "").trim() + "|" + e.className + "|" + e.tagName; };
   const keepY = window.scrollY, keepS = new Map([...document.querySelectorAll(SCROLLERS)].map((e) => [skey(e), [e.scrollTop, e.scrollLeft]]));
   // Anchor: the row that slides up into the closed one's place. After the re-render it is put back at the same
   // spot on screen, whatever rebuilt or re-laid-out in between (page, card, table or list-mode scroller).
@@ -895,7 +948,7 @@ V.device = (el, ip) => {
   const weird = (raw.weird || []).filter((w) => w.src?.[ip]).map((w) => ({ name: w.name, count: w.src[ip] }));
   const tunAllD = (raw.dns_tunnel || []).filter((t) => t.sources?.[ip]), DTD = ackSplit("dnstunnel", tunAllD, "dev-dnstun"), tun = DTD.show;
   const sec = [];
-  if (sigs.length) sec.push(card(`IDS alerts (${sigs.length})`, table(null, [{ k: "name", t: "Signature" }, { k: "severity", t: "Sev", num: true }, { k: "role", t: "Role" }, { k: "here", t: "Hits", num: true, fmt: fn }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "here", short: true })));
+  if (sigs.length) sec.push(card(`IDS alerts (${sigs.length})`, table(null, [{ k: "name", t: "Signature" }, { k: "severity", t: "Sev", num: true }, vdCol((x) => x.name && `ids|${x.name}`), { k: "role", t: "Role" }, { k: "here", t: "Hits", num: true, fmt: fn }, { k: "last", t: "Last", fmt: ft }], sigs, { sort: "here", short: true })));
   if (viol.length) sec.push(card(`Segmentation violations (${viol.length})`, table(null, [{ k: "severity", t: "Sev", fmt: badge }, { k: "src", t: "Src", fmt: (v) => ipLink(v) }, { k: "dst", t: "Dst", fmt: (v) => ipLink(v) }, { k: "port", t: "Port" }, { k: "conns", t: "Conns", num: true, fmt: fn }, { k: "reason", t: "Reason", cls: "small" }], viol, { search: false })));
   if (beacons.length) { const BD = ackSplit("beacon", beacons, "dev-beacon"); sec.push(card(`Beacon candidates (${BD.open.length} open of ${beacons.length})${BD.toggle}`, table(null, [ackCol("beacon", (b) => `${b.src} → ${b.dst}:${b.port} every ${b.interval_s}s`), { k: "_piv", t: "", cls: "askcell", fmt: (v, b) => pivBtn("beacon", b) }, { k: "dst", t: "Dst", fmt: (v, b) => `${esc(v)} <span class="muted small">${esc(b.name || "")}</span>` }, { k: "port", t: "Port" }, { k: "interval_s", t: "Interval s", num: true }, { k: "jitter_s", t: "Jitter s", num: true }, { k: "conns", t: "Conns", num: true }, { k: "score", t: "Score", num: true }], BD.show, { sort: "score", search: false, rowClass: ackRowCls("beacon") }))); }
   if (ti.length) sec.push(card("Threat-intel matches", `<pre>${esc(JSON.stringify(ti, null, 1))}</pre>`));
@@ -1229,7 +1282,7 @@ function segClearedCard() {
   c.id = "seg-cleared"; return c;
 }
 
-/* ---------- suppress rules (Settings -> Configuration): rules by signature name (+ artifact), IDS signatures, segmentation flows ---------- */
+/* ---------- suppress rules (Settings -> Configuration): rules by signature name (+ artifact), IDS signature rules, segmentation flows ---------- */
 function suppressRulesCard() {
   const c = card(`🚫 Suppress rules`, `<div class="small muted" style="margin-bottom:6px">Created with the 🚫 button next to a check-off box. A rule hides every finding or alert with that signature name (and artifact, if set) and stops alerts like it from appearing. They still go through correlation, research and the event reviewer. Remove a rule to bring everything it hid back.</div><div class="sup-rules small muted">loading rules…</div>`);
   const box = c.querySelector(".sup-rules");
@@ -1261,7 +1314,7 @@ const postOpen = (ids, fb) => ({ onclick: (x, tr) => { const f = fb(x); window.o
 V.security = (el) => {
   const raw = S.snap.raw, an = S.snap.analysis || {}, tr = S.snap.triage || {}, ti = raw.threat_intel || {};
   loadEvTimes();
-  el.innerHTML = `<h1>Posture</h1><div class="small muted" style="margin:-4px 0 10px">The history of the selected time range, not the to-do list. Time based: the findings, IDS signatures, segmentation violations, beacons and threat-intel hits below show only what happened in the time range chosen in the header 🕒 (a nightly report window loads instantly; any other range is collected for exactly that time). The AI triage alarms and research notes always follow the nightly report that ends inside the range. Check-offs and suppress rules are not time based: they stay in force for every range, and anything unchecked and older than the range remains on <a href="#/events">Open events</a>. Each finding is listed as reported, so one condition can appear as several rows; Open events collapses repeats into one.</div>`;
+  el.innerHTML = `<h1>Posture</h1><div class="small muted" style="margin:-4px 0 10px">The history of the selected time range, not the to-do list. Time based: the findings, IDS events, segmentation violations, beacons and threat-intel hits below show only what happened in the time range chosen in the header 🕒 (a nightly report window loads instantly; any other range is collected for exactly that time). The AI triage alarms and research notes always follow the nightly report that ends inside the range. Check-offs and suppress rules are not time based: they stay in force for every range, and anything unchecked and older than the range remains on <a href="#/events">Open events</a>. Each finding is listed as reported, so one condition can appear as several rows; Open events collapses repeats into one.</div>`;
   { const to = new URLSearchParams(location.hash.split("?")[1] || "").get("to"); if (to) setTimeout(() => { const c = document.getElementById(to); if (!c) return; c.classList.remove("collapsed"); c.scrollIntoView({ block: "start" }); }, 50); }
   const BF = ackSplit("finding", baseFind(an), "sec-find");
   el.appendChild(card(`Baseline findings (${BF.open.length} open)${BF.toggle}`, table(null, [ackCol("finding", (x) => `${x.kind}: ${x.detail}`), askPivCol("baseline finding", (x) => `${x.kind}: ${x.detail}`, "baseline finding"), { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(x.severity) }, { k: "kind", t: "Kind" }, { k: "device", t: "Device", fmt: (v, x) => devCell(v, x.host_ip, x.name), sort: (x) => `${devNameFor(x.device, x.host_ip, x.name) || "~"} ${x.device || ""}` }, { k: "host_ip", t: "Host IP", fmt: (v) => v ? ipLink(v) : "—", sort: (x) => x.host_ip || "~" }, { k: "detail", t: "Detail", fmt: linkifyIps }, occCol((x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`)], BF.show, { filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("finding"), ...postOpen((x) => [`f|${x.kind}|${x.device || ""}|${x.detail || ""}`], (x) => ({ eid: `f|${x.kind}|${x.device || ""}|${x.detail || ""}`, type: "finding", label: `${x.kind}: ${x.detail}`, sev: x.severity, item: x })), evId: (x) => x.kind && `f|${x.kind}|${x.device || ""}|${x.detail || ""}`,
@@ -1275,11 +1328,18 @@ V.security = (el) => {
   }
   const sigs = raw.alerts?.signatures || [];
   el.appendChild(grid("g2",
-    chartCard("IDS signatures (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2], onClick: (i) => drill("security", { sig: sigs[i].name }) }), "", "tall"),
+    chartCard("IDS events (top 15 by count)", barCfg(sigs.slice(0, 15).map((s) => s.name.slice(0, 60)), sigs.slice(0, 15).map((s) => s.count), { color: PALETTE[2], onClick: (i) => drill("security", { sig: sigs[i].name }) }), "", "tall"),
     chartCard("IDS alerts by category", doughnutCfg(sigs.reduce((o, s) => ((o[s.category] = (o[s.category] || 0) + s.count), o), {}), { onClick: (l) => drill("security", { category: l }) }))));
-  el.appendChild(card(`IDS signatures (${sigs.length}, ${fn(raw.alerts?.total)} alerts)`, table(null, [askPivCol("IDS signature", (x) => x.name, "IDS signature"), { k: "_sup", t: "Suppress", fmt: (v, x) => idsSupBtn(x) }, { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, { k: "severity", t: "Sev", num: true }, { k: "count", t: "Count", num: true, bar: true, fmt: fn },
+  // IDS events: laid out like Baseline / Host findings (check-off + suppress, Ask/pivot, Severity badge = coloured row edge)
+  const idsSev = (x) => (x.severity <= 1 ? "high" : x.severity === 2 ? "medium" : "low");
+  const IE = ackSplit("ids", sigs, "sec-ids");
+  el.appendChild(card(`IDS events (${IE.open.length} open, ${fn(raw.alerts?.total)} alerts)${IE.toggle}`, IE.show.length ? table(null, [ackCol("ids", (x) => `IDS: ${x.name}`), askPivCol("IDS signature", (x) => x.name, "IDS signature"),
+    { k: "severity", t: "Severity", fmt: (v, x) => `<span title="Suricata severity ${esc(v ?? "?")}">${badge(idsSev(x))}</span>`, sort: (x) => `${sevRank(idsSev(x))} ${String(1e9 - (x.count || 0)).padStart(10, "0")}` },
+    { k: "name", t: "Signature" }, { k: "category", t: "Category", cls: "small" }, vdCol((x) => x.name && `ids|${x.name}`), { k: "count", t: "Count", num: true, bar: true, fmt: fn },
     { k: "src", t: "Sources", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.src || {}).join() }, { k: "dst", t: "Destinations", fmt: (v) => sortDesc(v).slice(0, 4).map(([k, n]) => ipLink(k) + " ×" + fn(n)).join("<br>"), sort: (r) => Object.keys(r.dst || {}).join() },
-    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Last", fmt: ft }], sigs, { ...postOpen((x) => [`ids|${x.name}`], (x) => ({ eid: `ids|${x.name}`, type: "ids", label: x.name, sev: x.severity <= 1 ? "high" : x.severity === 2 ? "medium" : "low", item: x })), filter: true, sort: "count", evId: (x) => x.name && `ids|${x.name}`, urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })));
+    { k: "dport", t: "Ports", fmt: (v) => esc((v || []).join(", ")) }, { k: "last", t: "Occurred", fmt: (v, x) => { const a = x.first ? ft(x.first) : "", b = v ? ft(v) : a; return a && a !== b ? `${a} – ${b}` : b || "—"; }, sort: (x) => -(Date.parse(x.last) || 0) }],
+    IE.show, { ...postOpen((x) => [`ids|${x.name}`], (x) => ({ eid: `ids|${x.name}`, type: "ids", label: x.name, sev: idsSev(x), item: x })), filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("ids"), evId: (x) => x.name && `ids|${x.name}`, urlFilter: { sig: ["Signature", (x, v) => x.name === v], category: ["Category", (x, v) => eqi(x.category, v)] } })
+    : `<div class="empty">All IDS events checked off.</div>`));
   const SV = ackSplit("violation", an.violations || [], "sec-viol");
   el.appendChild(grid("g2",
     card(`Segmentation violations (${SV.open.length} open)${SV.toggle}`, SV.show.length ? table(null, [{ k: "_ack", t: "Clear", sort: (x) => (acked("violation", x) ? 1 : 0),
@@ -1362,18 +1422,63 @@ function gatewayTraffic(el) {
 }
 // stable id of a UniFi gateway event (same format as correlate.gw_id)
 const gwId = (g) => `gw|${g.time || ""}|${g.key || ""}|${g.src || ""}|${g.dst || ""}`;
+// Gateway events are grouped like Open events (eventstore.gkey): one row per UniFi event type + source + destination.
+// 30-day rows carry the UniFi key as ekey (older snapshots: taken from an existing check-off, else from the message).
+function gwRealKey(g) {
+  if (g.key && g.key !== "30d") return g.key;
+  if (g.ekey) return g.ekey;
+  const pre = `gw|${g.time || ""}|`, suf = `|${g.src || ""}|${g.dst || ""}`;
+  const hit = Object.keys(S.acks?.gw || {}).find((k) => k.startsWith(pre) && k.endsWith(suf));
+  if (hit) return hit.slice(pre.length, hit.length - suf.length);
+  const m = String(g.message || "");
+  return /intrusion attempt .* detected and blocked\.$/.test(m) ? "THREAT_BLOCKED_V3" : /intrusion attempt .* detected\.$/.test(m) ? "THREAT_DETECTED_V3" : "30d";
+}
+const gwGroupKey = (g) => `gw|${g.ekey || g.key}|${g.src || ""}|${g.dst || ""}`;
+const gwMemberAcked = (m) => !!S.acks?.gw?.[gwId(m)] || !!S.acks?.event?.[gwId(m)];
+// group ref: the group's own check-off ("event", "grp|gw|key|src|dst", what Open events writes); a group whose
+// every occurrence was checked off one by one counts as checked (ref = the newest occurrence's own ack)
+function gwgRef(x) {
+  const g = ["event", "grp|" + gwGroupKey(x)];
+  if (S.acks?.event?.[g[1]]) return g;
+  const ms = x.members || [];
+  if (ms.length && ms.every(gwMemberAcked)) { const id = gwId(ms[ms.length - 1]); return [S.acks?.gw?.[id] ? "gw" : "event", id]; }
+  return g;
+}
+function gwGroups(rows) {
+  const G = new Map();
+  for (const r of rows) {
+    if (!r.time) continue;
+    const m = { ...r, key: gwRealKey(r) }, k = gwGroupKey(m);
+    const g = G.get(k) || { members: [] }; g.members.push(m); G.set(k, g);
+  }
+  return [...G.values()].map(({ members }) => {
+    members.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    const gsev = (s) => ({ very_high: "high", critical: "high" })[s] || s;  // UniFi VERY_HIGH / CRITICAL: high (as correlate.py)
+    const last = members[members.length - 1], sev = members.map((m) => gsev(String(m.severity || "low").toLowerCase())).sort((a, b) => sevRank(a) - sevRank(b))[0];
+    return { ...last, ekey: last.key, severity: sev, count: members.length, first: members[0].time, last: last.time, members };
+  });
+}
+const gwgAckCol = () => ({ k: "_ack", t: "✓", sort: (x) => (acked("gwg", x) ? 1 : 0), fmt: (v, x) => {
+  const [t, k] = gwgRef(x), more = [...(t === "event" && k.startsWith("grp|") ? [] : [{ type: "event", key: "grp|" + gwGroupKey(x) }]),
+    ...x.members.slice(-50).map((m) => ({ type: "gw", key: gwId(m) }))];
+  return ackBox("gwg", x, `Gateway ${x.key || "event"}: ${x.message || ""}`).replace('class="ack-cb"', `class="ack-cb" data-more="${esc(JSON.stringify(more))}"`);
+} });
 function gatewaySecurity(el) {
   const U = S.snap.raw.unifi; if (!U) return; const ev = U.events || {}, st = U.settings || {};
   el.appendChild(secHead("gateway-security", "Gateway security (UniFi)", "IPS configuration, security events, admin sign-ins and config changes on the gateway."));
   el.insertAdjacentHTML("beforeend", kpis([["Security events", fn(ev.counts?.SECURITY)], ["Admin logins", (U.admin?.logins || []).length], ["Config changes", (U.admin?.changes || []).length], ["IPS mode", esc(st.ips_mode ?? "?")]]));
   const evrows = [...(ev.high_severity || []), ...(ev.threats || []), ...(ev.devices || []), ...(U.threats_30d || []).map((t) => ({ ...t, key: "30d" }))];
   const seen = new Set(); const uniq = evrows.filter((e) => { const k = e.time + e.message; if (seen.has(k)) return false; seen.add(k); return true; });
-  const GE = ackSplit("gw", uniq, "gw-events");
+  const grps = gwGroups(uniq), GE = ackSplit("gwg", grps, "gw-events");
   el.appendChild(grid("g2",
     card("Gateway protection settings", `<div class="idgrid"><span class="k">IPS mode</span><span>${esc(st.ips_mode)}</span><span class="k">Categories</span><span>${esc(st.categories)}</span><span class="k">Protected nets</span><span>${esc((st.protected_networks || []).join(", "))}</span>
       <span class="k">Honeypot</span><span>${esc(st.honeypot_enabled)} ${esc(JSON.stringify(st.honeypots || []))}</span><span class="k">DNS filtering</span><span>${esc(st.dns_filtering)}</span><span class="k">Ad blocking nets</span><span>${esc(st.ad_blocking_networks)}</span>
       <span class="k">Endpoint scanning</span><span>${esc(st.endpoint_scanning)}</span><span class="k">DPI</span><span>${esc(st.dpi)}</span></div>`),
-    card(`Gateway events (${GE.open.length} open of ${uniq.length})${GE.toggle}`, table(null, [ackCol("gw", (x) => `Gateway ${x.key || "event"}: ${x.message || ""}`), { k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivBtn("gateway", x) }, { k: "time", t: "Time", fmt: ft }, { k: "severity", t: "Severity", fmt: badge, sort: (x) => sevRank(String(x.severity).toLowerCase()) }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps }], GE.show, { ...postOpen((x) => [x.key === "30d" ? "" : gwId(x)], (x) => ({ eid: x.key === "30d" ? `gw30|${x.time}|${x.message}` : gwId(x), type: "gw", label: `${x.key || "event"}: ${x.message || ""}`, sev: String(x.severity || "low").toLowerCase(), item: x })), sort: "time", short: true, rowClass: ackRowCls("gw"), evId: (x) => (x.key === "30d" ? "" : gwId(x)) }))));
+    card(`Gateway events (${GE.open.length} open of ${grps.length}, ${fn(uniq.length)} occurrences)${GE.toggle}`, GE.show.length ? table(null, [gwgAckCol(), { k: "_piv", t: "", cls: "askcell", fmt: (v, x) => pivBtn("gateway", x) },
+      { k: "severity", t: "Severity", fmt: badge, sort: (x) => `${sevRank(x.severity)} ${String(1e9 - x.count).padStart(10, "0")}` }, { k: "key", t: "Type", cls: "small" }, { k: "message", t: "Message", fmt: linkifyIps },
+      { k: "count", t: "Count", num: true, bar: true, fmt: fn }, { k: "last", t: "Occurred", fmt: (v, x) => (x.first && x.first !== v ? `${ft(x.first)} – ${ft(v)}` : ft(v)), sort: (x) => -(Date.parse(x.last) || 0) }],
+      GE.show, { ...postOpen((x) => x.members.slice(-12).map(gwId).reverse(), (x) => ({ eid: gwId(x), type: "gw", label: `${x.key || "event"}: ${x.message || ""}`, sev: x.severity, item: x })), filter: true, sort: "severity", dir: 1, rowClass: ackRowCls("gwg"), evId: (x) => gwId(x) })
+      : `<div class="empty">All gateway events checked off.</div>`)));
   el.appendChild(grid("g2",
     card("Gateway admin logins", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "admin", t: "Admin" }, { k: "ip", t: "From", cls: "mono" }, { k: "platform", t: "Platform" }, { k: "unexpected_source", t: "Unexpected", fmt: (v) => (v ? badge("high") : "") }], U.admin?.logins || [], { sort: "time", short: true })),
     card("Gateway config changes", table(null, [{ k: "time", t: "Time", fmt: ft }, { k: "actor", t: "Actor" }, { k: "section", t: "Section", cls: "small" }, { k: "object", t: "Object" }, { k: "operation", t: "Op" }], U.admin?.changes || [], { sort: "time", short: true }))));

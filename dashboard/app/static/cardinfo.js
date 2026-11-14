@@ -47,7 +47,7 @@ window.CARD_INFO = {
 },
 "k8s|Kubernetes findings": {
 "source": "k8s.py findings over the chosen window: Security Onion data only (container logs, Kubernetes events, API server metrics, SO alerts).",
-"use": "Each one is also raised by the watcher (every event window, default 10 min) and added to the nightly host findings (key prefix k8s-). Tune thresholds and exempt namespaces in Settings → Endpoint policy → k8s.",
+"use": "Each one is also raised by the watcher (every event window, default 5 min) and added to the nightly host findings (key prefix k8s-). Tune thresholds and exempt namespaces in Settings → Endpoint policy → k8s.",
 "what": "Kubernetes security problems found in this window."
 },
 "k8s|Security Onion data coverage": {
@@ -442,8 +442,8 @@ window.CARD_INFO = {
 },
 "device|IDS alerts": {
 "source": "Suricata alerts from Security Onion, last 24 h.",
-"use": "Severity 1 is most serious. Many alerts are informational or known-benign; look at the signature name and whether this device is the source (it did something) or destination (it was targeted). Use the Alerts page for context.",
-"what": "Suricata IDS signatures that fired with this device as source or destination, with severity, role, hit count and last time."
+"use": "Severity 1 is most serious. Many alerts are informational or known-benign; look at the signature name and whether this device is the source (it did something) or destination (it was targeted). The Verdict column shows the last verdict on each rule; tap it for the reason. Use the Alerts page for context.",
+"what": "Suricata IDS signatures that fired with this device as source or destination, with severity, verdict, role, hit count and last time."
 },
 "device|Identity": {
 "source": "MAC/vendor/hostname from Zeek conn and DHCP logs in Security Onion; zone and class from the network policy (Settings → Policy and Site) and your inventory; first/last/days seen from the netmon device registry kept across snapshots. A note may come from the scheduled AI triage.",
@@ -882,7 +882,7 @@ window.CARD_INFO = {
 },
 "security|Gateway events": {
 "source": "UniFi gateway API system log via the UniFi cloud connector: last 24 h of events plus 30 days of security events.",
-"use": "High-severity and blocked IPS detections against your devices matter most. Use the Kibana/UniFi button, Related and research notes to see what else happened around each event. Tick the box to check an event off (show N checked brings them back), or use 🚫 (admin / defender) to suppress events like it by name.",
+"use": "High-severity and blocked IPS detections against your devices matter most. Repeats are grouped: one row per event type + source + destination, with Count and Occurred (first – last). Use the Kibana/UniFi button, Related and research notes to see what else happened around each event. Tick the box to check off the whole group, every repeat included (the same check-off as on Open events) (show N checked brings them back), or use 🚫 (admin / defender) to suppress events like it by name.",
 "what": "Security and gateway events from the UniFi system log in the window (IPS detections, high-severity events, device events), plus security events from the last 30 days."
 },
 "security|Gateway protection settings": {
@@ -891,7 +891,7 @@ window.CARD_INFO = {
 "what": "The UniFi gateway's protection setup: IPS mode, enabled threat categories, protected networks, honeypot, DNS filtering, ad blocking, endpoint scanning and DPI."
 },
 "security|Host findings": {
-"source": "hosts.py reading Elastic Agent data in Security Onion: Elastic Defend alerts and events, osquery, auth and system logs, Fleet status, compared with a per-host baseline. The watcher (every event window, default 10 min) uses the same rules.",
+"source": "hosts.py reading Elastic Agent data in Security Onion: Elastic Defend alerts and events, osquery, auth and system logs, Fleet status, compared with a per-host baseline. The watcher (every event window, default 5 min) uses the same rules.",
 "use": "Investigate items first. Tick the box once explained; it carries over to later snapshots. Use 💬 Ask AI, Kibana, Related and the research-note verdict to judge each one.",
 "what": "Problems seen on the computers themselves: Defend alerts, unusual logins or repeated failures, account changes, suspicious sudo or processes, new executables, sensitive file changes, agent and Defend policy problems, syslog going silent."
 },
@@ -902,13 +902,13 @@ window.CARD_INFO = {
 },
 "security|IDS alerts by category": {
 "source": "Suricata alerts from Security Onion, last 24 h, counted per rule category.",
-"use": "Click a slice to filter the signatures table. Categories like trojan, malware, exploit or command-and-control deserve attention; policy and protocol categories are usually informational.",
+"use": "Click a slice to filter the IDS events table. Categories like trojan, malware, exploit or command-and-control deserve attention; policy and protocol categories are usually informational.",
 "what": "Share of Suricata alerts by rule category, for example policy violation, attempted information leak or trojan activity."
 },
-"security|IDS signatures": {
+"security|IDS events": {
 "source": "Suricata alerts from Security Onion (logs-suricata.alerts), last 24 h, grouped by rule name.",
-"use": "Click a bar to filter the signatures table to that rule. Very frequent alerts are often noisy policy or info rules; a rule that is new or low-count but high severity matters more.",
-"what": "Bar chart of the 15 Suricata rules that fired most often in the window."
+"use": "Click a bar to filter the IDS events table to that rule. Very frequent alerts are often noisy policy or info rules; a rule that is new or low-count but high severity matters more. In the table, the Verdict column shows the last verdict on each rule (the event reviewer's label, 👤 when a person's verdict was applied, and 📝 the research note verdict); tap the label for the reason.",
+"what": "IDS events: one row per Suricata rule that fired in the window (the bar chart shows the 15 that fired most). Laid out like the findings boxes: check box + 🚫 suppress, Ask AI / Kibana, a Severity badge (high = Suricata severity 1, medium = 2, low = 3) that also colours the row's left edge, then signature, category, verdict, count, hosts, ports and when it occurred."
 },
 "security|Inbound hits from listed IPs": {
 "source": "Zeek conn logs from Security Onion, last 24 h, inbound connections checked against the loaded threat-intel feeds.",
@@ -995,9 +995,9 @@ window.CARD_INFO = {
 "use": "JA3 matches can be false positives because common libraries share fingerprints. Check whether the client and server names look legitimate; repeated hits to odd servers are worth 💬 Ask AI. Click a hash to look it up.",
 "what": "TLS client fingerprints (JA3) seen on your network that abuse.ch SSLBL lists as belonging to malware, with the malware name, client hosts and server names."
 },
-"threatintel|Malware / exploit-class IDS signatures": {
+"threatintel|Malware / exploit-class IDS events": {
 "source": "Suricata alerts from Security Onion, last 24 h, filtered by a keyword pattern on signature category and name.",
-"use": "Sort by alert count and look at source and destination hosts. A 'yes' under Tuned benign means the signature is in the Known benign list (Settings → Policy and Site) and has been judged harmless. Anything outbound from an internal host is the priority.",
+"use": "Sort by alert count and look at source and destination hosts. A 'yes' under Tuned benign means the signature is in the Known benign list (Settings → Policy and Site) and has been judged harmless. The Verdict column shows the last verdict on each rule (tap for the reason). Anything outbound from an internal host is the priority.",
 "what": "Suricata IDS signatures in this window whose name or category points to malware, C2, exploits, botnets, mining, ransomware, phishing or admin/user compromise attempts, or with severity 1."
 },
 "threatintel|Newly registered domains": {

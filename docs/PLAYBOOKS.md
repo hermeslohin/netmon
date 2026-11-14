@@ -33,7 +33,7 @@ netmon is a first-line analyst. It collects, baselines and correlates; it does n
 
 | Layer | What it gives you | Where |
 |---|---|---|
-| **Watcher** (every event window, default 10 min, no AI) | Fast alerts: new device, severity-1 IDS, threat-intel hit, new internet-facing port, DNS-tunnel burst, failed admin logins, host anomalies | Alerts, push notifications |
+| **Watcher** (every event window, default 5 min, no AI) | Fast alerts: new device, severity-1 IDS, threat-intel hit, new internet-facing port, DNS-tunnel burst, failed admin logins, host anomalies | Alerts, push notifications |
 | **Snapshots** (collect + analyze) | Per-device traffic, DNS, TLS, ports, peers, detections, compared with that device's own 30-day baseline | Posture, Hosts, DNS & TLS, Traffic map |
 | **Host telemetry** (Elastic Agent: Defend, osquery, system logs) | Processes, logins, sudo, listening ports, process-level network connections | Endpoints, Host findings, Network → Users |
 | **Correlation** | Links between events (same host, IP, account, domain, ATT&CK technique) confirmed or rejected by an event reviewer model | **Related** count on any row |
@@ -111,7 +111,7 @@ DNS tunnelling hides data (or a command channel) inside DNS queries, usually as 
 **What netmon does for you**
 
 - Every snapshot, the *DNS-tunnel scoring* box looks at the top registered domains by number of distinct subdomains. For each it samples queries and scores randomness (entropy), the share of unique names, and label length. `suspect` needs a high score and 150+ distinct subdomains; `watch` is a lower score with a high unique ratio.
-- The watcher (every event window, default 10 min) raises an alert on a DNS-tunnel burst in the last hour.
+- The watcher (every event window, default 5 min) raises an alert on a DNS-tunnel burst in the last hour.
 - Per-device DNS profile rules raise findings for: query volume, many distinct names, unusually long names, a new query type (TXT/NULL/ANY are medium), a new TLD, a new heavy domain, a new external resolver (high), and DoH/DoT starting.
 
 **Steps**

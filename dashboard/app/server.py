@@ -834,6 +834,26 @@ def lateral_periods(periods):
     return lateral.merge_periods(data)
 
 
+def event_verdicts(eids):
+    """GET /api/verdicts: {"classes": {eid: event reviewer label (+ person's verdict, pending/unreviewed)},
+    "notes": {eid: {verdict, priority, summary, model, at}}} for any event ids, whether or not they are in the loaded
+    snapshot. Event ids such as ids|<signature> are stable, so a signature keeps its last verdict across windows."""
+    eids = [e for e in dict.fromkeys(eids) if isinstance(e, str) and e]
+    if not eids:
+        return {"classes": {}, "notes": {}}
+    try:
+        cl = corr_llm.classes(eids, pending=True)
+    except Exception as e:  # noqa: BLE001 - the column stays blank rather than failing the page
+        print(f"event_verdicts classes: {type(e).__name__}: {e}", file=sys.stderr)
+        cl = {}
+    try:
+        nt = {k: {f: v.get(f) for f in ("verdict", "priority", "summary", "model", "at")} for k, v in enrich.load(eids).items()}
+    except Exception as e:  # noqa: BLE001
+        print(f"event_verdicts notes: {type(e).__name__}: {e}", file=sys.stderr)
+        nt = {}
+    return {"classes": cl, "notes": nt}
+
+
 def correlation(sid):
     """Related-events map for a snapshot (correlate.py). Cached until the snapshot, its alerts or the issues change.
     A time range uses its nightly snapshot's map (correlation, AI verdicts and research notes are per report run)."""
@@ -1884,6 +1904,8 @@ class H(BaseHTTPRequestHandler):
                 import eventstore
                 e_ = (q.get("e") or [""])[0][:600]
                 return self._json(eventstore.related(e_, [m[:600] for m in (q.get("m") or [])[:12]]) if e_ else {"related": []})
+            if path == "/api/verdicts":  # stored verdicts for any events, also ones not in the loaded snapshot (IDS signatures Verdict column)
+                return self._json(event_verdicts([e[:600] for e in (q.get("e") or [])[:200]]))
             if path == "/api/notes/by-event":  # research notes for events that may no longer be in the loaded snapshot (checked-off / aged out)
                 try:
                     return self._json(enrich.load([e[:600] for e in (q.get("e") or [])[:40]]))

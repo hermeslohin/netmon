@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Event stream: tails Elasticsearch every few seconds for Suricata alerts, watched syslog patterns and host alerts
 (Elastic Defend + Security Onion detections), so those events reach the dashboard and the event reviewer within about a
-minute instead of at the next watcher pull (one event window, default 10 min).
+minute instead of at the next watcher pull (one event window, default 5 min).
 
 How: Elasticsearch has no change feed, so this polls by ARRIVAL time (event.ingested, window.py) with its own bookmark
 ("arrival:stream"): every STREAM_S seconds it reads (bookmark, now - STREAM_MARGIN_S] - windows touch end to end, so every

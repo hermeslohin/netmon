@@ -39,11 +39,11 @@ class TestEventWindowSetting(unittest.TestCase):
         _clean()
 
     def test_default_and_range(self):
-        """Without a stored value the event window is 10 min (range 2-120) and lives in the cfg table's site document.
+        """Without a stored value the event window is 5 min (range 2-120) and lives in the cfg table's site document.
         REQ: EVW-01"""
         g = lookback.get()
-        self.assertEqual((g["minutes"], g["default"], g["min"], g["max"], g["set"]), (10, 10, 2, 120, False))
-        self.assertEqual(lookback.settle_s(), 10 * 60)  # late arrivals: the pull gate, not a fixed slack
+        self.assertEqual((g["minutes"], g["default"], g["min"], g["max"], g["set"]), (5, 5, 2, 120, False))
+        self.assertEqual(lookback.settle_s(), 5 * 60)  # late arrivals: the pull gate, not a fixed slack
         self.assertEqual(lookback.put(" 25 ", "admin")["minutes"], 25)
         self.assertEqual(store.cfg_load("site")["event_window_minutes"], 25)
         self.assertTrue(lookback.get()["set"])
@@ -57,7 +57,7 @@ class TestEventWindowSetting(unittest.TestCase):
                 lookback.put(bad, "a")
         self.assertEqual(lookback.minutes(), 8)
         _set_window(999)  # a bad value written straight into the table reads back as the default
-        self.assertEqual(lookback.minutes(), 10)
+        self.assertEqual(lookback.minutes(), 5)
 
     def test_live_pickup(self):
         """A change saved in the cfg table is seen by minutes(), the correlation and the event reviewer without a restart.
@@ -94,6 +94,7 @@ class TestEventWindowSetting(unittest.TestCase):
         """The review job runs at least once per event window (never under its 5-minute floor); the stored interval is kept.
         REQ: EVW-03"""
         review_cfg.put({"interval_minutes": 15}, "a")
+        lookback.put(10, "a")
         self.assertEqual((review_cfg.get()["interval_minutes"], review_cfg.get()["interval_effective"]), (15, 10))
         lookback.put(2, "a")
         self.assertEqual(review_cfg.get()["interval_effective"], 5)
@@ -122,6 +123,7 @@ class TestWatchPeriod(unittest.TestCase):
                 mock.patch.object(scheduler, "_state", return_value={}) as st, mock.patch.object(scheduler, "_save"):
             state = {"review": 0}
             st.return_value = state
+            lookback.put(10, "a")
             for k in range(0, 1800, 60):  # 30 minutes, one tick a minute
                 scheduler.tick(t0 + k)
             self.assertEqual(started.count("watch"), 3)
@@ -342,6 +344,7 @@ class TestGroupReview(unittest.TestCase):
     def test_waits_for_a_pull_after_newest_plus_window(self):
         """A group whose settle time passed is still pending until an Elasticsearch pull committed arrivals past newest + one window.
         REQ: EVW-06"""
+        _set_window(10)
         now = 1_800_000_000
         newest = now - 2000
         base = {"events": {"a": _ev("x", newest - 60), "b": _ev("y", newest)}, "related": {"a": [{"id": "b", "score": 5, "why": []}]}}

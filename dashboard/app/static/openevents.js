@@ -7,7 +7,7 @@
   const TYPES = [
     ["finding", "Baseline findings", "baseline finding", "baseline finding"],
     ["host", "Endpoint (host) findings", "host finding", "host finding"],
-    ["ids", "IDS signatures", "IDS signature", "IDS signature"],
+    ["ids", "IDS events", "IDS signature", "IDS signature"],
     ["gw", "Gateway events", "gateway event", "gateway"],
     ["admin", "Admin sessions", "admin session", "alarm"],
     ["ti", "Threat intel hits", "threat-intel hit", "alarm"],

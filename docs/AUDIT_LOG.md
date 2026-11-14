@@ -98,7 +98,7 @@ These switches are separate from the Elasticsearch look-up switches on AI pipeli
   `current`, `api_key`, `key`, `p256dh`, `auth`, ...) is replaced by `[redacted]` before the entry leaves the request.
   This happens in `audit.clean()`, before anything is queued or written to disk.
 - Session cookies and push-subscription keys.
-- Background reads that no user started (the watcher (every event window, default 10 min), the nightly collectors). They don't change anything and
+- Background reads that no user started (the watcher (every event window, default 5 min), the nightly collectors). They don't change anything and
   don't talk to an AI model. The watcher calls no model.
 
 ## The Audit log page

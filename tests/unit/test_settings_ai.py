@@ -305,11 +305,11 @@ class ReviewLimits(_Base):
             self.assertEqual(corr_llm.limits()["pair_default"], "review")
 
     def test_defaults(self):
-        """Without settings nothing is capped, the window is the default event window (10 min), verdicts kept forever and classification off.
+        """Without settings nothing is capped, the window is the default event window (5 min), verdicts kept forever and classification off.
         REQ: SET-26, EVW-01"""
         _event_window(None)
         L = corr_llm.limits()
-        self.assertEqual((L["max_links"], L["window_minutes"], L["discard_days"], L["classify"], L["pair_modes"]), (0, 10, 0, False, {}))
+        self.assertEqual((L["max_links"], L["window_minutes"], L["discard_days"], L["classify"], L["pair_modes"]), (0, 5, 0, False, {}))
 
     def test_pair_mode_skip_holds_links_back(self):
         """A pair type switched to skip is never sent to the event reviewer; switched back to review it is pending again.

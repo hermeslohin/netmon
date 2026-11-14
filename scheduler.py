@@ -4,7 +4,7 @@
   stream         always running              stream.py: Suricata alerts, watched syslog, host alerts tailed every 15 s
                  (restarted within 20 s)     (arrival bookmark "arrival:stream"; exits hourly to pick up code changes)
   watcher        every event window          watch.py: the Elasticsearch pull (urgent alerts -> dashboard + Web Push);
-                 (default 10 min)            period = lookback.minutes() (Settings > Site > event_window_minutes), live
+                 (default 5 min)            period = lookback.minutes() (Settings > Site > event_window_minutes), live
   review job     grid set on the dashboard   review.py (review_cfg: interval, anchored at 05:00 UTC; on/off)
                  + "Run now" requests from the AI pipeline pages
 Event research (research.py) is never scheduled: the host broker starts it when a person clicks Send to research.
@@ -119,7 +119,7 @@ def tick(now=None):
     t = dt.datetime.fromtimestamp(now, dt.timezone.utc)
     s = _state()
     # watcher (the Elasticsearch pull): once per event window (lookback.py, Settings > Site > event_window_minutes, read
-    # live; default 10 min). Its arrival bookmark makes the pulls touch end to end whatever the spacing (no gap, no overlap).
+    # live; default 5 min). Its arrival bookmark makes the pulls touch end to end whatever the spacing (no gap, no overlap).
     # stream (stream.py): one long-running process; restarted at once after its hourly exit, after a crash only a
     # minute after the last start (no tight restart loop when Elasticsearch or the store is down)
     sp = running.get("stream")

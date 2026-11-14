@@ -90,8 +90,26 @@ class GroupingKeyTest(unittest.TestCase):
         """IDS, gateway, host, admin and malformed finding ids are their own logical key.
         REQ: OE-03
         """
-        for e in (IDS, GW, HF_A, ADM, "f|beacon|x"):
+        for e in (IDS, HF_A, ADM, "f|beacon|x", "gw|x|y"):
             self.assertEqual(eventstore.gkey(e), e)
+
+    def test_gateway_repeats_group_by_type_src_dst(self):
+        """Gateway events (gw|<time>|<key>|<src>|<dst>) group by UniFi event type + source + destination: the same
+        intrusion attempt repeating is one Open events row; another source, destination or type is its own group.
+        REQ: OE-03"""
+        a = "gw|2026-11-13T18:12:31Z|THREAT_BLOCKED_V3|51.159.64.158|10.0.99.2"
+        b = "gw|2026-11-13T16:46:39Z|THREAT_BLOCKED_V3|51.159.64.158|10.0.99.2"
+        self.assertEqual(eventstore.gkey(a), "gw|THREAT_BLOCKED_V3|51.159.64.158|10.0.99.2")
+        self.assertEqual(eventstore.gkey(a), eventstore.gkey(b))
+        self.assertNotEqual(eventstore.gkey(a), eventstore.gkey(b.replace("51.159.64.158", "2.59.21.51")))
+        self.assertNotEqual(eventstore.gkey(a), eventstore.gkey(b.replace("THREAT_BLOCKED_V3", "THREAT_DETECTED_V3")))
+        eventstore.upsert({a: ev("gw", "Gateway THREAT_BLOCKED_V3: attempt", "high", t1=10),
+                           b: ev("gw", "Gateway THREAT_BLOCKED_V3: attempt", "high", t1=5)}, "s1")
+        r = eventstore.open_events(types={"gw"})
+        self.assertEqual(r["counts"], {"gw": 1})
+        (row,) = r["events"]
+        self.assertEqual((row["eid"], row["repeats"]), (a, 2))
+        self.assertIn({"type": "event", "key": "grp|gw|THREAT_BLOCKED_V3|51.159.64.158|10.0.99.2"}, row["acks"])
 
     def test_segmentation_groups_by_flow_key(self):
         """A segmentation finding groups under seg|<device>|<dst ip>|<port> (the key a cleared flow uses).
@@ -623,7 +641,7 @@ class OpenEventsPageJsTest(unittest.TestCase):
                _oe_row(GW, "gw"), _oe_row("alarm|z", "alarm")]
         out = self.render(ev_, {"ids": 2, "finding": 1, "gw": 1, "alarm": 1})
         self.assertEqual([c["title"] for c in out["cards"]], ["Baseline findings (1 open)", "Endpoint (host) findings (0 open)",
-                                                               "IDS signatures (2 open)", "Gateway events (1 open)",
+                                                               "IDS events (2 open)", "Gateway events (1 open)",
                                                                "Admin sessions (0 open)", "Threat intel hits (0 open)",
                                                                "Alerts (0 open)", "Triage alarms (1 open)"])
         self.assertEqual(out["cards"][2]["body"]["rows"], [IDS, "ids|two"])
@@ -639,7 +657,7 @@ class OpenEventsPageJsTest(unittest.TestCase):
                            _oe_row(ADM, "admin")])
         cols = {c["title"].split(" (")[0]: c["body"]["cols"] for c in out["cards"] if isinstance(c["body"], dict)}
         head, tail = ["✓", "Severity", "Verdict", "Notes"], ["First occurred", "Last occurred", "Seen"]
-        mid = {"Baseline findings": ["Kind", "Device", "Detail"], "IDS signatures": ["Signature", "Count", "From", "To"],
+        mid = {"Baseline findings": ["Kind", "Device", "Detail"], "IDS events": ["Signature", "Count", "From", "To"],
                "Endpoint": ["Host", "To", "Finding"], "Gateway events": ["Time", "Event"], "Admin sessions": ["Event", "Hosts"]}
         self.assertEqual(set(cols), set(mid))
         for name, m in mid.items():

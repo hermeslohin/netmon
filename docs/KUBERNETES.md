@@ -4,7 +4,7 @@ netmon can watch one or more Kubernetes clusters. It uses two separate, read-onl
 
 | Path | What it reads | Needs | Feeds |
 |---|---|---|---|
-| **Security Onion / Elasticsearch** | container logs, Kubernetes warning events, API server request metrics, pod / container / node metrics, IDS and detection alerts on node and pod IPs | the Elastic Agent **Kubernetes integration** in each cluster, shipping to the same Elasticsearch | Devices → Kubernetes (signals, events, API server, pods), the watcher (every event window, default 10 min), Open events |
+| **Security Onion / Elasticsearch** | container logs, Kubernetes warning events, API server request metrics, pod / container / node metrics, IDS and detection alerts on node and pod IPs | the Elastic Agent **Kubernetes integration** in each cluster, shipping to the same Elasticsearch | Devices → Kubernetes (signals, events, API server, pods), the watcher (every event window, default 5 min), Open events |
 | **Kubernetes API** (one read-only account per cluster) | cluster configuration: namespaces, workloads, pods, services, ingresses, network policies, RBAC, control-plane flags, running image digests | a ServiceAccount token with get/list/watch only | CIS benchmark, Kubernetes map, container image updates and CVEs |
 
 The two paths are independent. A cluster without the Elastic Agent still gets the CIS benchmark, the map and the image

@@ -1,6 +1,6 @@
 # Setting up netmon
 
-This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review), an urgent watcher (the Elasticsearch pull, once per event window, default 10 min), the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
+This guide takes you from a fresh clone to a working install: a scheduled review job (collect, analyze, correlation review), an urgent watcher (the Elasticsearch pull, once per event window, default 5 min), the HTTPS dashboard with phone push alerts, and the optional **Ask AI** chat.
 
 netmon is **read-only** against your network. It queries Elasticsearch and the UniFi cloud API, and it never changes Security Onion, the gateway or any device.
 
@@ -13,7 +13,7 @@ netmon is **read-only** against your network. It queries Elasticsearch and the U
 | Component | Required? | Used for |
 |---|---|---|
 | **Linux host** with Docker, Python 3.10+ at `/usr/bin/python3`, git, openssl, systemd (user services) | yes | runs the scheduler, the host broker and the dashboard container |
-| **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The watcher (every event window, default 10 min) uses no LLM. |
+| **AI provider** with an API key: any OpenAI-compatible API (OpenAI, OpenRouter, Groq, Mistral, Together, DeepSeek, Gemini's OpenAI endpoint, vLLM...) or Anthropic | recommended | event research (Send to research) and the chat. Pick a strong model that supports tool calling. The watcher (every event window, default 5 min) uses no LLM. |
 | **Local OpenAI-compatible model server** (any server offering `/v1/chat/completions` with JSON-schema structured output, e.g. llama.cpp, vLLM, SGLang, Ollama) | optional, recommended | the event reviewer (called continuously, so a local model saves API cost); can also serve the review job or chat |
 | **Decision-model server** (System One API, `/v1/systemone`, on loopback: llama.cpp `llama-server` or SGLang) | optional, recommended | decides correlation links and labels events, see [CORRELATION.md](CORRELATION.md). Off = the event reviewer decides links |
 | **Security Onion 2.4** (or any Elasticsearch with the same Suricata/Zeek data streams) | yes | network sensor and data store |
@@ -137,17 +137,17 @@ Until a key works, entries wait in `dashboard/state/audit_spool.jsonl` (max 50 M
 
 ### Collection windows (arrival time)
 
-The watcher (every event window, default 10 min) and the review job select events by **when Elasticsearch stored them** (`event.ingested`), not
+The watcher (every event window, default 5 min) and the review job select events by **when Elasticsearch stored them** (`event.ingested`), not
 by when they happened (`@timestamp`). When Logstash or the Security Onion ingest pipeline is backed up, events reach
 Elasticsearch hours late; a "last 20 minutes by @timestamp" window would never see them. With arrival time they are
 checked by the first run after they arrive.
 
 - Each job keeps one bookmark in the store (`meta` key `arrival:watch` / `arrival:review`): the end of its last
   successful window. No event ids are kept.
-- Watcher window = (bookmark, now - 2 min], one pull per event window (default 10 min, `scheduler.watch_period()`). Windows touch end to end, so every event is checked exactly once. The
+- Watcher window = (bookmark, now - 2 min], one pull per event window (default 5 min, `scheduler.watch_period()`). Windows touch end to end, so every event is checked exactly once. The
   2-minute margin covers the data streams' 30 s refresh, so events stamped just before the end are already searchable.
 - Review job window = (min(bookmark - event window, now - event window), now - 2 min]: everything since the last run
-  plus one event window before it (More > Settings > Site > `event_window_minutes`, default 10 min), so a new event
+  plus one event window before it (More > Settings > Site > `event_window_minutes`, default 5 min), so a new event
   always meets the events it may link to, nothing falls between runs whatever the interval, and missed runs are covered.
 - The bookmark moves only after a run without failed checks (watcher) or failed collectors (review job). A failed run is
   covered by the next one. After an outage longer than 7 days the window restarts at now - 7 days.
@@ -204,7 +204,7 @@ systemctl --user status netmon-scheduler   # or: /usr/bin/python3 scheduler.py s
 
 | Job | When | What |
 |---|---|---|
-| watcher | every event window (default 10 min; More > Settings > Site > `event_window_minutes`, followed live) | `watch.py` (the Elasticsearch pull, arrival bookmark: pulls touch end to end): urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
+| watcher | every event window (default 5 min; More > Settings > Site > `event_window_minutes`, followed live) | `watch.py` (the Elasticsearch pull, arrival bookmark: pulls touch end to end): urgent alerts (new devices, IDS, threat intel, exposed ports, DNS tunnels, host anomalies, failed admin logins). Deterministic, no AI. |
 | review job | every N minutes, set on **Configuration → Review job runs every** (5 min to 24 h), on a grid anchored at 05:00 UTC; plus **Run now** on the AI pipeline pages | `review.py`: collect + analyze, then the event reviewer copies matching earlier notes; everything else waits in the queue. |
 | event research | only when a person clicks **Send to research** | `research.py --event ID`, started by the host broker; a click that has to wait (another research running) is started by the scheduler as soon as the running one ends. Never scheduled. |
 | weekly rebuild | Sundays 03:00 UTC | `weekly_rebuild.sh`: dashboard image rebuild with updated libraries + security scan. |
@@ -217,7 +217,7 @@ Jobs never overlap with themselves. A slot missed while the host was down is not
 
 Each run:
 
-1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover everything that arrived since the previous run plus one **event window** (More > Settings > Site > `event_window_minutes`, 2-120 min, default 10, `lookback.py`; the job runs at least once per window). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
+1. Collects and analyzes (`collect.py` + `analyze.py`). The **daily run**, the first run at or after 05:00 UTC each day, always covers 24 hours of logs. Other runs cover everything that arrived since the previous run plus one **event window** (More > Settings > Site > `event_window_minutes`, 2-120 min, default 5, `lookback.py`; the job runs at least once per window). Shorter snapshots are compared with the baseline scaled to their length, are never folded into it and never mark a Fix-list item fixed. `analyze.py` folds a snapshot into the baseline only when the last baseline record is at least 23 hours old (`FOLD_MIN_HOURS`), so the baseline stays one record per day.
 2. Builds the work list (`enrich.sh events`): every event without a note, by category (`review_cfg.py` modes: **review**, **queue**, **test**, **skip**). Every endpoint host finding (own quota, `--hosts N`, default 60), every Suricata severity 1-2 signature (`--ids N`, default 40) and every UniFi gateway event family (`--gw N`, default 30) is included on top of `--max N` other events.
 3. **Event reviewer.** Events in a *review* category that have earlier notes for the same family, correlated events or similar labels go to the event reviewer, which uses **the event reviewer's model** (AI pipeline configuration → Models, e.g. a local open-weights model; `prompts/reviewer.md`). It either copies one earlier note (`enrich.sh copy`, marked as copied) or leaves the event queued. It has no web access and writes no notes of its own.
 4. Everything else waits in the **Queue** on the AI pipeline pages for a person.
@@ -397,7 +397,7 @@ Once a chat model is chosen, the **Ask AI** menu item and the 💬 button on eve
 | `adminproto.py` | admin / lateral-movement protocol + tool catalog, session merger |
 | `dashboard/app/lateral.py`, `risk.py` | lateral graph, admin-session scoring, host risk ([RISK_SCORING.md](RISK_SCORING.md)) |
 | `dashboard/app/correlate.py`, `corr_llm.py` | event correlation, local-LLM review ([CORRELATION.md](CORRELATION.md)) |
-| `watch.py` | urgent watcher (Elasticsearch pull once per event window, default 10 min) |
+| `watch.py` | urgent watcher (Elasticsearch pull once per event window, default 5 min) |
 | `review.py`, `review_cfg.py` | the review job and its settings (schedule, modes) |
 | `research.py`, `research_cfg.py` | event research (Send to research) and its settings (model, caps) |
 | `aijob.py`, `prompts/` | tools, budget and logs shared by both, and their prompts |

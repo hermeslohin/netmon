@@ -195,6 +195,8 @@ def gkey(eid):
             if k:
                 return "seg|" + k
         return "f|" + p[1] + "|" + p[2] + "|" + _norm("|".join(p[3:]))
+    if p[0] == "gw" and len(p) == 5:  # gw|<time>|<key>|<src>|<dst>: the same gateway event repeating is one group
+        return "gw|" + "|".join(p[2:])
     return str(eid)
 
 

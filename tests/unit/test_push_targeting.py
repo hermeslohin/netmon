@@ -303,8 +303,8 @@ class TestRunOnce(_Base):
         with corr_llm._db() as c:
             c.execute("DELETE FROM event_class")
             for (i,) in store._dc().execute("SELECT id FROM alerts"):
-                c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts) VALUES (?,?,?,?,?,?,?)",
-                          ("alert|%d" % i, "suspicious", 0.9, "r", "m", "sig", _t.time()))
+                c.execute("INSERT OR REPLACE INTO event_class (eid, label, confidence, reason, model, sig, ts, indicators) VALUES (?,?,?,?,?,?,?,?)",
+                          ("alert|%d" % i, "suspicious", 0.9, "r", "m", "sig", _t.time(), '["file-hash hit", "beacon to the same host"]'))
         store.prefs_set("user1", "some", [mac(1)])
         self._sub(1, "admin1")
         self._sub(2, "user1")

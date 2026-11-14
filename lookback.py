@@ -29,7 +29,7 @@ import store  # noqa: E402
 
 DOC, FIELD = "site", "event_window_minutes"
 KEY, _OLD_KEY = "review_lookback", "research_lookback"  # the retired hours setting (store meta), read once by migrate()
-DEFAULT, MIN_M, MAX_M = 10, 2, 120
+DEFAULT, MIN_M, MAX_M = 5, 2, 120
 INGEST_SLACK_S = 300  # Elasticsearch arrivals lag the event time by up to a few minutes (ingest pipeline + refresh)
 DAILY_HOUR = 5  # UTC hour of the daily 24 h run (the review schedule is anchored on it)
 
